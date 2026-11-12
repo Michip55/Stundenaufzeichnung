@@ -1,0 +1,5 @@
+# Video-Zwischendateien
+video/frames/
+video/out/*.webm
+node_modules/
+.DS_Store
