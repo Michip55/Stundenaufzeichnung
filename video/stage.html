@@ -6,13 +6,13 @@
 <meta name="viewport" content="width=1920, height=1080">
 <style>
   :root{
-    --red:#D0202A; --red-d:#A8161F; --ink:#16191D; --ink2:#3A4048; --mute:#6B727B; --line:#D9D5CE;
+    --red:#D4302B; --red-d:#A8161F; --ink:#16191D; --ink2:#3A4048; --mute:#6B727B; --line:#D9D5CE;
     --bg:#ECE9E4; --bg2:#E3DFD8; --card:#FFFFFF;
     --ease:cubic-bezier(.22,.8,.2,1);
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
-  #stage{position:relative;width:1920px;height:1080px;overflow:hidden;
+  html,body{width:1920px;height:1080px;overflow:clip;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  #stage{position:relative;width:1920px;height:1080px;overflow:clip;
     background:radial-gradient(1200px 800px at 75% 45%, #F6F4F0 0%, var(--bg) 55%, var(--bg2) 100%)}
   #contours{position:absolute;inset:0;opacity:.55;pointer-events:none}
 
@@ -52,6 +52,8 @@
   /* ---------- devices ---------- */
   .device{position:absolute;left:0;top:0;transform-origin:0 0;transition:transform 1.1s var(--ease),opacity .7s var(--ease);opacity:0}
   .device iframe{display:block;border:0;background:#fff}
+  .cover{position:absolute;inset:0;z-index:5;background:#F3F4F6;opacity:0;pointer-events:none;transition:opacity .28s ease}
+  .cover.on{opacity:1}
   .phone{width:418px;height:872px;padding:14px;border-radius:60px;background:linear-gradient(145deg,#2A2D31,#0E0F11 60%);
     box-shadow:0 0 0 2px #3A3E44 inset,0 50px 90px -30px rgba(20,22,26,.55),0 24px 40px -20px rgba(20,22,26,.35)}
   .phone .scr{width:390px;height:844px;border-radius:46px;overflow:hidden;position:relative;background:#fff}
@@ -72,7 +74,8 @@
   .showlabels .devlabel{opacity:1}
 
   /* ---------- overlays ---------- */
-  #ring{position:absolute;border:3px solid var(--red);border-radius:14px;pointer-events:none;opacity:0;
+  #cards{position:absolute;inset:0;z-index:30;pointer-events:none}
+  #ring{position:absolute;z-index:31;border:3px solid var(--red);border-radius:14px;pointer-events:none;opacity:0;
     box-shadow:0 0 0 6px rgba(208,32,42,.14),0 0 30px rgba(208,32,42,.25);transition:all .55s var(--ease)}
   #ring.on{opacity:1}
   .card{position:absolute;width:360px;background:var(--card);border-radius:18px;padding:20px 22px;display:flex;gap:16px;align-items:flex-start;
@@ -127,7 +130,7 @@
 <div id="stage">
   <svg id="contours" width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true"></svg>
 
-  <div id="brand"><svg class="mark" width="40" height="40" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="13" fill="#D0202A"/><path d="M7 36 L17 25 L23 30 L31 20 L41 31" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="13.5" r="6.2" fill="none" stroke="#fff" stroke-width="2.6"/><path d="M33 10.6 V13.8 L35.2 15.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M7 41 H41" stroke="#fff" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/></svg><span class="name">Baustellen-Plattform</span><span class="sep"></span><span class="tag">Zeit · Bericht · Kalkulation</span><span class="pill">Entwurf</span></div>
+  <div id="brand"><svg class="mark" width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="#D4302B"/><path d="M8 27.5h24" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M11 24v-2.5a9 9 0 0 1 18 0V24z" fill="#fff"/></svg><span class="name">BauTag</span><span class="sep"></span><span class="tag">Zeit · Bericht · Kalkulation</span><span class="pill">Entwurf</span></div>
 
   <div id="caption" class="pre">
     <div class="part"><span class="kicker"><i></i><span id="c-kicker"></span></span></div>
@@ -141,15 +144,15 @@
   <div class="device desktop" id="dev-desktop">
     <div class="bar"><span class="dot" style="background:#FF5F57"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span>
       <div class="url"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8A9097" stroke-width="2.4"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span id="url">app.pichler-breitenau.at</span></div></div>
-    <div class="scr"><iframe id="f-desktop" name="desktop" width="1440" height="900"></iframe></div>
+    <div class="scr"><div class="cover" id="cv-desktop"></div><iframe id="f-desktop" name="desktop" width="1440" height="900"></iframe></div>
     <div class="devlabel">PC · Büro</div>
   </div>
   <div class="device tablet" id="dev-tablet">
-    <div class="scr"><iframe id="f-tablet" name="tablet" width="1180" height="820"></iframe></div><span class="cam"></span>
+    <div class="scr"><div class="cover" id="cv-tablet"></div><iframe id="f-tablet" name="tablet" width="1180" height="820"></iframe></div><span class="cam"></span>
     <div class="devlabel">Tablet · Polier</div>
   </div>
   <div class="device phone" id="dev-phone">
-    <div class="scr"><iframe id="f-phone" name="phone" width="390" height="844"></iframe></div>
+    <div class="scr"><div class="cover" id="cv-phone"></div><iframe id="f-phone" name="phone" width="390" height="844"></iframe></div>
     <span class="btn" style="top:190px;height:70px"></span><span class="btn" style="top:290px;height:110px"></span>
     <div class="devlabel">Handy · Baustelle</div>
   </div>
@@ -159,8 +162,8 @@
   <div id="ring"></div>
 
   <div id="title" class="pre">
-    <div class="part"><svg class="mark" width="96" height="96" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="13" fill="#D0202A"/><path d="M7 36 L17 25 L23 30 L31 20 L41 31" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="13.5" r="6.2" fill="none" stroke="#fff" stroke-width="2.6"/><path d="M33 10.6 V13.8 L35.2 15.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M7 41 H41" stroke="#fff" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/></svg></div>
-    <div class="part pill">Entwurf · Plattform-Konzept</div>
+    <div class="part"><svg class="mark" width="96" height="96" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="#D4302B"/><path d="M8 27.5h24" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M11 24v-2.5a9 9 0 0 1 18 0V24z" fill="#fff"/></svg></div>
+    <div class="part pill">BauTag · Entwurf</div>
     <h1 class="part">Digitale Stundenaufzeichnung<br>&amp; Bautagesbericht</h1>
     <h2 class="part">Einstempeln · Bautagesbericht · Preise · Nachkalkulation je Baustelle</h2>
     <div class="part devs">
@@ -354,6 +357,7 @@
   }
   function cursorSet(x, y) { const c = $('#cursor'); c.style.transition = 'opacity .35s'; c.style.transform = `translate(${x}px,${y}px)`; cur.x = x; cur.y = y; }
 
+  function cover(dev, on) { document.getElementById('cv-' + dev).classList.toggle('on', !!on); }
   function fade(on) { $('#fade').classList.toggle('on', !!on); }
   function url(t) { $('#url').textContent = t; }
   function brand(on) { $('#brand').style.opacity = on ? 1 : 0; }
@@ -364,8 +368,10 @@
   }
 
   window.S = { load, place, layout, caption, captionHide, bullet, chapter, show, headline, titleIn, titleOut, titleReset,
-    card, cardOff, cardsOff, ring, ui, cursorMode, cursorMove, cursorJump, cursorSet, press, fade, url, brand, L, sleep };
+    card, cardOff, cardsOff, ring, ui, cover, cursorMode, cursorMove, cursorJump, cursorSet, press, fade, url, brand, L, sleep };
   layout('hidden', 0);
+  const pin = (el) => el.addEventListener('scroll', () => { if (el.scrollTop || el.scrollLeft) { el.scrollTop = 0; el.scrollLeft = 0; } });
+  pin($('#stage')); window.addEventListener('scroll', () => window.scrollTo(0, 0));
 })();
 </script>
 </body>
