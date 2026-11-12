@@ -66,7 +66,7 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
 
   let y = 28;
   const neueSeiteWennNoetig = (bedarf) => {
-    if (y + bedarf > A4.h - 40) { fusszeile(); doc.addPage(); y = 30; }
+    if (y + bedarf > A4.h - 34) { fusszeile(); doc.addPage(); y = 30; }
   };
   let seite = 1;
   function fusszeile() {
@@ -218,11 +218,11 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
     y += innen + 6;
   }
 
-  textAbschnitt('ARBEITSLEISTUNG:', bericht.arbeitsleistung, 6);
+  textAbschnitt('ARBEITSLEISTUNG:', bericht.arbeitsleistung, 4);
 
   // Materialbeistellung
   const mb = bericht.materialbeistellung || {};
-  const mbH = Math.max(4 * ZEILE, hoehe(mb.eigen, BREITE / 2 - 8) + 6, hoehe(mb.fremd, BREITE / 2 - 8) + 6);
+  const mbH = Math.max(3 * ZEILE, hoehe(mb.eigen, BREITE / 2 - 8) + 6, hoehe(mb.fremd, BREITE / 2 - 8) + 6);
   neueSeiteWennNoetig(ZEILE + 2 + mbH + ZEILE * 2 + 10);
   box(X0, y, BREITE, ZEILE + 2 + mbH);
   label('MATERIALBEISTELLUNG:', X0, y, 160);
@@ -245,11 +245,11 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   y += ZEILE + 8;
 
   const regieText = (bericht.regie || []).map((r) => `${r.text} – ${zahl(r.stunden)} Std.`).join('\n');
-  textAbschnitt('REGIELEISTUNGEN:', regieText, 3);
+  textAbschnitt('REGIELEISTUNGEN:', regieText, 2);
   textAbschnitt('BESONDERE VORKOMMNISSE:', bericht.vorkommnisse, 2, 'z.B.: Anweisungen AG, Beschädigungen, Sonstiges');
 
   /* ---- Unterschriften ---- */
-  const uH = 70;
+  const uH = 60;
   neueSeiteWennNoetig(ZEILE + 2 + uH + 10);
   box(X0, y, BREITE, ZEILE + 2, GRAU);
   t('AUFTRAGNEHMER oder dessen Beauftragter', X0 + 3, y + 3.5, { fett: true, gr: 8.5, b: BREITE / 2 - 6 });
