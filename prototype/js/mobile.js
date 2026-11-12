@@ -188,7 +188,7 @@
         else if (st.status === 'ein') { chip = `<span class="chip st-green"><i class="dot"></i>seit ${F.hm(st.segs[st.segs.length - 1].von / 60)}</span>`; cls = 'in'; }
         else if (st.status === 'pause') { chip = `<span class="chip st-amber"><i class="dot"></i>Pause</span>`; cls = 'in'; }
         else if (st.status === 'fertig') { chip = `<span class="chip st-grey">Feierabend</span>`; cls = 'in'; }
-        else chip = `<span class="chip st-outline">Nicht eingestempelt</span>`;
+        else chip = `<span class="chip st-outline">Offen</span>`;
         const selectable = st.status === 'aus' && !st.code;
         return `<button class="crew-row ${cls} ${selectable && S.ui.kolonne[m.id] ? 'sel' : ''}" data-act="kolonne-toggle" data-id="${m.id}" data-demo="kolonne-ma-${m.id}" ${selectable ? '' : 'disabled'}>
           <span class="check">${icon('check')}</span>${avatar(m)}<span class="crew-txt"><b>${esc(m.name)}${m.id === S.user.id ? ' <em>(ich)</em>' : ''}</b><small>${esc(A.lgName(m.lg))}</small></span>${chip}</button>`;
@@ -346,8 +346,7 @@
             <button class="st-btn plus" data-act="mat-step" data-id="${m.id}" data-d="1" data-demo="material-${m.id}-plus">${icon('plus')}</button>
             <button class="fuhre" data-act="mat-step" data-id="${m.id}" data-d="14" data-demo="material-${m.id}-fuhre">${icon('truck')}<span>+ Fuhre<small>14 ${lbl(e)}</small></span></button></div></div>`;
       };
-      return `<div class="banner info">${icon('truck')}<span>Tipp: <b>„+ Fuhre“</b> bucht eine 3-Achser-Ladung (14 to.). Menge kann auch direkt eingetippt werden.</span></div>
-      <div class="card mat-list">${D.material.filter((m) => m.vorlage).map(row).join('')}</div>`;
+      return `${A.matTop ? A.matTop(rep) : ''}<div class="card mat-list">${D.material.filter((m) => m.vorlage).map(row).join('')}</div>`;
     },
     5(rep) {
       return `<div class="card pad"><div class="card-h"><h3>Arbeitsleistung</h3><button class="btn ghost sm" data-act="diktat" data-demo="diktieren">${icon('mic')} Diktieren</button></div>

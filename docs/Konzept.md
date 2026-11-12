@@ -13,14 +13,15 @@
 
 0. Zusammenfassung
 1. Ausgangslage und Ziele
-2. Rollen und Geräte
+2. Rollen, Berechtigungen und Geräte
 3. Funktionen im Detail
-4. Österreich-spezifische und rechtliche Punkte
-5. Datenmodell und Rechenlogik
-6. Technik und Betrieb
-7. Kaufen oder bauen?
-8. Umsetzung in Phasen, Kosten, Einführung
-9. Offene Fragen an den Betrieb
+4. Innovative Funktionen und Benutzerfreundlichkeit
+5. Österreich-spezifische und rechtliche Punkte
+6. Datenmodell und Rechenlogik
+7. Technik und Betrieb
+8. Kaufen oder bauen?
+9. Umsetzung in Phasen, Kosten, Einführung
+10. Offene Fragen an den Betrieb
 - Quellen
 - Anhang: Begriffe
 
@@ -34,6 +35,16 @@
 2. **Bautagesbericht:** Am Abend füllt der Polier den Bautagesbericht im gewohnten Aufbau Ihrer Papiervorlage aus. Personal, Uhrzeiten und Baustelle sind aus den Stempelungen schon eingetragen. Der Bauherr unterschreibt am Tablet, das PDF geht sofort per Mail an Bauherr und Büro.
 3. **Preise und Nachkalkulation:** Im Büro sind Lohnkostensätze, Gerätesätze, Materialpreise und die Einheitspreise aus dem Angebot hinterlegt. Daraus rechnet die App je Baustelle laufend Kosten, Erlös und Deckungsbeitrag und zeigt eine Ampel.
 4. **Monatsabschluss:** Geprüfte Stunden, Abwesenheiten, Schlechtwetterstunden und SEG-Zulagen gehen als Export an die Lohnverrechnung. Die BUAK-Meldungen werden daraus vorbereitet.
+5. **Für die Baustelle gemacht (Kapitel 4):** Die Bedienung folgt dem Grundsatz „höchstens drei Tipps, kaum Tippen“:
+   - große Knöpfe, Baustellen-Modus für Sonne und Handschuhe, fünf Sprachen;
+   - den Bericht diktieren statt schreiben, Lieferscheine fotografieren statt abschreiben;
+   - Wetter und Schlechtwetter-Vorschlag automatisch, Gerätestunden per NFC-/QR-Tag;
+   - Warnungen bei Pause und Höchstarbeitszeit, Hochrechnung der Baustelle bis Bauende;
+   - Fernunterschrift per SMS-Link.
+
+   KI macht dabei immer nur Vorschläge, der Polier bestätigt.
+
+**Wer sieht was (Kapitel 2.2):** Preise, Kosten, Nachkalkulation und Löhne sehen nur Büro, Geschäftsführung und, für die eigenen Baustellen, der Bauleiter. Auf die Geräte von Polieren und Mitarbeitern werden diese Daten **gar nicht übertragen**, also nicht bloß ausgeblendet. Das PDF für den Auftraggeber enthält nie interne Kosten.
 
 **Warum?** Heute wird jede Stunde mehrfach geschrieben: am Zettel, im Bautagesbericht, im Lohnprogramm und in Excel. Zettel gehen verloren oder kommen spät. Regie wird nicht immer unterschrieben und verrechnet. Ob eine Baustelle Geld verdient hat, weiß man erst Wochen nach der Schlussrechnung, oft gar nicht. Grob geschätzt bringt die Umstellung **rund 40.000–50.000 € pro Jahr** an Zeitersparnis und zusätzlich verrechneter Regie. Die Annahmen dazu stehen in Kapitel 1 und werden im Pilot überprüft.
 
@@ -43,29 +54,36 @@
 - **Nicht selbst bauen** sollten Sie Lohnverrechnung, BUAK-Meldung, Buchhaltung und Angebotskalkulation. Diese Aufgaben bleiben in den bestehenden Programmen, die App liefert ihnen die Daten zu (Hybrid-Lösung).
 - **Vor der Auftragsvergabe eine Gegenprobe machen:** Ein Polier testet zwei Wochen lang 123erfasst, das am ehesten passende Standardprodukt. Passen Bautagesbericht, Lohnexport und Nachkalkulation dort ohne Verbiegen, ist Kaufen die günstigere Variante.
 - **Datenschutz:** Der Standort wird nur im Moment des Stempelns erfasst, es gibt kein Tracking. Vor dem Start braucht es eine Betriebsvereinbarung oder die schriftliche Zustimmung jedes Mitarbeiters.
+- **Innovation mit Augenmaß:**
+  - *Gleich in Phase 1*, weil verlässlich: Baustellen-Modus, Mehrsprachigkeit, AZG-Wächter, Wetter mit Schlechtwetter-Vorschlag, Fernunterschrift.
+  - *Erst testen, dann Phase 2:* die KI-Funktionen „Bericht diktieren“ und „Lieferschein lesen“. Vorher prüfen wir sie im Dezember mit echten Aufnahmen Ihrer Poliere und echten Lieferscheinen (Dialekt, Baulärm).
+  - *Später und nur optional*, weil eher Komfort als Muss: Ankunfts-Hinweis per Geofence und „KI-Fragen an die Daten“.
 
 **Kosten und Zeitplan (Richtwerte, netto):**
 
 | Baustein | Einmalig | Laufend |
 |---|---|---|
-| Phase 1: Stempeln und digitaler Bautagesbericht (MVP), inkl. Feinkonzept | 28.000–54.000 € | |
-| Phase 2: Preise, Nachkalkulation, Monatsauswertung | 15.000–29.000 € | |
-| Geräte: 6–8 robuste Tablets, NFC-Chips, Halterungen | 4.000–7.000 € | |
-| Betrieb: Hosting, Wartung, Support, Mobilfunk | | 400–850 € pro Monat |
+| Phase 0 und 1: Klärung, KI-Test, Stempeln und digitaler Bautagesbericht (MVP) inkl. Rollen und Rechte, Baustellen-Modus, 2 Fremdsprachen, AZG-Wächter, Wetter, Fernunterschrift | 39.000–80.000 € | |
+| Phase 2: Preise, Nachkalkulation mit Hochrechnung, Geräte-Tags, weitere Sprachen | 23.000–48.500 € | |
+| Phase 2, nur nach erfolgreichem Test: KI-Diktat und Lieferschein-Erkennung | 9.000–22.500 € | |
+| Geräte: 6–8 robuste Tablets, NFC-Chips, Geräte-Tags, Halterungen | 4.000–7.500 € | |
+| Betrieb: Hosting, Wartung, Support, KI-Dienste, SMS, Mobilfunk | | ca. 400–1.000 € pro Monat |
 
-- **Feinkonzept und Angebote:** bis Mitte Dezember 2026.
+Das ist deutlich mehr als ein Standardprodukt, siehe den ehrlichen Vergleich in Kapitel 8. Die Spannen werden mit Festpreisangeboten enger.
+
+- **Feinkonzept, KI-Test und Angebote:** bis Mitte Dezember 2026.
 - **Entwicklung von Phase 1:** Jänner bis März 2027.
 - **Pilot mit einer Partie:** ab Saisonstart (März/April 2027), Papier läuft parallel weiter.
 - **Alle Partien:** ab Mai 2027.
 - **Nachkalkulation:** ab Spätsommer 2027.
 
-Mögliche Förderung: KMU.DIGITAL (Details in Kapitel 8).
+Mögliche Förderung: KMU.DIGITAL (Details in Kapitel 9).
 
 **Nächste Schritte:**
 
-1. Die offenen Fragen aus Kapitel 9 beantworten, in etwa zwei Stunden mit Büro und einem Polier.
+1. Die offenen Fragen aus Kapitel 10 beantworten, in etwa zwei Stunden mit Büro und einem Polier.
 2. Mit dem Steuerberater bzw. der Lohnverrechnung das Exportformat und die Lohnarten klären. Betriebsrat bzw. Mitarbeiter informieren.
-3. Den Prototyp mit zwei Polieren durchklicken und die Gegenprobe mit 123erfasst starten.
+3. Den Prototyp mit zwei Polieren durchklicken, die Rechte-Matrix (Kapitel 2.2) bestätigen, den KI-Test (ca. 20 Diktate, 30 Lieferscheine) machen und die Gegenprobe mit 123erfasst starten.
 4. Zwei bis drei Angebote von Entwicklern einholen, Förderung beantragen, Entscheidung treffen.
 
 ---
@@ -78,7 +96,7 @@ Der Betrieb hat rund 30 Mitarbeiter: Poliere, Vorarbeiter, Pflasterer bzw. Facha
 
 ### 1.2 Der heutige Ablauf auf Papier
 
-Den folgenden Ablauf nehmen wir an; bitte bestätigen oder korrigieren (siehe Kapitel 9):
+Den folgenden Ablauf nehmen wir an; bitte bestätigen oder korrigieren (siehe Kapitel 10):
 
 1. Der Polier schreibt täglich je Baustelle einen Bautagesbericht auf Papier: Personal mit Uhrzeiten, Geräte, Material, Leistung, Regie und Vorkommnisse.
 2. Stunden werden zusätzlich auf Stundenzetteln oder in Listen für die Lohnverrechnung geführt.
@@ -152,7 +170,7 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 | **Terminal im Bauhof / Kieswerk** | Fix montiertes Tablet für Werkstatt und Kieswerk | Sinnvoll für Mitarbeiter, die immer am selben Ort arbeiten |
 | **Privates Handy (freiwillig)** | Stempeln, „Meine Woche“, Urlaubsantrag | Nur freiwillig, nie Pflicht. Den Umgang mit privaten Geräten in der Betriebsvereinbarung regeln. |
 
-> **Empfehlung:** Standard ist das Partie-Stempeln durch den Polier. Wer mit dem eigenen Handy stempeln will, darf das. Für Bauhof und Kieswerk kommt ein fixes Tablet dazu. NFC-Chips sind eine Option, wenn die Firmen-Tablets Android-Geräte sind, was wir ohnehin empfehlen (Kapitel 6).
+> **Empfehlung:** Standard ist das Partie-Stempeln durch den Polier. Wer mit dem eigenen Handy stempeln will, darf das. Für Bauhof und Kieswerk kommt ein fixes Tablet dazu. NFC-Chips sind eine Option, wenn die Firmen-Tablets Android-Geräte sind, was wir ohnehin empfehlen (Kapitel 7).
 
 ### 2.4 Ein Tag mit der App (Beispiel)
 
@@ -212,7 +230,7 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 |---|---|---|---|
 | **K** | Krankenstand | Büro (nach Krankmeldung) | Bestätigung als Foto hochladbar; im Bericht als „K“ |
 | **U** | Urlaub | Mitarbeiter beantragt, Büro genehmigt | Am Bau läuft das Urlaubsentgelt über die BUAK, deshalb fließt U in den BUAK-Export |
-| **SW** | Schlechtwetter | Polier für die Partie (mit Uhrzeit und Grund), Büro bestätigt | Zähler je Mitarbeiter gegen die Höchstgrenzen; Export für die BUAK-Rückerstattung (Kapitel 4.4) |
+| **SW** | Schlechtwetter | Polier für die Partie (mit Uhrzeit und Grund), Büro bestätigt | Zähler je Mitarbeiter gegen die Höchstgrenzen; Export für die BUAK-Rückerstattung (Kapitel 5.4) |
 | **ZA** | Zeitausgleich | Antrag oder Büro | Abbuchung vom Zeitkonto |
 | FT | Feiertag | automatisch (Kalender Niederösterreich) | – |
 | BS | Berufsschule (Lehrlinge) | Büro | Zählt bei Jugendlichen als Arbeitszeit (KJBG) |
@@ -243,7 +261,7 @@ Die App verhindert nichts, sie macht aufmerksam. Entscheiden müssen Polier und 
 - Gespeichert wird vor allem die Information „im Umkreis der Baustelle: ja/nein“ (z. B. 300 m). Die Koordinaten werden nach dem Monatsabschluss plus 2 Monaten gelöscht.
 - **Keine laufende Ortung, kein Bewegungsprofil, keine Ortung in Pausen oder nach Arbeitsende.**
 - Wer nicht zustimmt, stempelt ohne Standort. Dann bestätigt der Polier die Anwesenheit.
-- Die rechtlichen Hintergründe stehen in Kapitel 4.7.
+- Die rechtlichen Hintergründe stehen in Kapitel 5.7.
 
 ### 3.2 Bautagesbericht
 
@@ -275,7 +293,7 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 | 7 | Arbeitszeit von–bis (1. Block) | Erster Zeitblock | Stempel Arbeitsbeginn bis Pause bzw. Wechsel | Arbeitszeitaufzeichnung (AZG) |
 | 8 | Arbeitszeit von–bis (2. Block) | Zweiter Zeitblock; weitere Blöcke möglich und im PDF als Zusatzzeile | Stempel nach Pause bzw. Rückkehr | wie oben |
 | 9 | Pause | Pausendauer | Pausenstempel oder Standardpause laut Vereinbarung | AZG-Prüfung |
-| 10 | Arbstd. | Arbeitsstunden je Person | Berechnet: Zeitblöcke minus Pause (Fahrt und Laden als eigene Spalte, siehe Kapitel 9) | Lohn, Nachkalkulation |
+| 10 | Arbstd. | Arbeitsstunden je Person | Berechnet: Zeitblöcke minus Pause (Fahrt und Laden als eigene Spalte, siehe Kapitel 10) | Lohn, Nachkalkulation |
 | 11 | Gesamtstunden | Summe | Berechnet | Nachkalkulation (Lohnstunden) |
 | 12 | K = Krank, U = Urlaub, SW = Schlechtwetter | Kennzeichen je Person in der Stundenspalte | Abwesenheiten (Büro bzw. Antrag) oder Schlechtwetter-Meldung des Poliers | Lohn, BUAK (Schlechtwetter-Rückerstattung) |
 | 13 | SEG-Zulagen: Tätigkeit | Zulagenart aus dem Firmenkatalog, z. B. Heißasphalt, Arbeiten in Künette | Polier wählt; Vorschlag aus Tätigkeit bzw. Position | Lohn; Nachweis für § 68 EStG |
@@ -314,7 +332,7 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 
 - **Fotos:** Die App verkleinert Fotos automatisch (ca. 300–500 KB), damit die Übertragung auch bei schlechtem Netz klappt. Zu jedem Foto gibt es Zeitstempel, Baustelle und Kategorie (Leistungsstand, Vorkommnis, Lieferschein, Mangel). Personen sollen nicht im Mittelpunkt der Fotos stehen.
 - **Unterschrift:** Der Bauherr unterschreibt mit Finger oder Stift am Tablet, darüber steht eine Zusammenfassung des Berichts. Gespeichert werden das Unterschriftsbild, der Name in Druckschrift, Zeitpunkt, Gerät und eine Prüfsumme des PDFs. So ist erkennbar, falls das PDF später verändert wurde.
-- **Ist der Bauherr nicht vor Ort,** bekommt er das PDF mit einem Bestätigungslink per Mail. Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 4.9).
+- **Ist der Bauherr nicht vor Ort,** bekommt er das PDF mit einem Bestätigungslink per Mail. Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 5.9).
 - **PDF:** Gleicher Aufbau und gleiche Reihenfolge wie die Papiervorlage, damit Bauherren und Bauleiter ihn sofort wiedererkennen. Fotos kommen auf Folgeseiten, Regie zusätzlich als eigener Regieschein.
 - **Mail:** Das PDF geht automatisch an den Ansprechpartner des Auftraggebers und ans Büro, auf Wunsch auch an die örtliche Bauaufsicht. Jeder Versand wird protokolliert.
 
@@ -432,11 +450,11 @@ Der DB ist der Betrag, der zur Deckung von Büro, Bauhof, Geschäftsführung (Ge
 
 ---
 
-## 4 Österreich-spezifische und rechtliche Punkte
+## 5 Österreich-spezifische und rechtliche Punkte
 
 Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments. Die Gesetzestexte konnten aus der Arbeitsumgebung nicht direkt im RIS geöffnet werden. Die Aussagen beruhen auf Fundstellen von Gesetzesportalen, WKO, BUAK und Fachverlagen. **Vor der Umsetzung im RIS (ris.bka.gv.at) bzw. mit den genannten Stellen gegenprüfen.**
 
-### 4.1 Arbeitszeitgesetz (AZG)
+### 5.1 Arbeitszeitgesetz (AZG)
 
 - **Aufzeichnungspflicht (§ 26 AZG):** Der Arbeitgeber muss Aufzeichnungen über die geleisteten Arbeitsstunden führen, und zwar so, dass Dauer und Lage der Arbeitszeit samt Pausen überprüfbar sind.
   - Auch wenn Mitarbeiter selbst stempeln, **bleibt der Arbeitgeber verantwortlich**. Er muss anleiten, die Aufzeichnungen einsammeln und kontrollieren. In der App ist das die Freigabe durch das Büro.
@@ -450,7 +468,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Für die App heißt das:** lückenlose, unveränderbare Aufzeichnung mit Änderungsprotokoll, Warnungen bei Grenzwerten, Freigabe durch das Büro und ein Export je Mitarbeiter und Monat.
 
-### 4.2 Lehrlinge und LKW-Lenker
+### 5.2 Lehrlinge und LKW-Lenker
 
 - **Jugendliche unter 18 (KJBG):**
   - höchstens 8 Stunden pro Tag und 40 Stunden pro Woche;
@@ -462,10 +480,10 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
   Die App braucht deshalb das Merkmal „jugendlich bis Datum“ und strengere Warnregeln.
 - **LKW-Lenker:** Für Lenker gelten zusätzlich die EU-Lenk- und Ruhezeiten (Verordnung (EG) Nr. 561/2006, Tachograph) und die Sonderbestimmungen für Lenker im AZG. **Die App ersetzt den Tachographen nicht.** Sie erfasst nur Arbeits-, Fahrt- und Ladezeit für Lohn und Nachkalkulation. **Prüfen** (WKO / Fachgruppe Güterbeförderung): ob und welche Ausnahmen für Baustellenverkehr gelten.
 
-### 4.3 Kollektivvertrag Bauindustrie und Baugewerbe (Arbeiter)
+### 5.3 Kollektivvertrag Bauindustrie und Baugewerbe (Arbeiter)
 
 - **Normalarbeitszeit:** Die Lohntafel geht von einer 39-Stunden-Woche aus (169,5 Std. pro Monat).
-- **Löhne:** Neue Löhne gelten jeweils ab 1. Mai. Laut WKO gilt ab 1. 5. 2026 für Facharbeiter (IIb) ein Mindestlohn von 19,99 €/Std. Seit 2025 gibt es optional ein **Jahresarbeitszeitmodell**. **Prüfen:** welches Arbeitszeitmodell im Betrieb gilt (Kapitel 9).
+- **Löhne:** Neue Löhne gelten jeweils ab 1. Mai. Laut WKO gilt ab 1. 5. 2026 für Facharbeiter (IIb) ein Mindestlohn von 19,99 €/Std. Seit 2025 gibt es optional ein **Jahresarbeitszeitmodell**. **Prüfen:** welches Arbeitszeitmodell im Betrieb gilt (Kapitel 10).
 - **Taggeld, Nächtigungsgeld, Reiseaufwandsvergütung:**
   - Taggeld gebührt grundsätzlich bei Einsatz auf Baustellen außerhalb des ständigen Betriebs mit täglicher Heimkehr, und zwar unabhängig davon, ob von zu Hause, vom Bauhof oder vom Quartier aus gefahren wird.
   - Die Höhe hängt u. a. von der Dauer des Arbeitstages und von einer Nächtigung ab.
@@ -475,7 +493,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen** (Lohnverrechnung / WKO Landesinnung Bau NÖ): Zuschlagssätze, Taggeld-Regeln und Fahrzeitregeln im Detail, weil sie direkt in Export und Warnregeln einfließen.
 
-### 4.4 Schlechtwetter (BSchEG)
+### 5.4 Schlechtwetter (BSchEG)
 
 - **Wer entscheidet:** Der Arbeitgeber entscheidet nach Anhörung des Betriebsrats, ob wegen Schlechtwetters die Arbeit eingestellt, fortgesetzt oder wieder aufgenommen wird (§ 5 BSchEG). In der Praxis handelt der Polier im Auftrag. Während des Schlechtwetters müssen Arbeiter andere zumutbare Arbeit im Betrieb leisten.
 - **Höhe:** 60 % des Lohnes für die ausgefallenen Stunden (§ 6 BSchEG).
@@ -493,13 +511,13 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen:** Laut einer Rechtsdatenbank wurde das BSchEG 2026 geändert (Inkrafttreten 1. 8. 2026). Die aktuellen Grenzwerte und Fristen deshalb bei der BUAK bestätigen lassen.
 
-### 4.5 BUAK (Urlaubs- und Abfertigungskasse)
+### 5.5 BUAK (Urlaubs- und Abfertigungskasse)
 
 - Bauarbeitgeber melden monatlich über das eBUAK-Portal. Die BUAK rechnet daraus die Zuschläge und schickt eine Vorschreibung. Urlaubsmeldungen fließen in die monatliche Zuschlagsmeldung ein.
 - **Frist:** Ältere Angaben nennen den 1. bis 15. des Folgemonats, eine BUAK-Anleitung aus 2025 nennt künftig den 22. des Folgemonats. **Prüfen** bei der BUAK bzw. der Lohnverrechnung.
 - **Für die App:** keine eigene BUAK-Schnittstelle in Phase 1. Die App liefert die Zahlen geprüft und vollständig: Tage, Urlaub, Schlechtwetter. Gemeldet wird weiter aus dem Lohnprogramm. Eine direkte Übergabe kann in Phase 3 geprüft werden (eBUAK bietet eine Datenübertragung an).
 
-### 4.6 SEG-Zulagen (§ 68 EStG)
+### 5.6 SEG-Zulagen (§ 68 EStG)
 
 - **Was steuerfrei ist:** Schmutz-, Erschwernis- und Gefahrenzulagen sind zusammen mit Sonn-, Feiertags- und Nachtzuschlägen (und den dazugehörigen Überstundenzuschlägen) bis zu einem gemeinsamen Höchstbetrag steuerfrei. Nach der aktuellen Fassung von § 68 Abs. 1 EStG sind das **400 € pro Monat**; früher waren es 360 €. Seit 2026 ist auch das Feiertagsarbeitsentgelt ausdrücklich in diesem Rahmen.
 - **Voraussetzungen:** Die Steuerfreiheit gilt nur, wenn die Zulage auf einer lohngestaltenden Vorschrift beruht (z. B. KV, Betriebsvereinbarung) und die Arbeiten überwiegend unter verschmutzenden, erschwerenden bzw. gefährlichen Umständen erfolgen. Die Zulage muss außerdem angemessen sein.
@@ -508,7 +526,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen** (Steuerberater): aktuelle Höhe, Grundlage im Betrieb, Angemessenheit und Nachweisform.
 
-### 4.7 Datenschutz, Standort und Mitbestimmung
+### 5.7 Datenschutz, Standort und Mitbestimmung
 
 - **DSGVO:**
   - Arbeitszeitaufzeichnungen sind gesetzlich vorgeschrieben (Rechtsgrundlage: rechtliche Verpflichtung).
@@ -528,7 +546,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 > 3. Ohne Zustimmung funktioniert die App ohne Standort.
 > 4. **Prüfen:** Rechtsberatung oder WKO-Arbeitsrecht für den Text der Vereinbarung.
 
-### 4.8 Aufbewahrungsfristen
+### 5.8 Aufbewahrungsfristen
 
 | Daten | Empfohlene Frist | Grundlage / Begründung |
 |---|---|---|
@@ -540,7 +558,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 
-### 4.9 Rechtliche Wirkung der elektronischen Unterschrift
+### 5.9 Rechtliche Wirkung der elektronischen Unterschrift
 
 - **Einfache elektronische Signatur:** Eine Unterschrift am Tablet ist eine einfache elektronische Signatur. Nach der eIDAS-Verordnung (Art. 25 Abs. 1) darf sie als Beweismittel nicht allein deshalb abgelehnt werden, weil sie elektronisch ist. Das Gericht würdigt sie frei, wie eine Unterschrift auf Papier, die bestritten wird.
 - **Qualifizierte Signatur:** Nur die qualifizierte elektronische Signatur (z. B. mit ID Austria) ist der eigenhändigen Unterschrift gleichgestellt (eIDAS Art. 25 Abs. 2) und erfüllt eine gesetzliche Schriftform nach § 886 ABGB (§ 4 SVG).
@@ -552,7 +570,7 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 > 3. Bei öffentlichen Auftraggebern (Gemeinden, Land NÖ) deren Vertragsbestimmungen beachten; manche verlangen eigene Formulare.
 > 4. **Prüfen:** Rechtsberatung für die Vertragsklausel.
 
-### 4.10 ÖNORMen
+### 5.10 ÖNORMen
 
 - **ÖNORM B 2110** (Werkvertragsnorm, aktuelle Ausgabe 2023-05-01; gilt nur, wenn sie vereinbart ist):
   - regelt eine allgemeine Dokumentationspflicht der Vertragspartner; Bautagesberichte führt der Auftragnehmer, das Baubuch ist davon zu unterscheiden;
@@ -562,14 +580,14 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 - **ÖNORM B 2061** (Preisermittlung für Bauleistungen, Ausgabe 2020): Sie gliedert die Kalkulation in K-Blätter: K2 Gesamtzuschläge, K3 Personalpreis (Mittellohnpreis), K4 Material, K6 Geräte, K7 Preisermittlung. **Die Preis-Stammdaten der App folgen dieser Gliederung**, damit Kalkulation und Nachkalkulation dieselbe Sprache sprechen.
 - **ÖNORM A 2063** (elektronischer Austausch von Leistungsverzeichnissen): Sie ist als späteres Importformat für Angebotspositionen interessant, wenn Ihr Angebotsprogramm sie unterstützt (nicht im Detail geprüft).
 
-### 4.11 E-Rechnung
+### 5.11 E-Rechnung
 
 - **Bund:** Rechnungen an Bundesdienststellen müssen seit 2014 als strukturierte E-Rechnung über USP oder PEPPOL eingebracht werden.
 - **Firmen (B2B) im Inland:** Laut Recherche gibt es Stand Herbst 2026 keine allgemeine Pflicht.
 - **EU:** Für grenzüberschreitende B2B-Umsätze sieht das EU-Paket „ViDA“ ab 1. 7. 2030 E-Rechnungen vor.
 - **Für die App:** keine eigene Rechnungslegung. Regie und Leistungsmengen werden an das bestehende Rechnungsprogramm übergeben (Phase 3).
 
-### 4.12 Wer muss was prüfen?
+### 5.12 Wer muss was prüfen?
 
 | Thema | Stelle |
 |---|---|
@@ -582,9 +600,9 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 
 ---
 
-## 5 Datenmodell und Rechenlogik
+## 6 Datenmodell und Rechenlogik
 
-### 5.1 Überblick
+### 6.1 Überblick
 
 ```mermaid
 erDiagram
@@ -619,7 +637,7 @@ erDiagram
     BAUTAGESBERICHT ||--o{ UNTERSCHRIFT : Unterschriften
 ```
 
-### 5.2 Die wichtigsten Datenobjekte
+### 6.2 Die wichtigsten Datenobjekte
 
 | Objekt | Wichtige Inhalte |
 |---|---|
@@ -640,7 +658,7 @@ erDiagram
 | **Fremdleistung** | Baustelle, Lieferant, Rechnungsnummer, Datum, Betrag, Art (Subunternehmer, Material, Deponie, Miete) |
 | **Monatsabschluss** | Monat, Status, Exportdateien, erstellt von / am |
 
-### 5.3 Kernlogik
+### 6.3 Kernlogik
 
 **A) Vom Stempel zum Bericht (je Baustelle und Tag):**
 
@@ -686,9 +704,9 @@ Ist-Aufwandswert(Position) = zugeordnete Lohnstunden / Leistungsmenge
 
 ---
 
-## 6 Technik und Betrieb
+## 7 Technik und Betrieb
 
-### 6.1 Empfehlung: eine Web-App (PWA) für alle Geräte
+### 7.1 Empfehlung: eine Web-App (PWA) für alle Geräte
 
 Eine **Progressive Web App (PWA)** ist eine Webseite, die sich wie eine App am Startbildschirm installieren lässt und auch offline funktioniert. Sie hat eine Codebasis für PC, Handy und Tablet.
 
@@ -705,7 +723,7 @@ Eine **Progressive Web App (PWA)** ist eine Webseite, die sich wie eine App am S
 > - Eine PWA bauen. **Firmengeräte als Android-Geräte** anschaffen, weil dort Offline-Übertragung und NFC voll funktionieren. Private iPhones (freiwillig) funktionieren für Stempeln und „Meine Woche“; die App zeigt dort deutlich an, wenn Daten noch nicht übertragen sind.
 > - Sollte später eine echte App nötig werden (z. B. für NFC am iPhone), kann die PWA ohne Neuentwicklung in eine App „verpackt“ werden.
 
-### 6.2 Aufbau
+### 7.2 Aufbau
 
 ```mermaid
 flowchart LR
@@ -720,11 +738,11 @@ flowchart LR
 - **Synchronisierung:** Jede Buchung bekommt am Gerät eine eindeutige Nummer und kann nie doppelt ankommen. Konflikte (Polier und Mitarbeiter stempeln dieselbe Person) werden nicht automatisch überschrieben, sondern dem Polier bzw. Büro zur Entscheidung angezeigt.
 - **Wetter:** Abfrage bei einem Wetterdienst (z. B. GeoSphere Austria) für den Baustellenort, als Vorschlag im Bericht. **Prüfen:** Nutzungsbedingungen des Dienstes.
 
-### 6.3 Hosting in Österreich bzw. der EU
+### 7.3 Hosting in Österreich bzw. der EU
 
 Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit Auftragsverarbeitungsvertrag nach DSGVO. Beispiele sind österreichische Anbieter wie Exoscale (Wien) oder Anexia (Klagenfurt/Wien) bzw. europäische Anbieter wie Hetzner (Deutschland/Finnland). Diese Beispiele wurden nicht im Detail geprüft. Größenordnung für einen Betrieb Ihrer Größe: **50–150 € pro Monat** inkl. Sicherung.
 
-### 6.4 Anmeldung
+### 7.4 Anmeldung
 
 | Wer | Wie |
 |---|---|
@@ -735,14 +753,14 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 
 **Verlorenes Gerät:** Das Büro meldet es aus der Ferne ab. Die Daten am Gerät sind verschlüsselt und nur mit PIN zugänglich.
 
-### 6.5 Datensicherung
+### 7.5 Datensicherung
 
 - tägliche, verschlüsselte Sicherung in ein **zweites Rechenzentrum**;
 - Aufbewahrung: 30 Tagessicherungen und 12 Monatssicherungen;
 - vierteljährlich eine **Probe-Wiederherstellung**;
 - die Geschäftsführung kann jederzeit **alle Daten exportieren** (Excel/CSV und PDF-Archiv). Damit sind Sie nicht vom Entwickler abhängig.
 
-### 6.6 Sicherheit
+### 7.6 Sicherheit
 
 - verschlüsselte Übertragung (HTTPS);
 - Rechte nach Rolle (Kapitel 2.2);
@@ -751,7 +769,7 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 - Firmengeräte über eine einfache Geräteverwaltung (z. B. Android Enterprise) mit Sperre, Fernlöschung und App-Modus;
 - vor dem Start ein kurzer Sicherheits-Check durch einen Dritten (1–2 Tage, optional).
 
-### 6.7 Geräte (Richtpreise, Stand Recherche, ohne Gewähr)
+### 7.7 Geräte (Richtpreise, Stand Recherche, ohne Gewähr)
 
 | Gerät | Zweck | Preis je Stück |
 |---|---|---|
@@ -764,7 +782,7 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 
 **Bedarf (Annahme):** 6–8 Tablets, 1 Terminal, NFC-Chips für alle, dazu die vorhandenen Firmenhandys weiter nutzen. Das ergibt **ca. 4.000–7.000 €**.
 
-### 6.8 Eigentum und Unabhängigkeit
+### 7.8 Eigentum und Unabhängigkeit
 
 Im Entwicklungsvertrag sollten folgende Punkte festgehalten werden:
 
@@ -777,9 +795,9 @@ So kann bei Bedarf ein anderer Entwickler übernehmen.
 
 ---
 
-## 7 Kaufen oder bauen?
+## 8 Kaufen oder bauen?
 
-### 7.1 Marktüberblick
+### 8.1 Marktüberblick
 
 Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben von Anbietern und Vergleichsportalen. **Stand Recherche, ohne Gewähr; vor einer Entscheidung beim Anbieter bestätigen lassen.**
 
@@ -794,7 +812,7 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | **NEVARIS Success X** (vormals AUER Success, AT) | Bau-Software fürs Büro | Ausschreibung, Vergabe, Abrechnung (ÖNORM), Kalkulation, Controlling | Keine Baustellen-App im Produkt selbst (mobil eher über 123erfasst; eine direkte Verbindung haben wir nicht belegt gefunden); für 30 Mitarbeiter eher groß | Auf Anfrage |
 | Weitere (nicht geprüft) | z. B. Capmo (DE, Baumanagement; Preis nach Bauvolumen), Streit V.1 (DE, Handwerkersoftware mit Bautagebuch), BRZ, ABK | | | |
 
-### 7.2 Abdeckung Ihrer Anforderungen
+### 8.2 Abdeckung Ihrer Anforderungen
 
 | Anforderung | TimeTac | 123erfasst | BauMaster / PlanRadar | Eigenentwicklung |
 |---|---|---|---|---|
@@ -807,7 +825,7 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | AT-Spezifika: BUAK, Schlechtwetter, SEG, Taggeld, Export an AT-Lohnprogramm | teilweise (BMD-Export) | unklar | nein | ja (nach Vorgabe der Lohnverrechnung) |
 | Kieswerk und Transporte als eigene KST | über Projekte | unklar | nein | ja |
 
-### 7.3 Drei Varianten im Vergleich (5 Jahre, netto, grob)
+### 8.3 Drei Varianten im Vergleich (5 Jahre, netto, grob)
 
 | | **A: Komplettlösung kaufen** (z. B. 123erfasst) | **B: Standard-Bausteine kombinieren** (TimeTac + Bautagebuch-App + Excel) | **C: Eigene schlanke App + bestehende Lohn- und Buchhaltungsprogramme** |
 |---|---|---|---|
@@ -823,7 +841,7 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 
 Geräte und Mobilfunk fallen in allen Varianten an und sind in der Summe nicht enthalten.
 
-### 7.4 Empfehlung
+### 8.4 Empfehlung
 
 **Variante C: eine eigene, schlanke App für die Kernabläufe** (Stempeln → Bautagesbericht → Nachkalkulation), angebunden an die bestehende Lohnverrechnung (Export), Buchhaltung (Import der Eingangsrechnungen je KST) und das Rechnungsprogramm.
 
@@ -854,13 +872,13 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 
 ---
 
-## 8 Umsetzung in Phasen, Kosten, Einführung
+## 9 Umsetzung in Phasen, Kosten, Einführung
 
-### 8.1 Phasenplan
+### 9.1 Phasenplan
 
 | Phase | Inhalt | Aufwand | Kosten (netto) | Zeitraum |
 |---|---|---|---|---|
-| **0 – Klärung** | Offene Fragen (Kapitel 9), Feinkonzept, Prototyp mit Polieren testen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), Gegenprobe 123erfasst, Förderantrag | 30–50 Std. Entwickler, dazu interne Zeit | 3.000–6.000 € | Nov.–Dez. 2026 |
+| **0 – Klärung** | Offene Fragen (Kapitel 10), Feinkonzept, Prototyp mit Polieren testen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), Gegenprobe 123erfasst, Förderantrag | 30–50 Std. Entwickler, dazu interne Zeit | 3.000–6.000 € | Nov.–Dez. 2026 |
 | **1 – MVP: Stempeln und digitaler Bautagesbericht** | Anmeldung (PIN), Stempeln inkl. Partie, Fahrt, Laden, Werkstatt, Pause, Baustellenwechsel, Regie-Kennzeichen; offline; Standort beim Stempeln; Abwesenheiten (K/U/SW/ZA); AZG/KJBG-Warnungen; Korrekturen mit Freigabe; Bautagesbericht nach Vorlage (alle Felder aus 3.2), Fotos, Unterschrift, PDF, Mail; Büro-Dashboard; Stammdaten; Monatsliste und Excel-Export für Lohn und BUAK; Sicherung | 280–400 Std. | 25.000–48.000 € | Jänner–März 2027 |
 | **Pilot** | Eine Partie, 4–6 Wochen, Papier parallel; wöchentliche Verbesserungsrunde | 20–40 Std. Nachbesserung (in Phase 1 enthalten) | – | März/April 2027 |
 | **Rollout** | Alle Partien, Bauhof, Kieswerk | Schulung, Begleitung | interne Zeit | Mai 2027 |
@@ -872,7 +890,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 | | Übergabe von Regie und Mengen an das Rechnungsprogramm (E-Rechnung bleibt dort) | 40–100 Std. | 4.000–12.000 € | |
 | | Mehrsprachigkeit (z. B. BKS, Ungarisch, Rumänisch), Wetter-Automatik | je 20–60 Std. | je 2.000–7.000 € | |
 
-### 8.2 Annahmen hinter den Kosten
+### 9.2 Annahmen hinter den Kosten
 
 - Stundensatz eines österreichischen Freelancers bzw. einer kleinen Agentur: **90–120 € netto**.
 - Ein erfahrenes Entwicklerteam (1–2 Personen) mit Standardtechnik.
@@ -885,7 +903,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 
 **Förderung:** Laut Recherche fördert **KMU.DIGITAL** Beratungen mit bis zu 3.000 € und Umsetzungsprojekte mit 30 % (max. 6.000 €) bei 2.000–30.000 € Projektvolumen. Voraussetzung ist eine vorherige Beratung durch einen zertifizierten Berater. **Prüfen** (WKO / aws): aktuelle Einreichphase, Budget und Bedingungen. Wichtig ist vor allem, ob vor der Beauftragung eingereicht werden muss.
 
-### 8.3 Einführung: so gelingt die Umstellung
+### 9.3 Einführung: so gelingt die Umstellung
 
 1. **Ein Polier als „Pate“:** Ein angesehener, technikoffener Polier ist von Anfang an dabei, testet den Prototyp und führt den Pilot. Kollegen hören eher auf ihn als auf das Büro.
 2. **Ehrliche Information vorab:** eine Betriebsversammlung oder Info im Bauhof, ca. 30 Minuten. Die Kernbotschaften:
@@ -902,7 +920,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 6. **Papier abschalten:** wenn 3 Wochen lang ≥ 95 % der Berichte digital und vollständig sind.
 7. **Ältere Mitarbeiter und Mitarbeiter ohne Handy:** Für sie stempelt der Polier. Es gibt keinen Zwang zur Smartphone-Nutzung.
 
-### 8.4 Laufende Kosten (pro Monat, netto, Richtwerte)
+### 9.4 Laufende Kosten (pro Monat, netto, Richtwerte)
 
 | Posten | Betrag |
 |---|---|
@@ -913,7 +931,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 | Jährliche Anpassungen (KV-Sätze, Gesetzesänderungen), umgelegt | 50–100 € |
 | **Summe** | **ca. 400–850 € pro Monat** |
 
-### 8.5 Risiken und Gegenmaßnahmen
+### 9.5 Risiken und Gegenmaßnahmen
 
 | Risiko | Gegenmaßnahme |
 |---|---|
@@ -927,7 +945,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 
 ---
 
-## 9 Offene Fragen an den Betrieb
+## 10 Offene Fragen an den Betrieb
 
 **Organisation und Arbeitszeit**
 

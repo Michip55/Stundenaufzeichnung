@@ -88,9 +88,10 @@
 
   /* ---------- Demo-Uhr ---------- */
   const role0 = qs.get('rolle');
-  const szenario = qs.get('szenario') || (role0 === 'buero' ? 'signiert' : 'morgen');
+  const OFFICE = ['buero', 'gf', 'bauleiter'].includes(role0);
+  const szenario = qs.get('szenario') || (OFFICE ? 'tag' : 'morgen');
   A.szenario = szenario;
-  const uhrDefault = szenario === 'morgen' ? '06:52' : (role0 === 'buero' ? '10:24' : '16:05');
+  const uhrDefault = szenario === 'morgen' ? '06:52' : szenario === 'tag' ? '10:24' : szenario === 'signiert' ? '16:40' : '16:05';
   const uhr = (qs.get('uhr') || uhrDefault).split(':');
   let clockBase = (+uhr[0]) * 3600 + (+uhr[1] || 0) * 60;
   let t0 = Date.now();
@@ -141,7 +142,7 @@
         else if (wd === 5) { rec.v1 = m.lg === 'lkw' ? 390 : 420; rec.b1 = rec.v1 + (r() < 0.2 ? 360 : 300); }
         else {
           rec.v1 = m.lg === 'lkw' || m.lg === 'ma' ? (r() < 0.5 ? 390 : 420) : 420; rec.b1 = 720; rec.v2 = 750; rec.pause = 30;
-          const x = r(); rec.b2 = rec.v1 + 9 * 60 + (x < 0.1 ? 60 : x < 0.32 ? 30 : 0);
+          const x = r(); rec.b2 = rec.v1 + 9 * 60 + (x < 0.04 ? 60 : x < 0.16 ? 30 : 0);
         }
         rec.std = ((rec.b1 - rec.v1) + (rec.v2 != null ? rec.b2 - rec.v2 : 0)) / 60;
         if (!rec.code && ['fa', 'hi', 'le'].includes(m.lg) && r() < 0.18) rec.seg = 2 + Math.floor(r() * 3);
@@ -175,7 +176,7 @@
         const pick = (prof, round) => { const o = {}; Object.keys(prof).forEach((k) => { const [q, p] = prof[k]; if (r() < p) { const v = q * f * (0.8 + r() * 0.4); o[k] = Math.max(round, Math.round(v / round) * round); } }); return o; };
         const geraete = pick(b.geraete, 0.5), material = pick(b.material, 1), zusatz = pick(b.zusatz, 0.5);
         const segSum = personal.reduce((a, p) => a + (p.seg || 0), 0);
-        const status = s <= '2026-10-30' ? 'verrechnet' : s <= '2026-11-06' ? 'freigegeben' : 'unterschrieben';
+        const status = s <= '2026-10-30' ? 'verrechnet' : s <= '2026-11-09' ? 'freigegeben' : 'unterschrieben';
         const t1 = b.texte[Math.floor(r() * b.texte.length)], t2 = b.texte[Math.floor(r() * b.texte.length)];
         const rep = {
           id: b.kst + '_' + s, kst: b.kst, datum: s, status, personal,
@@ -213,7 +214,7 @@
       if (!open) {
         if (demoCrew && szenario === 'morgen') { /* noch nicht eingestempelt */ }
         else if (demoCrew) {
-          st.segs = [{ kst: m.kst, von: 7 * 3600, bis: null }]; st.pausen = [{ von: 12 * 3600, bis: 12.5 * 3600 }]; st.status = 'ein';
+          st.segs = [{ kst: m.kst, von: 7 * 3600, bis: null }]; st.pausen = nowSec() > 12.5 * 3600 ? [{ von: 12 * 3600, bis: 12.5 * 3600 }] : []; st.status = 'ein';
           if (nowSec() >= 16 * 3600) { st.segs[0].bis = 16 * 3600; st.status = 'fertig'; }
           st.ort = true;
         } else {
@@ -236,7 +237,7 @@
         geraete: { b9: 8, lkw3: 4, ruettel: 6 }, material: { frostschutz: 42, splitt: 6 },
         zusatz: { pflaster8: 38, randstein: 24 },
         arbeit: 'Frostschutz 0/63 eingebracht und verdichtet, Parkplatz Reihe C.\nRandleisten in Beton versetzt, 24 lfm.\nBetonsteinpflaster 8 cm verlegt Gehweg Stiege 2, ca. 38 m². Fugen eingekehrt und abgerüttelt.',
-        fotos: ['frostschutz', 'pflaster'], eigen: ['Betonsteinpflaster 8 cm grau – 38 m²', 'Randleiste 8/25/100 – 24 lfm'], fremdmat: ['Schachtabdeckung Kl. D 400 – beigestellt vom AG'],
+        fotos: ['frostschutz', 'pflaster'], eigen: [], fremdmat: ['Schachtabdeckung Kl. D 400 – beigestellt vom AG'],
         paletten: { euro: 4, weiss: 6 }, regie: [{ t: 'Zufahrt Müllplatz provisorisch geschottert (Anweisung Bauleitung)', std: 2 }],
         vorkommnisse: 'Anweisung AG (Ing. Auer): Zufahrt Stiege 1 bis Freitag 12:00 Uhr befahrbar halten.', vkKat: 'Anweisung AG',
         seg: [{ t: 'Staubzulage (Schneidarbeiten)', std: 3 }]
@@ -300,7 +301,7 @@
   }
   const heuteBericht = () => syncPersonal(S.reports.find((r) => r.heute));
   const report = (id) => { const r = S.reports.find((x) => x.id === id); return r && r.heute ? syncPersonal(r) : r; };
-  const repStd = (rep) => rep.personal.reduce((a, p) => a + (p.std || 0), 0);
+  const repStd = (rep) => (rep.heute ? syncPersonal(rep) : rep).personal.reduce((a, p) => a + (p.std || 0), 0);
   Object.assign(A, { heuteBericht, report, repStd, syncPersonal });
 
   /* ---------- Nachkalkulation ---------- */

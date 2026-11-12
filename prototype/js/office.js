@@ -38,7 +38,7 @@
         const first = Math.min(...crew.filter((m) => A.stamp(m.id).segs.length).map((m) => A.stamp(m.id).segs[0].von).concat([1e9]));
         return `<a class="site-line" href="#/baustellen/${b.kst}" data-demo="dash-baustelle-${b.kst}">
           <div class="sl-main"><small>KST ${b.kst} · ${esc(b.art)}</small><b>${esc(b.name)}</b><span>${esc(b.ort)}${pol ? ' · Polier ' + esc(pol.nn) : ''}</span></div>
-          <div class="sl-crew">${avatars(crew, 6)}<small><b>${n}</b> von ${crew.length} vor Ort${first < 1e9 ? ' · seit ' + F.hm(first / 60) : ''}</small></div>
+          <div class="sl-crew">${avatars(crew, 5)}<small><b>${n}</b> von ${crew.length} vor Ort${first < 1e9 ? ' · seit ' + F.hm(first / 60) : ''}</small></div>
           <div class="sl-rep">${rep ? A.statusChip(rep.status) : b.intern ? '<span class="chip st-outline">intern</span>' : '<span class="chip st-outline">Bericht offen</span>'}</div>
           <div class="sl-db">${c ? `${ampel(c.ampel)}<span><b>${F.pct(c.dbPct)}</b><small>DB</small></span>` : ''}</div>${icon('right')}</a>`;
       }).join('');
@@ -199,7 +199,7 @@
   /* ---------- Nachkalkulation ---------- */
   const CAT = [['lohn', 'Lohn', 'c-lohn'], ['geraete', 'Geräte', 'c-ger'], ['material', 'Material', 'c-mat'], ['fremd', 'Fremdleistung', 'c-fremd']];
   function trendChart(c) {
-    const W = 720, H = 250, L = 56, Rr = 86, T = 14, Bm = 30, t = c.tage; if (t.length < 2) return '<div class="empty">Noch zu wenige Tage für einen Verlauf.</div>';
+    const W = 1080, H = 270, L = 56, Rr = 128, T = 14, Bm = 30, t = c.tage; if (t.length < 2) return '<div class="empty">Noch zu wenige Tage für einen Verlauf.</div>';
     const max = Math.max(t[t.length - 1].kumK, t[t.length - 1].kumE) * 1.08, x = (i) => L + (i / (t.length - 1)) * (W - L - Rr), y = (v) => T + (1 - v / max) * (H - T - Bm);
     const step = max / 4, mag = Math.pow(10, Math.floor(Math.log10(step))), nice = Math.ceil(step / mag / 2.5) * 2.5 * mag;
     let grid = ''; for (let v = 0; v <= max; v += nice) grid += `<line x1="${L}" x2="${W - Rr}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 8}" y="${y(v) + 4}" class="ax" text-anchor="end">${v >= 1000 ? F.num(v / 1000, 0) + ' T€' : '0'}</text>`;

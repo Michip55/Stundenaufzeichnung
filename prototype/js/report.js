@@ -139,7 +139,7 @@
       </div>
       <div class="a4-row mid">
         <div class="a4-left">
-          <table class="a4-pers"><thead><tr class="az"><th class="nob"></th><th colspan="4">Arbeitszeit</th><th class="nob" colspan="2"></th></tr><tr><th class="l lab">PERSONAL:</th><th>von</th><th>bis</th><th>von</th><th>bis</th><th>Pause</th><th>Arbstd.</th></tr></thead>
+          <table class="a4-pers"><colgroup><col style="width:33%"><col><col><col><col><col style="width:10.5%"><col style="width:12%"></colgroup><thead><tr class="az"><th class="nob"></th><th colspan="4">Arbeitszeit</th><th class="nob" colspan="2"></th></tr><tr><th class="l lab">PERSONAL:</th><th>von</th><th>bis</th><th>von</th><th>bis</th><th>Pause</th><th>Arbstd.</th></tr></thead>
             <tbody>${pers}</tbody><tfoot><tr><td class="gs" colspan="6">Gesamtstunden:</td><td>${ink(F.num(A.repStd(rep), 2))}</td></tr><tr><td class="leg" colspan="7">K= Krank &nbsp;&nbsp;&nbsp;&nbsp; U= Urlaub &nbsp;&nbsp;&nbsp;&nbsp; SW=Schlechtwetter</td></tr></tfoot></table>
           <table class="a4-mat"><thead><tr><th class="lab">MATERIAL:</th><th class="mh">Menge</th><th class="nobt"></th></tr></thead><tbody>${mats}</tbody></table>
         </div>
@@ -147,7 +147,7 @@
           <div class="a4-seg"><div class="tab">SEG-Zulagen:</div>
             <div class="sg"><span>Tätigkeit:</span><span class="dots">${ink(esc(seg.map((s) => s.t).join(', ')))}</span></div>
             <div class="sg"><span>Stunden:</span><span class="dots">${ink(seg.map((s) => F.menge(s.std)).join(' / '))}</span></div></div>
-          <table class="a4-ger"><thead><tr><th class="lab" colspan="6">GERÄTE:</th></tr></thead><tbody>${GL.map((id, i) => `<tr>${g(id)}${g(GR[i])}</tr>`).join('')}</tbody></table>
+          <table class="a4-ger"><colgroup><col style="width:33%"><col style="width:9%"><col style="width:8%"><col style="width:33%"><col style="width:9%"><col style="width:8%"></colgroup><thead><tr><th class="lab" colspan="6">GERÄTE:</th></tr></thead><tbody>${GL.map((id, i) => `<tr>${g(id)}${g(GR[i])}</tr>`).join('')}</tbody></table>
         </div>
       </div>
       <div class="a4-block"><div class="tabrow"><div class="tab w">ARBEITSLEISTUNG:</div></div>${ruled(arbeit, 7)}</div>

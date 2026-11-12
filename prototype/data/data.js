@@ -7,7 +7,7 @@
   const lohngruppen = [
     { id: 'pol', name: 'Polier', kv: 'Polier · Angestellte Bau A3', kosten: 58.0, vk: 74.0 },
     { id: 'va', name: 'Vorarbeiter', kv: 'KV Bau · Lohngruppe IIa', kosten: 49.5, vk: 66.0 },
-    { id: 'fa', name: 'Facharbeiter / Pflasterer', kv: 'KV Bau · Lohngruppe IIb', kosten: 46.0, vk: 62.0 },
+    { id: 'fa', name: 'Facharbeiter', kv: 'KV Bau · Lohngruppe IIb', kosten: 46.0, vk: 62.0 },
     { id: 'ma', name: 'Maschinist', kv: 'KV Bau · Lohngruppe IIb', kosten: 47.0, vk: 63.0 },
     { id: 'lkw', name: 'LKW-Fahrer', kv: 'KV Güterbeförderung', kosten: 44.0, vk: 58.0 },
     { id: 'hi', name: 'Hilfsarbeiter', kv: 'KV Bau · Lohngruppe IV', kosten: 39.5, vk: 52.0 },
