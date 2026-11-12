@@ -46,10 +46,10 @@
 
 **Wer sieht was (Kapitel 2.2):**
 
-- Preise, alle €-Werte, die Nachkalkulation und Löhne sehen **nur Büro/Lohnverrechnung und die Geschäftsführung**. Wir gehen davon aus, dass der Inhaber vollen Zugriff behält.
-- **Bauleiter** sehen sie standardmäßig nicht; die Geschäftsführung kann es einzeln freischalten.
-- **Polier und Mitarbeiter** sehen sie nie. Das ist eine feste Regel, auch per Ausnahme nicht freischaltbar.
-- Auf die Geräte dieser Personen werden die Daten **gar nicht übertragen**, also nicht bloß ausgeblendet.
+- Preise, alle €-Werte und die Nachkalkulation sehen **Büro/Lohnverrechnung, die Geschäftsführung und der Bauleiter**. Wir gehen davon aus, dass der Inhaber vollen Zugriff behält.
+- Der **Bauleiter** sieht nur seine eigenen Baustellen. Er darf Preise sehen, aber nicht bearbeiten, und hat keine Lohnauswertung und keine Einzellöhne; die Nachkalkulation rechnet mit Kostensätzen je Lohngruppe.
+- **Polier und Mitarbeiter** sehen nichts davon. Das ist eine feste Regel, auch per Ausnahme nicht freischaltbar.
+- Auf ihre Geräte werden diese Daten **gar nicht übertragen**, also nicht bloß ausgeblendet.
 - Das PDF für den Auftraggeber enthält nie interne Kosten.
 
 **Warum?** Heute wird jede Stunde mehrfach geschrieben: am Zettel, im Bautagesbericht, im Lohnprogramm und in Excel. Zettel gehen verloren oder kommen spät. Regie wird nicht immer unterschrieben und verrechnet. Ob eine Baustelle Geld verdient hat, weiß man erst Wochen nach der Schlussrechnung, oft gar nicht. Grob geschätzt bringt die Umstellung **rund 40.000–50.000 € pro Jahr** an Zeitersparnis und zusätzlich verrechneter Regie. Die Annahmen dazu stehen in Kapitel 1 und werden im Pilot überprüft.
@@ -146,7 +146,7 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 |---|---|---|
 | **Mitarbeiter** (Facharbeiter, Hilfsarbeiter, Lehrling; auch LKW-Fahrer und Maschinisten) | Optional selbst stempeln; „Meine Woche“ ansehen; Urlaub beantragen; Korrektur melden. Fahrer und Maschinisten zusätzlich: Fahrt- und Ladezeit, Fahrzeug bzw. Gerät wählen, später Transport-/Lieferschein | Eigenes Handy (freiwillig), Firmenhandy oder gar keines, weil der Polier stempelt |
 | **Polier / Vorarbeiter** | Partie stempeln, Baustelle wechseln, Schlechtwetter melden, Bautagesbericht, Fotos, Unterschrift mit Bauherrn, Korrekturen in der eigenen Partie | Robustes Firmen-Tablet, zusätzlich das Firmenhandy |
-| **Bauleiter** (falls vorhanden; in kleineren Betrieben übernimmt das oft die Geschäftsführung) | Betreut mehrere Baustellen: Berichte prüfen und freigeben, Schlechtwetter bestätigen, Regie und Nachträge dokumentieren; sieht Mengen, Stunden und Leistungsstand, **standardmäßig keine Preise und keine Nachkalkulation** | Tablet / Handy und PC |
+| **Bauleiter** (falls vorhanden; in kleineren Betrieben übernimmt das oft die Geschäftsführung) | Betreut mehrere Baustellen: Berichte prüfen und freigeben, Schlechtwetter bestätigen, Regie und Nachträge; sieht für **seine eigenen Baustellen** Preise und Nachkalkulation (Lohn über Kostensätze je Lohngruppe, keine Einzellöhne); bearbeitet keine Preise | Tablet / Handy und PC |
 | **Büro / Lohnverrechnung** | Stunden prüfen und freigeben, Abwesenheiten, Korrekturen, Stammdaten, Preise, Nachkalkulation, Monatsabschluss, Exporte | PC |
 | **Geschäftsführung (Admin)** = Inhaber | Übersicht „Wer ist wo“, Preise, Nachkalkulation, Auswertungen; vergibt Rollen und Rechte. Annahme: behält immer vollen Zugriff | PC und Handy |
 | **Bauherr / Vertreter des Auftraggebers** (extern) | Unterschreibt am Tablet oder per SMS-/Mail-Link und bekommt das PDF; kein eigener Zugang | Tablet des Poliers bzw. eigenes Handy |
@@ -155,9 +155,9 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 ### 2.2 Rollen & Berechtigungen
 
 > **Grundregel:**
-> - Preise, alle €-Werte, Nachkalkulation und Löhne sehen **nur Büro/Lohnverrechnung und die Geschäftsführung**. Annahme: Der Inhaber als Geschäftsführung behält immer vollen Zugriff.
-> - **Polier/Vorarbeiter und Mitarbeiter** sehen sie **nie**. Das ist eine feste Regel, die auch per Ausnahme nicht freigeschaltet werden kann. Sie sehen **Mengen und Stunden** ihrer Partie bzw. ihrer Baustellen.
-> - **Bauleiter** sehen Mengen, Stunden und Leistungsstand ihrer Baustellen, **standardmäßig aber keine Preise und keine Nachkalkulation**. Die Geschäftsführung kann ihnen das einzeln freischalten.
+> - Preise, €-Werte und die Nachkalkulation sehen **Büro/Lohnverrechnung, Geschäftsführung und Bauleiter**. Annahme: Der Inhaber als Geschäftsführung behält immer vollen Zugriff.
+> - Für den **Bauleiter** gilt das nur für seine **eigenen Baustellen**. Er darf Preise sehen, aber **nicht bearbeiten**. Er hat **keine Lohnauswertung, keinen Lohnexport und keine Einzellöhne**; die Nachkalkulation rechnet Lohn mit den Kostensätzen je Lohngruppe.
+> - **Polier/Vorarbeiter und Mitarbeiter** sehen Preise, €-Werte, Nachkalkulation und Löhne **nie**. Das ist eine feste Regel, die auch per Ausnahme nicht freigeschaltet werden kann. Sie sehen **Mengen und Stunden** ihrer Partie bzw. ihrer Baustellen.
 > - Was jemand nicht sehen darf, wird auf sein Gerät gar nicht erst übertragen.
 
 **Berechtigungsmatrix (Standardeinstellung, je Benutzer anpassbar):**
@@ -174,29 +174,29 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 | Schlechtwetter melden bzw. bestätigen | – | melden | bestätigen | bestätigen | ja |
 | Bautagesbericht erstellen, Fotos, Unterschrift Auftragnehmer, Versand | – | ja (eigene Baustellen) | ja | nur korrigieren | ja |
 | Bautagesbericht prüfen und freigeben | – | – | ja | ja | ja |
-| Mengen, Leistungsstand, Geräte- und Materialmengen | – | eigene Baustellen, **ohne €** | eigene Baustellen | ja | ja |
+| Mengen, Leistungsstand, Geräte- und Materialmengen | – | eigene Baustellen, **ohne €** | eigene Baustellen, **ohne €** | ja | ja |
 | Stundenrahmen der Baustelle (Soll-/Ist-Stunden, ohne €) | – | optional je Baustelle | ja | ja | ja |
-| Einheitspreise, Angebotssummen, Regiesätze sehen | – | – | eigene Baustellen | ja | ja |
-| Interne Kostensätze (Lohn, Geräte, Material-Einkauf) sehen | – | – | – (nur Summen in der Nachkalkulation) | ja | ja |
-| Preise und Kostensätze bearbeiten | – | – | – | Material-Einkauf, Fremdleistungen | ja, alle |
-| Nachkalkulation, Hochrechnung, automatische Hinweise | – | – | eigene Baustellen (Lohn nur als Summe) | ja | ja |
-| Lohnauswertung je Person (Lohngruppe, SEG, Taggeld, Mehrstunden), Lohn- und BUAK-Export | nur eigene Stundenliste, ohne € | – | – | ja | ja |
-| Stammdaten (Baustellen, Geräte, Material, Positionen) | – | – | Baustellen und Positionen anlegen | ja | ja |
+| Hinweise ohne € (z. B. Regie nicht unterschrieben, Angebotsmenge überschritten, Stunden ohne Leistungsmeldung) | – | eigene Baustellen | eigene Baustellen | ja | ja |
+| Einheitspreise, Angebotssummen, Regiesätze sehen | **nie** | **nie** | – (per Ausnahme) | ja | ja |
+| Interne Kostensätze (Lohn, Geräte, Material-Einkauf) sehen | **nie** | **nie** | – (per Ausnahme) | ja | ja |
+| Preise und Kostensätze bearbeiten | **nie** | **nie** | – | ja | ja |
+| Nachkalkulation, Hochrechnung, Hinweise mit €-Werten | **nie** | **nie** | – (per Ausnahme, nur eigene Baustellen, Lohn nur als Summe) | ja | ja |
+| Lohnauswertung je Person (Lohngruppe, SEG, Taggeld, Mehrstunden), Lohn- und BUAK-Export | nur eigene Stundenliste, ohne € | **nie** (für andere) | – | ja | ja |
+| Stammdaten (Baustellen, Geräte, Material, Positionen; ohne Preise) | – | – | Baustellen und Positionen anlegen | ja | ja |
 | Benutzer anlegen, PIN zurücksetzen, Gerät abmelden | – | – | – | ja | ja |
 | Rollen und Ausnahmen vergeben | – | – | – | – | ja |
-| Änderungsprotokoll einsehen | eigene Daten | eigene Partie | eigene Baustellen | Zeiten und Berichte | alles, inkl. Rechte und Preise |
-| KI-Fragen an die Daten (Phase 3, optional) | – | – | im Rahmen der eigenen Rechte | im Rahmen der eigenen Rechte | ja |
+| Änderungsprotokoll einsehen | eigene Daten | eigene Partie (ohne Preise) | eigene Baustellen (ohne Preise) | ja | alles, inkl. Rechte |
+| KI-Fragen an die Daten (Phase 3, optional) | – | – | – | im Rahmen der eigenen Rechte | ja |
 
-„Eigene Partie“ und „eigene Baustellen“ ergeben sich aus der Zuordnung: Polier ↔ Partie, Bauleiter ↔ Baustellen. Diese Zuordnung pflegt das Büro.
+„**nie**“ bedeutet: technisch gesperrt und auch per Ausnahme nicht freischaltbar. „Eigene Partie“ und „eigene Baustellen“ ergeben sich aus der Zuordnung Polier ↔ Partie und Bauleiter ↔ Baustellen; diese Zuordnung pflegt das Büro. Annahme: Die Geschäftsführung (Inhaber) behält immer vollen Zugriff, und dieses Recht kann ihr in der App niemand entziehen.
 
 **Ausnahmen je Benutzer:** Die Geschäftsführung kann einzelnen Personen Rechte zusätzlich geben oder wegnehmen, auf Wunsch befristet. Beispiele:
 
 - Ein Vorarbeiter vertritt zwei Wochen lang einen Polier und darf in dieser Zeit „Partie Huber stempeln“.
-- Ein Bauleiter sieht zusätzlich die Gerätesätze.
+- Ein Bauleiter bekommt Einsicht in die Nachkalkulation seiner Baustellen. Das ist eine bewusste Entscheidung der Geschäftsführung.
 - Eine Büro-Teilzeitkraft bekommt keine Einsicht in Lohndaten.
-- Ein Polier mit Kalkulationsaufgaben darf die Nachkalkulation seiner Baustellen sehen. Das ist eine bewusste Entscheidung der Geschäftsführung.
 
-Die App zeigt eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir empfehlen, sie einmal im Quartal durchzusehen.
+**Grenze:** Für die Rollen Polier/Vorarbeiter und Mitarbeiter bietet die Ausnahme-Funktion Preis-, €-, Nachkalkulations- und Lohnrechte gar nicht an. Soll ein Polier solche Daten sehen, muss er bewusst eine andere Rolle bekommen (z. B. Bauleiter), und das steht im Protokoll. Die App zeigt außerdem eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir empfehlen, sie einmal im Quartal durchzusehen.
 
 **Änderungsprotokoll:**
 
@@ -208,7 +208,7 @@ Die App zeigt eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir e
 **Technischer Grundsatz: Rechte werden am Server durchgesetzt, nicht in der Oberfläche.**
 
 - Der Server prüft bei jeder Anfrage, wer fragt, welche Rolle und Ausnahmen gelten und für welchen Bereich (alles, eigene Baustellen, eigene Partie, nur selbst).
-- Er liefert **nur die Daten, für die ein Recht besteht**. Preise, Kostensätze, €-Werte, Nachkalkulation und Lohndaten verlassen den Server nie in Richtung der Geräte von Polieren und Mitarbeitern, auch nicht in den Offline-Speicher. Die Positionsliste für die Leistungsmeldung kommt beim Polier ohne Einheitspreise an.
+- Er liefert **nur die Daten, für die ein Recht besteht**. Preise, Kostensätze, €-Werte, Nachkalkulation und Lohndaten verlassen den Server nie in Richtung der Geräte von Polieren, Mitarbeitern und Bauleitern ohne Freischaltung, auch nicht in den Offline-Speicher. Die Positionsliste für die Leistungsmeldung kommt beim Polier ohne Einheitspreise an.
 - Bloßes Ausblenden in der Oberfläche wäre unsicher, weil technisch versierte Nutzer versteckte Daten auslesen könnten.
 - Exporte (Lohn, BUAK, Nachkalkulation) erzeugt nur der Server, und nur für berechtigte Rollen.
 - Automatische Tests prüfen bei jedem Update, dass die Antworten an Polier- und Mitarbeiterrollen keine Preis- oder Lohnfelder enthalten.
@@ -223,7 +223,7 @@ Die App zeigt eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir e
 **Datenschutz: Lohndaten von Kollegen.**
 
 - Löhne, Lohngruppen, Kostensätze sowie SEG- und Taggeld-Beträge sind vertrauliche personenbezogene Daten. Sehen darf sie nur, wer sie für seine Aufgabe braucht, also Büro und Geschäftsführung (DSGVO: Datenminimierung, Vertraulichkeit, Sicherheit der Verarbeitung).
-- Auch in der Nachkalkulation des Bauleiters erscheinen Lohnkosten nur als **Summe**. Bei einer Lohngruppe mit nur einer Person wird zusammengefasst, damit man nicht auf den Lohn eines Einzelnen schließen kann.
+- Bekommt ein Bauleiter per Ausnahme die Nachkalkulation, sieht er Lohnkosten nur als **Summe**. Bei einer Lohngruppe mit nur einer Person wird zusammengefasst, damit man nicht auf den Lohn eines Einzelnen schließen kann.
 - Der Polier sieht die Stunden seiner Partie, weil er sie verantwortet, aber nicht deren Löhne.
 - Beim Krankenstand wird nur das Kürzel „K“ gespeichert, nie eine Diagnose. Die Krankmeldung als Beleg sieht nur das Büro.
 - Das Rollenkonzept wird Teil der Betriebsvereinbarung bzw. der Mitarbeiterinformation (Kapitel 5.7).
