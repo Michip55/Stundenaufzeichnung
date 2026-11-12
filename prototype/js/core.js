@@ -257,8 +257,13 @@
     S.sync = 'online'; S.pending = 0;
     S.user = null; S.loginPick = null; S.pin = '';
     S.ui = { wocheKW: 46, monat: '2026-10', berichtFilter: 'alle', berichtKst: 'alle', geraetSuche: '', preisTab: 'lohn', kolonne: null, kalkTab: 'geraete', loginSuche: '' };
-    const r = qs.get('rolle');
-    if (r === 'mitarbeiter') S.user = ma(2); else if (r === 'polier') S.user = ma(1); else if (r === 'buero') S.user = ma(101);
+    S.perm = clone(PERM_DEFAULT); S.ausnahmen = { 13: { kalk: true } }; S.preview = null; S.lang = qs.get('sprache') || 'de'; S.bm = qs.get('modus') === 'baustelle';
+    S.audit = [
+      { t: '10.11.2026 08:14', wer: 'Michael Pichler', was: 'Ausnahme: Thomas Riegler darf „Nachkalkulation sehen“ (nur eigene Baustelle)' },
+      { t: '03.11.2026 16:40', wer: 'Michael Pichler', was: 'Rolle Bauleiter: „Lohnsätze sehen“ deaktiviert' },
+      { t: '02.11.2026 07:55', wer: 'Martina Koller', was: 'Benutzer Ivan Horvat angelegt (Rolle Mitarbeiter)' }
+    ];
+    S.user = roleUser(qs.get('rolle'));
   }
 
   /* ---------- Stempel-Logik ---------- */
@@ -366,12 +371,31 @@
   const actions = (A.actions = {}), inputs = (A.inputs = {}), tickers = (A.tickers = {});
   let current = null;
 
-  const NAV = {
-    mitarbeiter: [['stempeluhr', 'Stempeluhr', 'clock'], ['woche', 'Meine Woche', 'calendar'], ['profil', 'Profil', 'user']],
-    polier: [['stempeluhr', 'Stempeluhr', 'clock'], ['kolonne', 'Kolonne', 'users'], ['bericht', 'Bautagesbericht', 'clipboard', 'Bericht'], ['woche', 'Meine Woche', 'calendar', 'Woche']],
-    buero: [['dashboard', 'Dashboard', 'grid', 'Heute'], ['baustellen', 'Baustellen', 'pin'], ['berichte', 'Bautagesberichte', 'clipboard', 'Berichte'], ['preise', 'Preise & Stammdaten', 'tag', 'Preise'], ['nachkalkulation', 'Nachkalkulation', 'chart', 'Kalkulation'], ['monat', 'Monatsauswertung', 'table', 'Monat']]
+  /* ---------- Rollen & Berechtigungen ---------- */
+  const ROLLEN = [['mitarbeiter', 'Mitarbeiter'], ['polier', 'Polier / Vorarbeiter'], ['bauleiter', 'Bauleiter'], ['buero', 'Büro / Lohnverrechnung'], ['gf', 'Geschäftsführung']];
+  const RECHTE = [
+    ['zeit', 'Zeiterfassung (eigene Zeiten, Woche, Abwesenheit)', 'Baustelle'], ['kolonne', 'Kolonne stempeln', 'Baustelle'], ['bericht', 'Bautagesbericht erstellen & senden', 'Baustelle'],
+    ['freigabe', 'Bautagesbericht freigeben', 'Büro'], ['preise', 'Preise sehen (€-Werte, Tageskosten)', 'Büro'], ['preise_edit', 'Preise bearbeiten', 'Büro'], ['lohnsaetze', 'Lohnsätze sehen', 'Büro'], ['kalk', 'Nachkalkulation sehen', 'Büro'], ['lohn', 'Lohnauswertung & Export', 'Büro'],
+    ['benutzer', 'Benutzer & Berechtigungen verwalten', 'Verwaltung']
+  ];
+  const PERM_DEFAULT = {
+    mitarbeiter: { zeit: true }, polier: { zeit: true, kolonne: true, bericht: true },
+    bauleiter: { bericht: true, freigabe: true, preise: true, kalk: true },
+    buero: { freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true },
+    gf: { zeit: true, kolonne: true, bericht: true, freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true, benutzer: true }
   };
-  const home = () => (S.user ? (S.user.rolle === 'buero' ? '/dashboard' : '/stempeluhr') : '/login');
+  const FELD = ['mitarbeiter', 'polier'], isOffice = (u) => !!u && !FELD.includes(u.rolle);
+  const roleUser = (r) => ({ mitarbeiter: ma(2), polier: ma(1), bauleiter: ma(103), buero: ma(101), gf: ma(102) }[r] || null);
+  const can = (key, u) => { u = u || S.user; if (!u) return false; return !!((S.perm[u.rolle] || {})[key] || (S.ausnahmen[u.id] || {})[key]); };
+  Object.assign(A, { ROLLEN, RECHTE, PERM_DEFAULT, can, isOffice, roleUser, rolleName: (r) => (ROLLEN.find((x) => x[0] === r) || [])[1] });
+  const NAVALL = [
+    ['stempeluhr', 'Stempeluhr', 'clock', null, (u) => !isOffice(u)], ['kolonne', 'Kolonne', 'users', null, (u) => !isOffice(u) && can('kolonne')], ['bericht', 'Bautagesbericht', 'clipboard', 'Bericht', (u) => !isOffice(u) && can('bericht')], ['woche', 'Meine Woche', 'calendar', 'Woche', (u) => !isOffice(u)], ['profil', 'Profil', 'user', null, (u) => u.rolle === 'mitarbeiter'],
+    ['dashboard', 'Dashboard', 'grid', 'Heute', isOffice], ['baustellen', 'Baustellen', 'pin', null, isOffice], ['berichte', 'Bautagesberichte', 'clipboard', 'Berichte', isOffice],
+    ['preise', 'Preise & Stammdaten', 'tag', 'Preise', () => can('preise')], ['nachkalkulation', 'Nachkalkulation', 'chart', 'Kalkulation', () => can('kalk')], ['monat', 'Monatsauswertung', 'table', 'Monat', () => can('lohn')], ['benutzer', 'Benutzer & Rechte', 'shield', 'Rechte', () => can('benutzer')]
+  ];
+  const NAV = {};
+  const navFor = (u) => NAVALL.filter((it) => it[4](u));
+  const home = () => (S.user ? (isOffice(S.user) ? '/dashboard' : '/stempeluhr') : '/login');
 
   function match(path) {
     const seg = path.split('/').filter(Boolean);
@@ -391,12 +415,12 @@
   A.go = go;
 
   function shell(m) {
-    const u = S.user, items = NAV[u.rolle] || [];
+    const u = S.user, items = navFor(u), tr = A.t || ((k, d) => d);
     const key = m.r.nav;
-    const navItems = (short) => items.filter((it) => !(short && u.rolle === 'buero' && it[0] === 'baustellen')).map((it) => `<a class="nav-item ${key === it[0] ? 'active' : ''}" href="#/${it[0]}" data-demo="nav-${it[0]}">${icon(it[2])}<span class="lbl-long">${it[1]}</span><span class="lbl-short">${it[3] || it[1]}</span></a>`).join('');
-    const rolle = u.rolle === 'buero' ? u.funktion : lgName(u.lg);
+    const navItems = (short) => items.filter((it) => !(short && isOffice(u) && ['baustellen', 'benutzer'].includes(it[0]))).slice(0, short ? 5 : 99).map((it) => `<a class="nav-item ${key === it[0] ? 'active' : ''}" href="#/${it[0]}" data-demo="nav-${it[0]}">${icon(it[2])}<span class="lbl-long">${tr('nav_' + it[0], it[1])}</span><span class="lbl-short">${tr('nav_' + it[0], it[3] || it[1])}</span></a>`).join('');
+    const rolle = isOffice(u) ? u.funktion : lgName(u.lg);
     return `
-    <div class="app role-${u.rolle}">
+    <div class="app role-${u.rolle} ${S.preview ? 'has-preview' : ''}">${S.preview ? `<div class="preview-bar" data-demo="vorschau-leiste">${icon('user')}<span>Vorschau: Ansicht als <b>${A.rolleName(u.rolle)}</b> (${esc(u.name)})</span><button class="btn sm" data-act="vorschau-ende" data-demo="vorschau-beenden">${icon('x')} Vorschau beenden</button></div>` : ''}
       <aside class="sidenav">
         <a class="brand" href="#${home()}">${A.mark}<span class="brand-txt"><b>BauTag</b><small>Michael Pichler Ges.m.b.H.</small></span></a>
         <nav class="nav-list">${navItems(false)}</nav>
@@ -408,7 +432,7 @@
         <header class="topbar">
           <a class="top-logo" href="#${home()}">${A.mark}</a>
           <div class="top-title"><h1 id="page-title">${m.r.title || ''}</h1><div class="top-sub" id="page-sub">${m.r.sub ? m.r.sub(m.params) : ''}</div></div>
-          <div class="top-right">
+          ${A.topExtra ? A.topExtra(u) : ''}<div class="top-right">
             <button class="sync-chip ${S.sync}" data-act="sync-toggle" data-demo="sync-chip" title="Verbindung (Demo: antippen zum Umschalten)">${syncChipInner()}</button>
             <div class="top-clock"><b data-tick="clock">${hm(nowMin())}</b><small>${datumKurz(D.HEUTE)}${dt(D.HEUTE).getFullYear()}</small></div>
             <a class="avatar top-avatar" href="#/profil" title="${esc(u.name)}">${initials(u)}</a>
@@ -433,6 +457,7 @@
     if (!path || path === '/') { path = home(); history.replaceState(null, '', location.pathname + location.search + '#' + path); }
     let m = match(path);
     if (!m) { path = home(); m = match(path); }
+    if (S.user && m.r.bare && path.startsWith('/login') && qs.get('rolle') && !S.loggedOut) { /* direkter Login-Aufruf bleibt möglich */ }
     const same = current && current.r === m.r && JSON.stringify(current.params) === JSON.stringify(m.params) && current.user === S.user;
     const oldView = document.getElementById('view'); const scroll = same && oldView ? oldView.scrollTop : 0;
     const winScroll = same ? window.scrollY : 0;
@@ -440,10 +465,13 @@
     if (m.r.bare) { root.innerHTML = m.r.render(m.params); }
     else {
       root.innerHTML = shell(m);
-      const v = document.getElementById('view'); v.className = 'view ' + (m.r.cls || ''); v.innerHTML = m.r.render(m.params);
+      const ok = !m.r.perm || m.r.perm(S.user);
+      const v = document.getElementById('view'); v.className = 'view ' + (ok ? m.r.cls || '' : '');
+      v.innerHTML = ok ? m.r.render(m.params) : `<div class="page narrow"><div class="card pad noaccess" data-demo="kein-zugriff"><span class="na-ic">${icon('shield')}</span><h2>Kein Zugriff</h2><p>Diese Ansicht ist nur für ${m.r.permText || 'Bauleitung und Geschäftsführung'} freigegeben.</p><p class="muted sm">Angemeldet als ${esc(S.user.name)} · Rolle ${A.rolleName(S.user.rolle)}. Preise, €-Werte und Nachkalkulation sind für diese Rolle ausgeblendet.</p><a class="btn primary" href="#${home()}" data-demo="kein-zugriff-zurueck">${icon('left')} Zurück zur Startseite</a></div></div>`;
+      if (!ok) m = { r: Object.assign({}, m.r, { after: null }), params: m.params };
       v.scrollTop = scroll;
     }
-    document.body.dataset.route = m.r.pattern; document.body.dataset.rolle = S.user ? S.user.rolle : '';
+    document.body.dataset.route = m.r.pattern; document.body.dataset.rolle = S.user ? S.user.rolle : ''; document.body.classList.toggle('bm', !!S.bm);
     if (winScroll) window.scrollTo(0, winScroll);
     if (m.r.after) m.r.after(m.params);
     tick();
@@ -462,7 +490,8 @@
   ['input', 'change'].forEach((t) => document.addEventListener(t, (ev) => { const el = ev.target.closest('[data-input]'); if (!el) return; const f = inputs[el.dataset.input]; if (f) f(el, ev); }));
   actions['sheet-close'] = () => closeSheet();
   actions.go = (el) => go(el.dataset.to);
-  actions.logout = () => { S.user = null; S.loginPick = null; S.pin = ''; go('/login'); };
+  actions['vorschau-ende'] = () => { if (S.preview) { S.user = S.preview.real; S.preview = null; go('/benutzer'); render(); toast('Vorschau beendet'); } };
+  actions.logout = () => { S.preview = null; S.user = null; S.loginPick = null; S.pin = ''; go('/login'); };
 
   A.start = function () {
     genTimesheets(); genReports(); S.reports = clone(REPORTS); freezeKalkulation(); reset();
@@ -471,7 +500,7 @@
     window.demo = {
       reset() { reset(); closeSheet(); go(home()); render(); },
       go(route) { go(route); },
-      login(rolle) { S.user = rolle === 'buero' ? ma(101) : rolle === 'polier' ? ma(1) : ma(2); go(home()); render(); },
+      login(rolle) { S.preview = null; S.user = roleUser(rolle) || ma(2); go(home()); render(); },
       setClock(hhmm) { const p = hhmm.split(':'); clockBase = +p[0] * 3600 + +p[1] * 60; t0 = Date.now(); render(); },
       state: S
     };

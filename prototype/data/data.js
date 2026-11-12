@@ -113,7 +113,8 @@
   ];
   const buero = [
     { id: 101, vn: 'Martina', nn: 'Koller', name: 'Martina Koller', lg: null, rolle: 'buero', funktion: 'Büro · Lohnverrechnung' },
-    { id: 102, vn: 'Michael', nn: 'Pichler', name: 'Michael Pichler', lg: null, rolle: 'buero', funktion: 'Geschäftsführung' }
+    { id: 102, vn: 'Michael', nn: 'Pichler', name: 'Michael Pichler', lg: null, rolle: 'gf', funktion: 'Geschäftsführung' },
+    { id: 103, vn: 'Stefan', nn: 'Aigner', name: 'Stefan Aigner', lg: null, rolle: 'bauleiter', funktion: 'Bauleiter', sites: ['26-041', '26-038', '26-047', '26-050'] }
   ];
 
   // ---- Baustellen ----
@@ -123,7 +124,7 @@
       ag: 'Wohnbau Schwarzatal Gen.m.b.H.', agAdr: 'Hauptplatz 14, 2620 Neunkirchen', agMail: 'bauleitung@wohnbau-schwarzatal.example',
       bv: 'Wohnhausanlage Pitten, Feldgasse 7–11 · Zufahrt, Parkplätze, Gehwege', ort: '2823 Pitten, Feldgasse 7–11',
       bauherrVertreter: 'Ing. Helga Auer', art: 'Erdbau · Pflasterung', start: '2026-09-28', ende: '2026-11-27', fertig: 0.72, zielDB: 0.184,
-      soll: { lohn: 1.05, geraete: 1.08, material: 0.98, fremd: 1.0 },
+      soll: { lohn: 0.96, geraete: 1.02, material: 0.89, fremd: 1.0 },
       geraete: { b9: [8, 0.85], lkw3: [4, 0.7], ruettel: [6, 0.75], bomag: [3, 0.3], dumper: [4, 0.35], schneid: [3, 0.45], verlege: [5, 0.3], b27: [4, 0.25], kran3: [2, 0.2] },
       material: { frostschutz: [42, 0.5], splitt: [6, 0.45], aushub: [56, 0.35], graeder: [14, 0.25], betonbruch: [8, 0.08] },
       zusatz: { pflaster8: [46, 0.45], randstein: [28, 0.3], beton: [2.5, 0.3] },
