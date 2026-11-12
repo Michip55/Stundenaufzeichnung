@@ -17,6 +17,7 @@ import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
+import korrektur from './views/korrektur.js';
 
 const root = document.getElementById('root');
 
@@ -79,6 +80,7 @@ const ROUTEN = [
   { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: eines('benutzer') },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
+  { muster: /^\/korrektur$/, nav: 'monat', titel: 'Zeiten korrigieren', view: korrektur, darf: eines('stammdaten') },
   { muster: /^\/pin$/, nav: 'mehr', titel: 'PIN ändern', view: pin },
 ];
 

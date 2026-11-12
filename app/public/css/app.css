@@ -599,3 +599,7 @@ details.einzeln { margin-top: 12px; border-top: 1px solid var(--line-2); } detai
 .bp-hinweis { display: block; color: var(--amber); font-weight: 600; font-size: 12px; line-height: 1.25; margin-top: 2px; }
 .sig-box.signed > .btn { align-self: flex-start; }
 @media (max-width: 719px) { .abw-akt { flex-basis: 100%; justify-content: stretch; } .abw-akt .btn { flex: 1; } }
+
+/* B-05: Zeitkorrektur */
+.korr time { width: 52px; font-weight: 700; font-variant-numeric: tabular-nums; flex: none; } .korr .korr-tag { min-height: 0 !important; padding: 8px 18px !important; background: #f6f7f9; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+a.link { color: var(--blue); font-weight: 600; text-decoration: underline; }
