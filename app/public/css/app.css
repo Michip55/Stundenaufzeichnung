@@ -560,3 +560,11 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 .bud-scale::after { content: 'Schwellen in %'; position: absolute; left: 0; top: 0; }
 .rights tbody th, .rights thead th:first-child { position: sticky; left: 0; background: #fff; z-index: 1; box-shadow: 1px 0 0 var(--line); } .rights thead th:first-child { background: #f8f9fa; }
 @media (max-width: 719px) { .rights tbody th { max-width: 150px; font-size: 13.5px; } }
+
+/* Formular auf Tablet/PC: Kopf-Boxen gleich hoch, mehr Platz für Uhrzeiten */
+.pf-two.tight { align-items: stretch; } .pf-two.tight > .pf-sec { display: flex; flex-direction: column; } .pf-two.tight > .pf-sec > .pf-box { flex: 1; }
+@media (min-width: 900px) {
+  .bf-grid { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .bp-head, .bp-row { grid-template-columns: minmax(90px, 1.3fr) repeat(4, minmax(72px, 1fr)) minmax(44px, .6fr) minmax(50px, .7fr) minmax(54px, .7fr) 36px; }
+  .pf-ggrid .stepper input { width: 40px; } .pf-ggrid .stepper button { width: 28px; } .pf-ggrid .pf-g small { width: 26px; }
+}
