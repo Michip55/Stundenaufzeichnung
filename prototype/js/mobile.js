@@ -13,7 +13,7 @@
       <span class="st-val${bump(key)}" data-demo="${key}-wert"><b>${F.menge(val)}</b><small>${unit}</small></span>
       <button class="st-btn plus" data-act="${actName}" ${attrs} data-d="1" data-demo="${key}-plus" aria-label="mehr">${icon('plus')}</button>
     </div>`;
-  const STATUS = { entwurf: ['Entwurf', 'grey'], unterschrieben: ['Unterschrieben', 'amber'], freigegeben: ['Freigegeben', 'green'], verrechnet: ['Verrechnet', 'blue'] };
+  const STATUS = { entwurf: ['Entwurf', 'grey'], unterschrieben: ['Unterschrieben', 'amber'], freigegeben: ['Freigegeben', 'green'], verrechnet: ['Verrechnet', 'blue'], papier: ['Aus Papier übernommen', 'violet'] };
   A.statusChip = (s) => `<span class="chip st-${STATUS[s][1]}"><i class="dot"></i>${STATUS[s][0]}</span>`;
   A.STATUS = STATUS;
   const codeName = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', F: 'Feiertag' };

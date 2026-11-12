@@ -23,6 +23,7 @@ Reines HTML/CSS/JS, keine externen Requests. Eine responsive App: Handy (< 720 p
 | `hinweis` | `ankunft` · `pause` · `ausstempeln` | zeigt 1,2 s nach dem Laden den jeweiligen Hinweis-Banner |
 | `wetter=regen` | | Wetterkarte im Bericht startet mit Starkregen (SW-Vorschlag) |
 | `sprache` | `de` · `bks` · `hu` · `ro` · `tr` | Startsprache (Stempeluhr + Navigation) |
+| `budget=80` | | löst 1,5 s nach dem Laden den Budget-Alarm für WHA Pitten aus (für die Handy-Szene des Bauleiters) |
 | `modus=baustelle` | | Baustellen-Modus (extra groß, maximaler Kontrast) aktiv |
 
 ## `window.demo`
@@ -38,6 +39,8 @@ Reines HTML/CSS/JS, keine externen Requests. Eine responsive App: Handy (< 720 p
 | `demo.diktat()` | öffnet das Sprach-Diktat |
 | `demo.sprache('hu')` | Sprache setzen |
 | `demo.vorschau('polier')` | „Ansicht testen als …“ |
+| `demo.budgetAlarm('26-041')` | löst den 80-%-Budget-Alarm aus (wie `budget-demo-80`) |
+| `demo.papier()` | öffnet den Papierbericht-Scan |
 | `demo.state` | interner Zustand (nur zum Debuggen) |
 
 Alle Selektoren unten sind `[data-demo="…"]`. Toasts haben `[data-demo="toast"]` (verschwinden nach ~3 s).
@@ -160,8 +163,28 @@ URL: `index.html?rolle=gf#/benutzer`
 4. `vorschau-polier` („Ansicht testen“) → App als Polier, blaue Leiste `vorschau-leiste`: Navigation ohne Preise/Nachkalkulation, keine €-Werte. Beweis: `demo.go('/nachkalkulation/26-041')` → `kein-zugriff`. Zurück: `vorschau-beenden`
 5. Bauleiter-Sicht: `index.html?rolle=bauleiter#/dashboard` – nur seine 4 Baustellen, Nachkalkulation und Preise sichtbar (Preise nur lesbar), `#/monat` → `kein-zugriff`
 
+### 10) Auftragssumme + Budget-Alarm + Benachrichtigungen
+URL Desktop: `index.html?rolle=buero#/nachkalkulation/26-041` (Karte auch in `#/baustellen/26-041`; Kurzform `budget-mini-<kst>` in `#/baustellen`). Sichtbar nur für Büro, GF, Bauleiter (eigene Baustellen).
+1. Karte `budget-karte`: Feld `auftragssumme-input` (netto, editierbar; Bauleiter nur lesen), Summe `auftragssumme-gesamt`, Verbrauch `budget-verbrauch` (Kosten Ist ÷ Auftragssumme, Start 60,1 % bei Leistungsstand 72 %), Balken mit Schwellen-Marken 80/90/100 %, darunter Leistungsstand, Statuszeile `budget-status`
+2. Schwellen einstellen: `budget-alarm-einstellen` → Sheet `budget-alarm-sheet`: je Schwelle `schwelle-0-minus` / `schwelle-0-plus` (±5 %, Wert `schwelle-0-wert`) und `schwelle-0-toggle` (Index 0–2 = 80/90/100 %), intelligente Regel `budget-smart`, Empfänger `empfaenger-bauleiter|buero|gf`, Kanäle `kanal-app|push|mail` → `budget-alarm-fertig`
+3. Demo-Moment: `budget-demo-80` (bucht eine Demo-Eingangsrechnung, Verbrauch springt auf 80,4 %) → Karte wird rot („Kritisch: 80 % … Leistungsstand aber erst 72 %“), Desktop-Meldung `budget-meldung` („Budget-Warnung: WHA Pitten – 80 % der Auftragssumme verbraucht (Leistungsstand 72 %)“), Glocke `benachrichtigungen` mit Zähler `benachrichtigungen-badge`
+4. `budget-meldung-ansehen` (oder Glocke `benachrichtigungen`) → Panel `benachrichtigungen-panel` mit Gruppen Budget-Warnungen / AZG-Warnungen / Berichte zur Freigabe: `benachrichtigung-budget-0`, `benachrichtigung-azg-0`, `benachrichtigung-bericht-0` (Klick öffnet die Stelle), `benachrichtigungen-alle-gelesen`. Direkt aus der Meldung: `budget-meldung-oeffnen`
+5. Live-Neuberechnung: `nachtrag-text` füllen („Nachtrag 01 – zusätzliche Stellplätze“), `nachtrag-betrag` füllen („18.000“), `nachtrag-add` → Zeile `nachtrag-0`, Gesamt € 220.498, Verbrauch sinkt 80,4 % → 73,8 %. Ebenso `auftragssumme-input` ändern + Enter
+6. Zurück: `budget-demo-reset`
+Handy Bauleiter (390×844): `index.html?rolle=bauleiter&budget=80#/dashboard` → nach 1,5 s Push `push-banner` → `push-ansehen` (öffnet Nachkalkulation) oder `push-spaeter`; Glocke `benachrichtigungen` öffnet dieselbe Liste als Handy-Panel. Alternativ `demo.budgetAlarm()` auf jeder Seite. Polier/Mitarbeiter haben keine Glocke und bekommen nie einen Push (auch nicht per `demo.budgetAlarm()`).
+
+### 11) Papier-Bautagesbericht scannen (KI/OCR)
+URL Desktop: `index.html?rolle=buero#/berichte` · Handy/Tablet Polier: `index.html?rolle=polier#/bericht/1` (Leiste „Papierbericht fotografieren“, gleicher Selektor)
+1. `papier-scannen` → Overlay `papier-overlay` (`data-state="upload"`)
+2. `papier-datei` (oder `papier-beispiel`) → `data-state="scan"`: ausgefüllte Papiervorlage mit Handschrift + Scan-Linie (2,6 s) → warten auf `[data-demo="papier-overlay"][data-state="fertig"]`
+3. Ergebnis nebeneinander: links der Scan mit markierten Feldern (grün erkannt, orange unsicher), rechts die Felder mit Sicherheit in %: `papier-feld-datum`, `-kst` (Baustelle automatisch zugeordnet), `-ag`, `-bv`, `papier-feld-personal-13|14|15` („Riegler Th.“ → Thomas Riegler aus den Stammdaten), `papier-feld-geraet-b27|lkw2|ruettel|schneid`, `papier-feld-material-frostschutz|splitt`, `-zusatz`, `-arbeit`, `-paletten`, `-regie`, `-vorkommnisse`, `-sig-an`, `-sig-bh`; Kopfzeile `papier-zusammenfassung` („34 Felder erkannt · 2 bitte prüfen“). Unsicheres Feld korrigierbar: `papier-eingabe-b27`
+4. `papier-uebernehmen` („Alle übernehmen“) → Bericht `26-044_2026-11-11` mit Status „Aus Papier übernommen“ öffnet sich in der PDF-Ansicht, Karte `original-scan` zeigt den angehängten Scan; Stunden/Geräte/Material zählen sofort in der Nachkalkulation `#/nachkalkulation/26-044`. Danach `bericht-freigeben` möglich; in der Liste als `bericht-zeile-26-044_2026-11-11`. Abbrechen: `papier-verwerfen`
+Auch per `demo.papier()` zu öffnen.
+
 ## Bekannte Grenzen des Prototyps
 - Zustand lebt nur im Speicher der jeweiligen Seite: Handy-, Tablet- und Desktop-Szene sind getrennte Seiten und teilen keinen Zustand – dafür gibt es die Szenarien (`szenario=abend|signiert`). Nach einem Reload ist alles wieder im Ausgangszustand.
+- Der Papier-Scan erkennt immer denselben Beispielzettel (EFH Reisinger, 11.11.2026); die Handschrift ist per Kursivschrift + Verzerrung nachgeahmt, es gibt keinen echten Datei-Upload.
+- Der Budget-Alarm wird über eine Demo-Buchung (fiktive Eingangsrechnung) ausgelöst; E-Mail/Push sind nur als Kanal-Schalter und Banner dargestellt.
 - Diktat, Lieferschein-Scan, NFC-Scan, Wetter, SMS, Exporte und Druck sind simuliert (feste Demo-Inhalte).
 - Übersetzt sind Stempeluhr und Navigation; Berichte bleiben deutsch.
 - Plantafel/Einsatzplanung (Drag & Drop) ist nicht umgesetzt.

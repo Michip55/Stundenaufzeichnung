@@ -30,7 +30,7 @@
     render() {
       const all = D.mitarbeiter, inN = all.filter(isIn).length, fertig = all.filter((m) => A.stamp(m.id).status === 'fertig').length;
       const U = all.filter((m) => A.stamp(m.id).code === 'U'), K = all.filter((m) => A.stamp(m.id).code === 'K'), offen = all.filter((m) => A.stamp(m.id).status === 'aus' && !A.stamp(m.id).code);
-      const zurFreigabe = S.reports.filter((r) => r.status === 'unterschrieben' && mine(A.site(r.kst))).sort((a, b) => (a.datum < b.datum ? 1 : -1));
+      const zurFreigabe = S.reports.filter((r) => ['unterschrieben', 'papier'].includes(r.status) && mine(A.site(r.kst))).sort((a, b) => (a.datum < b.datum ? 1 : -1));
       const entwurf = S.reports.filter((r) => r.status === 'entwurf' && mine(A.site(r.kst)));
       const warn = warnungen('2026-11-05', D.HEUTE);
       const siteRows = D.baustellen.filter(mine).map((b) => {
@@ -88,6 +88,7 @@
           <h3>${esc(b.name)}</h3><p>${esc(b.ag)} · ${esc(b.ort)}</p>
           <div class="sc-prog"><div><small>Leistungsstand</small><b>${F.pct(b.fertig, 0)}</b></div><span class="meter"><i style="width:${b.fertig * 100}%"></i></span></div>
           ${can('kalk') ? `<div class="sc-kpis"><div><small>Erlös bisher</small><b>${F.eur(c.erloes, 0)}</b></div><div><small>Kosten</small><b>${F.eur(c.kosten, 0)}</b></div><div><small>DB</small><b>${F.pct(c.dbPct)}</b></div></div>` : `<div class="sc-kpis"><div><small>Lohnstunden</small><b>${F.num(c.stunden, 0)} Std.</b></div><div><small>Berichte</small><b>${c.nBerichte}</b></div><div><small>Heute</small><b>${crew.filter(isIn).length}/${crew.length}</b></div></div>`}
+          ${A.budgetMini ? A.budgetMini(b, c) : ''}
           <div class="sc-foot">${avatars(crew, 5)}<small>${pol ? 'Polier ' + esc(pol.nn) + ' · ' : ''}${F.datum(b.start).slice(0, 6)} – ${F.datum(b.ende)}</small></div></a>`; }).join('')}</div></div>`;
     }
   });
@@ -103,6 +104,7 @@
           ${c && can('kalk') ? `<div class="dh-right">${ampel(c.ampel, true)}<a class="btn primary" href="#/nachkalkulation/${b.kst}" data-demo="baustelle-zur-nachkalkulation">${icon('chart')} Nachkalkulation</a></div>` : ''}</div>
         ${c && !can('kalk') ? `<div class="kpi-row four"><div class="kpi"><small>Leistungsstand</small><b>${F.pct(b.fertig, 0)}</b><span class="meter"><i style="width:${b.fertig * 100}%"></i></span></div><div class="kpi"><small>Lohnstunden bisher</small><b>${F.num(c.stunden, 0)}<i> Std.</i></b><em>aus der Stempeluhr</em></div><div class="kpi"><small>Gerätestunden</small><b>${F.num(Object.values(c.ger).reduce((a, x) => a + x.menge, 0), 0)}<i> Std.</i></b><em>laut Bautagesberichten</em></div><div class="kpi"><small>Bautagesberichte</small><b>${reps.length}</b><em>${reps.filter((r) => r.status === 'unterschrieben').length} zur Freigabe</em></div></div>` : ''}
         ${c && can('kalk') ? `<div class="kpi-row four"><div class="kpi"><small>Auftragssumme</small><b>${F.eur(c.auftrag, 0)}</b><em>netto laut Angebot</em></div><div class="kpi"><small>Leistungsstand</small><b>${F.pct(b.fertig, 0)}</b><span class="meter"><i style="width:${b.fertig * 100}%"></i></span></div><div class="kpi"><small>Kosten bisher</small><b>${F.eur(c.kosten, 0)}</b><em>${F.num(c.stunden, 0)} Lohnstunden</em></div><div class="kpi"><small>Deckungsbeitrag</small><b>${F.pct(c.dbPct)}</b><em>${F.eur(c.db, 0)}</em></div></div>` : ''}
+        ${c && A.budgetCard ? A.budgetCard(b, c) : ''}
         <div class="dash-grid">
           <div class="stack">
             <div class="card"><div class="card-h pad-h"><h3>Heute vor Ort <span class="count">${crew.filter(isIn).length} von ${crew.length}</span></h3></div>
@@ -134,6 +136,7 @@
           <div class="seg-tabs">${[['alle', 'Alle'], ['entwurf', 'Entwurf'], ['unterschrieben', 'Unterschrieben'], ['freigegeben', 'Freigegeben'], ['verrechnet', 'Verrechnet']].map((x) => `<button class="${f === x[0] ? 'sel' : ''}" data-act="ber-filter" data-f="${x[0]}" data-demo="berichte-filter-${x[0]}">${x[1]}<i>${cnt(x[0])}</i></button>`).join('')}</div>
           <span class="grow"></span>
           <label class="select">${icon('pin')}<select data-input="ber-kst" data-demo="berichte-baustelle"><option value="alle">Alle Baustellen</option>${sites().map((b) => `<option value="${b.kst}" ${k === b.kst ? 'selected' : ''}>${b.kst} · ${esc(b.kurz)}</option>`).join('')}</select></label>
+          ${A.papierBtn ? A.papierBtn() : ''}
           ${f === 'unterschrieben' && list.length && can('freigabe') ? `<button class="btn primary" data-act="ber-alle-frei" data-demo="berichte-alle-freigeben">${icon('check')} Alle ${list.length} freigeben</button>` : ''}
         </div>
         <div class="card"><div class="tbl-wrap"><table class="tbl reports"><thead><tr><th>Datum</th><th>KST</th><th>Baustelle</th><th class="hide-md">Polier</th><th class="r">Personal</th><th class="r">Std.</th><th class="hide-md">Geräte</th>${can('preise') ? '<th class="r hide-md">Tageskosten</th>' : ''}<th>Status</th><th></th></tr></thead><tbody>
@@ -257,6 +260,7 @@
           <div class="kpi" data-demo="kpi-db"><small>Deckungsbeitrag</small><b>${F.eur(c.db, 0)}</b><em>Erlös minus Kosten</em>${dl(c.db, c0.db)}</div>
           <div class="kpi ampel-kpi a-${c.ampel}" data-demo="kpi-db-prozent"><small>DB in %</small><b>${F.pct(c.dbPct)}</b><em>${ampel(c.ampel, true)} · Ziel ≥ 15 %</em>${changed ? `<span class="delta ${c.dbPct < c0.dbPct ? 'neg' : 'pos'}">vorher ${F.pct(c0.dbPct)}</span>` : ''}</div>
         </div>
+        ${A.budgetCard ? A.budgetCard(b, c) : ''}
         ${A.kalkInsights ? A.kalkInsights(b, c) : ''}
         <div class="kalk-grid">
           <div class="card pad"><div class="card-h"><h3>Kostenverteilung</h3><span class="muted sm">Ist bis heute</span></div>

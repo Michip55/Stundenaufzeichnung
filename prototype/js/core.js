@@ -79,6 +79,7 @@
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.500v.01"/>',
     trash: '<path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l1 13h9l1-13"/>',
     helmet: '<path d="M3.500 17.500h17M5 17.500v-2a7 7 0 0 1 14 0v2M10 8.800V6h4v2.800"/>',
+    bell: '<path d="M6 16.500V11a6 6 0 0 1 12 0v5.500l1.500 2h-15zM10 20.500a2 2 0 0 0 4 0"/>',
     nfc: '<path d="M6 8.500a6 6 0 0 1 0 7M9.500 6a10 10 0 0 1 0 12M13 3.500a14 14 0 0 1 0 17"/><rect x="16.500" y="7" width="4.500" height="10" rx="1.200"/>',
     globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.800 3 2.800 15 0 18M12 3c-2.800 3-2.800 15 0 18"/>',
     spark: '<path d="M12 3l1.800 5.200L19 10l-5.200 1.800L12 17l-1.800-5.200L5 10l5.200-1.800zM19 15l.800 2.200L22 18l-2.200.800L19 21l-.800-2.200L16 18l2.200-.800z"/>',
@@ -179,6 +180,7 @@
         const r = mulberry(hash(b.kst + s));
         const personal = personalRows(b.kst, s);
         if (!personal.some((p) => p.std > 0)) continue;
+        if (b.kst === '26-044' && s === '2026-11-11') continue; // dieser Tag kommt als Papierbericht (Scan-Demo)
         const sw = SW_TAGE.includes(s), fr = dt(s).getDay() === 5, f = sw ? 0.45 : fr ? 0.6 : 1;
         const pick = (prof, round) => { const o = {}; Object.keys(prof).forEach((k) => { const [q, p] = prof[k]; if (r() < p) { const v = q * f * (0.8 + r() * 0.4); o[k] = Math.max(round, Math.round(v / round) * round); } }); return o; };
         const geraete = pick(b.geraete, 0.5), material = pick(b.material, 1), zusatz = pick(b.zusatz, 0.5);
@@ -271,6 +273,7 @@
       { t: '02.11.2026 07:55', wer: 'Martina Koller', was: 'Benutzer Ivan Horvat angelegt (Rolle Mitarbeiter)' }
     ];
     S.user = roleUser(qs.get('rolle'));
+    (A.onReset || []).forEach((f) => f());
   }
 
   /* ---------- Stempel-Logik ---------- */
@@ -335,7 +338,9 @@
     res.kosten = res.lohn + res.geraete + res.material + res.fremd;
     res.pos = Object.keys(b.posIst || {}).map((id) => ({ id, pos: P.leistung[id], ist: b.posIst[id], lv: b.posLV[id], erloes: b.posIst[id] * P.leistung[id].ep, auftrag: b.posLV[id] * P.leistung[id].ep }));
     res.erloes = res.pos.reduce((a, p) => a + p.erloes, 0);
-    res.auftrag = res.pos.reduce((a, p) => a + p.auftrag, 0);
+    res.auftrag = res.pos.reduce((a, p) => a + p.auftrag, 0); res.auftragLV = res.auftrag;
+    const bg = S.budget && S.budget[kst]; if (bg) { res.auftragBasis = bg.basis != null ? bg.basis : b.auftragBasis; res.nachtraege = bg.nachtraege.reduce((a, n) => a + n.betrag, 0); res.auftrag = res.auftragBasis + res.nachtraege; }
+    res.verbrauch = res.auftrag ? res.kosten / res.auftrag : 0;
     res.db = res.erloes - res.kosten; res.dbPct = res.erloes ? res.db / res.erloes : 0;
     const days = Object.values(tag).sort((x, y) => (x.d < y.d ? -1 : 1)); const wsum = days.reduce((a, d) => a + d.w, 0) || 1;
     let ck = 0, ce = 0; res.tage = days.map((d) => { ck += d.kosten; ce += (res.erloes * d.w) / wsum; return { d: d.d, kosten: d.kosten, kumK: ck, kumE: ce }; });
@@ -351,6 +356,7 @@
       const c = calc(b.kst, BASE, { ohneHeute: true });
       const ziel = c.kosten / (1 - b.zielDB);
       Object.keys(b.pos).forEach((id) => { const p = byId(D.leistungen, id); const q = (ziel * b.pos[id]) / p.ep; b.posIst[id] = p.einheit === 'PA' ? Math.min(1, Math.round(q * 20) / 20) : Math.round(q); b.posLV[id] = p.einheit === 'PA' ? 1 : Math.round(b.posIst[id] / b.fertig / 5) * 5; });
+      b.auftragBasis = Math.round(Object.keys(b.posLV).reduce((a, id) => a + b.posLV[id] * byId(D.leistungen, id).ep, 0));
       b.sollWerte = { lohn: c.lohn * b.soll.lohn, geraete: c.geraete * b.soll.geraete, material: c.material * b.soll.material, fremd: c.fremd * b.soll.fremd };
     });
   }
@@ -441,7 +447,7 @@
         <header class="topbar">
           <a class="top-logo" href="#${home()}">${A.mark}</a>
           <div class="top-title"><h1 id="page-title">${tr('title_' + (m.r.nav || ''), m.r.title || '')}</h1><div class="top-sub" id="page-sub">${m.r.sub ? m.r.sub(m.params) : ''}</div></div>
-          ${A.topExtra ? A.topExtra(u) : ''}<div class="top-right">
+          ${A.topExtra ? A.topExtra(u) : ''}<div class="top-right">${A.topBell ? A.topBell(u) : ''}
             <button class="sync-chip ${S.sync}" data-act="sync-toggle" data-demo="sync-chip" title="Verbindung (Demo: antippen zum Umschalten)">${syncChipInner()}</button>
             <div class="top-clock"><b data-tick="clock">${hm(nowMin())}</b><small>${datumKurz(D.HEUTE)}${dt(D.HEUTE).getFullYear()}</small></div>
             <a class="avatar top-avatar" href="#/profil" title="${esc(u.name)}">${initials(u)}</a>

@@ -180,8 +180,8 @@
     render(p) {
       const rep = A.report(p.id); if (!rep) return `<div class="page"><div class="card pad"><h3>Bericht nicht gefunden</h3><a class="btn primary" href="#/berichte">Zur Liste</a></div></div>`;
       const b = A.site(rep.kst), c = dayCost(rep), pol = polierOf(rep.kst);
-      const order = ['entwurf', 'unterschrieben', 'freigegeben', 'verrechnet'], si = order.indexOf(rep.status);
-      const tl = [['Erstellt am Handy', pol.name + ' · Polier', true], ['Vom Bauherrn unterschrieben', b.bauherrVertreter, si >= 1], ['PDF an Auftraggeber gesendet', b.agMail, si >= 1], ['Vom Büro freigegeben', si >= 2 ? 'Martina Koller' : 'offen', si >= 2], ['In Abrechnung übernommen', si >= 3 ? 'Teilrechnung' : 'offen', si >= 3]];
+      const order = ['entwurf', 'unterschrieben', 'freigegeben', 'verrechnet'], si = rep.status === 'papier' ? 1 : order.indexOf(rep.status);
+      const tl = [rep.scan ? ['Papierbericht gescannt · KI-Erkennung', 'Original-Scan angehängt · geprüft von ' + rep.scan, true] : ['Erstellt am Handy', pol.name + ' · Polier', true], ['Vom Bauherrn unterschrieben', b.bauherrVertreter, si >= 1], ['PDF an Auftraggeber gesendet', b.agMail, si >= 1], ['Vom Büro freigegeben', si >= 2 ? 'Martina Koller' : 'offen', si >= 2], ['In Abrechnung übernommen', si >= 3 ? 'Teilrechnung' : 'offen', si >= 3]];
       return `<div class="page print-page">
         <div class="print-bar">
           <a class="btn ghost" href="#${A.isOffice(S.user) ? '/berichte' : '/bericht/uebersicht'}" data-demo="pdf-zurueck">${icon('left')} ${A.isOffice(S.user) ? 'Alle Berichte' : 'Zurück'}</a>
@@ -190,12 +190,13 @@
           <span class="grow"></span>
           <button class="btn ghost" data-act="pdf-demo" data-t="Druckauftrag an Bürodrucker gesendet" data-demo="pdf-drucken">${icon('printer')}<span class="hide-sm">Drucken</span></button>
           <button class="btn ghost" data-act="pdf-demo" data-t="PDF heruntergeladen" data-demo="pdf-download">${icon('download')}<span class="hide-sm">PDF</span></button>
-          ${!A.can('freigabe') ? '' : rep.status === 'unterschrieben' ? `<button class="btn primary" data-act="bericht-freigeben" data-id="${rep.id}" data-demo="bericht-freigeben">${icon('check')} Freigeben</button>` : rep.status === 'freigegeben' ? `<button class="btn primary" data-act="bericht-verrechnen" data-id="${rep.id}" data-demo="bericht-verrechnen">${icon('euro')} In Abrechnung übernehmen</button>` : ''}
+          ${!A.can('freigabe') ? '' : ['unterschrieben', 'papier'].includes(rep.status) ? `<button class="btn primary" data-act="bericht-freigeben" data-id="${rep.id}" data-demo="bericht-freigeben">${icon('check')} Freigeben</button>` : rep.status === 'freigegeben' ? `<button class="btn primary" data-act="bericht-verrechnen" data-id="${rep.id}" data-demo="bericht-verrechnen">${icon('euro')} In Abrechnung übernehmen</button>` : ''}
         </div>
         <div class="print-grid">
           <div class="paper-wrap" id="paper-wrap"><div class="paper-zoom" id="paper-zoom">${paper(rep)}</div></div>
           <aside class="print-side">
             <div class="card pad"><div class="card-h"><h3>1:1 wie die Papiervorlage</h3></div><p class="muted sm">Gleiche Felder, gleiche Reihenfolge – für Auftraggeber und Bauherr ändert sich nichts. Das PDF entsteht automatisch aus den Eingaben am Handy.</p><div class="banner info" style="margin-top:10px">${icon('shield')}<span>Das PDF enthält <b>keine internen Kosten oder Preise</b>.</span></div></div>
+            ${rep.scan && A.scanThumb ? `<div class="card pad" data-demo="original-scan"><div class="card-h"><h3>Original-Scan</h3><span class="chip st-violet xs">aus Papier</span></div>${A.scanThumb(rep)}<p class="muted sm">Papierbericht bleibt als Beleg am digitalen Bericht angehängt.</p></div>` : ''}
             <div class="card pad"><div class="card-h"><h3>Verlauf</h3></div><ul class="timeline compact">${tl.map((t) => `<li class="${t[2] ? 'tl-in' : 'tl-open'}"><i></i><div><b>${t[0]}</b><small>${esc(t[1])}</small></div></li>`).join('')}</ul></div>
             ${!A.can('preise') ? '' : `<div class="card pad"><div class="card-h"><h3>Kosten dieses Tages</h3><span class="chip st-outline xs">${icon('lock')} intern</span></div>
               <div class="mini-cost"><div><span><i class="sw c-lohn"></i>Lohn · ${F.num(A.repStd(rep), 2)} Std.</span><b>${F.eur(c.lohn)}</b></div><div><span><i class="sw c-ger"></i>Geräte</span><b>${F.eur(c.ger)}</b></div><div><span><i class="sw c-mat"></i>Material</span><b>${F.eur(c.mat)}</b></div><div class="sum"><span>Summe</span><b data-demo="tageskosten">${F.eur(c.sum)}</b></div></div>
