@@ -6,7 +6,7 @@ import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toas
 /* =================== Liste =================== */
 export async function berichte(el, ctx) {
   const [baustellen, integ] = await Promise.all([get('/baustellen'), ctx.integrationen()]);
-  const bsVon = (b) => b.baustelle || baustellen.find((x) => x.id === b.baustelleId) || {};
+  const bsVon = (b) => { const k = baustellen.find((x) => x.id === b.baustelleId) || {}; return typeof b.baustelle === 'object' && b.baustelle ? b.baustelle : { ...k, name: (typeof b.baustelle === 'string' && b.baustelle) || k.name, kst: b.kst || k.kst }; };
   const f = { baustelleId: ctx.query.get('baustelleId') || '', status: ctx.query.get('status') || '' };
   const darfNeu = ctx.kann('bericht_erstellen');
 
@@ -40,7 +40,7 @@ export async function berichte(el, ctx) {
       return `<li><a class="rep-row" href="#/bericht/${b.id}" data-status="${esc(b.status)}">
         <span class="rep-date"><b>${esc(fmt.datumKurz(b.datum))}</b><small>${fmt.dt(b.datum).getFullYear()}</small></span>
         <span class="rep-txt"><b>${esc(bs.name || b.baustelleName || 'Baustelle')}</b><small>${esc([bs.kst || b.kst, bs.auftraggeber].filter(Boolean).join(' · '))}</small></span>
-        <span class="rep-meta">${b.stundenGesamt != null ? `<span class="muted sm nw">${fmt.zahl(b.stundenGesamt)} Std.</span>` : ''}${b.unterschriften ? `<span class="muted sm nw" title="Unterschriften">${ic('sign')}${(u.an ? 1 : 0) + (u.bh ? 1 : 0)}/2</span>` : ''}${statusChip(b.status)}</span>
+        <span class="rep-meta">${b.stunden != null ? `<span class="muted sm nw">${fmt.zahl(b.stunden)} Std.</span>` : ''}${b.unterschriften ? `<span class="muted sm nw" title="Unterschriften">${ic('sign')}${(u.an ? 1 : 0) + (u.bh ? 1 : 0)}/2</span>` : ''}${statusChip(b.status)}</span>
         ${ic('right')}</a></li>`;
     }).join('')}</ul>` : leer(f.status || f.baustelleId ? 'Keine Berichte für diese Auswahl.' : 'Noch kein Bautagesbericht vorhanden.', 'clipboard');
   }
@@ -123,15 +123,25 @@ const SCHRITTE = ['Personal', 'Geräte', 'Material', 'Leistung', 'Regie & Vorkom
 const CODES = [['', '–'], ['K', 'K · Krank'], ['U', 'U · Urlaub'], ['SW', 'SW · Schlechtwetter'], ['ZA', 'ZA · Zeitausgleich']];
 const min = (hhmm) => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 const rund2 = (n) => Math.round(n * 100) / 100;
+// Gleiche Rechnung wie am Server: Pause wird nur abgezogen, soweit sie nicht schon in der Lücke zwischen den Blöcken liegt
 function stundenAus(p) {
   const a = min(p.von1), b = min(p.bis1), c = min(p.von2), d = min(p.bis2);
+  const b1 = a != null && b != null, b2 = c != null && d != null;
   let m = 0;
-  if (a != null && b != null && b > a) m += b - a;
-  if (c != null && d != null && d > c) m += d - c;
-  if (!m) return 0;
-  // Zwei Blöcke: Pause liegt zwischen den Blöcken. Ein Block: Pause wird abgezogen.
-  if (!(c != null && d != null && d > c)) m -= Number(p.pauseMin) || 0;
-  return Math.max(0, rund2(m / 60));
+  if (b1) m += Math.max(0, b - a);
+  if (b2) m += Math.max(0, d - c);
+  const luecke = b1 && b2 ? Math.max(0, c - b) : 0;
+  m -= Math.max(0, (Number(p.pauseMin) || 0) - luecke);
+  return rund2(Math.max(0, m) / 60);
+}
+// Der Server nimmt nur vollständige, sich nicht überschneidende Zeitblöcke an
+function personalFehler(p) {
+  const z = (k) => p[k] || '';
+  if (!!z('von1') !== !!z('bis1') || !!z('von2') !== !!z('bis2')) return 'Zeitblock unvollständig – bitte „von“ und „bis“ eintragen.';
+  if ((z('von1') && z('von1') >= z('bis1')) || (z('von2') && z('von2') >= z('bis2'))) return '„bis“ muss nach „von“ liegen.';
+  if (z('von2') && !z('von1')) return 'Zweiter Zeitblock ohne ersten.';
+  if (z('von2') && z('von2') < z('bis1')) return 'Die beiden Zeitblöcke überschneiden sich.';
+  return '';
 }
 
 export async function bericht(el, ctx) {
@@ -165,7 +175,7 @@ export async function bericht(el, ctx) {
   const wert = (feld) => {
     if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden }));
     if (feld === 'material') return b.material.filter((m) => m.menge > 0).map((m) => ({ materialId: m.materialId, menge: m.menge }));
-    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, stunden: Number(p.stunden) || 0, code: p.code || null }));
+    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, stunden: Number(p.stunden) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0 }));
     if (feld === 'regie') return b.regie.filter((r) => (r.text || '').trim() || r.stunden > 0).map((r) => ({ text: r.text || '', stunden: Number(r.stunden) || 0 }));
     return b[feld];
   };
@@ -217,7 +227,7 @@ export async function bericht(el, ctx) {
         <div class="bp-foot"><span>Gesamtstunden</span><b id="gesamt">${fmt.zahl(gesamt())}</b></div>
       </div>
       <p class="pf-legend">K = Krank · U = Urlaub · SW = Schlechtwetter · ZA = Zeitausgleich</p>
-      ${editierbar() && frei.length ? `<div class="add-line"><select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${frei.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></div>` : ''}`;
+      ${editierbar() ? `<div class="add-line">${frei.length ? `<select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${frei.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn ghost sm" data-p-sync>${ic('sync')}Aus Stempelungen neu übernehmen</button></div>` : ''}`;
   }
   function regieHtml() {
     return `${b.regie.map((r, i) => `<div class="regie-row" data-i="${i}">
@@ -229,7 +239,7 @@ export async function bericht(el, ctx) {
   }
   function sigHtml(rolle, titel, sub) {
     const u = b.unterschriften[rolle];
-    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div></div>`;
+    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div></div>`;
     if (!editierbar()) return `<div class="sig-box" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div></div><p class="muted sm">Keine Unterschrift vorhanden.</p></div>`;
     return `<div class="sig-box" data-sig="${rolle}">
       <div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><button type="button" class="btn ghost sm" data-sig-clear>Löschen</button></div>
@@ -379,6 +389,11 @@ export async function bericht(el, ctx) {
       if (await bestaetigen('Person entfernen?', `${b.personal[i].name || 'Diese Person'} aus dem Bericht entfernen? Die Stempelungen bleiben erhalten.`, 'Entfernen', 'danger')) { b.personal.splice(i, 1); $('#personal', el).innerHTML = personalHtml(); geaendert('personal'); }
       return;
     }
+    if (e.target.closest('[data-p-sync]')) {
+      if (!(await bestaetigen('Personal neu übernehmen?', 'Die Zeiten werden aus den Stempelungen dieses Tages neu eingetragen. Händische Änderungen am Personal gehen verloren.', 'Übernehmen'))) return;
+      try { const neu = await post(`/berichte/${id}/personal-aktualisieren`); b.personal = neu.personal || []; $('#personal', el).innerHTML = personalHtml(); toast('Personal aus den Stempelungen übernommen.'); } catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     if (e.target.closest('[data-r-neu]')) { b.regie.push({ text: '', stunden: 0 }); $('#regie', el).innerHTML = regieHtml(); const ins = $$('#regie [data-r="text"]', el); ins[ins.length - 1].focus(); return; }
     if (e.target.closest('[data-r-weg]')) { b.regie.splice(Number(e.target.closest('.regie-row').dataset.i), 1); $('#regie', el).innerHTML = regieHtml(); geaendert('regie'); return; }
     const box = e.target.closest('.sig-box');
@@ -403,7 +418,13 @@ export async function bericht(el, ctx) {
       else p[k] = t.value;
       if (k !== 'stunden' && k !== 'code') { p.stunden = stundenAus(p); $('[data-p="stunden"]', pr).value = p.stunden ? fmt.zahl(p.stunden) : ''; }
       $('#gesamt', el).textContent = fmt.zahl(gesamt());
-      geaendert('personal'); return;
+      const fehler = personalFehler(p);
+      pr.classList.toggle('invalid', !!fehler);
+      let h = $('.bp-err', pr);
+      if (fehler && !h) { h = document.createElement('p'); h.className = 'bp-err'; h.setAttribute('role', 'alert'); pr.appendChild(h); }
+      if (h) { h.textContent = fehler; h.hidden = !fehler; }
+      if (!b.personal.some(personalFehler)) geaendert('personal');
+      return;
     }
     const rr = t.closest('.regie-row');
     if (rr && t.dataset.r) {

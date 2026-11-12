@@ -23,7 +23,7 @@ export default async function dashboard(el, ctx) {
   if (!bs.ok && (bs.fehler.netz || bs.fehler.status === 401)) throw bs.fehler;
   const baustellen = bs.ok ? bs.daten : [];
   const bsName = (id) => (baustellen.find((b) => b.id === id) || {}).name || '';
-  const bsVon = (b) => b.baustelle || baustellen.find((x) => x.id === b.baustelleId) || {};
+  const bsVon = (b) => { const k = baustellen.find((x) => x.id === b.baustelleId) || {}; return typeof b.baustelle === 'object' && b.baustelle ? b.baustelle : { ...k, name: (typeof b.baustelle === 'string' && b.baustelle) || k.name, kst: b.kst || k.kst }; };
   const anwesend = anw.ok ? (Array.isArray(anw.daten) ? anw.daten : anw.daten.anwesend || []) : [];
   const kalkListe = kalk && kalk.ok ? (Array.isArray(kalk.daten) ? kalk.daten : kalk.daten.baustellen || []) : [];
   const warnungen = mon && mon.ok ? mon.daten.warnungen || [] : [];

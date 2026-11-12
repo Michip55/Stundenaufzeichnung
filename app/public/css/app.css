@@ -545,3 +545,10 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 }
 @media (max-width: 899px) and (min-width: 720px) { .bf-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pers" "seg" "ger" "mat" "leist" "beist" "pal" "regie" "vork" "sig"; grid-template-rows: none; } }
 @media print { .sidenav, .topbar, .tabbar, .foot-bar { display: none !important; } body { overflow: visible; } }
+
+/* Nachträge aus der Abstimmung mit dem Server */
+.bp-err { grid-column: 1 / -1; color: var(--red-d); font-size: 12.5px; font-weight: 600; } .bp-row.invalid { background: #fff6f5; }
+.add-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: none; } .add-line select { flex: 0 1 260px; }
+.sig-done img { height: 64px; max-width: 55%; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--line); flex: none; }
+.crew-row .avatar.on { background: var(--green); }
+@media (max-width: 719px) { .add-line select { flex: 1 1 100%; } .add-line .btn { flex: 1; } }

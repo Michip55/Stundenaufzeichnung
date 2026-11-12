@@ -113,7 +113,7 @@ export default async function stempeln(el, ctx) {
         <section class="card pad">
           <div class="card-h"><h3>Heute</h3><span class="chip st-outline">${esc(fmt.datumKurz(new Date()))}</span></div>
           <div class="sum-grid"><div><small>Arbeitszeit</small><b>${fmt.hm(st.heute.stunden || 0)} <i>Std.</i></b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
-          ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"><time>${fmt.uhr(x.zeit)}</time><i></i><div><b>${esc(t)}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
+          ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
         <a class="card pad link-card" href="#/woche">${ic('calendar')}<span><b>Meine Woche</b><small>Stunden, Überstunden und Abwesenheiten</small></span>${ic('right')}</a>
       </div>
