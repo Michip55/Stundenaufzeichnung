@@ -71,6 +71,7 @@ export const fmt = {
   WT, WTK, MON, dt,
   zahl: (n, max = 2) => (istZahl(n) ? (max === 0 ? NF0 : max === 1 ? NF1 : NF02).format(n) : '–'),
   eur: (n) => (istZahl(n) ? '€ ' + NF2.format(n) : '–'),
+  betrag: (n) => (istZahl(n) ? NF2.format(n) : ''),
   eur0: (n) => (istZahl(n) ? '€ ' + NF0.format(Math.round(n)) : '–'),
   std: (n) => (istZahl(n) ? NF02.format(n) + ' Std.' : '–'),
   pct: (n) => (istZahl(n) ? NF1.format(n) + ' %' : '–'),
