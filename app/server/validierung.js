@@ -89,7 +89,7 @@ function liste(wert, feld, { max = 200 } = {}) {
 /** Geldbetrag auf 2 Nachkommastellen */
 function betrag(wert, feld, { min = 0, max = 1e9, pflicht = true } = {}) {
   const z = zahl(wert, feld, { min, max, pflicht });
-  return z === null ? null : Math.round(z * 100) / 100;
+  return z === null ? null : Math.round((z + Math.sign(z) * Number.EPSILON * Math.max(1, Math.abs(z))) * 100) / 100;
 }
 
 module.exports = { objekt, zahl, id, pfadId, text, bool, datum, uhrzeit, monat, auswahl, liste, betrag };

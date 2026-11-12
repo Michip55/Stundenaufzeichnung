@@ -111,7 +111,9 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
       { geraete: 'Bagger' },
       { material: [{ materialId: 4, menge: -1 }] },
       { material: [{ materialId: 4, menge: '42' }] },
-      { personal: [{ benutzerId: 2, von1: '12:00', bis1: '07:00' }] },
+      { personal: [{ benutzerId: 2, von1: '12:00', bis1: '12:00' }] },
+      { personal: [{ benutzerId: 2, von1: '07:00', bis1: '23:00', von2: '06:00', bis2: '10:00' }] }, // > 24 Std.
+      { personal: [{ benutzerId: 2, von1: '07:00', bis1: '12:00', stunden: 5, segStunden: 6 }] }, // SEG > Stunden
       { personal: [{ benutzerId: 2, von1: '7 Uhr', bis1: '12:00' }] },
       { personal: [{ benutzerId: 2, von1: '07:00' }] },
       { personal: [{ benutzerId: 2, code: 'X' }] },

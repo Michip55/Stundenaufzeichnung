@@ -337,6 +337,11 @@ CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
 ALTER TABLE benutzer ADD COLUMN muss_pin_aendern INTEGER NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX benutzer_pnr ON benutzer(pnr) WHERE pnr IS NOT NULL;
 `
+  },
+  {
+    version: 3,
+    name: 'Hinweis je Personalzeile (z. B. Ausstempeln fehlt)',
+    sql: `ALTER TABLE bericht_personal ADD COLUMN hinweis TEXT;`
   }
 ];
 

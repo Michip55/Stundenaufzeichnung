@@ -1,14 +1,16 @@
 'use strict';
 const v = require('../validierung');
 const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
-const { baustelleImBereich, darfPreise } = require('../rechte');
+const { baustelleImBereich, darfPreise, bereich } = require('../rechte');
 const { ladeBaustelle, personalVorschlag, kostenTagFuer, parseJson } = require('../daten');
-const { stundenAusBloecken } = require('../stempel');
+const { stundenAusBloecken, blockZeitleiste } = require('../stempel');
 const { wienDatum, plusTage } = require('../datum');
 const { pruefeBudget, benachrichtige } = require('../budget');
 const { erzeugeBerichtPdf } = require('../pdf');
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
+const WETTER_SCHLUESSEL = ['text', 'temperatur', 'niederschlag', 'wind', 'quelle'];
+const GESPERRT_TEXT = 'Der Bericht ist bereits unterschrieben (Auftragnehmer/Bauherr) – Inhalt gesperrt. Unterschrift zurückziehen, um zu ändern.';
 const MAX_PNG_BYTES = 400 * 1024;
 
 /* ---------- Laden ---------- */
@@ -47,7 +49,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     status: b.status,
     personal: b.personal.map((p) => ({
       benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2,
-      pauseMin: p.pause_min, stunden: p.stunden, code: p.code, segStunden: p.seg_stunden
+      pauseMin: p.pause_min, stunden: p.stunden, code: p.code, segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {})
     })),
     gesamtstunden: r2(b.personal.reduce((a, p) => a + p.stunden, 0)),
     seg: { taetigkeit: b.seg_taetigkeit || '', stunden: b.seg_stunden },
@@ -107,15 +109,17 @@ function pruefePersonal(db, liste) {
     };
     for (const [a, b, n] of [['von1', 'bis1', '1'], ['von2', 'bis2', '2']]) {
       if (Boolean(z[a]) !== Boolean(z[b])) throw ungueltig(`${f}: Zeitblock ${n} braucht von und bis.`);
-      if (z[a] && z[a] >= z[b]) throw ungueltig(`${f}: Zeitblock ${n} – „bis“ muss nach „von“ liegen.`);
+      if (z[a] && z[a] === z[b]) throw ungueltig(`${f}: Zeitblock ${n} – „von“ und „bis“ sind gleich.`);
     }
     if (z.von2 && !z.von1) throw ungueltig(`${f}: Zeitblock 2 ohne Zeitblock 1.`);
-    if (z.von2 && z.von2 < z.bis1) throw ungueltig(`${f}: Zeitblock 2 überschneidet sich mit Zeitblock 1.`);
+    // „bis“ vor „von“ = über Mitternacht (nächster Tag); gesamte Spanne höchstens 24 Std.
+    if (blockZeitleiste(z).spanneMin > 24 * 60) throw ungueltig(`${f}: Die Zeitblöcke umfassen mehr als 24 Stunden.`);
     const pauseMin = v.zahl(p.pauseMin ?? 0, `${f}.pauseMin`, { min: 0, max: 600, ganz: true });
     const code = p.code === '' || p.code === null || p.code === undefined ? null : v.auswahl(p.code, `${f}.code`, CODES);
     let stunden = v.zahl(p.stunden, `${f}.stunden`, { min: 0, max: 24, pflicht: false });
     if (stunden === null) stunden = stundenAusBloecken({ ...z, pauseMin });
     const segStunden = v.zahl(p.segStunden ?? 0, `${f}.segStunden`, { min: 0, max: 24 });
+    if (segStunden > stunden) throw ungueltig(`${f}: SEG-Stunden dürfen die Arbeitsstunden nicht übersteigen.`);
     return { benutzerId, ...z, pauseMin, stunden: r2(stunden), code, segStunden };
   });
 }
@@ -180,6 +184,7 @@ function pruefeUpdate(db, body) {
       const keys = Object.keys(w);
       if (keys.length > 10) throw ungueltig('wetter: zu viele Angaben.');
       for (const k of keys) {
+        if (!WETTER_SCHLUESSEL.includes(k)) throw ungueltig(`wetter.${k} ist unbekannt (erlaubt: ${WETTER_SCHLUESSEL.join(', ')}).`);
         const x = w[k];
         if (!(x === null || typeof x === 'boolean' || (typeof x === 'number' && Number.isFinite(x)) || (typeof x === 'string' && x.length <= 200))) throw ungueltig(`wetter.${k} ist ungültig.`);
       }
@@ -194,6 +199,7 @@ function speichereUpdate(db, berichtId, u, zeit) {
     db.lauf('DELETE FROM bericht_personal WHERE bericht_id = ?', berichtId);
     u.personal.forEach((p, i) => db.lauf(`INSERT INTO bericht_personal (bericht_id, benutzer_id, von1, bis1, von2, bis2, pause_min, stunden, seg_stunden, code, pos)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, berichtId, p.benutzerId, p.von1, p.bis1, p.von2, p.bis2, p.pauseMin, p.stunden, p.segStunden || 0, p.code, i));
+    u.personal.forEach((p) => { if (p.hinweis) db.lauf('UPDATE bericht_personal SET hinweis = ? WHERE bericht_id = ? AND benutzer_id = ?', p.hinweis, berichtId, p.benutzerId); });
   }
   if (u.geraete) {
     db.lauf('DELETE FROM bericht_geraet WHERE bericht_id = ?', berichtId);
@@ -247,6 +253,10 @@ module.exports = function berichtRouten(api, bt) {
     const q = req.query;
     const bedingungen = [];
     const p = [];
+    // Bereich schon in SQL (vor LIMIT)
+    const ber = bereich(ctx.benutzer);
+    if (ber === 'bauleiter') { bedingungen.push('b.bauleiter_id = ?'); p.push(ctx.benutzer.id); }
+    if (ber === 'partie') { bedingungen.push('(b.polier_id = ? OR b.id = ?)'); p.push(ctx.benutzer.id, ctx.benutzer.baustelle_id ?? -1); }
     if (q.baustelleId !== undefined) { bedingungen.push('r.baustelle_id = ?'); p.push(v.pfadId(String(q.baustelleId), 'baustelleId')); }
     if (q.von !== undefined) { bedingungen.push('r.datum >= ?'); p.push(v.datum(String(q.von), 'von')); }
     if (q.bis !== undefined) { bedingungen.push('r.datum <= ?'); p.push(v.datum(String(q.bis), 'bis')); }
@@ -294,7 +304,7 @@ module.exports = function berichtRouten(api, bt) {
 
   api.put('/berichte/:id', (req, res) => {
     const b = ladeMitZugriff(req, true);
-    if (b.status !== 'entwurf') throw konflikt('Der Bericht ist unterschrieben und kann nicht mehr bearbeitet werden.');
+    if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const u = pruefeUpdate(db, v.objekt(req.body));
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
     db.transaktion(() => {
@@ -307,9 +317,9 @@ module.exports = function berichtRouten(api, bt) {
   /** Zusatz: Personal erneut aus den Stempelungen übernehmen (nur Entwurf) */
   api.post('/berichte/:id/personal-aktualisieren', (req, res) => {
     const b = ladeMitZugriff(req, true);
-    if (b.status !== 'entwurf') throw konflikt('Der Bericht ist unterschrieben und kann nicht mehr bearbeitet werden.');
+    if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const seg = new Map(b.personal.map((p) => [p.benutzer_id, p.seg_stunden]));
-    const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: seg.get(p.benutzerId) || 0 }));
+    const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: Math.min(seg.get(p.benutzerId) || 0, p.stunden) }));
     db.transaktion(() => speichereUpdate(db, b.id, { personal }, jetzt()));
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
@@ -344,6 +354,17 @@ module.exports = function berichtRouten(api, bt) {
       }
     });
     if (neuerStatus === 'unterschrieben') pruefeBudget(bt, b.baustelle_id, { anlass: 'Unterschrift Bautagesbericht', benutzerId: req.ctx.benutzer.id });
+    res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
+  });
+
+  /** Unterschrift zurückziehen (nur solange der Bericht noch Entwurf ist) – danach wieder bearbeitbar */
+  api.delete('/berichte/:id/unterschrift/:rolle', (req, res) => {
+    const b = ladeMitZugriff(req, true);
+    const rolle = v.auswahl(req.params.rolle, 'rolle', ['an', 'bh']);
+    if (b.status !== 'entwurf') throw konflikt('Der Bericht ist vollständig unterschrieben – Unterschriften können nicht mehr zurückgezogen werden.');
+    const r = db.lauf('DELETE FROM unterschrift WHERE bericht_id = ? AND rolle = ?', b.id, rolle);
+    if (!r.changes) throw nichtGefunden('Diese Unterschrift gibt es nicht.');
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Unterschrift (${rolle === 'an' ? 'Auftragnehmer' : 'Bauherr'}) zurückgezogen: ${b.baustelle.kst} ${b.datum}` });
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
 

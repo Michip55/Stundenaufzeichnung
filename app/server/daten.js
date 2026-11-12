@@ -1,6 +1,6 @@
 'use strict';
 /** Gemeinsame Lade-Funktionen (Datenbank → Objekte für Logik und Antworten). */
-const { schichten, personalAusSchichten } = require('./stempel');
+const { schichten, personalAusSchichten, plausibilisieren, statusAusBuchungen } = require('./stempel');
 const { berechneKalkulation, kostenBericht } = require('./kalkulation');
 const { wienZuDate, plusTage } = require('./datum');
 
@@ -80,6 +80,25 @@ function letzteBuchungen(db, benutzerId, anzahl = 200) {
     WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT ?`, benutzerId, anzahl).reverse();
 }
 
+/**
+ * Aktueller Stempelstatus aus der GANZEN laufenden Schicht (ab dem letzten „kommen“) – N-01.
+ * @returns {{status, seit, baustelleId, schichtBeginn, letzte: object|null}}
+ */
+function aktuellerStatus(db, benutzerId) {
+  const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
+  const letzte = db.eins('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId);
+  if (!k) return { status: 'aus', seit: null, baustelleId: null, schichtBeginn: null, letzte };
+  const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, k.zeit);
+  return { ...statusAusBuchungen(b), letzte };
+}
+
+/** Buchungen seit einem Zeitpunkt (mindestens die ganze laufende Schicht) */
+function buchungenSeit(db, benutzerId, vonIso) {
+  const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
+  const von = k && k.zeit < vonIso ? k.zeit : vonIso;
+  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
+}
+
 /** Zeitfenster rund um einen Tag (Vortag 00:00 bis übermorgen 00:00 Wiener Zeit) */
 function fensterUmTag(datum) {
   return { von: wienZuDate(plusTage(datum, -1)).toISOString(), bis: wienZuDate(plusTage(datum, 2)).toISOString() };
@@ -98,7 +117,7 @@ function schichtenAmTag(db, datum, jetzt, nurBenutzer) {
   }
   const out = new Map();
   for (const [id, b] of proBenutzer) {
-    const s = schichten(b, jetzt).filter((x) => x.datum === datum);
+    const s = plausibilisieren(schichten(b, jetzt), jetzt).filter((x) => x.datum === datum);
     if (s.length) out.set(id, s);
   }
   return out;
@@ -117,7 +136,7 @@ function personalVorschlag(db, baustelleId, datum, jetzt) {
     if (p) zeilen.set(benutzerId, { benutzerId, ...p, code: null, segStunden: 0 });
   }
   const abw = db.alle(`SELECT a.benutzer_id, a.code FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id
-    WHERE a.datum = ? AND (b.baustelle_id = ? OR b.id = ?)`, datum, baustelleId, bs ? bs.polier_id || -1 : -1);
+    WHERE a.datum = ? AND a.status = 'genehmigt' AND (b.baustelle_id = ? OR b.id = ?)`, datum, baustelleId, bs ? bs.polier_id || -1 : -1);
   for (const a of abw) {
     if (zeilen.has(a.benutzer_id)) zeilen.get(a.benutzer_id).code = a.code;
     else zeilen.set(a.benutzer_id, { benutzerId: a.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, stunden: 0, code: a.code, segStunden: 0 });
@@ -131,5 +150,5 @@ function personalVorschlag(db, baustelleId, datum, jetzt) {
 
 module.exports = {
   ladeBaustelle, ladeBenutzer, parseJson, ladePreise, ladeBerichteFuerKalk, kalkulationFuer, kostenTagFuer,
-  ladeBuchungen, letzteBuchungen, fensterUmTag, schichtenAmTag, personalVorschlag
+  ladeBuchungen, letzteBuchungen, aktuellerStatus, buchungenSeit, fensterUmTag, schichtenAmTag, personalVorschlag
 };

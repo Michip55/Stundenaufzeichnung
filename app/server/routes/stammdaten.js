@@ -5,6 +5,7 @@ const { darfPreise, darfKalk, bereich, baustelleImBereich } = require('../rechte
 const { kalkulationFuer, parseJson, ladePreise } = require('../daten');
 const { pruefeBudget } = require('../budget');
 const { brauche, baustelleAusPfad } = require('./hilfe');
+const { wienDatum, plusTage } = require('../datum');
 
 const BS_STATUS = ['geplant', 'aktiv', 'abgeschlossen'];
 
@@ -146,7 +147,7 @@ module.exports = function stammdatenRouten(api, bt) {
     const bs = baustelleAusPfad(db, req.params.id);
     const body = v.objekt(req.body);
     const text = v.text(body.text, 'text', { max: 300 });
-    const betrag = v.betrag(body.betrag, 'betrag', { min: -1e8, max: 1e9 });
+    const betrag = v.betrag(body.betrag, 'betrag', { min: -1e8, max: 1e8 });
     const r = db.lauf('INSERT INTO nachtrag (baustelle_id, text, betrag, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', bs.id, text, betrag, jetzt(), req.ctx.benutzer.id);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'nachtrag', objekt: `baustelle:${bs.id}`, neu: { id: r.id, text, betrag }, text: `Nachtrag zu ${bs.kst} erfasst` });
     pruefeBudget(bt, bs.id, { anlass: 'Nachtrag', benutzerId: req.ctx.benutzer.id });
@@ -164,31 +165,91 @@ module.exports = function stammdatenRouten(api, bt) {
     res.json({ ok: true });
   });
 
+  /** Buchungsdatum für Leistung/Fremdleistung: nicht in der Zukunft, höchstens 2 Jahre zurück */
+  function buchungsDatum(wert) {
+    const datum = v.datum(wert, 'datum');
+    const heute = wienDatum(bt.uhr());
+    if (datum > heute) throw ungueltig('datum darf nicht in der Zukunft liegen.');
+    if (datum < plusTage(heute, -731)) throw ungueltig('datum liegt mehr als 2 Jahre zurück.');
+    return datum;
+  }
+  const darfLeistung = (ctx, bs) => ctx.hat('preise_bearbeiten') || (ctx.benutzer.rolle === 'bauleiter' && bs.bauleiter_id === ctx.benutzer.id);
+
+  api.get('/baustellen/:id/leistungen', (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    if (!darfKalk(req.ctx, bs) && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Leistungsmeldungen sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    const mitPreis = darfPreise(req.ctx, bs);
+    res.json(db.alle(`SELECT m.*, l.code, l.text, l.einheit, l.ep, b.name AS von_name FROM leistungsmeldung m JOIN leistung l ON l.id = m.leistung_id
+        LEFT JOIN benutzer b ON b.id = m.erstellt_von WHERE m.baustelle_id = ? ORDER BY m.datum DESC, m.id DESC`, bs.id).map((m) => {
+      const o = { id: m.id, leistungId: m.leistung_id, code: m.code, text: m.text, einheit: m.einheit, menge: m.menge, datum: m.datum, erstellt: m.erstellt, erstelltVon: m.erstellt_von, erstelltVonName: m.von_name };
+      if (mitPreis) { o.ep = m.ep; o.betrag = Math.round(m.menge * m.ep * 100) / 100; }
+      return o;
+    }));
+  });
+
   api.post('/baustellen/:id/leistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
-    const darf = req.ctx.hat('preise_bearbeiten') || (ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id);
-    if (!darf) throw keinZugriff('Leistungsmeldungen erfassen dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
+    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen erfassen dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
     const body = v.objekt(req.body);
     const leistungId = v.id(body.leistungId, 'leistungId');
-    if (!db.eins('SELECT id FROM leistung WHERE id = ?', leistungId)) throw ungueltig('leistungId: Leistungsposition nicht gefunden.');
-    const menge = v.zahl(body.menge, 'menge', { min: 0.001, max: 1e6 });
-    const datum = v.datum(body.datum, 'datum');
-    const r = db.lauf('INSERT INTO leistungsmeldung (baustelle_id, leistung_id, menge, datum, erstellt_von, erstellt) VALUES (?, ?, ?, ?, ?, ?)', bs.id, leistungId, menge, datum, ich.id, jetzt());
+    const l = db.eins('SELECT id, code, text FROM leistung WHERE id = ?', leistungId);
+    if (!l) throw ungueltig('leistungId: Leistungsposition nicht gefunden.');
+    const menge = v.zahl(body.menge, 'menge', { min: 0.001, max: 100000 });
+    const datum = buchungsDatum(body.datum);
+    const r = db.transaktion(() => {
+      const r2 = db.lauf('INSERT INTO leistungsmeldung (baustelle_id, leistung_id, menge, datum, erstellt_von, erstellt) VALUES (?, ?, ?, ?, ?, ?)', bs.id, leistungId, menge, datum, ich.id, jetzt());
+      db.protokolliere({ zeit: jetzt(), benutzerId: ich.id, art: 'leistung', objekt: `baustelle:${bs.id}`, neu: { id: r2.id, leistungId, menge, datum }, text: `Leistungsmeldung ${l.code} zu ${bs.kst}` });
+      return r2;
+    });
     pruefeBudget(bt, bs.id, { anlass: 'Leistungsmeldung', benutzerId: ich.id });
     res.status(201).json({ id: r.id, baustelleId: bs.id, leistungId, menge, datum });
+  });
+
+  api.delete('/baustellen/:id/leistungen/:lid', (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen stornieren dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
+    const lid = v.pfadId(req.params.lid, 'Leistungsmeldungs-ID');
+    const m = db.eins('SELECT * FROM leistungsmeldung WHERE id = ? AND baustelle_id = ?', lid, bs.id);
+    if (!m) throw nichtGefunden('Leistungsmeldung nicht gefunden.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM leistungsmeldung WHERE id = ?', lid);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'leistung', objekt: `baustelle:${bs.id}`, alt: { id: m.id, leistungId: m.leistung_id, menge: m.menge, datum: m.datum }, text: `Leistungsmeldung zu ${bs.kst} storniert` });
+    });
+    pruefeBudget(bt, bs.id, { anlass: 'Storno Leistungsmeldung', benutzerId: req.ctx.benutzer.id });
+    res.json({ ok: true });
+  });
+
+  api.get('/baustellen/:id/fremdleistungen', (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen (€) sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    res.json(db.alle('SELECT * FROM fremdleistung WHERE baustelle_id = ? ORDER BY datum DESC, id DESC', bs.id)
+      .map((f) => ({ id: f.id, text: f.text, betrag: f.betrag, datum: f.datum, erstellt: f.erstellt, erstelltVon: f.erstellt_von })));
   });
 
   api.post('/baustellen/:id/fremdleistungen', brauche('preise_bearbeiten'), (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     const body = v.objekt(req.body);
     const text = v.text(body.text, 'text', { max: 300 });
-    const betrag = v.betrag(body.betrag, 'betrag', { min: -1e8, max: 1e9 });
-    const datum = v.datum(body.datum, 'datum');
+    const betrag = v.betrag(body.betrag, 'betrag', { min: -5e6, max: 5e6 });
+    const datum = buchungsDatum(body.datum);
     const r = db.lauf('INSERT INTO fremdleistung (baustelle_id, text, betrag, datum, erstellt_von, erstellt) VALUES (?, ?, ?, ?, ?, ?)', bs.id, text, betrag, datum, req.ctx.benutzer.id, jetzt());
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'fremdleistung', objekt: `baustelle:${bs.id}`, neu: { id: r.id, text, betrag, datum }, text: `Fremdleistung zu ${bs.kst} erfasst` });
     pruefeBudget(bt, bs.id, { anlass: 'Fremdleistung', benutzerId: req.ctx.benutzer.id });
     res.status(201).json({ id: r.id, baustelleId: bs.id, text, betrag, datum });
+  });
+
+  api.delete('/baustellen/:id/fremdleistungen/:fid', brauche('preise_bearbeiten'), (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    const fid = v.pfadId(req.params.fid, 'Fremdleistungs-ID');
+    const f = db.eins('SELECT * FROM fremdleistung WHERE id = ? AND baustelle_id = ?', fid, bs.id);
+    if (!f) throw nichtGefunden('Fremdleistung nicht gefunden.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM fremdleistung WHERE id = ?', fid);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'fremdleistung', objekt: `baustelle:${bs.id}`, alt: { id: f.id, text: f.text, betrag: f.betrag, datum: f.datum }, text: `Fremdleistung zu ${bs.kst} storniert` });
+    });
+    pruefeBudget(bt, bs.id, { anlass: 'Storno Fremdleistung', benutzerId: req.ctx.benutzer.id });
+    res.json({ ok: true });
   });
 
   /* ---------- Mitarbeiter, Geräte, Material, Leistungen ---------- */

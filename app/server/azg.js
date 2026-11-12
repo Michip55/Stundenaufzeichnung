@@ -5,10 +5,11 @@
  *  - mehr als 6 Std. Arbeit ohne 30 Min. Pause (§ 11 AZG)
  *  - Ausstempeln vergessen (offen > 12 Std.)
  *  - weniger als 11 Std. Ruhezeit (§ 12 AZG)
+ *  - unplausible Schicht (> 16 Std. ausgestempelt – vermutlich vergessen)
  */
 const { deDatum, wienZeit } = require('./datum');
 
-const GRENZEN = { tagHinweisMin: 600, tagMaxMin: 720, pauseNachMin: 360, pauseMin: 30, offenMin: 720, ruheMin: 660 };
+const GRENZEN = { tagHinweisMin: 600, tagMaxMin: 720, pauseNachMin: 360, pauseMin: 30, offenMin: 720, ruheMin: 660, unplausibelMin: 960 };
 
 const zahl = (x) => (Math.round(x * 100) / 100).toLocaleString('de-AT', { maximumFractionDigits: 2 });
 
@@ -39,6 +40,9 @@ function azgWarnungen(schichten, opt = {}) {
     }
   }
   for (const s of schichten) {
+    if (!s.offen && s.ende - s.start > g.unplausibelMin * 60000) {
+      out.push({ typ: 'unplausibel', datum: s.datum, stufe: 'grenze', text: `${deDatum(s.datum)}: Schicht über ${zahl((s.ende - s.start) / 3600000)} Std. – vermutlich Ausstempeln vergessen. Bitte im Büro korrigieren (zählt bis dahin mit 0 Std.).` });
+    }
     if (s.offen && jetzt != null && jetzt - s.start > g.offenMin * 60000) {
       out.push({ typ: 'offen', datum: s.datum, stufe: 'hinweis', text: `Ausstempeln vergessen? Eingestempelt seit ${deDatum(s.datum)} ${wienZeit(new Date(s.start))} (über 12 Std.).` });
     }

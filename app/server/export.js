@@ -28,13 +28,24 @@ function lohnCsv(m) {
   for (const ma of m.mitarbeiter) {
     for (const d of Object.keys(ma.tage).sort()) {
       const t = ma.tage[d];
-      z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', deDatum(d), WT_KURZ[wochentag(d)], t.von || '', t.bis || '', t.pauseMin ?? '', r2(t.stunden), t.code || '', (t.baustellen || []).join(', ')]);
+      const kuerzel = t.code && !t.codeStatus ? t.code : '';
+      if (!t.stunden && !kuerzel && !t.unplausibel && !t.von) continue; // nur beantragt → Hinweiszeile
+      z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', deDatum(d), WT_KURZ[wochentag(d)], t.von || '', t.bis || '', t.pauseMin ?? '', r2(t.stunden), kuerzel, (t.baustellen || []).join(', ')]);
     }
   }
   z.push([]);
   z.push(['Personalnummer', 'Name', 'Lohngruppe', 'Monat', 'Summe Stunden', 'Normalstunden', 'Überstunden (Vorschlag)', 'SW-Tage', 'SW-Stunden', 'K-Tage', 'U-Tage', 'ZA-Tage', 'SEG-Stunden']);
   for (const ma of m.mitarbeiter) {
     z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', m.monat, ma.summe, ma.normal, ma.ueberstunden, ma.sw, ma.swStunden, ma.k, ma.u, ma.za, ma.seg]);
+  }
+  const hinweise = [
+    ...(m.beantragt || []).map((b) => `Beantragt, nicht genehmigt (nicht gezählt): ${b.name} ${deDatum(b.datum)} ${b.code}`),
+    ...(m.offeneSchichten || []).map((o) => `Offene/unplausible Schicht (0 Std. gezählt, bitte korrigieren): ${o.name} ${deDatum(o.datum)} ab ${o.beginn || '?'}`),
+    ...(m.warnungen || []).filter((w) => w.typ !== 'unplausibel').map((w) => `AZG: ${w.name} – ${w.text}`)
+  ];
+  if (hinweise.length) {
+    z.push([]);
+    for (const h of hinweise) z.push(['Hinweis', h]);
   }
   return csv(z);
 }
@@ -47,8 +58,9 @@ function buakCsv(m) {
   ];
   for (const ma of m.mitarbeiter) {
     const tage = Object.entries(ma.tage);
-    const beschaeftigt = tage.filter(([, t]) => t.stunden > 0 || ['U', 'K', 'SW', 'ZA'].includes(t.code)).length;
-    const swDaten = tage.filter(([, t]) => t.code === 'SW').map(([d]) => deDatum(d)).join(', ');
+    const gilt = (t, c) => t.code === c && !t.codeStatus; // nur genehmigte Abwesenheiten
+    const beschaeftigt = tage.filter(([, t]) => t.stunden > 0 || ['U', 'K', 'SW', 'ZA'].some((c) => gilt(t, c))).length;
+    const swDaten = tage.filter(([, t]) => gilt(t, 'SW')).map(([d]) => deDatum(d)).join(', ');
     z.push([ma.pnr ?? '', ma.name, m.monat, beschaeftigt, ma.summe, ma.u, ma.k, ma.sw, ma.swStunden, swDaten]);
   }
   return csv(z);

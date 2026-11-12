@@ -112,6 +112,7 @@ function createApp(opt = {}) {
   require('./routes/stammdaten')(api, bt);
   require('./routes/preise')(api, bt);
   require('./routes/zeit')(api, bt);
+  require('./routes/abwesenheiten')(api, bt);
   require('./routes/berichte')(api, bt);
   require('./routes/kalkulation')(api, bt);
   require('./routes/benachrichtigungen')(api, bt);

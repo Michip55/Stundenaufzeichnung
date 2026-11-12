@@ -58,11 +58,12 @@ const RE_MONAT = /^\d{4}-(0[1-9]|1[0-2])$/;
 function istDatum(s) {
   if (typeof s !== 'string' || !RE_DATUM.test(s)) return false;
   const [y, m, d] = s.split('-').map(Number);
+  if (y < 2000 || y > 2100) return false;
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 const istZeit = (s) => typeof s === 'string' && RE_ZEIT.test(s);
-const istMonat = (s) => typeof s === 'string' && RE_MONAT.test(s);
+const istMonat = (s) => typeof s === 'string' && RE_MONAT.test(s) && Number(s.slice(0, 4)) >= 2000 && Number(s.slice(0, 4)) <= 2100;
 
 /** Kalendertage addieren (reines Datum) */
 function plusTage(datum, n) {
