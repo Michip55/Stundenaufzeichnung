@@ -166,3 +166,74 @@ Alle Punkte sind **additiv** oder Präzisierungen; bestehende Felder/Routen sind
 - **Uhr:** `BAUTAG_UHR` setzt die Startzeit; die Uhr läuft danach in Echtzeit weiter (für Tests: `createApp({uhr: () => Date})`).
 - **Testdaten** sind relativ zu „heute“ (Prototyp-Datum 12.11.2026 wird verschoben). Baustellen ohne Prototyp-Bauleiter haben GF Michael Pichler als Bauleiter; 26-029 hat Thomas Riegler als Polier.
 - **`npm test`:** `node --test <Ordner>` funktioniert unter Node 22 nicht; das Script nutzt daher Glob-Muster `"tests/unit/**/*.test.js" "tests/api/**/*.test.js"` (gleicher Umfang).
+
+## 7. Änderungen nach Prüfbericht 1 (Backend, verbindlich)
+
+Bezug: `app/PRUEFBERICHT_1.md`. Neue/geänderte Routen und Regeln; alles andere bleibt wie oben.
+
+### Anmeldung (B-03, M-05)
+- `GET /auth/benutzerliste` → nur noch `[{id, name}]` (keine Rolle). Mit `BAUTAG_LOGIN_LISTE=0` abgeschaltet → **404** `{code:"NICHT_GEFUNDEN"}`; dann Anmeldung über die Personalnummer.
+- `POST /auth/login` akzeptiert `{benutzerId, pin}` **oder** `{pnr, pin}`. PIN: 4–12 Ziffern.
+- **Sperre je (Benutzer, Client-IP)** mit steigender Dauer: 5 Fehlversuche → 5 min, nächste Sperre 15 min, danach jeweils 60 min (Zähler zurück nach erfolgreicher Anmeldung oder PIN-Reset durch die GF). Ein Fremder sperrt damit nur sich selbst aus. Zusätzlich je Client-IP höchstens 30 Fehlversuche in 5 min (429). Antwort 429 `{code:"ZU_VIELE_VERSUCHE"}` + `Retry-After`. Die Client-IP ist `req.ip`; hinter einem Reverse-Proxy **muss** `TRUST_PROXY=1` gesetzt sein (sonst wäre es die Proxy-Adresse), dann gelten `X-Forwarded-For`/`X-Forwarded-Proto` des Proxys.
+- **PIN-Länge:** Mitarbeiter/Polier mind. 4, Bauleiter/Büro/GF mind. 6 Ziffern (max. 12). Keine Folgen wie `1111`, `1234`, `654321` (400).
+- **`POST /auth/pin`** `{alt, neu}` (angemeldet) → `{ok:true}`. Falsche alte PIN → 401 (zählt als Fehlversuch). Beendet alle anderen Sitzungen des Benutzers. Protokoll.
+- **Pflicht zur PIN-Änderung:** Benutzer mit gesetztem Kennzeichen (nach Anlage, nach PIN-Reset durch die GF, alle Testdaten-Benutzer ohne `BAUTAG_DEMO=1`) erhalten auf **alle** Routen außer `/auth/*` und `/gesundheit` **403** `{code:"PIN_AENDERN", fehler:"Bitte zuerst die PIN ändern."}`. `GET /auth/ich` liefert `mussPinAendern: true|false`.
+- `GET /auth/ich` → zusätzlich `mussPinAendern`, `sitzungMinuten` (Inaktivitäts-Ablauf).
+- **Sitzungsablauf nach Inaktivität je Rolle:** Mitarbeiter/Polier `BAUTAG_SITZUNG_FELD_MIN` (Standard 720 = 12 h), Bauleiter/Büro/GF `BAUTAG_SITZUNG_BUERO_MIN` (Standard 60). Absolute Obergrenze `BAUTAG_SITZUNG_MAX_H` (Standard 24 h).
+
+### Rechte (B-01)
+- `benutzer` ist für **alle Rollen außer GF gesperrt** (weder Matrix noch Ausnahme → 400). `stammdaten` ist zusätzlich für Polier/Mitarbeiter gesperrt.
+- Niemand ändert die **eigene** Rolle oder deaktiviert sich selbst (`PUT /benutzer/:id` → 403).
+- `GET /rechte` → `protokoll`: Einträge mit €-Bezug (`preis`, `auftrag`, `nachtrag`, `fremdleistung`, `leistung`, `budget_alarm`) nur mit `preise_sehen`; sonst fehlen sie, und €-Schlüssel in `alt`/`neu` werden entfernt.
+
+### Kolonne (B-02)
+- Über `POST /zeit/kolonne` sind nur Personen mit Rolle **mitarbeiter/polier** stempelbar (sonst `ok:false`).
+- `kommen`: nur Personen der eigenen Partie (Stamm-Baustelle im Bereich des Stempelnden). Fremde Personen nur mit `gast:true` im Body (wird protokolliert).
+- `gehen`, `pause_start`, `pause_ende`, `wechsel`: nur Personen, die gerade auf einer Baustelle im Bereich des Stempelnden eingestempelt sind (`wechsel` zusätzlich nur auf eine Baustelle im Bereich).
+
+### Zeitkorrektur, Nachtschicht, vergessenes Ausstempeln (B-05, B-06, N-01, N-06)
+- **Über Mitternacht:** In Berichtszeilen gilt `bis < von` als **nächster Tag** (z. B. `von1:"22:00", bis1:"02:00"`). `von == bis` ist ungültig; die Zeitspanne von `von1` bis zum Ende des letzten Blocks darf 24 h nicht überschreiten. Stunden = Blockdauern (mit +24 h über Mitternacht) minus Pause, soweit nicht in der Lücke. Gleiche Regel in Auto-Befüllung, Prüfung, PDF und Monat (Schicht zählt zum Tag des Beginns).
+- **Unplausible Schichten:** Eine Schicht, die länger als 16 h offen ist oder (ausgestempelt) länger als 16 h dauerte, zählt in Bericht, Woche, Monat und Export mit **0 Std.** und wird gekennzeichnet: Woche/Monat-Tag `unplausibel:true`, Monat `offeneSchichten:[{benutzerId,name,datum,beginn,text}]`, CSV-Hinweiszeile, AZG-Warnung `typ:"unplausibel"`. Im Bericht erscheint die Person mit leeren Zeiten, `stunden:0`, `hinweis:"Ausstempeln fehlt – Zeiten bitte eintragen"`.
+- **Korrektur durch Büro/GF** (Recht `stammdaten`, immer mit Grund, protokolliert mit alt/neu):
+  - `GET /zeit/buchungen?benutzerId&von&bis` (`von`/`bis` = Datum, Standard letzte 14 Tage) → `[{id, benutzerId, typ, zeit, uhrzeit, datum, baustelleId, quelle, erfasstVon}]`. Ohne `stammdaten` nur eigene (`benutzerId` = ich).
+  - `POST /zeit/buchungen` `{benutzerId, typ, zeit, baustelleId?, grund}` → 201 neue Buchung (Quelle `buero`, beliebig weit zurück, nicht in der Zukunft).
+  - `PUT /zeit/buchungen/:id` `{zeit?, baustelleId?, grund}` → 200.
+  - `DELETE /zeit/buchungen/:id` `{grund}` → 200.
+  - Ergibt die Korrektur eine ungültige Stempelfolge → 409.
+- `zeit` (Offline-Nachbuchung und Korrektur) muss eine **Zeitzone** enthalten (`Z` oder `+01:00`), sonst 400.
+- Status (`/zeit/status`, Kolonne, Anwesenheit, Stempeln) wird aus der **ganzen** laufenden Schicht ab dem letzten `kommen` berechnet.
+
+### Abwesenheiten (B-07)
+- Status: `beantragt` | `genehmigt` | `abgelehnt`. **Nur `genehmigt` zählt** in Monat (`u,k,sw,za`), Lohn-CSV, BUAK-CSV und in der Bericht-Auto-Befüllung. Beantragte stehen in `/monat` je Tag mit `codeStatus:"beantragt"`, im Lohn-CSV nicht als Kürzel, sondern in Hinweiszeilen am Ende.
+- `GET /abwesenheiten?benutzerId&von&bis&status` → `[{id, benutzerId, name, datum, code, status, erfasst, erfasstVon, entschieden?, entschiedenVon?}]`. Bereich: `stammdaten`/`lohn` alle; Bauleiter: Personen seiner Baustellen + sich; Polier: seine Partie + sich; sonst nur eigene.
+- `PUT /abwesenheiten/:id` `{status:"genehmigt"|"abgelehnt"}` (Recht `stammdaten` oder `lohn`) → aktualisierter Eintrag; Benachrichtigung an die Person (`typ:"abwesenheit"`), Protokoll.
+- `DELETE /abwesenheiten/:id` → eigene **beantragte** (oder mit `stammdaten`/`lohn` jede) → `{ok:true}`.
+- `POST /abwesenheiten`: eigener Antrag (U/ZA) frühestens 7 Tage zurück; Polier-SW höchstens 3 Tage zurück; Büro bis 62 Tage zurück; alle bis 366 Tage voraus. Ein `abgelehnt`er Eintrag darf durch einen neuen Antrag ersetzt werden. Neuer Antrag → Benachrichtigung an Büro/GF (`typ:"abwesenheit"`).
+- Benachrichtigungen: `typ` zusätzlich `"abwesenheit"`.
+
+### Bautagesbericht (M-01, M-02, B-06)
+- **Ab der ersten Unterschrift ist der Inhalt gesperrt:** `PUT /berichte/:id` und `POST …/personal-aktualisieren` → **409** „Der Bericht ist bereits unterschrieben (Auftragnehmer/Bauherr) – Inhalt gesperrt. Unterschrift zurückziehen, um zu ändern.“
+- **`DELETE /berichte/:id/unterschrift/:rolle`** (`an`|`bh`, Recht `bericht_erstellen` im Bereich, nur solange Status `entwurf`) → Bericht-JSON; protokolliert.
+- `personal[].segStunden` darf `stunden` nicht übersteigen (400). Personalzeile kann `hinweis` enthalten (nur lesend).
+- SEG-Stunden in `/monat` nur aus **freigegebenen** Berichten.
+- `wetter` als Objekt nur mit den Schlüsseln `text, temperatur, niederschlag, wind, quelle`.
+
+### Monat / Lohn (M-07, N-02)
+- Stunden je Person und Tag: Für Baustellen, für die an diesem Tag ein **freigegebener Bericht** mit einer Zeile dieser Person existiert, gelten die **Berichtsstunden** (Korrekturen des Poliers kommen so in den Lohn); sonst die Stempelzeiten. Je Tag `quelle:"bericht"|"stempel"|"gemischt"`. AZG-Warnungen bleiben aus den Stempelungen.
+- `monat` (und alle Datumsangaben) nur Jahre 2000–2100 (sonst 400).
+- Lohn-CSV: nach der Summentabelle Hinweiszeilen `Hinweis;…` für beantragte Abwesenheiten, unplausible/offene Schichten und AZG-Warnungen.
+
+### Leistungsmeldungen / Fremdleistungen (M-03)
+- `GET /baustellen/:id/leistungen` (Nachkalkulation für die Baustelle) → `[{id, leistungId, code, text, einheit, menge, datum, erstellt, erstelltVon, ep?, betrag?}]`.
+- `DELETE /baustellen/:id/leistungen/:lid` (Recht wie Erfassen) → `{ok:true}`, Protokoll, Budget-Prüfung.
+- `GET /baustellen/:id/fremdleistungen` (Preise für die Baustelle) → `[{id, text, betrag, datum, erstellt, erstelltVon}]`.
+- `DELETE /baustellen/:id/fremdleistungen/:fid` (`preise_bearbeiten`) → `{ok:true}`, Protokoll, Budget-Prüfung.
+- Datum nicht in der Zukunft und höchstens 2 Jahre zurück; Menge 0,001–100.000; Fremdleistung |Betrag| ≤ 5.000.000 €; Nachtrag |Betrag| ≤ 100.000.000 €. Leistungsmeldungen werden protokolliert.
+
+### Sonstiges (M-06, N-03, N-04, N-05, N-08)
+- Header: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Strict-Transport-Security` nur bei HTTPS. `X-Forwarded-Proto` wird nur mit `TRUST_PROXY=1` beachtet.
+- `GET /gesundheit` liefert `db` für alle Rollen.
+- Geldbeträge werden kaufmännisch gerundet (`1.005` → `1.01`).
+- Personalnummer (`pnr`) ist eindeutig: doppelte → 409.
+- Statische Pfade mit Dateiendung oder Punkt-Segment (z. B. `/js/fehlt.js`, `/.git/config`), die es nicht gibt → **404** statt `index.html`.
+- **Bekannte Grenze (M-08):** Preise haben noch keinen „gültig ab“-Stand; die Nachkalkulation rechnet alle Berichte mit den aktuellen Sätzen und der aktuellen Lohngruppe der Person. Eine Preisänderung wirkt daher rückwirkend (und kann Budget-Alarme auslösen).
