@@ -1,0 +1,75 @@
+'use strict';
+/**
+ * Test-Hilfen: startet den echten Server auf einem Zufallsport mit :memory:-DB und Testdaten.
+ * Die Uhr ist steuerbar (uhr.setze / uhr.plus).
+ */
+const { createApp } = require('../../server/index');
+const { findeEuroFelder } = require('../../server/rechte');
+
+// IDs aus den Testdaten (seed.js)
+const U = { mitarbeiter: 2, polier: 1, polier2: 8, bauleiter: 103, buero: 101, gf: 102 };
+const BS = { pitten: 1, kogler: 2, reisinger: 3, breitenau: 4, ternitz: 5, gloggnitz: 6, neustadt: 7, kieswerk: 8 };
+const START = '2026-11-12T09:24:00.000Z'; // Do 12.11.2026, 10:24 Wiener Zeit
+
+async function starte(opt = {}) {
+  let jetzt = new Date(opt.start || START);
+  const uhr = () => new Date(jetzt.getTime());
+  uhr.setze = (iso) => { jetzt = new Date(iso); };
+  uhr.plus = (min) => { jetzt = new Date(jetzt.getTime() + min * 60000); };
+  const app = createApp({ dbPath: ':memory:', uhr, seed: opt.seed !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz, pdfUnkomprimiert: opt.pdfUnkomprimiert });
+  const server = await new Promise((res) => { const s = app.listen(0, '127.0.0.1', () => res(s)); });
+  const basis = `http://127.0.0.1:${server.address().port}`;
+
+  function client(cookie = null) {
+    const c = {
+      cookie,
+      async anfrage(methode, pfad, body, header = {}) {
+        const h = { ...header };
+        if (c.cookie) h.cookie = c.cookie;
+        let b;
+        if (body !== undefined) {
+          if (typeof body === 'string') b = body;
+          else { b = JSON.stringify(body); h['content-type'] = h['content-type'] || 'application/json'; }
+        }
+        const r = await fetch(basis + '/api' + pfad, { method: methode, headers: h, body: b });
+        const sc = r.headers.get('set-cookie');
+        if (sc) {
+          const m = /bt_session=([^;]*)/.exec(sc);
+          c.cookie = m && m[1] ? `bt_session=${m[1]}` : null;
+        }
+        const ct = r.headers.get('content-type') || '';
+        let daten;
+        if (ct.includes('application/json')) daten = await r.json();
+        else if (ct.includes('pdf')) daten = Buffer.from(await r.arrayBuffer());
+        else daten = await r.text();
+        return { status: r.status, daten, headers: r.headers };
+      },
+      get: (p, h) => c.anfrage('GET', p, undefined, h),
+      post: (p, body = {}, h) => c.anfrage('POST', p, body, h),
+      put: (p, body = {}, h) => c.anfrage('PUT', p, body, h),
+      del: (p, h) => c.anfrage('DELETE', p, undefined, h)
+    };
+    return c;
+  }
+
+  async function login(benutzerId, pin = '1234') {
+    const c = client();
+    const r = await c.post('/auth/login', { benutzerId, pin });
+    if (r.status !== 200) throw new Error(`Login ${benutzerId} fehlgeschlagen: ${r.status} ${JSON.stringify(r.daten)}`);
+    return c;
+  }
+
+  async function stop() {
+    await new Promise((res) => server.close(res));
+    app.schliessen();
+  }
+
+  return { app, db: app.bt.db, uhr, basis, client, login, stop };
+}
+
+/** €-Felder in einer Antwort (leeres Array = sauber) */
+function euroFelder(daten) {
+  return findeEuroFelder(daten);
+}
+
+module.exports = { starte, U, BS, START, euroFelder };

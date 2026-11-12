@@ -267,6 +267,7 @@ module.exports = function berichtRouten(api, bt) {
   });
 
   api.post('/berichte', (req, res) => {
+    if (!req.ctx.hat('bericht_erstellen')) throw keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.');
     const body = v.objekt(req.body);
     const baustelleId = v.id(body.baustelleId, 'baustelleId');
     const datum = v.datum(body.datum, 'datum');
