@@ -127,3 +127,42 @@ Geldbeträge: Zahlen in Euro mit 2 Nachkommastellen (z. B. `1234.5`); Stunden al
 
 ## 5. Testdaten (`npm run seed`)
 Fiktive Daten wie im Prototyp (`prototype/data/data.js`): ~30 Mitarbeiter, 6–8 Baustellen (KST 26-041 WHA Pitten usw.), Geräte & Material der Papiervorlage, Beispielpreise. Demo-PIN für alle: `1234` (nur Testdaten; im README deutlich als „vor Echtbetrieb ändern“ markiert). Benutzer: GF „Michael Pichler“, Büro „Martina Koller“, Bauleiter „Stefan Aigner“, Polier „Josef Haidbauer“, Mitarbeiter „Lukas Brandstätter“ (wie im Prototyp).
+
+## 6. Abweichungen Backend (Stand Umsetzung)
+
+Alle Punkte sind **additiv** oder Präzisierungen; bestehende Felder/Routen sind wie oben umgesetzt.
+
+**Ergänzte Routen**
+- `GET /zeit/anwesend` → `[{benutzerId, name, rolle, status:"arbeit"|"pause", seit, baustelleId, schichtBeginn}]` alle gerade Eingestempelten. Erlaubt mit `bericht_freigeben` ODER `stammdaten` ODER `lohn` ODER `kalk_sehen`, sonst 403. Bauleiter (und Polier mit Ausnahme `bericht_freigeben`) sehen nur Personen auf ihren eigenen Baustellen. Keine €-Felder.
+- `GET /zeit/kolonne?baustelleId=` (Recht `kolonne`, nur eigene Baustellen) → `[{benutzerId, name, rolle, partie, status, seit, baustelleId, code}]` – Partie mit aktuellem Stempelstatus („bereits gestempelt um …“).
+- `POST /berichte/:id/personal-aktualisieren` – Personal erneut aus den Stempelungen übernehmen (nur Entwurf; SEG-Stunden bleiben).
+- `GET /leistungen` → `[{id, code, text, einheit, ep?}]` (EP nur mit `preise_sehen`).
+- `GET /benutzer` (Recht `benutzer`) → `[{id, name, rolle, lohngruppe, baustelleId, pnr, aktiv}]`.
+
+**Ergänzte Felder**
+- `/auth/ich`: `benutzer.baustelleId` (Stamm-Baustelle/Partie).
+- Baustelle: `kurz, agAdresse, bauvorhaben, bauherrVertreter, art, intern, beginn, ende`; mit `kalk_sehen` zusätzlich `budgetStatus`, im Detail `schwellen, empfaenger`; mit Preisen im Detail `nachtraege, auftragGesamt`. `budgetVerbrauchProzent/leistungsstandProzent` nur mit `kalk_sehen` **für diese Baustelle** (Bauleiter: eigene).
+- Bericht: `baustelleId, gesamtstunden, bearbeitbar, freigabe:{benutzerId,zeit}, erstellt, geaendert`; `personal[].segStunden` (SEG-Stunden je Person, fließen in `/monat … seg`); `unterschriften.*.bildPng` im Detail. `wetter` ist Text **oder** ein flaches Objekt (z. B. `{text, temperatur}`). `materialbeistellung.eigen/fremd` sind Texte (mehrzeilig; Listen werden zu Zeilen zusammengefügt). Liste: `[{id, baustelleId, kst, baustelle, datum, status, personalAnzahl, stunden, unterschriften:{an:bool,bh:bool}}]`.
+- `/zeit/status`: `schichtBeginn`, `heute.datum`, `buchungen[].uhrzeit` (HH:MM Wien). Warnungen: `[{typ:"tag_10h"|"tag_12h"|"pause"|"offen"|"ruhezeit", datum, stufe, text}]`.
+- `/zeit/woche`: `von, bis, sollStunden`, je Tag `wochentag, pauseMin, von, bis, feiertag?, codeStatus?`; `baustellen:[{id,kst,name,stunden}]`.
+- `/kalkulation/:id`: zusätzlich `erloesLeistung, erloesRegie, stunden:{lohn,regie}, alarme`, `positionen.fremd/leistungen/regie`. `verlauf` ist **kumuliert** je Datum. Positionen: `lohn:[{lohngruppeId,name,stunden,satz,betrag}]`, `geraete:[{geraetId,code,name,stunden,satz,betrag}]`, `material:[{materialId,code,name,einheit,menge,satz,betrag}]`. Ohne Auftragssumme sind die Prozentwerte `null` (Status `ok`, Hinweis).
+- `/kalkulation` (Übersicht): `[{baustelleId, baustelle:{...}, budgetVerbrauchProzent, leistungsstandProzent, status, schwellen, stunden, auftragssumme, auftragGesamt, erloes, kosten, db, dbProzent}]`.
+- `/monat`: je Mitarbeiter zusätzlich `pnr, lohngruppe, za, swStunden`, Tage mit `von, bis, pauseMin, baustellen` (KST); `tage:[{datum, wochentag, feiertag, arbeitstag}]`; `warnungen:[{benutzerId, name, typ, datum, text}]`; `annahmen` (Überstunden-Regel).
+- `/rechte`: zusätzlich `rollenNamen`, `immer` (nicht entziehbar), `ausnahmen[].name/erteilt/erteiltVon`.
+- `/mitarbeiter`: `baustelleId`; `lohngruppe` und `pnr` nur mit `stammdaten`/`lohn`/`benutzer` (Konzept 2.2: Lohngruppen sind vertraulich). Mitarbeiter ohne Kolonnen-/Berichtsrecht sehen nur sich selbst.
+- `/geraete`, `/materialien`: zusätzlich `vorlage` (Zeile der Papiervorlage); Material `hinweis`.
+
+**Präzisierungen / Abweichungen**
+- **Gesperrt für Bauleiter:** `preise_bearbeiten` und `lohn` sind für die Rolle Bauleiter gesperrt (Konzept 2.2: „Dem Bauleiter können Preis-Bearbeitung, Lohnauswertung … nicht per Ausnahme gegeben werden“). `GET /rechte` liefert das in `gesperrt.bauleiter`.
+- **429-Code:** Login-Sperre antwortet mit `{code:"ZU_VIELE_VERSUCHE"}` und `Retry-After`. Der 5. Fehlversuch liefert bereits 429.
+- **415:** Schreibende Anfragen mit Body, die nicht `application/json` sind, → 415 `{code:"UNGUELTIG"}`. Anfragen ohne Body (z. B. `POST /auth/logout`) sind ohne Content-Type erlaubt.
+- **Unbekannte `/api`-Adressen** ohne Anmeldung → 401 (verrät keine Routen), angemeldet → 404.
+- **Freigabe** nur aus Status `unterschrieben` (sonst 409). Unterschrift nur im Entwurf (409 danach). Für `POST /berichte` gilt: Datum nicht in der Zukunft, max. 1 Jahr zurück.
+- **PDF:** `GET /berichte/:id/pdf?fassung=ag|intern` – Standard `ag` (Auftraggeber: Kürzel K/U und reine K/U-Zeilen werden nicht gedruckt); `intern` nur mit `bericht_freigeben` oder `stammdaten`.
+- **Budget-Alarm:** Stufen `80/90/100` (laut Schwellen) und zusätzlich `kritisch` (Verbrauch − Leistungsstand > 10 Pp. ab 15 % Leistungsstand) – je Baustelle einmalig. Werden mehrere Schwellen auf einmal erreicht, kommt **eine** Meldung (höchste Stufe). Eine Schwelle wird wieder scharf, wenn sie nach einer Änderung der Auftragssumme/Nachträge unterschritten ist; `kritisch` wieder, sobald die Lage nicht mehr kritisch ist. Geprüft nach Freigabe, Unterschrift (Kosten zählen ab `unterschrieben`), Preisänderung, Auftrag-/Nachtragsänderung, Fremdleistung und Leistungsmeldung. Empfänger zusätzlich gefiltert auf `kalk_sehen` für die Baustelle; Budget-Meldungen verschwinden aus der Liste, wenn das Recht für die Baustelle entfällt.
+- **Fremdleistungen** erfassen: Recht `preise_bearbeiten`. Nachträge: alle zählen zur Basis (kein Status angeboten/beauftragt).
+- **Abwesenheiten:** eigener Antrag U/ZA → Status `beantragt`; Büro (`stammdaten`) → `genehmigt` (überschreibt bestehende); Polier nur SW für Personen seiner Partie. Antwort `{id, benutzerId, datum, code, status}`. Bestehender Eintrag ohne `stammdaten` → 409.
+- **Überstunden (Annahme, Einstellung `arbeitszeit`):** Normalarbeitszeit Mo–Do 8 Std., Fr 7 Std. (= 39 Std.); Überstunden je Kalenderwoche = max(Σ Tagesüberschreitungen, Wochensumme − Soll). SW-Stunden = Soll des Tages − gearbeitete Stunden.
+- **Uhr:** `BAUTAG_UHR` setzt die Startzeit; die Uhr läuft danach in Echtzeit weiter (für Tests: `createApp({uhr: () => Date})`).
+- **Testdaten** sind relativ zu „heute“ (Prototyp-Datum 12.11.2026 wird verschoben). Baustellen ohne Prototyp-Bauleiter haben GF Michael Pichler als Bauleiter; 26-029 hat Thomas Riegler als Polier.
+- **`npm test`:** `node --test <Ordner>` funktioniert unter Node 22 nicht; das Script nutzt daher Glob-Muster `"tests/unit/**/*.test.js" "tests/api/**/*.test.js"` (gleicher Umfang).
