@@ -60,7 +60,7 @@
             ${rep.fotos.length ? `<div class="pf-photos">${rep.fotos.map((f) => `<img src="assets/foto-${f}.jpg" alt="Foto">`).join('')}<span>${rep.fotos.length} Foto${rep.fotos.length > 1 ? 's' : ''} als Anhang</span></div>` : ''}</div></div>
           <div class="pf-sec"><h4>MATERIALBEISTELLUNG ${ed(6)}</h4><div class="pf-two tight"><div class="pf-box"><em>Eigenmaterial</em><ul>${lines(eigen)}</ul></div><div class="pf-box"><em>Fremdmaterial</em><ul>${lines(rep.fremdmat)}</ul></div></div></div>
           <div class="pf-two top">
-            <div class="pf-sec"><h4>PALETTEN RETOUR ${ed(6)}</h4><div class="pf-box pal"><span>Euro: <b>${rep.paletten.euro || '–'}</b></span><span>Weissenböck: <b>${rep.paletten.weiss || '–'}</b></span></div></div>
+            <div class="pf-sec"><h4>PALETTEN RETOUR <span>Leerpaletten</span> ${ed(6)}</h4><div class="pf-box pal"><span>Euro-Paletten: <b>${rep.paletten.euro || '–'}</b></span><span>Weissenböck-Paletten: <b>${rep.paletten.weiss || '–'}</b></span></div></div>
             <div class="pf-sec"><h4>REGIELEISTUNGEN ${ed(6)}</h4><div class="pf-box"><ul>${lines(rep.regie.map((r) => r.t + ' – ' + F.menge(r.std) + ' Std.'))}</ul></div></div>
           </div>
           <div class="pf-sec"><h4>BESONDERE VORKOMMNISSE <span>z. B. Anweisungen AG, Beschädigungen, Sonstiges</span> ${ed(7)}</h4><div class="pf-box text">${rep.vorkommnisse ? esc(rep.vorkommnisse).replace(/\n/g, '<br>') : '<span class="muted">Keine</span>'}</div></div>

@@ -145,7 +145,7 @@ URL: `index.html?rolle=buero#/dashboard` (10:24)
 ### 7) Desktop – Nachkalkulation (aktualisiert) + Prognose/Insights (G)
 `auswirkung-26-041` (oder `preise-zur-nachkalkulation` / `nav-nachkalkulation`) → `#/nachkalkulation/26-041`
 - Banner `kalk-preis-banner`, KPIs `kpi-erloes`, `kpi-kosten`, `kpi-db`, `kpi-db-prozent` mit Delta `kalk-delta` (▼ € 1.540)
-- Prognose `kalk-prognose` („Bei aktuellem Verlauf: DB … statt kalkuliert …“), Hinweis-Karten `insight-0` (Frostschutz-Verbrauch über Kalkulation), `insight-1` (Regiestunden noch nicht verrechnet), `insight-2` (Paletten-Pfand)
+- Prognose `kalk-prognose` („Bei aktuellem Verlauf: DB … statt kalkuliert …“), Hinweis-Karten `insight-0` (Frostschutz-Verbrauch über Kalkulation), `insight-1` (Regiestunden noch nicht verrechnet), `insight-2` (Leerpaletten retour / Pfand-Gutschrift)
 - Kostenverteilung (`kosten-lohn`, `kosten-geraete`, `kosten-material`, `kosten-fremd`), Soll/Ist, Verlauf (Hover = Fadenkreuz + Tooltip), Tabelle: `kalk-tab-geraete|lohn|material|fremd|leistung` (geänderte Zeile `kalk-zeile-b9`), Summe `kalk-summe-geraete`
 - Baustelle wechseln `kalk-baustelle-26-035` (rot), Export `kalk-export-excel`, `kalk-export-pdf`
 

@@ -293,7 +293,7 @@
   });
 
   /* ---------- Bautagesbericht-Assistent ---------- */
-  const STEPS = [['Kopf', 'Kopfdaten'], ['Personal', 'Personal & Arbeitszeit'], ['Geräte', 'Geräte (Std.)'], ['Material', 'Material (Menge)'], ['Leistung', 'Arbeitsleistung'], ['Beistellung', 'Materialbeistellung · Paletten · Regie'], ['Vorkommnisse', 'Besondere Vorkommnisse'], ['Abschluss', 'Zusammenfassung & Unterschrift']];
+  const STEPS = [['Kopf', 'Kopfdaten'], ['Personal', 'Personal & Arbeitszeit'], ['Geräte', 'Geräte (Std.)'], ['Material', 'Material (Menge)'], ['Leistung', 'Arbeitsleistung'], ['Beistellung', 'Materialbeistellung · Leerpaletten · Regie'], ['Vorkommnisse', 'Besondere Vorkommnisse'], ['Abschluss', 'Zusammenfassung & Unterschrift']];
   A.STEPS = STEPS;
   A.eigenLines = (rep) => Object.keys(rep.zusatz || {}).filter((k) => rep.zusatz[k] > 0).map((k) => { const m = A.byId(D.material, k); return m.name + ' – ' + F.menge(rep.zusatz[k]) + ' ' + m.einheit; }).concat(rep.eigen || []);
   const gStd = (rep) => Object.values(rep.geraete).reduce((a, b) => a + b, 0);
@@ -367,9 +367,9 @@
         <div class="field-label">Fremdmaterial (vom Auftraggeber beigestellt)</div>
         ${rep.fremdmat.map((t, i) => `<div class="text-line"><span>${esc(t)}</span><button class="icon-btn sm" data-act="fremd-del" data-i="${i}" aria-label="Entfernen">${icon('x')}</button></div>`).join('')}
         <div class="add-line"><input type="text" placeholder="z. B. Schachtabdeckung, beigestellt vom AG" id="fremd-in" data-demo="fremdmaterial-input"><button class="btn ghost" data-act="fremd-add" data-demo="fremdmaterial-add">${icon('plus')}</button></div></div>
-      <div class="card pad"><div class="card-h"><h3>Paletten retour</h3><span class="muted sm">Pfand wird gutgeschrieben</span></div>
-        <div class="line-row"><span>Euro</span>${stepper('palette-euro', rep.paletten.euro, 'Stk.', 'pal-step', 'data-id="euro"')}</div>
-        <div class="line-row"><span>Weissenböck</span>${stepper('palette-weiss', rep.paletten.weiss, 'Stk.', 'pal-step', 'data-id="weiss"')}</div></div>
+      <div class="card pad"><div class="card-h"><h3>Leerpaletten retour</h3><span class="muted sm">leer zurück an den Lieferanten</span></div>
+        <div class="line-row"><span>Euro-Paletten</span>${stepper('palette-euro', rep.paletten.euro, 'Stk.', 'pal-step', 'data-id="euro"')}</div>
+        <div class="line-row"><span>Weissenböck-Paletten</span>${stepper('palette-weiss', rep.paletten.weiss, 'Stk.', 'pal-step', 'data-id="weiss"')}</div></div>
       <div class="card pad"><div class="card-h"><h3>Regieleistungen</h3><span class="muted sm">nach Aufwand, außerhalb des Auftrags</span></div>
         ${rep.regie.map((r, i) => `<div class="line-row col"><span>${esc(r.t)}</span><div class="line-ctl">${stepper('regie-' + i, r.std, 'Std.', 'regie-step', `data-i="${i}"`)}<button class="icon-btn sm" data-act="regie-del" data-i="${i}" aria-label="Entfernen">${icon('trash')}</button></div></div>`).join('')}
         <div class="add-line"><input type="text" placeholder="Regieleistung beschreiben …" id="regie-in" data-demo="regie-input"><button class="btn ghost" data-act="regie-add" data-demo="regie-add">${icon('plus')}</button></div>
@@ -394,7 +394,7 @@
         ${card(3, 'Geräte', g.length ? g.map((k) => A.byId(D.geraete, k).name + ' ' + F.menge(rep.geraete[k]) + ' Std.').join(' · ') : 'Noch keine Geräte erfasst', g.length > 0)}
         ${card(4, 'Material', m.length ? m.map((k) => A.byId(D.material, k).name + ' ' + F.menge(rep.material[k]) + ' ' + (rep.einheit[k] === 'm3' ? 'm³' : 'to.')).join(' · ') : 'Kein Material erfasst', m.length > 0)}
         ${card(5, 'Arbeitsleistung', rep.arbeit ? esc(rep.arbeit.split('\n')[0]) + (rep.fotos.length ? ' · ' + rep.fotos.length + ' Fotos' : '') : 'Noch kein Text', !!rep.arbeit)}
-        ${card(6, 'Beistellung · Paletten · Regie', `${A.eigenLines(rep).length + rep.fremdmat.length} Positionen · Paletten ${rep.paletten.euro}/${rep.paletten.weiss} · Regie ${F.menge(rep.regie.reduce((a, r) => a + r.std, 0))} Std.`, true)}
+        ${card(6, 'Beistellung · Leerpaletten · Regie', `${A.eigenLines(rep).length + rep.fremdmat.length} Positionen · Leerpaletten ${rep.paletten.euro} Euro / ${rep.paletten.weiss} Weissenböck · Regie ${F.menge(rep.regie.reduce((a, r) => a + r.std, 0))} Std.`, true)}
         ${card(7, 'Besondere Vorkommnisse', rep.vorkommnisse ? esc(rep.vorkommnisse) : 'Keine', true)}
       </div>
       <div class="banner ${rep.status === 'entwurf' ? 'info' : 'ok'}">${icon(rep.status === 'entwurf' ? 'sign' : 'check')}<span>${rep.status === 'entwurf' ? 'Nächster Schritt: Bericht gemeinsam mit dem Bauherrn am Tablet durchsehen und unterschreiben.' : '<b>Bericht ist unterschrieben</b> und wurde an den Auftraggeber gesendet.'}</span></div>`;
