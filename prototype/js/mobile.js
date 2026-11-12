@@ -329,7 +329,7 @@
       const favs = D.geraete.filter((g) => fav.includes(g.id)), rest = D.geraete.filter((g) => !fav.includes(g.id));
       const n = Object.keys(rep.geraete).length;
       return `<label class="search"><span>${icon('search')}</span><input type="search" placeholder="Gerät suchen, z. B. Bagger" value="${esc(S.ui.geraetSuche || '')}" data-input="geraet-suche" data-demo="geraete-suche"></label>
-      <div class="sum-strip" data-demo="geraete-summe"><b>${n}</b> ${n === 1 ? 'Gerät' : 'Geräte'} · <b>${F.menge(gStd(rep))}</b> Std. erfasst<span class="muted">Schritt: 1 Std. · Wert antippen für ½ Std.</span></div>
+      <div class="sum-strip" data-demo="geraete-summe"><b>${n}</b> ${n === 1 ? 'Gerät' : 'Geräte'} · <b>${F.menge(gStd(rep))}</b> Std. erfasst<span class="muted">+ / − in ganzen Stunden</span></div>
       <div id="eq-lists">
       <div class="list-label">Häufig auf dieser Baustelle</div><div class="card eq-list">${favs.map(row).join('')}</div>
       <div class="list-label">Weitere Geräte laut Vorlage</div><div class="card eq-list">${rest.map(row).join('')}</div>
