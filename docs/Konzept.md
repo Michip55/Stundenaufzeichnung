@@ -146,15 +146,19 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 |---|---|---|
 | **Mitarbeiter** (Facharbeiter, Hilfsarbeiter, Lehrling; auch LKW-Fahrer und Maschinisten) | Optional selbst stempeln; „Meine Woche“ ansehen; Urlaub beantragen; Korrektur melden. Fahrer und Maschinisten zusätzlich: Fahrt- und Ladezeit, Fahrzeug bzw. Gerät wählen, später Transport-/Lieferschein | Eigenes Handy (freiwillig), Firmenhandy oder gar keines, weil der Polier stempelt |
 | **Polier / Vorarbeiter** | Partie stempeln, Baustelle wechseln, Schlechtwetter melden, Bautagesbericht, Fotos, Unterschrift mit Bauherrn, Korrekturen in der eigenen Partie | Robustes Firmen-Tablet, zusätzlich das Firmenhandy |
-| **Bauleiter** (falls vorhanden; in kleineren Betrieben übernimmt das oft die Geschäftsführung) | Betreut mehrere Baustellen: Berichte prüfen und freigeben, Schlechtwetter bestätigen, Regie und Nachträge, Nachkalkulation der eigenen Baustellen | Tablet / Handy und PC |
-| **Büro / Lohnverrechnung** | Stunden prüfen und freigeben, Abwesenheiten, Korrekturen, Stammdaten, Monatsabschluss, Exporte | PC |
-| **Geschäftsführung (Admin)** | Übersicht „Wer ist wo“, Preise, Nachkalkulation, Auswertungen; vergibt Rollen und Rechte | PC und Handy |
+| **Bauleiter** (falls vorhanden; in kleineren Betrieben übernimmt das oft die Geschäftsführung) | Betreut mehrere Baustellen: Berichte prüfen und freigeben, Schlechtwetter bestätigen, Regie und Nachträge dokumentieren; sieht Mengen, Stunden und Leistungsstand, **standardmäßig keine Preise und keine Nachkalkulation** | Tablet / Handy und PC |
+| **Büro / Lohnverrechnung** | Stunden prüfen und freigeben, Abwesenheiten, Korrekturen, Stammdaten, Preise, Nachkalkulation, Monatsabschluss, Exporte | PC |
+| **Geschäftsführung (Admin)** = Inhaber | Übersicht „Wer ist wo“, Preise, Nachkalkulation, Auswertungen; vergibt Rollen und Rechte. Annahme: behält immer vollen Zugriff | PC und Handy |
 | **Bauherr / Vertreter des Auftraggebers** (extern) | Unterschreibt am Tablet oder per SMS-/Mail-Link und bekommt das PDF; kein eigener Zugang | Tablet des Poliers bzw. eigenes Handy |
 | **Steuerberater / externe Lohnverrechnung** (extern) | Bekommt die Exportdatei; auf Wunsch Lesezugang nur zu den Lohndaten | PC |
 
 ### 2.2 Rollen & Berechtigungen
 
-> **Grundregel:** Auf der Baustelle sieht niemand Preise, €-Werte, Nachkalkulation oder Löhne. Poliere und Vorarbeiter sehen **Mengen und Stunden** ihrer Partie und ihrer Baustellen. Sie sehen **keine Preise, keine Kosten, keine Nachkalkulation und keine Löhne anderer**. Was jemand nicht sehen darf, wird auf sein Gerät gar nicht erst übertragen.
+> **Grundregel:**
+> - Preise, alle €-Werte, Nachkalkulation und Löhne sehen **nur Büro/Lohnverrechnung und die Geschäftsführung**. Annahme: Der Inhaber als Geschäftsführung behält immer vollen Zugriff.
+> - **Polier/Vorarbeiter und Mitarbeiter** sehen sie **nie**. Das ist eine feste Regel, die auch per Ausnahme nicht freigeschaltet werden kann. Sie sehen **Mengen und Stunden** ihrer Partie bzw. ihrer Baustellen.
+> - **Bauleiter** sehen Mengen, Stunden und Leistungsstand ihrer Baustellen, **standardmäßig aber keine Preise und keine Nachkalkulation**. Die Geschäftsführung kann ihnen das einzeln freischalten.
+> - Was jemand nicht sehen darf, wird auf sein Gerät gar nicht erst übertragen.
 
 **Berechtigungsmatrix (Standardeinstellung, je Benutzer anpassbar):**
 

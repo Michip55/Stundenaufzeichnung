@@ -260,7 +260,7 @@
     S.perm = clone(PERM_DEFAULT); S.ausnahmen = { 13: { freigabe: true } }; S.preview = null; S.lang = qs.get('sprache') || 'de'; S.bm = qs.get('modus') === 'baustelle';
     S.audit = [
       { t: '10.11.2026 08:14', wer: 'Michael Pichler', was: 'Ausnahme: Vorarbeiter Thomas Riegler darf „Bautagesbericht freigeben“' },
-      { t: '03.11.2026 16:40', wer: 'Michael Pichler', was: 'Rolle Bauleiter: „Nachkalkulation sehen“ deaktiviert' },
+      { t: '03.11.2026 16:40', wer: 'Michael Pichler', was: 'Rolle Bauleiter: „Nachkalkulation sehen“ aktiviert (nur eigene Baustellen)' },
       { t: '02.11.2026 07:55', wer: 'Martina Koller', was: 'Benutzer Ivan Horvat angelegt (Rolle Mitarbeiter)' }
     ];
     S.user = roleUser(qs.get('rolle'));
@@ -375,12 +375,12 @@
   const ROLLEN = [['mitarbeiter', 'Mitarbeiter'], ['polier', 'Polier / Vorarbeiter'], ['bauleiter', 'Bauleiter'], ['buero', 'Büro / Lohnverrechnung'], ['gf', 'Geschäftsführung']];
   const RECHTE = [
     ['zeit', 'Zeiterfassung (eigene Zeiten, Woche, Abwesenheit)', 'Baustelle'], ['kolonne', 'Kolonne stempeln', 'Baustelle'], ['bericht', 'Bautagesbericht erstellen & senden', 'Baustelle'],
-    ['freigabe', 'Bautagesbericht freigeben', 'Büro'], ['preise', 'Preise sehen (€-Werte, Tageskosten)', 'Büro'], ['preise_edit', 'Preise bearbeiten', 'Büro'], ['lohnsaetze', 'Lohnsätze sehen', 'Büro'], ['kalk', 'Nachkalkulation sehen', 'Büro'], ['lohn', 'Lohnauswertung & Export', 'Büro'],
+    ['freigabe', 'Bautagesbericht freigeben', 'Büro'], ['preise', 'Preise sehen (€-Werte, Tageskosten)', 'Büro'], ['preise_edit', 'Preise bearbeiten', 'Büro'], ['lohnsaetze', 'Individuelle Löhne der Mitarbeiter sehen', 'Büro'], ['kalk', 'Nachkalkulation sehen', 'Büro'], ['lohn', 'Lohnauswertung & Export', 'Büro'],
     ['benutzer', 'Benutzer & Berechtigungen verwalten', 'Verwaltung']
   ];
   const PERM_DEFAULT = {
     mitarbeiter: { zeit: true }, polier: { zeit: true, kolonne: true, bericht: true },
-    bauleiter: { bericht: true, freigabe: true },
+    bauleiter: { bericht: true, freigabe: true, preise: true, kalk: true },
     buero: { freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true },
     gf: { zeit: true, kolonne: true, bericht: true, freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true, benutzer: true }
   };
@@ -468,7 +468,7 @@
       root.innerHTML = shell(m);
       const ok = !m.r.perm || m.r.perm(S.user);
       const v = document.getElementById('view'); v.className = 'view ' + (ok ? m.r.cls || '' : '');
-      v.innerHTML = ok ? m.r.render(m.params) : `<div class="page narrow"><div class="card pad noaccess" data-demo="kein-zugriff"><span class="na-ic">${icon('shield')}</span><h2>Kein Zugriff</h2><p>Diese Ansicht ist nur für ${m.r.permText || 'Bauleitung und Geschäftsführung'} freigegeben.</p><p class="muted sm">Angemeldet als ${esc(S.user.name)} · Rolle ${A.rolleName(S.user.rolle)}. Preise, €-Werte und Nachkalkulation sind für diese Rolle ausgeblendet.</p><a class="btn primary" href="#${home()}" data-demo="kein-zugriff-zurueck">${icon('left')} Zurück zur Startseite</a></div></div>`;
+      v.innerHTML = ok ? m.r.render(m.params) : `<div class="page narrow"><div class="card pad noaccess" data-demo="kein-zugriff"><span class="na-ic">${icon('shield')}</span><h2>Kein Zugriff</h2><p>Diese Ansicht ist nur für ${m.r.permText || 'Büro, Geschäftsführung und Bauleitung'} freigegeben.</p><p class="muted sm">Angemeldet als ${esc(S.user.name)} · Rolle ${A.rolleName(S.user.rolle)}. Preise, €-Werte und Nachkalkulation sind für diese Rolle ausgeblendet.</p><a class="btn primary" href="#${home()}" data-demo="kein-zugriff-zurueck">${icon('left')} Zurück zur Startseite</a></div></div>`;
       if (!ok) m = { r: Object.assign({}, m.r, { after: null }), params: m.params };
       v.scrollTop = scroll;
     }
@@ -506,5 +506,5 @@
       state: S
     };
   };
-  A.TS = TS; A.home = home; A.NAV = NAV;
+  A.TS = TS; A.home = home; A.NAV = NAV; A.routes = routes; A.navFor = navFor;
 })();

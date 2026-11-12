@@ -29,9 +29,9 @@
     render() {
       const pick = S.loginPick ? A.ma(S.loginPick) : null;
       const q = (S.ui.loginSuche || '').toLowerCase();
-      const row = (m) => `<button class="login-user" data-act="login-pick" data-id="${m.id}" data-demo="login-user-${m.id}">${avatar(m)}<span><b>${esc(m.name)}</b><small>${esc(m.rolle === 'buero' ? m.funktion : A.lgName(m.lg) + ' · ' + A.site(m.kst).kurz)}</small></span>${icon('right')}</button>`;
+      const row = (m) => `<button class="login-user" data-act="login-pick" data-id="${m.id}" data-demo="login-user-${m.id}">${avatar(m)}<span><b>${esc(m.name)}</b><small>${esc(A.isOffice(m) ? m.funktion : A.lgName(m.lg) + ' · ' + A.site(m.kst).kurz)}</small></span>${icon('right')}</button>`;
       const all = D.mitarbeiter.concat(D.buero).filter((m) => !q || m.name.toLowerCase().includes(q)).sort((a, b) => a.nn.localeCompare(b.nn, 'de'));
-      const recent = [2, 1, 101].map(A.ma);
+      const recent = [2, 1, 101, 102].map(A.ma);
       const list = `
         <div class="login-head"><h2>Anmelden</h2><p>Wer bist du? Namen antippen und PIN eingeben.</p></div>
         <label class="search"><span>${icon('search')}</span><input type="search" placeholder="Name suchen …" value="${esc(S.ui.loginSuche || '')}" data-input="login-suche" data-demo="login-suche"></label>
@@ -41,7 +41,7 @@
         </div>`;
       const pin = pick ? `
         <button class="link-back" data-act="login-back" data-demo="login-zurueck">${icon('left')} Anderer Benutzer</button>
-        <div class="pin-user">${avatar(pick, 'xl')}<h2>${esc(pick.name)}</h2><p>${esc(pick.rolle === 'buero' ? pick.funktion : A.lgName(pick.lg))}</p></div>
+        <div class="pin-user">${avatar(pick, 'xl')}<h2>${esc(pick.name)}</h2><p>${esc(A.isOffice(pick) ? pick.funktion : A.lgName(pick.lg))}</p></div>
         <div class="pin-dots" data-demo="pin-dots">${[0, 1, 2, 3].map((i) => `<i class="${S.pin.length > i ? 'on' : ''}"></i>`).join('')}</div>
         <div class="pin-pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-act="pin" data-n="${n}" data-demo="pin-${n}">${n}</button>`).join('')}
           <span></span><button data-act="pin" data-n="0" data-demo="pin-0">0</button><button class="pin-del" data-act="pin" data-n="x" data-demo="pin-loeschen" aria-label="Löschen">${icon('back')}</button></div>
@@ -277,7 +277,7 @@
   A.route('/profil', {
     nav: 'profil', title: 'Profil', sub: () => 'Konto & Gerät',
     render() {
-      const u = S.user, g = u.rolle !== 'buero';
+      const u = S.user, g = !A.isOffice(u);
       return `<div class="page narrow">
         <div class="card pad profile">${avatar(u, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(g ? A.lgName(u.lg) + ' · Personalnr. ' + u.pnr : u.funktion)}</p></div></div>
         ${g ? `<div class="card def-list"><div><span>Stammbaustelle</span><b>${esc(A.site(u.kst).name)}</b></div><div><span>Kostenstelle</span><b>KST ${u.kst}</b></div><div><span>Wochenarbeitszeit</span><b>39,0 Std. (KV Bau)</b></div><div><span>Resturlaub 2026</span><b>11 Tage</b></div><div><span>Zeitkonto</span><b>+ 6,50 Std.</b></div></div>` : ''}
