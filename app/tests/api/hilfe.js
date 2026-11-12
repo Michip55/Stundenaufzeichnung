@@ -40,7 +40,7 @@ async function starte(opt = {}) {
         const ct = r.headers.get('content-type') || '';
         let daten;
         if (ct.includes('application/json')) daten = await r.json();
-        else if (ct.includes('pdf')) daten = Buffer.from(await r.arrayBuffer());
+        else if (ct.includes('pdf') || ct.includes('text/csv')) daten = Buffer.from(await r.arrayBuffer());
         else daten = await r.text();
         return { status: r.status, daten, headers: r.headers };
       },
