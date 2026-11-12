@@ -554,3 +554,9 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 @media (max-width: 719px) { .add-line select { flex: 1 1 100%; } .add-line .btn { flex: 1; } }
 
 .pin-pad .pin-ok { background: var(--green-strong); color: #fff; } .pin-pad .pin-ok:disabled { background: #e4e7eb; color: #a3abb5; opacity: 1; } .pin-pad .pin-ok .ic, .pin-pad .pin-del .ic { width: 28px; height: 28px; } .pin-dots { min-height: 16px; }
+
+/* Feinschliff nach Durchsicht der Bildschirmfotos */
+.tbl-wrap, .field, label, .price-in { position: relative; }
+.bud-scale::after { content: 'Schwellen in %'; position: absolute; left: 0; top: 0; }
+.rights tbody th, .rights thead th:first-child { position: sticky; left: 0; background: #fff; z-index: 1; box-shadow: 1px 0 0 var(--line); } .rights thead th:first-child { background: #f8f9fa; }
+@media (max-width: 719px) { .rights tbody th { max-width: 150px; font-size: 13.5px; } }

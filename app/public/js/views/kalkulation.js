@@ -15,7 +15,7 @@ export function budgetBalken(k, klein = false) {
   return `<div class="bud ${klein ? 'sm' : ''} s-${esc(st)}" role="img" aria-label="Budget-Verbrauch ${fmt.pct(v)}, Leistungsstand ${fmt.pct(l)}">
     <div class="bud-track"><i class="bud-fill" style="width:${x(v)}%"></i>${l != null ? `<i class="bud-leist" style="left:${x(l)}%" title="Leistungsstand ${fmt.pct(l)}"></i>` : ''}
       ${(k.schwellen || [80, 90, 100]).map((s) => `<i class="bud-mark${v >= s ? ' hit' : ''}" style="left:${x(s)}%"></i>`).join('')}</div>
-    ${klein ? '' : `<div class="bud-scale">${(k.schwellen || [80, 90, 100]).map((s) => `<span style="left:${x(s)}%">${s}\u00a0%</span>`).join('')}</div>`}
+    ${klein ? '' : `<div class="bud-scale">${(k.schwellen || [80, 90, 100]).map((s) => `<span style="left:${x(s)}%">${s}</span>`).join('')}</div>`}
   </div>`;
 }
 
