@@ -257,10 +257,10 @@
     S.sync = 'online'; S.pending = 0;
     S.user = null; S.loginPick = null; S.pin = '';
     S.ui = { wocheKW: 46, monat: '2026-10', berichtFilter: 'alle', berichtKst: 'alle', geraetSuche: '', preisTab: 'lohn', kolonne: null, kalkTab: 'geraete', loginSuche: '' };
-    S.perm = clone(PERM_DEFAULT); S.ausnahmen = { 13: { kalk: true } }; S.preview = null; S.lang = qs.get('sprache') || 'de'; S.bm = qs.get('modus') === 'baustelle';
+    S.perm = clone(PERM_DEFAULT); S.ausnahmen = { 13: { freigabe: true } }; S.preview = null; S.lang = qs.get('sprache') || 'de'; S.bm = qs.get('modus') === 'baustelle';
     S.audit = [
-      { t: '10.11.2026 08:14', wer: 'Michael Pichler', was: 'Ausnahme: Thomas Riegler darf „Nachkalkulation sehen“ (nur eigene Baustelle)' },
-      { t: '03.11.2026 16:40', wer: 'Michael Pichler', was: 'Rolle Bauleiter: „Lohnsätze sehen“ deaktiviert' },
+      { t: '10.11.2026 08:14', wer: 'Michael Pichler', was: 'Ausnahme: Vorarbeiter Thomas Riegler darf „Bautagesbericht freigeben“' },
+      { t: '03.11.2026 16:40', wer: 'Michael Pichler', was: 'Rolle Bauleiter: „Nachkalkulation sehen“ deaktiviert' },
       { t: '02.11.2026 07:55', wer: 'Martina Koller', was: 'Benutzer Ivan Horvat angelegt (Rolle Mitarbeiter)' }
     ];
     S.user = roleUser(qs.get('rolle'));
@@ -380,13 +380,15 @@
   ];
   const PERM_DEFAULT = {
     mitarbeiter: { zeit: true }, polier: { zeit: true, kolonne: true, bericht: true },
-    bauleiter: { bericht: true, freigabe: true, preise: true, kalk: true },
+    bauleiter: { bericht: true, freigabe: true },
     buero: { freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true },
     gf: { zeit: true, kolonne: true, bericht: true, freigabe: true, preise: true, preise_edit: true, lohnsaetze: true, kalk: true, lohn: true, benutzer: true }
   };
   const FELD = ['mitarbeiter', 'polier'], isOffice = (u) => !!u && !FELD.includes(u.rolle);
   const roleUser = (r) => ({ mitarbeiter: ma(2), polier: ma(1), bauleiter: ma(103), buero: ma(101), gf: ma(102) }[r] || null);
-  const can = (key, u) => { u = u || S.user; if (!u) return false; return !!((S.perm[u.rolle] || {})[key] || (S.ausnahmen[u.id] || {})[key]); };
+  const GESPERRT = ['preise', 'preise_edit', 'lohnsaetze', 'kalk', 'lohn', 'benutzer'];
+  A.gesperrt = (rolle, key) => FELD.includes(rolle) && GESPERRT.includes(key);
+  const can = (key, u) => { u = u || S.user; if (!u) return false; if (A.gesperrt(u.rolle, key)) return false; return !!((S.perm[u.rolle] || {})[key] || (S.ausnahmen[u.id] || {})[key]); };
   Object.assign(A, { ROLLEN, RECHTE, PERM_DEFAULT, can, isOffice, roleUser, rolleName: (r) => (ROLLEN.find((x) => x[0] === r) || [])[1] });
   const NAVALL = [
     ['stempeluhr', 'Stempeluhr', 'clock', null, (u) => !isOffice(u)], ['kolonne', 'Kolonne', 'users', null, (u) => !isOffice(u) && can('kolonne')], ['bericht', 'Bautagesbericht', 'clipboard', 'Bericht', (u) => !isOffice(u) && can('bericht')], ['woche', 'Meine Woche', 'calendar', 'Woche', (u) => !isOffice(u)], ['profil', 'Profil', 'user', null, (u) => u.rolle === 'mitarbeiter'],
@@ -431,7 +433,7 @@
       <div class="main">
         <header class="topbar">
           <a class="top-logo" href="#${home()}">${A.mark}</a>
-          <div class="top-title"><h1 id="page-title">${m.r.title || ''}</h1><div class="top-sub" id="page-sub">${m.r.sub ? m.r.sub(m.params) : ''}</div></div>
+          <div class="top-title"><h1 id="page-title">${tr('title_' + (m.r.nav || ''), m.r.title || '')}</h1><div class="top-sub" id="page-sub">${m.r.sub ? m.r.sub(m.params) : ''}</div></div>
           ${A.topExtra ? A.topExtra(u) : ''}<div class="top-right">
             <button class="sync-chip ${S.sync}" data-act="sync-toggle" data-demo="sync-chip" title="Verbindung (Demo: antippen zum Umschalten)">${syncChipInner()}</button>
             <div class="top-clock"><b data-tick="clock">${hm(nowMin())}</b><small>${datumKurz(D.HEUTE)}${dt(D.HEUTE).getFullYear()}</small></div>
@@ -457,7 +459,6 @@
     if (!path || path === '/') { path = home(); history.replaceState(null, '', location.pathname + location.search + '#' + path); }
     let m = match(path);
     if (!m) { path = home(); m = match(path); }
-    if (S.user && m.r.bare && path.startsWith('/login') && qs.get('rolle') && !S.loggedOut) { /* direkter Login-Aufruf bleibt möglich */ }
     const same = current && current.r === m.r && JSON.stringify(current.params) === JSON.stringify(m.params) && current.user === S.user;
     const oldView = document.getElementById('view'); const scroll = same && oldView ? oldView.scrollTop : 0;
     const winScroll = same ? window.scrollY : 0;
