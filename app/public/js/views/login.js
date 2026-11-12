@@ -33,8 +33,6 @@ export default async function login(root, { angemeldet }) {
   function zeigeListe() {
     gewaehlt = null; pin = '';
     const zuletzt = speicher.lies('bt_letzter');
-    const gefiltert = liste.filter((b) => b.name.toLowerCase().includes(suche.toLowerCase()));
-    gefiltert.sort((a, b) => (b.id === zuletzt) - (a.id === zuletzt));
     card.innerHTML = `
       <div class="login-head"><h2>Anmelden</h2><p>Wer bist du?</p></div>
       <label class="search"><span>${ic('user')}</span><input id="login-suche" type="search" placeholder="Name suchen" aria-label="Name suchen" value="${esc(suche)}" autocomplete="off"></label>
@@ -55,19 +53,25 @@ export default async function login(root, { angemeldet }) {
     card.innerHTML = `
       <button type="button" class="link-back" data-zurueck>${ic('left')}Anderer Benutzer</button>
       <div class="pin-user">${avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>${esc(rolleText(gewaehlt.rolle))}</p></div>
-      <div class="pin-dots${meldung ? ' shake' : ''}" aria-hidden="true">${[0, 1, 2, 3].map((i) => `<i class="${i < pin.length ? 'on' : ''}"></i>`).join('')}</div>
-      <p class="pin-msg${meldung ? ' err' : ''}" id="pin-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'PIN eingeben')}</p>
+      <div class="pin-dots${meldung ? ' shake' : ''}" aria-hidden="true"></div>
+      <p class="pin-msg${meldung ? ' err' : ''}" id="pin-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'PIN eingeben und bestätigen')}</p>
       <div class="pin-pad" role="group" aria-label="PIN-Eingabe">
         ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-z="${n}" ${gesperrt ? 'disabled' : ''}>${n}</button>`).join('')}
-        <span></span><button type="button" data-z="0" ${gesperrt ? 'disabled' : ''}>0</button>
         <button type="button" class="pin-del" data-loeschen aria-label="Letzte Ziffer löschen">${ic('back')}</button>
+        <button type="button" data-z="0" ${gesperrt ? 'disabled' : ''}>0</button>
+        <button type="button" class="pin-ok" data-ok aria-label="Anmelden" disabled>${ic('check')}</button>
       </div>`;
+    punkte();
   }
-  const punkte = () => { $$('.pin-dots i', card).forEach((p, i) => p.classList.toggle('on', i < pin.length)); };
+  const punkte = () => {
+    const d = $('.pin-dots', card); if (!d) return;
+    d.innerHTML = Array.from({ length: Math.max(4, pin.length) }, (_, i) => `<i class="${i < pin.length ? 'on' : ''}"></i>`).join('');
+    const ok = $('[data-ok]', card); if (ok) ok.disabled = pin.length < 4 || sendet;
+  };
 
   async function sende() {
-    if (sendet) return;
-    sendet = true;
+    if (sendet || pin.length < 4) return;
+    sendet = true; punkte();
     $('#pin-msg', card).textContent = 'Wird geprüft …';
     try {
       await post('/auth/login', { benutzerId: gewaehlt.id, pin });
@@ -84,9 +88,8 @@ export default async function login(root, { angemeldet }) {
     }
   }
   function ziffer(z) {
-    if (sendet || !gewaehlt || pin.length >= 4) return;
+    if (sendet || !gewaehlt || pin.length >= 8) return;
     pin += z; punkte();
-    if (pin.length === 4) sende();
   }
   card.addEventListener('click', (e) => {
     const u = e.target.closest('.login-user');
@@ -95,12 +98,14 @@ export default async function login(root, { angemeldet }) {
     const z = e.target.closest('[data-z]');
     if (z && !z.disabled) { ziffer(z.dataset.z); return; }
     if (e.target.closest('[data-loeschen]')) { pin = pin.slice(0, -1); punkte(); }
+    if (e.target.closest('[data-ok]')) sende();
     if (e.target.closest('[data-neu-laden]')) lade();
   });
   const taste = (e) => {
     if (!gewaehlt) return;
     if (/^\d$/.test(e.key)) ziffer(e.key);
     else if (e.key === 'Backspace') { pin = pin.slice(0, -1); punkte(); }
+    else if (e.key === 'Enter') { e.preventDefault(); sende(); }
     else if (e.key === 'Escape') zeigeListe();
   };
   document.addEventListener('keydown', taste);

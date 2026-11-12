@@ -552,3 +552,5 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 .sig-done img { height: 64px; max-width: 55%; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid var(--line); flex: none; }
 .crew-row .avatar.on { background: var(--green); }
 @media (max-width: 719px) { .add-line select { flex: 1 1 100%; } .add-line .btn { flex: 1; } }
+
+.pin-pad .pin-ok { background: var(--green-strong); color: #fff; } .pin-pad .pin-ok:disabled { background: #e4e7eb; color: #a3abb5; opacity: 1; } .pin-pad .pin-ok .ic, .pin-pad .pin-del .ic { width: 28px; height: 28px; } .pin-dots { min-height: 16px; }

@@ -12,7 +12,7 @@ export default async function benutzer(el, ctx) {
   await lade();
   const rollen = () => (r.rollen || Object.keys(ROLLEN)).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
   const gesperrt = (rolle, recht) => ((r.gesperrt || {})[rolle] || []).includes(recht);
-  const fest = (rolle, recht) => rolle === 'gf' && recht === 'benutzer';
+  const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
   const rechtText = (k) => ((r.rechte || []).find((x) => x.schluessel === k) || {}).text || k;
   const name = (id) => (leute.find((m) => m.id === id) || {}).name || `Benutzer ${id}`;
 
@@ -38,7 +38,7 @@ export default async function benutzer(el, ctx) {
   }
   function protokollHtml() {
     const p = r.protokoll || [];
-    return `<section class="card">${p.length ? `<ul class="plain rows log" id="protokoll">${p.map((x) => `<li><span class="log-ic">${ic('shield')}</span><span class="grow"><b>${esc(x.text || [x.art, x.objekt].filter(Boolean).join(' · '))}</b><small>${esc(fmt.zeitpunkt(x.zeit))}${x.benutzer || x.benutzerName || x.benutzerId ? ' · ' + esc(x.benutzerName || (typeof x.benutzer === 'string' ? x.benutzer : x.benutzer && x.benutzer.name) || name(x.benutzerId)) : ''}${x.alt != null || x.neu != null ? ` · ${esc(String(x.alt ?? '–'))} → ${esc(String(x.neu ?? '–'))}` : ''}</small></span></li>`).join('')}</ul>` : leer('Noch keine Einträge.', 'shield')}
+    return `<section class="card">${p.length ? `<ul class="plain rows log" id="protokoll">${p.map((x) => `<li><span class="log-ic">${ic('shield')}</span><span class="grow"><b>${esc(x.text || [x.art, x.objekt].filter(Boolean).join(' · '))}</b><small>${esc(fmt.zeitpunkt(x.zeit))}${x.name || x.benutzerId ? ' · ' + esc(x.name || name(x.benutzerId)) : ''}</small></span></li>`).join('')}</ul>` : leer('Noch keine Einträge.', 'shield')}
       <p class="card-note">Das Protokoll ist unveränderbar – Einträge können weder geändert noch gelöscht werden.</p></section>`;
   }
   function zeichne() {
@@ -56,7 +56,7 @@ export default async function benutzer(el, ctx) {
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
       <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle">${rollen().map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
-      <label class="field"><span class="field-label">${m ? 'Neue PIN (leer lassen = unverändert)' : 'PIN (4 Ziffern)'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
+      <label class="field"><span class="field-label">${m ? 'Neue PIN (leer lassen = unverändert)' : 'PIN (4 bis 8 Ziffern)'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
       ${m ? `<label class="switch-row flat"><span><b>Aktiv</b><small>Inaktive Benutzer können sich nicht anmelden.</small></span><input type="checkbox" class="vh" name="aktiv" ${m.aktiv === false || m.aktiv === 0 ? '' : 'checked'}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bf">Speichern</button>' });

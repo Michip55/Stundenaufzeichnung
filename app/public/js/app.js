@@ -234,7 +234,9 @@ async function nachLogin() {
   await ladeIch();
   if (location.hash && location.hash !== '#/login' && location.hash !== '#/') zeige(); else location.hash = '#' + start();
 }
-async function ladeIch() {
+async function ladeIch(nurMitHinweis = false) {
+  // Beim Start ohne gemerkte Anmeldung gleich zur Anmeldeseite (spart eine sichere 401-Antwort)
+  if (nurMitHinweis && !speicher.lies('bt_ich')) { ich = null; setzBenutzer(null); return; }
   try {
     ich = await get('/auth/ich');
     ich.rechte = ich.rechte || [];
@@ -276,7 +278,7 @@ if ('serviceWorker' in navigator) {
 
 (async function los() {
   root.innerHTML = laden('BauTag wird gestartet …');
-  await ladeIch();
+  await ladeIch(true);
   if (!ich) root.innerHTML = '';
   zeige();
 })();
