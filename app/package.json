@@ -1,0 +1,14 @@
+{
+  "name": "bautag",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BauTag – Zeiterfassung, Bautagesbericht und Nachkalkulation (MVP)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js",
+    "test": "node --test tests/unit tests/api",
+    "test:e2e": "node tests/e2e/run.js"
+  },
+  "engines": { "node": ">=22.13" }
+}
