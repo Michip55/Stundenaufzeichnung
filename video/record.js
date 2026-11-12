@@ -4,7 +4,7 @@
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
-const { Recorder } = require('./lib/recorder');
+const { Recorder, muxAudio } = require('./lib/recorder');
 const { Director, signature } = require('./lib/director');
 
 const args = process.argv.slice(2);
@@ -42,6 +42,13 @@ let n = 0;
   const cardsOff = () => S(() => S.cardsOff());
   const ringOff = () => S(() => S.ring(null));
 
+  // ---------- Sprecher: Abschnitt starten (say) und auf sein Ende warten (sayEnd) ----------
+  const VOICE = process.env.VOICE_DIR;
+  const DUR = VOICE ? JSON.parse(fs.readFileSync(path.join(VOICE, 'dauer.json'), 'utf8')) : {};
+  const ends = {}; const clips = [];
+  const say = (id) => { const t = Date.now() / 1000; ends[id] = t + (DUR[id] || 0); if (VOICE) clips.push({ id, file: path.join(VOICE, id + '.wav'), t }); };
+  const sayEnd = async (id, gap = 450) => { const ms = (ends[id] - Date.now() / 1000) * 1000 + gap; if (ms > 0) await wait(ms); };
+
   // ---------- Vorbereitung: alle drei Geräte mit Startzustand laden ----------
   await load('phone', 'rolle=mitarbeiter', '#/stempeluhr', { cover: false });
   await load('tablet', 'rolle=polier&szenario=abend', '#/bericht/uebersicht', { cover: false });
@@ -58,9 +65,11 @@ let n = 0;
   // =====================================================================
   mark('Intro');
   await S(() => S.titleIn());
+  await wait(900); say('intro');
   await wait(4600);
   await S(() => { S.titleOut(); S.layout('trio'); S.headline({ k: 'Eine Plattform für den ganzen Betrieb', t: 'Handy, Tablet und PC – ein System', p: 'Die Partie stempelt am Handy, der Polier schließt den Bericht am Tablet ab,<br>das Büro rechnet am PC nach.' }); });
-  await wait(6200);
+  await wait(5200);
+  await sayEnd('intro', 300);
 
   // =====================================================================
   // 1 EINSTEMPELN (Handy)
@@ -70,6 +79,7 @@ let n = 0;
   await caption({ kicker: 'Handy · Mitarbeiter', title: 'Einstempeln mit einem Tipp', body: 'Das Handy erkennt die Ankunft auf der Baustelle und schlägt das Einstempeln vor. Die Baustelle kommt aus dem Einsatzplan.', bullets: ['Standort nur beim Stempeln – kein Tracking', 'Gerätestunden per NFC-Aufkleber', 'Funktioniert auch ohne Empfang'] });
   await wait(1300);
   await bullets(3);
+  say('stempeln');
   await S(() => { S.cursorMode('touch'); S.cursorJump(1560, 900); });
   await demo('phone', () => demo.ankunft());
   await wait(1700);
@@ -81,6 +91,8 @@ let n = 0;
   await card('live', { x: 1540, y: 330, w: 330, icon: 'live', title: 'Sofort im Büro sichtbar', text: 'Das Dashboard zeigt live, wer auf welcher Baustelle ist.' });
   await wait(2600);
   await ringOff();
+  await sayEnd('stempeln', 200);
+  say('nfc');
   await D.tap('phone', q('geraet-scannen'), { after: 300 });
   await D.F.phone.locator('[data-demo="geraet-scan-overlay"][data-state="fertig"]').waitFor({ timeout: 8000 });
   await wait(900);
@@ -88,10 +100,12 @@ let n = 0;
   await D.tap('phone', q('geraet-scan-fertig'), { after: 1500 });
   await D.ring('phone', q('geraet-laeuft'), 6);
   await wait(1500);
+  await sayEnd('nfc', 200);
   await ringOff(); await cardsOff();
 
   // Sprachen + Baustellen-Modus
   await caption({ kicker: 'Handy · Für alle verständlich', title: 'Fünf Sprachen, extra große Tasten', body: 'Deutsch, Bosnisch/Kroatisch/Serbisch, Ungarisch, Rumänisch und Türkisch – mit einem Tipp umgeschaltet. Der Baustellen-Modus ist gemacht für Handschuhe und pralle Sonne.' });
+  say('sprachen');
   await wait(600);
   await D.tap('phone', q('sprache'), { after: 700 });
   await D.tap('phone', q('sprache-bks'), { after: 1900 });
@@ -101,14 +115,17 @@ let n = 0;
   await D.tap('phone', q('sprache-de'), { after: 900 });
   await D.tap('phone', q('baustellen-modus'), { after: 2600 });
   await D.tap('phone', q('baustellen-modus'), { after: 600 });
+  await sayEnd('sprachen', 200);
 
   // Polier: Kolonne
   await caption({ kicker: 'Handy · Polier', title: 'Die ganze Partie auf einmal', body: 'Der Polier stempelt seine Kolonne gesammelt ein – ideal für Mitarbeiter ohne eigenes Smartphone.' });
+  say('kolonne');
   await load('phone', 'rolle=polier', '#/kolonne');
   await wait(900);
   await D.tap('phone', q('kolonne-einstempeln'), { after: 1300 });
   await card('kol', { x: 1540, y: 400, w: 330, tone: 'green', icon: 'users', title: '6 Mitarbeiter eingestempelt', text: 'Urlaub und Krankenstand werden automatisch berücksichtigt.' });
-  await wait(2800);
+  await wait(2000);
+  await sayEnd('kolonne', 200);
   await cardsOff();
 
   // =====================================================================
@@ -117,6 +134,7 @@ let n = 0;
   mark('2 Bericht');
   await S(() => S.chapter(1));
   await caption({ kicker: 'Handy · Polier · Bautagesbericht', title: 'Den Bericht einfach diktieren', body: 'Kopf, Personal und Wetter sind schon ausgefüllt. Den Rest spricht der Polier ein – die KI füllt die Felder, er prüft nur noch.', bullets: ['Personal & Stunden aus den Stempelzeiten', 'Wetter automatisch, Schlechtwetter-Vorschlag', 'Lieferschein fotografieren statt abtippen'] });
+  say('wetter');
   await load('phone', 'rolle=polier&szenario=abend&bericht=leer', '#/bericht/1');
   await bullets(3);
   await D.ring('phone', q('wetter-karte'), 6);
@@ -127,8 +145,11 @@ let n = 0;
   await card('sw', { x: 1540, y: 380, w: 330, icon: 'cloud', title: 'Starkregen gemeldet', text: 'BauTag schlägt vor, Schlechtwetter (SW) für die Partie einzutragen.' });
   await wait(2600);
   await ringOff(); await cardsOff();
-  await D.tap('phone', q('wetter-demo-regen'), { after: 700 });
+  await D.frame('phone').evaluate(() => document.querySelector('[data-demo="wetter-demo-regen"]').click());
+  await wait(700);
+  await sayEnd('wetter', 200);
 
+  say('diktat');
   await D.tap('phone', q('bericht-diktieren'), { after: 400 });
   await card('mic', { x: 1540, y: 300, w: 330, icon: 'auto', title: 'Einfach sprechen', text: '„Heute Frostschutz eingebaut, 42 Tonnen, Bagger 9 Tonnen 8 Stunden …“' });
   await D.F.phone.locator('[data-demo="diktat-overlay"][data-state="fertig"]').waitFor({ timeout: 15000 });
@@ -143,13 +164,16 @@ let n = 0;
   await D.tap('phone', q('ki-bestaetigen'), { after: 700 });
   await D.tap('phone', q('wizard-weiter'), { after: 1200 });
 
+  await sayEnd('diktat', 200);
+  say('lieferschein');
   await D.tap('phone', q('lieferschein-scannen'), { after: 300 });
   await D.F.phone.locator('[data-demo="lieferschein-overlay"][data-state="fertig"]').waitFor({ timeout: 10000 });
   await wait(1200);
   await card('ls', { x: 1540, y: 400, w: 330, icon: 'doc', title: 'Lieferschein erkannt', text: 'Lieferant, Material und Mengen werden übernommen – kein Abtippen.' });
   await D.tap('phone', q('lieferschein-uebernehmen'), { after: 1400 });
   await D.ring('phone', q('lieferschein-angehaengt'), 6);
-  await wait(1800);
+  await wait(1200);
+  await sayEnd('lieferschein', 200);
   await ringOff(); await cardsOff();
 
   // =====================================================================
@@ -157,6 +181,7 @@ let n = 0;
   // =====================================================================
   mark('3 Tablet');
   await S(() => { S.chapter(2); S.layout('tablet'); });
+  say('tablet');
   await caption({ kicker: 'Tablet · Bei der Bauherrschaft', title: 'Unterschrift direkt am Tablet', body: 'Der Bericht sieht aus wie die gewohnte Vorlage. Der Bauherr unterschreibt vor Ort – das PDF geht sofort an den Auftraggeber.', bullets: ['Gleiche Felder wie der Papier-Bericht', 'Alternativ Unterschrift per SMS-Link', 'Kein Zettel geht mehr verloren'] });
   await wait(1300);
   await bullets(3);
@@ -165,12 +190,15 @@ let n = 0;
   await ringOff();
   await D.scrollBy('tablet', '#view', 420, 1300);
   await D.scrollBy('tablet', '#view', 420, 1300);
+  await sayEnd('tablet', 0);
+  say('tablet2');
   await D.tap('tablet', q('signatur-auftragnehmer-hinterlegt'), { after: 900 });
   await D.sign('tablet', q('signatur-bauherr'), signature(), { steps: 2, speed: 6 });
   await wait(700);
   await D.tap('tablet', q('bericht-senden'), { after: 1900 });
   await card('mail', { x: 1490, y: 70, w: 360, tone: 'green', icon: 'mail', title: 'PDF an Auftraggeber gesendet', text: 'Ohne interne Preise – das Büro hat den Bericht sofort.' });
   await wait(2200);
+  await sayEnd('tablet2', 0);
   await D.tap('tablet', q('senden-fertig'), { after: 900 });
   await cardsOff();
 
@@ -179,6 +207,7 @@ let n = 0;
   // =====================================================================
   mark('4 Dashboard');
   await S(() => { S.chapter(3); S.layout('desktop'); S.cursorMode('arrow'); S.cursorJump(1500, 980); });
+  say('dashboard');
   await caption({ kicker: 'PC · Büro', title: 'Alles live im Überblick', body: 'Wer ist wo, welche Berichte warten auf Freigabe, wo droht eine Überschreitung der Arbeitszeit.', bullets: ['24 von 30 eingestempelt – live', 'Warnungen nach Arbeitszeitgesetz', 'Fragen in Alltagssprache stellen'] });
   await wait(1300);
   await bullets(1, 200);
@@ -195,10 +224,12 @@ let n = 0;
   await D.ring('desktop', q('frage-antwort'), 6);
   await wait(3000);
   await ringOff();
+  await sayEnd('dashboard', 0);
   await D.tap('desktop', q('frage-schliessen'), { after: 500 });
 
   // Bericht als PDF
   await caption({ kicker: 'PC · Bautagesberichte', title: 'Wie gewohnt – nur digital', body: 'Die PDF-Ansicht folgt 1:1 der bestehenden Vorlage. Das Büro prüft und gibt mit einem Klick frei.' });
+  say('pdf');
   await D.tap('desktop', q('nav-berichte'), { after: 900 });
   await url('/berichte');
   await D.tap('desktop', q('bericht-zeile-26-041_2026-11-11'), { after: 1200 });
@@ -207,7 +238,28 @@ let n = 0;
   await wait(2200);
   await ringOff();
   await D.scrollBy('desktop', '#view', 380, 1400);
-  await D.tap('desktop', q('bericht-freigeben'), { after: 1500 });
+  await D.tap('desktop', q('bericht-freigeben'), { after: 1200 });
+  await sayEnd('pdf', 200);
+
+  // Papierbericht scannen
+  await caption({ kicker: 'PC · Übergangszeit', title: 'Papierbericht? Einfach einscannen', body: 'BauTag erkennt die bestehende Vorlage, liest Stunden, Geräte und Material aus und markiert unsichere Felder zur Prüfung.' });
+  say('papier');
+  await D.tap('desktop', q('nav-berichte'), { after: 900 });
+  await url('/berichte');
+  await D.tap('desktop', q('papier-scannen'), { after: 900 });
+  await D.tap('desktop', q('papier-beispiel'), { after: 300 });
+  await D.F.desktop.locator('[data-demo="papier-overlay"][data-state="fertig"]').waitFor({ timeout: 15000 });
+  await wait(600);
+  await D.ring('desktop', q('papier-zusammenfassung'), 6);
+  await card('papier', { x: 1500, y: 60, w: 360, icon: 'doc', title: '34 Felder erkannt · 2 bitte prüfen', text: 'Namen, Kostenstelle und Geräte werden mit den Stammdaten abgeglichen.' });
+  await wait(2200);
+  await ringOff();
+  await D.ring('desktop', q('papier-eingabe-b27'), 6);
+  await wait(1600);
+  await ringOff();
+  await sayEnd('papier', 0);
+  await D.tap('desktop', q('papier-uebernehmen'), { after: 1500 });
+  await cardsOff();
 
   // =====================================================================
   // 5 PREISE (PC)
@@ -215,6 +267,7 @@ let n = 0;
   mark('5 Preise');
   await S(() => S.chapter(4));
   await caption({ kicker: 'PC · Stammdaten', title: 'Preise einmal hinterlegen', body: 'Lohngruppen, Geräte, Material und Leistungspositionen – jeweils mit internen Kosten und Verrechnungssätzen.', bullets: ['Änderungen wirken sofort', 'Auswirkung je Baustelle sichtbar'] });
+  say('preise');
   await D.tap('desktop', q('nav-preise'), { after: 900 });
   await url('/preise/lohn');
   await bullets(1, 0);
@@ -226,7 +279,8 @@ let n = 0;
   await S(() => S.bullet(1));
   await D.ring('desktop', q('preise-auswirkung'), 6);
   await card('preis', { x: 1500, y: 60, w: 360, icon: 'euro', title: 'Bagger 9 to.: € 34 → € 42 / Std.', text: 'Die Auswirkung auf den Deckungsbeitrag jeder Baustelle wird sofort berechnet.' });
-  await wait(3000);
+  await wait(2000);
+  await sayEnd('preise', 200);
   await ringOff(); await cardsOff();
 
   // =====================================================================
@@ -235,6 +289,7 @@ let n = 0;
   mark('6 Nachkalkulation');
   await S(() => S.chapter(5));
   await caption({ kicker: 'PC · Büro & Geschäftsführung', title: 'Nachkalkulation je Baustelle – automatisch', body: 'Jeder Bautagesbericht fließt mit den hinterlegten Preisen sofort ein – nicht erst nach der Schlussrechnung.', bullets: ['Erlös, Kosten und Deckungsbeitrag tagesaktuell', 'Hochrechnung bis Bauende', 'Automatische Hinweise, z. B. offene Regie'] });
+  say('nachkalkulation');
   await D.tap('desktop', q('auswirkung-26-041'), { after: 1300 });
   await url('/nachkalkulation/26-041');
   await bullets(1, 0);
@@ -249,9 +304,30 @@ let n = 0;
   await D.ring('desktop', q('insight-1'), 6);
   await wait(2600);
   await ringOff();
-  await D.scrollBy('desktop', '#view', 520, 1500);
-  await wait(1800);
-  await D.scrollBy('desktop', '#view', -520, 900);
+  await sayEnd('nachkalkulation', 200);
+
+  // Auftragssumme + Budget-Alarm
+  await caption({ kicker: 'PC · Auftragssumme', title: 'Meldung bei 80 % der Auftragssumme', body: 'Pro Projekt wird die Auftragssumme samt Nachträgen hinterlegt. Ab 80, 90 und 100 % kommt automatisch eine Meldung.', bullets: ['Schwellen und Empfänger frei einstellbar', 'Push aufs Handy der Bauleitung', 'Kritisch, wenn Kosten dem Leistungsstand davonlaufen'] });
+  say('budget');
+  await D.ring('desktop', q('budget-karte'), 6);
+  await bullets(1, 0);
+  await wait(1500);
+  await ringOff();
+  await D.tap('desktop', q('budget-demo-80'), { after: 1400 });
+  await S(() => S.bullet(1));
+  await D.ring('desktop', q('budget-meldung'), 6);
+  await card('push', { x: 1500, y: 860, w: 360, icon: 'warn', title: 'Budget-Warnung: WHA Pitten', text: '80 % der Auftragssumme verbraucht – Leistungsstand erst 72 %. Push an die Bauleitung.' });
+  await wait(2600);
+  await ringOff();
+  await S(() => S.bullet(2));
+  await D.tap('desktop', q('budget-meldung-ansehen'), { after: 1100 });
+  await D.ring('desktop', q('benachrichtigungen-panel'), 6);
+  await wait(2000);
+  await ringOff(); await cardsOff();
+  await D.frame('desktop').evaluate(() => { const b = document.querySelector('[data-act="bell-zu"]'); if (b) b.click(); });
+  await wait(600);
+  await sayEnd('budget', 200);
+  await demo('desktop', () => demo.go('/nachkalkulation/26-041'));
 
   // =====================================================================
   // 7 ROLLEN & BERECHTIGUNGEN (PC)
@@ -259,6 +335,7 @@ let n = 0;
   mark('7 Rollen');
   await S(() => S.chapter(6));
   await caption({ kicker: 'PC · Geschäftsführung', title: 'Wer sieht was – klar geregelt', body: 'Preise und Nachkalkulation sehen nur Büro, Geschäftsführung und Bauleitung. Für Polier und Mitarbeiter ist das fix gesperrt.', bullets: ['Rechte-Matrix mit Änderungsprotokoll', '„Ansicht testen als …“ mit einem Klick', 'Gesperrte Daten erreichen das Handy gar nicht'] });
+  say('rollen');
   await load('desktop', 'rolle=gf', '#/benutzer');
   await url('/benutzer');
   await bullets(1, 0);
@@ -281,6 +358,7 @@ let n = 0;
   await D.ring('desktop', q('kein-zugriff'), 6);
   await wait(2600);
   await ringOff(); await cardsOff();
+  await sayEnd('rollen', 0);
   await D.tap('desktop', q('vorschau-beenden'), { after: 1000 });
 
   // =====================================================================
@@ -289,6 +367,7 @@ let n = 0;
   mark('8 Lohn');
   await S(() => S.chapter(7));
   await caption({ kicker: 'PC · Lohnverrechnung', title: 'Monatsabschluss auf Knopfdruck', body: 'Stunden, Überstunden, Schlechtwetter, Krankenstand, Urlaub und SEG-Zulagen – geprüft und fertig für die Lohnverrechnung.', bullets: ['Export für die Lohnverrechnung (z. B. BMD)', 'Grundlage für die BUAK-Meldung'] });
+  say('lohn');
   await D.tap('desktop', q('nav-monat'), { after: 1200 });
   await url('/monat');
   await D.ring('desktop', q('monat-matrix'), 4);
@@ -300,6 +379,7 @@ let n = 0;
   await S(() => S.bullet(1));
   await D.tap('desktop', q('export-buak'), { after: 2000 });
   await D.tap('desktop', q('export-fertig'), { after: 900 });
+  await sayEnd('lohn', 200);
 
   // =====================================================================
   // OUTRO
@@ -314,15 +394,25 @@ let n = 0;
   ]);
   await url('/nachkalkulation/26-041');
   await D.scrollBy('tablet', '#view', -2000, 300);
+  say('outro');
   await S(() => S.layout('trio'));
-  await wait(7500);
+  await wait(4000);
+  await sayEnd('outro', 1200);
   await S(() => S.fade(true));
   await wait(1200);
 
   if (!DRY) {
     await rec.stop();
     console.log('Frames:', rec.stats());
-    rec.assemble(OUT);
+    if (clips.length) {
+      const silent = OUT.replace(/\.mp4$/, '_ohne_ton.mp4');
+      rec.assemble(silent);
+      const t0v = rec.frames[0].t;
+      muxAudio(silent, clips.map((c) => ({ file: c.file, offset: Math.max(0, c.t - t0v) })), OUT);
+      fs.rmSync(silent);
+    } else {
+      rec.assemble(OUT);
+    }
     console.log('Video:', OUT, (fs.statSync(OUT).size / 1e6).toFixed(1), 'MB');
   }
   mark('Ende');

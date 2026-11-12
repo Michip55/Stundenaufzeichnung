@@ -1,23 +1,81 @@
 {
   "_hinweis": "Sprechertext für das Entwurfsvideo. Jeder Abschnitt gehört zu einer Szene in record.js (say/sayEnd). Zahlen bewusst ausgeschrieben, damit die Sprachausgabe sie richtig liest.",
   "segments": [
-    { "id": "intro", "text": "Das ist BauTag – ein Entwurf für die digitale Stundenaufzeichnung, den Bautagesbericht und die Nachkalkulation. Eine Plattform für den ganzen Betrieb: am Handy auf der Baustelle, am Tablet beim Polier und am PC im Büro." },
-    { "id": "stempeln", "text": "Beginnen wir auf der Baustelle. Kommt ein Mitarbeiter an, schlägt das Handy das Einstempeln vor – ein Tipp genügt. Die Baustelle kommt aus dem Einsatzplan. Der Standort wird nur in diesem Moment erfasst, es gibt kein laufendes Tracking." },
-    { "id": "nfc", "text": "Wer einen Bagger übernimmt, hält das Handy an den NFC-Aufkleber. Die Gerätestunden laufen dann automatisch auf die richtige Kostenstelle und landen später im Bautagesbericht." },
-    { "id": "sprachen", "text": "Die App spricht fünf Sprachen: Deutsch, Bosnisch-Kroatisch-Serbisch, Ungarisch, Rumänisch und Türkisch. Der Baustellen-Modus zeigt extra große Tasten – für Handschuhe und pralle Sonne." },
-    { "id": "kolonne", "text": "Der Polier stempelt seine ganze Partie mit einem Tipp ein – ideal für Mitarbeiter ohne eigenes Smartphone. Urlaub und Krankenstand werden dabei automatisch berücksichtigt." },
-    { "id": "wetter", "text": "Am Abend folgt der Bautagesbericht. Kopf, Personal und Stunden sind aus den Stempelzeiten schon ausgefüllt, das Wetter wird automatisch eingetragen. Bei Starkregen schlägt BauTag vor, Schlechtwetter für die Partie zu erfassen." },
-    { "id": "diktat", "text": "Statt zu tippen, diktiert der Polier einfach seinen Tag: Frostschutz eingebaut, zweiundvierzig Tonnen, Bagger neun Tonnen, acht Stunden. Die KI ordnet alles den richtigen Feldern zu. Der Polier prüft nur noch und bestätigt." },
-    { "id": "lieferschein", "text": "Lieferscheine werden einfach fotografiert. Lieferant, Material und Mengen werden erkannt und übernommen – kein Abtippen mehr." },
-    { "id": "tablet", "text": "Beim Bauherrn wird der Bericht am Tablet abgeschlossen. Er sieht aus wie die gewohnte Papiervorlage. Der Bauherr unterschreibt direkt am Bildschirm, oder per SMS-Link, wenn er nicht vor Ort ist. Das PDF geht sofort an den Auftraggeber – ohne interne Preise." },
-    { "id": "dashboard", "text": "Im Büro ist alles live sichtbar: wer auf welcher Baustelle ist, welche Berichte auf Freigabe warten, und wo eine Überschreitung der Arbeitszeit droht. Fragen lassen sich in Alltagssprache stellen – zum Beispiel, wie viel Frostschutz auf einer Baustelle verbaut wurde." },
-    { "id": "pdf", "text": "Jeder Bericht liegt als PDF vor, eins zu eins nach der bestehenden Vorlage. Das Büro prüft und gibt mit einem Klick frei." },
-    { "id": "papier", "text": "Und wenn doch noch ein Bericht auf Papier kommt? Einfach einscannen oder fotografieren. BauTag erkennt die Vorlage, liest Stunden, Geräte und Material aus, und markiert unsichere Stellen zur Prüfung." },
-    { "id": "preise", "text": "Preise werden einmal hinterlegt: Lohngruppen, Geräte, Material und Leistungspositionen – jeweils mit internen Kosten und Verrechnungssätzen. Ändert sich ein Gerätesatz, zeigt BauTag sofort die Auswirkung auf jede Baustelle." },
-    { "id": "nachkalkulation", "text": "Daraus entsteht die Nachkalkulation je Baustelle, automatisch und tagesaktuell: Erlös, Kosten und Deckungsbeitrag. Die Hochrechnung zeigt, wo die Baustelle bei aktuellem Verlauf landen wird. Hinweise machen auf offene Regiestunden oder Mehrverbrauch aufmerksam." },
-    { "id": "budget", "text": "Pro Projekt wird die Auftragssumme samt Nachträgen hinterlegt. Sind zum Beispiel achtzig Prozent davon verbraucht, kommt sofort eine Meldung – am PC und als Push-Nachricht aufs Handy der Bauleitung. Kritisch wird es, wenn die Kosten dem Leistungsstand davonlaufen." },
-    { "id": "rollen", "text": "Wer was sehen darf, ist klar geregelt. Preise und Nachkalkulation sehen nur Büro, Geschäftsführung und Bauleitung. Für Polier und Mitarbeiter ist das fix gesperrt – und die Ansicht lässt sich mit einem Klick testen." },
-    { "id": "lohn", "text": "Am Monatsende liegen alle Stunden geprüft vor: Überstunden, Schlechtwetter, Krankenstand, Urlaub und Zulagen. Der Export für die Lohnverrechnung und die Grundlage für die BUAK-Meldung sind auf Knopfdruck fertig." },
-    { "id": "outro", "text": "Das war der Entwurf von BauTag. Die nächsten Schritte: das Konzept besprechen, den Prototyp mit zwei Polieren testen, und ab Saisonstart einen Pilot mit einer Partie beginnen." }
+    {
+      "id": "intro",
+      "text": "Das ist BauTag – ein Entwurf für die digitale Stundenaufzeichnung, den Bautagesbericht und die Nachkalkulation. Eine Plattform für den ganzen Betrieb: am Handy auf der Baustelle, am Tablet beim Polier und am PC im Büro."
+    },
+    {
+      "id": "stempeln",
+      "text": "Beginnen wir auf der Baustelle. Kommt ein Mitarbeiter an, schlägt das Handy das Einstempeln vor – ein Tipp genügt. Die Baustelle kommt aus dem Einsatzplan. Der Standort wird nur in diesem Moment erfasst, es gibt kein laufendes Tracking."
+    },
+    {
+      "id": "nfc",
+      "text": "Wer einen Bagger übernimmt, hält das Handy an den NFC-Aufkleber. Die Gerätestunden laufen dann automatisch auf die richtige Kostenstelle und landen später im Bautagesbericht."
+    },
+    {
+      "id": "sprachen",
+      "text": "Die App spricht fünf Sprachen: Deutsch, Bosnisch-Kroatisch-Serbisch, Ungarisch, Rumänisch und Türkisch. Der Baustellen-Modus zeigt extra große Tasten – für Handschuhe und pralle Sonne."
+    },
+    {
+      "id": "kolonne",
+      "text": "Der Polier stempelt seine ganze Partie mit einem Tipp ein – ideal für Mitarbeiter ohne eigenes Smartphone. Urlaub und Krankenstand werden dabei automatisch berücksichtigt."
+    },
+    {
+      "id": "wetter",
+      "text": "Am Abend folgt der Bautagesbericht. Kopf, Personal und Stunden sind aus den Stempelzeiten schon ausgefüllt, das Wetter wird automatisch eingetragen. Bei Starkregen schlägt BauTag vor, Schlechtwetter für die Partie zu erfassen."
+    },
+    {
+      "id": "diktat",
+      "text": "Statt zu tippen, diktiert der Polier einfach seinen Tag: Frostschutz eingebaut, zweiundvierzig Tonnen, Bagger neun Tonnen, acht Stunden. Die KI ordnet alles den richtigen Feldern zu. Der Polier prüft nur noch und bestätigt."
+    },
+    {
+      "id": "lieferschein",
+      "text": "Lieferscheine werden einfach fotografiert. Lieferant, Material und Mengen werden erkannt und übernommen – kein Abtippen mehr."
+    },
+    {
+      "id": "tablet",
+      "text": "Beim Bauherrn wird der Bericht am Tablet abgeschlossen. Er sieht aus wie die gewohnte Papiervorlage – mit allen Feldern, Geräten und Materialien, nur übersichtlicher."
+    },
+    {
+      "id": "tablet2",
+      "text": "Der Polier setzt seine hinterlegte Unterschrift ein, der Bauherr unterschreibt direkt am Bildschirm – oder per SMS-Link, wenn er nicht vor Ort ist. Das PDF geht sofort an den Auftraggeber, ohne interne Preise. Im Büro ist der Bericht im selben Moment da."
+    },
+    {
+      "id": "dashboard",
+      "text": "Im Büro ist alles live sichtbar: wer auf welcher Baustelle ist, welche Berichte auf Freigabe warten, und wo eine Überschreitung der Arbeitszeit droht. Fragen lassen sich in Alltagssprache stellen – zum Beispiel, wie viel Frostschutz auf einer Baustelle verbaut wurde."
+    },
+    {
+      "id": "pdf",
+      "text": "Jeder Bericht liegt als PDF vor, eins zu eins nach der bestehenden Vorlage. Das Büro prüft und gibt mit einem Klick frei."
+    },
+    {
+      "id": "papier",
+      "text": "Und wenn doch noch ein Bericht auf Papier kommt? Einfach einscannen oder fotografieren. BauTag erkennt die Vorlage, liest Stunden, Geräte und Material aus, und markiert unsichere Stellen zur Prüfung."
+    },
+    {
+      "id": "preise",
+      "text": "Preise werden einmal hinterlegt: Lohngruppen, Geräte, Material und Leistungspositionen – jeweils mit internen Kosten und Verrechnungssätzen. Ändert sich ein Gerätesatz, zeigt BauTag sofort die Auswirkung auf jede Baustelle."
+    },
+    {
+      "id": "nachkalkulation",
+      "text": "Daraus entsteht die Nachkalkulation je Baustelle, automatisch und tagesaktuell: Erlös, Kosten und Deckungsbeitrag. Die Hochrechnung zeigt, wo die Baustelle bei aktuellem Verlauf landen wird. Hinweise machen auf offene Regiestunden oder Mehrverbrauch aufmerksam."
+    },
+    {
+      "id": "budget",
+      "text": "Pro Projekt wird die Auftragssumme samt Nachträgen hinterlegt. Sind zum Beispiel achtzig Prozent davon verbraucht, kommt sofort eine Meldung – am PC und als Push-Nachricht aufs Handy der Bauleitung. Kritisch wird es, wenn die Kosten dem Leistungsstand davonlaufen."
+    },
+    {
+      "id": "rollen",
+      "text": "Wer was sehen darf, ist klar geregelt. Preise und Nachkalkulation sehen nur Büro, Geschäftsführung und Bauleitung. Für Polier und Mitarbeiter ist das fix gesperrt – und die Ansicht lässt sich mit einem Klick testen."
+    },
+    {
+      "id": "lohn",
+      "text": "Am Monatsende liegen alle Stunden geprüft vor: Überstunden, Schlechtwetter, Krankenstand, Urlaub und Zulagen. Der Export für die Lohnverrechnung und die Grundlage für die BUAK-Meldung sind auf Knopfdruck fertig."
+    },
+    {
+      "id": "outro",
+      "text": "Das war der Entwurf von BauTag. Die nächsten Schritte: das Konzept besprechen, den Prototyp mit zwei Polieren testen, und ab Saisonstart einen Pilot mit einer Partie beginnen."
+    }
   ]
 }

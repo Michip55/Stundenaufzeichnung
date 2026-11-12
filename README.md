@@ -8,7 +8,7 @@ Entwurf einer Plattform für einen Erdbau- und Pflasterbetrieb in Österreich (c
 
 | Ordner / Datei | Was ist das? |
 |---|---|
-| [`video/BauTag_Entwurfsvideo.mp4`](video/BauTag_Entwurfsvideo.mp4) | **Entwurfsvideo** (3:48 min, Full HD): Rundgang durch alle Funktionen auf Handy, Tablet und PC |
+| [`video/BauTag_Entwurfsvideo.mp4`](video/BauTag_Entwurfsvideo.mp4) | **Entwurfsvideo** (4:28 min, Full HD, mit Sprecher): Rundgang durch alle Funktionen auf Handy, Tablet und PC, inkl. Budget-Alarm und Papier-Scan |
 | [`docs/Konzept.md`](docs/Konzept.md) | **Fachkonzept**: Funktionen, Rollen & Berechtigungen, innovative Funktionen, Österreich-Recht (AZG, KV Bau, BUAK, SEG, DSGVO), Datenmodell, Technik, Kaufen vs. Bauen, Kosten, Phasenplan, offene Fragen |
 | [`prototype/`](prototype/) | **Klickbarer Prototyp** (reines HTML/CSS/JS, ohne Backend, fiktive Beispieldaten). Ablauf und Routen: [`prototype/DEMO.md`](prototype/DEMO.md) |
 | [`docs/vorlage/`](docs/vorlage/) | Bestehende Papiervorlage des Bautagesberichts |
@@ -39,7 +39,8 @@ Rollen: `mitarbeiter`, `polier`, `bauleiter`, `buero`, `gf`. Alle Parameter steh
 
 ```bash
 python3 -m http.server 8765 &          # im Repo-Wurzelverzeichnis
-node video/record.js                    # erzeugt video/BauTag_Entwurfsvideo.mp4 (benötigt Playwright + ffmpeg)
+python3 video/lib/tts.py <de_DE-thorsten-high.onnx> /tmp/stimme   # Sprecher erzeugen (pip install piper-tts)
+VOICE_DIR=/tmp/stimme node video/record.js   # erzeugt video/BauTag_Entwurfsvideo.mp4 (Playwright + ffmpeg)
 ```
 
 > Hinweis: Das ist ein Entwurf. Alle Namen, Baustellen und Preise sind fiktive Beispielwerte, und es wird bewusst noch kein Firmenlogo verwendet. Rechtliche Punkte im Konzept sind mit **„Prüfen:“** markiert und mit Steuerberatung, Lohnverrechnung bzw. WKO abzustimmen.
