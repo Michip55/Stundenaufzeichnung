@@ -1,7 +1,7 @@
 'use strict';
 const v = require('../validierung');
 const { ApiFehler, ungueltig, keinZugriff, konflikt } = require('../fehler');
-const { baustelleImBereich } = require('../rechte');
+const { baustelleImBereich, bereich } = require('../rechte');
 const { statusAusBuchungen, pruefeBuchung, schichten, TYPEN } = require('../stempel');
 const { azgWarnungen } = require('../azg');
 const { wienDatum, wienZeit, plusTage, deDatum } = require('../datum');
@@ -136,6 +136,21 @@ module.exports = function zeitRouten(api, bt) {
       if (!partie && st.baustelleId !== bs.id) continue;
       const abw = db.eins('SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', b.id, wienDatum(jetzt));
       out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw ? abw.code : null });
+    }
+    res.json(out);
+  });
+
+  /** Ergänzung: wer ist gerade eingestempelt (Dashboard „Heute“). Bauleiter: nur eigene Baustellen. */
+  api.get('/zeit/anwesend', brauche('bericht_freigeben', 'stammdaten', 'lohn', 'kalk_sehen'), (req, res) => {
+    const ctx = req.ctx;
+    const bsMap = new Map(db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').map((b) => [b.id, b]));
+    const nurEigene = bereich(ctx.benutzer) !== 'alle';
+    const out = [];
+    for (const b of db.alle('SELECT id, name, rolle FROM benutzer WHERE aktiv = 1 ORDER BY name')) {
+      const st = statusAusBuchungen(letzteBuchungen(db, b.id, 30));
+      if (st.status === 'aus') continue;
+      if (nurEigene && !baustelleImBereich(ctx.benutzer, bsMap.get(st.baustelleId))) continue;
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, status: st.status, seit: st.seit, baustelleId: st.baustelleId, schichtBeginn: st.schichtBeginn });
     }
     res.json(out);
   });
