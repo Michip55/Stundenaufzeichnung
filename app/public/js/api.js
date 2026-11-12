@@ -32,6 +32,7 @@ export async function api(methode, pfad, body) {
     // 503 vom Service Worker = offline
     if (antwort.status === 503 && daten && daten.code === 'OFFLINE') throw new NetzFehler();
     const fehler = new ApiFehler(antwort.status, daten);
+    if (antwort.status === 403 && fehler.code === 'PIN_AENDERN') window.dispatchEvent(new CustomEvent('bt:pin'));
     if (antwort.status === 401 && !pfad.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('bt:abgemeldet'));
     }

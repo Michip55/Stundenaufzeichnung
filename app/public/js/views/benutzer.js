@@ -56,7 +56,8 @@ export default async function benutzer(el, ctx) {
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
       <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle">${rollen().map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
-      <label class="field"><span class="field-label">${m ? 'Neue PIN (leer lassen = unverändert)' : 'PIN (4 bis 8 Ziffern)'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
+      <label class="field"><span class="field-label">${m ? 'PIN zurücksetzen (leer lassen = unverändert)' : 'Start-PIN'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" aria-describedby="pin-hinweis" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
+      <p class="muted sm" id="pin-hinweis">4 bis 12 Ziffern (Bauleiter, Büro und Geschäftsführung mindestens 6), keine Folgen wie 1234. Die Person muss die PIN bei der nächsten Anmeldung selbst ändern.</p>
       ${m ? `<label class="switch-row flat"><span><b>Aktiv</b><small>Inaktive Benutzer können sich nicht anmelden.</small></span><input type="checkbox" class="vh" name="aktiv" ${m.aktiv === false || m.aktiv === 0 ? '' : 'checked'}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bf">Speichern</button>' });

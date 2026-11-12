@@ -104,6 +104,12 @@ export async function kalkDetail(el, ctx) {
   const id = ctx.params[0];
   const k = await get(`/kalkulation/${id}`);
   const b = k.baustelle || {};
+  // Einzelne Meldungen zum Stornieren (M-03) – nur wer erfassen darf
+  const mitStorno = ctx.kann('preise_bearbeiten') || (ctx.kann('kalk_sehen') && (ctx.ich.baustellenIds || []).map(String).includes(String(id)));
+  const [meldungen, fremde] = await Promise.all([
+    mitStorno ? get(`/baustellen/${id}/leistungen`).catch(() => null) : null,
+    ctx.kann('preise_bearbeiten') ? get(`/baustellen/${id}/fremdleistungen`).catch(() => null) : null,
+  ]);
   const darfMelden = ctx.kann('preise_bearbeiten') || (ctx.kann('kalk_sehen') && (ctx.ich.baustellenIds || []).map(String).includes(String(id)));
   ctx.titel('Nachkalkulation', `${b.kst ? b.kst + ' · ' : ''}${b.name || ''}`);
   const kosten = k.kosten || {};
@@ -139,13 +145,15 @@ export async function kalkDetail(el, ctx) {
         ${posTab('Geräte', 'geraete', pos.geraete || [], 'stunden', 'Std.')}
         ${posTab('Material', 'material', pos.material || [], 'menge', '')}
         ${posTab('Fremdleistungen', 'fremd', pos.fremd || [], null, '')}
-        ${darfMelden ? `<button type="button" class="btn ghost sm" data-akt="fremd">${ic('plus')}Fremdleistung erfassen</button>` : ''}
+        ${ctx.kann('preise_bearbeiten') ? `<button type="button" class="btn ghost sm" data-akt="fremd">${ic('plus')}Fremdleistung erfassen</button>` : ''}
+        ${fremde && fremde.length ? `<details class="einzeln" id="fremd-einzeln"><summary>Einzelne Fremdleistungen (${fremde.length}) – stornieren</summary><ul class="plain rows">${fremde.map((f) => `<li><span class="grow"><b>${esc(f.text)}</b><small>${esc(fmt.datum(f.datum))}</small></span><b class="num">${fmt.eur(f.betrag)}</b><button type="button" class="btn ghost sm" data-storno="fremdleistungen" data-id="${f.id}" data-was="${esc(f.text)}">Stornieren</button></li>`).join('')}</ul></details>` : ''}
       </section>
       <section class="card pad" aria-labelledby="h-erl">
         <div class="card-h"><h3 id="h-erl">Erlös</h3><b class="num">${fmt.eur(k.erloes)}</b></div>
         ${(pos.leistungen || []).length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Leistung</th><th class="r">Menge</th><th class="r">EP</th><th class="r">Betrag</th></tr></thead><tbody>${pos.leistungen.map((z) => `<tr><td>${esc(z.text || '')}</td><td class="r num">${fmt.zahl(z.menge)}\u00a0${esc(z.einheit || '')}</td><td class="r num">${fmt.eur(z.ep)}</td><td class="r num">${fmt.eur(z.betrag)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted sm">Noch keine Leistungsmeldung.</p>'}
         ${pos.regie && pos.regie.stunden ? `<p class="sm">Regie: ${fmt.std(pos.regie.stunden)} × ${fmt.eur(pos.regie.satz)} = <b>${fmt.eur(pos.regie.betrag)}</b></p>` : ''}
         ${darfMelden ? `<button type="button" class="btn ghost sm" data-akt="leistung">${ic('plus')}Leistung melden</button>` : ''}
+        ${meldungen && meldungen.length ? `<details class="einzeln" id="leistung-einzeln"><summary>Einzelne Leistungsmeldungen (${meldungen.length}) – stornieren</summary><ul class="plain rows">${meldungen.map((m) => `<li><span class="grow"><b>${esc(m.text || m.code || '')}</b><small>${esc(fmt.datum(m.datum))} · ${fmt.zahl(m.menge)}\u00a0${esc(m.einheit || '')}</small></span>${m.betrag != null ? `<b class="num">${fmt.eur(m.betrag)}</b>` : ''}<button type="button" class="btn ghost sm" data-storno="leistungen" data-id="${m.id}" data-was="${esc(m.text || '')}">Stornieren</button></li>`).join('')}</ul></details>` : ''}
         ${(k.nachtraege || []).length ? `<h4 class="sub-h">Nachträge</h4><ul class="plain">${k.nachtraege.map((n) => `<li><span>${esc(n.text)}</span><b class="num">${fmt.eur(n.betrag)}</b></li>`).join('')}</ul>` : ''}
       </section>
     </div>
@@ -154,12 +162,19 @@ export async function kalkDetail(el, ctx) {
   const fig = $('[data-chart]', el); if (fig) chartHover(fig);
 
   el.addEventListener('click', async (e) => {
+    const st = e.target.closest('[data-storno]');
+    if (st) {
+      const art = st.dataset.storno === 'leistungen' ? 'Leistungsmeldung' : 'Fremdleistung';
+      if (!(await bestaetigen(`${art} stornieren?`, `„${st.dataset.was}“ wird storniert und aus der Nachkalkulation herausgerechnet. Der Vorgang wird protokolliert.`, 'Stornieren', 'danger'))) return;
+      try { await del(`/baustellen/${id}/${st.dataset.storno}/${st.dataset.id}`); toast(`${art} storniert.`); ctx.neuLaden(); ctx.meldungenNeu(); } catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     const a = e.target.closest('[data-akt]'); if (!a) return;
     if (a.dataset.akt === 'fremd') {
       const d = dialog({ titel: 'Fremdleistung erfassen', inhalt: `<form id="ff" class="stack-s">
         <label class="field"><span class="field-label">Bezeichnung</span><input class="input lg" name="text" required maxlength="200" placeholder="z. B. Asphaltierung Subunternehmer"></label>
         <label class="field"><span class="field-label">Betrag in Euro (netto)</span><input class="input lg num" name="betrag" data-geld inputmode="decimal" autocomplete="off" required placeholder="0,00"></label>
-        <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}"></label><p class="form-err" role="alert" hidden></p></form>`,
+        <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}" max="${fmt.iso()}"></label><p class="form-err" role="alert" hidden></p></form>`,
         fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="ff">Speichern</button>' });
       geldFelder(d.el);
       $('#ff', d.el).addEventListener('submit', async (ev) => {
@@ -175,7 +190,7 @@ export async function kalkDetail(el, ctx) {
       const d = dialog({ titel: 'Leistung melden', inhalt: `<form id="lf" class="stack-s">
         <label class="field"><span class="field-label">Leistung</span><select class="input lg" name="leistungId" required>${leistungen.map((l) => `<option value="${l.id}">${esc((l.code ? l.code + ' · ' : '') + l.text)} (${esc(l.einheit)})</option>`).join('')}</select></label>
         <label class="field"><span class="field-label">Menge</span><input class="input lg num" name="menge" inputmode="decimal" required placeholder="0"></label>
-        <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}"></label><p class="form-err" role="alert" hidden></p></form>`,
+        <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}" max="${fmt.iso()}"></label><p class="form-err" role="alert" hidden></p></form>`,
         fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="lf">Melden</button>' });
       $('#lf', d.el).addEventListener('submit', async (ev) => {
         ev.preventDefault(); const f = new FormData(ev.target); const menge = parseZahl(f.get('menge'));

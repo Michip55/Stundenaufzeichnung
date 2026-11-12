@@ -1,6 +1,6 @@
 // Bautagesberichte: Liste und Bearbeitung.
 // Handy: Schritt-für-Schritt-Assistent. Tablet/PC: Formular im Aufbau der Papiervorlage.
-import { get, post, put } from '../api.js';
+import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$ } from '../ui.js';
 import { stundenAus, personalFehler, bloecke } from '../zahl.js';
 
@@ -219,7 +219,7 @@ export async function bericht(el, ctx) {
         <div class="bp-head" role="row"><span role="columnheader">Name</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">Pause</span><span role="columnheader">Arbstd.</span><span role="columnheader">Code</span><span></span></div>
         ${b.personal.length ? b.personal.map((p, i) => `
         <div class="bp-row" role="row" data-i="${i}">
-          <span class="bp-name" role="cell"><b>${esc(p.name || (mitarbeiter.find((m) => m.id === p.benutzerId) || {}).name || 'Mitarbeiter')}</b></span>
+          <span class="bp-name" role="cell"><b>${esc(p.name || (mitarbeiter.find((m) => m.id === p.benutzerId) || {}).name || 'Mitarbeiter')}</b>${p.hinweis ? `<small class="bp-hinweis">${ic('alert', 'xs')} ${esc(p.hinweis)}</small>` : ''}</span>
           ${['von1', 'bis1', 'von2', 'bis2'].map((k, n) => `<label role="cell"><span class="bp-l">${n % 2 ? 'bis' : 'von'}${n > 1 ? ' (2)' : ''}</span><input type="time" class="input s" data-p="${k}" value="${esc(p[k] || '')}" aria-label="${esc(p.name || '')} ${n % 2 ? 'bis' : 'von'} ${n > 1 ? 'Nachmittag' : 'Vormittag'}" ${dis()}></label>`).join('')}
           <label role="cell"><span class="bp-l">Pause (min)</span><input type="text" inputmode="numeric" class="input s num" data-p="pauseMin" value="${p.pauseMin || ''}" placeholder="0" aria-label="${esc(p.name || '')} Pause in Minuten" ${dis()}></label>
           <label role="cell"><span class="bp-l">Arbeitsstd.</span><input type="text" inputmode="decimal" class="input s num strong" data-p="stunden" value="${p.stunden ? fmt.zahl(p.stunden) : ''}" placeholder="0" aria-label="${esc(p.name || '')} Arbeitsstunden" ${dis()}></label>
@@ -253,7 +253,7 @@ export async function bericht(el, ctx) {
   }
   function sigHtml(rolle, titel, sub) {
     const u = b.unterschriften[rolle];
-    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div></div>`;
+    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div>${signierbar() ? `<button type="button" class="btn ghost sm" data-sig-weg="${rolle}">Unterschrift zurückziehen</button>` : ''}</div>`;
     if (!signierbar()) return `<div class="sig-box" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div></div><p class="muted sm">Keine Unterschrift vorhanden.</p></div>`;
     return `<div class="sig-box" data-sig="${rolle}">
       <div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><button type="button" class="btn ghost sm" data-sig-clear>Löschen</button></div>
@@ -420,6 +420,13 @@ export async function bericht(el, ctx) {
     const box = e.target.closest('.sig-box');
     if (box && e.target.closest('[data-sig-clear]')) { pads[box.dataset.sig].loeschen(); box.classList.remove('hat'); return; }
     if (box && e.target.closest('[data-sig-save]')) { unterschreiben(box); return; }
+    const sw = e.target.closest('[data-sig-weg]');
+    if (sw) {
+      if (!(await bestaetigen('Unterschrift zurückziehen?', 'Die Unterschrift wird gelöscht. Danach kann der Bericht wieder geändert werden und muss neu unterschrieben werden.', 'Zurückziehen', 'danger'))) return;
+      try { const neu = await del(`/berichte/${id}/unterschrift/${sw.dataset.sigWeg}`); b.unterschriften = (neu && neu.unterschriften) || {}; if (neu && neu.status) b.status = neu.status; toast('Unterschrift zurückgezogen.'); zeichne(); }
+      catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     if (e.target.closest('#freigeben')) { freigeben(); }
   });
   el.addEventListener('change', (e) => {

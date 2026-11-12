@@ -1,10 +1,13 @@
-// Anmeldung: Benutzer wählen, PIN eingeben.
+// Anmeldung: Benutzer wählen (oder Personalnummer eingeben, wenn die Namensliste abgeschaltet ist), dann PIN.
 import { get, post } from '../api.js';
-import { ic, esc, MARK, avatar, rolleText, laden, speicher, $, $$ } from '../ui.js';
+import { ic, esc, MARK, avatar, rolleText, laden, speicher, $ } from '../ui.js';
+
+const PIN_MAX = 12;
 
 export default async function login(root, { angemeldet }) {
   let liste = [];
-  let gewaehlt = null;
+  let ohneListe = false;   // Server liefert keine Namensliste (BAUTAG_LOGIN_LISTE=0) → Anmeldung mit Personalnummer
+  let gewaehlt = null;     // {id, name, rolle?} oder {pnr, name}
   let pin = '';
   let sendet = false;
   let suche = '';
@@ -25,12 +28,14 @@ export default async function login(root, { angemeldet }) {
     </aside>
     <main class="login-panel">
       <div class="login-mobile-brand">${MARK}<span><b>BauTag</b><small>Baustellen-Plattform</small></span></div>
-      <div class="login-card" id="login-card">${laden('Benutzer werden geladen …')}</div>
+      <div class="login-card" id="login-card">${laden('Wird geladen …')}</div>
     </main>
   </div>`;
   const card = $('#login-card', root);
+  const untertitel = (b) => [b.rolle ? rolleText(b.rolle) : '', b.id === speicher.lies('bt_letzter') ? 'zuletzt angemeldet' : ''].filter(Boolean).join(' · ');
 
   function zeigeListe() {
+    if (ohneListe) return zeigePnr();
     gewaehlt = null; pin = '';
     const zuletzt = speicher.lies('bt_letzter');
     card.innerHTML = `
@@ -41,7 +46,7 @@ export default async function login(root, { angemeldet }) {
       const g = liste.filter((b) => b.name.toLowerCase().includes(suche.toLowerCase()));
       g.sort((a, b) => (b.id === zuletzt) - (a.id === zuletzt));
       $('#login-list', card).innerHTML = g.length
-        ? g.map((b) => `<button type="button" class="login-user" data-id="${b.id}" data-rolle="${esc(b.rolle)}">${avatar(b.name)}<span><b>${esc(b.name)}</b><small>${esc(rolleText(b.rolle))}${b.id === zuletzt ? ' · zuletzt angemeldet' : ''}</small></span>${ic('right')}</button>`).join('')
+        ? g.map((b) => `<button type="button" class="login-user" data-id="${b.id}">${avatar(b.name)}<span><b>${esc(b.name)}</b>${untertitel(b) ? `<small>${esc(untertitel(b))}</small>` : ''}</span>${ic('right')}</button>`).join('')
         : '<div class="state empty"><p>Kein Benutzer gefunden.</p></div>';
     };
     zeichne();
@@ -49,10 +54,30 @@ export default async function login(root, { angemeldet }) {
     s.addEventListener('input', () => { suche = s.value; zeichne(); });
   }
 
+  function zeigePnr(meldung = '') {
+    gewaehlt = null; pin = '';
+    card.innerHTML = `
+      <div class="login-head"><h2>Anmelden</h2><p>Mit Personalnummer und PIN</p></div>
+      <form id="pnr-form" class="stack-s" autocomplete="off" novalidate>
+        <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" id="pnr" name="pnr" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="username" value="${esc(speicher.lies('bt_letzte_pnr') || '')}"></label>
+        <p class="form-err" id="pnr-err" role="alert" ${meldung ? '' : 'hidden'}>${esc(meldung)}</p>
+        <button type="submit" class="btn primary lg block">Weiter${ic('right')}</button>
+        <p class="muted sm">Die Personalnummer steht am Lohnzettel. Bei Fragen hilft das Büro.</p>
+      </form>`;
+    $('#pnr-form', card).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const wert = $('#pnr', card).value.trim();
+      if (!/^\d{1,6}$/.test(wert)) { const m = $('#pnr-err', card); m.hidden = false; m.textContent = 'Bitte die Personalnummer (nur Ziffern) eingeben.'; return; }
+      gewaehlt = { pnr: Number(wert), name: `Personalnummer ${wert}` };
+      pin = ''; zeigePin();
+    });
+    $('#pnr', card).focus();
+  }
+
   function zeigePin(meldung = '', gesperrt = false) {
     card.innerHTML = `
-      <button type="button" class="link-back" data-zurueck>${ic('left')}Anderer Benutzer</button>
-      <div class="pin-user">${avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>${esc(rolleText(gewaehlt.rolle))}</p></div>
+      <button type="button" class="link-back" data-zurueck>${ic('left')}${ohneListe ? 'Andere Personalnummer' : 'Anderer Benutzer'}</button>
+      <div class="pin-user">${gewaehlt.pnr ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>${esc(gewaehlt.rolle ? rolleText(gewaehlt.rolle) : '')}</p></div>
       <div class="pin-dots${meldung ? ' shake' : ''}" aria-hidden="true"></div>
       <p class="pin-msg${meldung ? ' err' : ''}" id="pin-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'PIN eingeben und bestätigen')}</p>
       <div class="pin-pad" role="group" aria-label="PIN-Eingabe">
@@ -74,21 +99,21 @@ export default async function login(root, { angemeldet }) {
     sendet = true; punkte();
     $('#pin-msg', card).textContent = 'Wird geprüft …';
     try {
-      await post('/auth/login', { benutzerId: gewaehlt.id, pin });
-      speicher.setz('bt_letzter', gewaehlt.id);
+      await post('/auth/login', gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin });
+      if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
       sendet = false;
       await angemeldet();
     } catch (e) {
       sendet = false; pin = '';
       const text = e.netz ? 'Keine Verbindung zum Server. Bitte später erneut versuchen.'
-        : e.status === 429 ? (e.message || 'Zu viele Fehlversuche. Bitte in 5 Minuten erneut versuchen.')
+        : e.status === 429 ? (e.message || 'Zu viele Fehlversuche. Bitte später erneut versuchen.')
         : e.status === 401 || e.status === 400 ? (e.message || 'PIN falsch. Bitte erneut eingeben.')
         : e.message;
       zeigePin(text, e.status === 429);
     }
   }
   function ziffer(z) {
-    if (sendet || !gewaehlt || pin.length >= 8) return;
+    if (sendet || !gewaehlt || pin.length >= PIN_MAX) return;
     pin += z; punkte();
   }
   card.addEventListener('click', (e) => {
@@ -102,7 +127,7 @@ export default async function login(root, { angemeldet }) {
     if (e.target.closest('[data-neu-laden]')) lade();
   });
   const taste = (e) => {
-    if (!gewaehlt) return;
+    if (!gewaehlt || !$('.pin-pad', card)) return;
     if (/^\d$/.test(e.key)) ziffer(e.key);
     else if (e.key === 'Backspace') { pin = pin.slice(0, -1); punkte(); }
     else if (e.key === 'Enter') { e.preventDefault(); sende(); }
@@ -111,9 +136,11 @@ export default async function login(root, { angemeldet }) {
   document.addEventListener('keydown', taste);
 
   async function lade() {
-    card.innerHTML = laden('Benutzer werden geladen …');
-    try { liste = await get('/auth/benutzerliste'); zeigeListe(); }
+    card.innerHTML = laden('Wird geladen …');
+    try { liste = await get('/auth/benutzerliste'); ohneListe = false; zeigeListe(); }
     catch (e) {
+      // Namensliste abgeschaltet (404/403): Anmeldung über die Personalnummer
+      if (e.status === 404 || e.status === 403) { ohneListe = true; zeigePnr(); return; }
       card.innerHTML = `<div class="state big">${ic(e.netz ? 'wifiOff' : 'alert')}<h2>${e.netz ? 'Keine Verbindung' : 'Fehler'}</h2><p>${esc(e.netz ? 'Der Server ist nicht erreichbar. Zum Anmelden wird eine Verbindung benötigt.' : e.message)}</p><button type="button" class="btn ghost" data-neu-laden>Erneut versuchen</button></div>`;
     }
   }

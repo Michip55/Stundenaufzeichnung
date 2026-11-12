@@ -583,3 +583,19 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 #abgelehnt li { flex-wrap: wrap; } .abg-grund { color: var(--red-d) !important; font-weight: 600; white-space: normal; } .abg-akt { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .noscript { padding: 24px; }
+
+/* B-03: PIN ändern */
+.login-panel.solo { flex: 1; } .login-mobile-brand.always { display: flex; width: 100%; max-width: 440px; padding: 0 4px 16px; color: var(--text); background: none; }
+@media (max-width: 899px) { .login-mobile-brand.always { max-width: none; padding: 14px 18px; background: var(--graphite); color: #fff; } }
+a.switch-row.link > .ic { color: #b3bac3; } a.switch-row.link:hover { background: #fafbfc; }
+.pin-user .avatar .ic { width: 34px; height: 34px; }
+#pin-pflicht .link-back { margin-top: 10px; align-self: center; }
+
+/* B-07 Abwesenheiten, M-03 Storno */
+.abw-akt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; } [data-abw] { flex-wrap: wrap; }
+.pick-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 12px; max-height: 240px; overflow-y: auto; border: 1.5px solid var(--line); border-radius: 10px; padding: 6px 12px; }
+.code-badge.offen { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; opacity: .75; border-style: dashed; } .c-offen { background: var(--red-bg); color: var(--red-d); }
+details.einzeln { margin-top: 12px; border-top: 1px solid var(--line-2); } details.einzeln summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-size: 13.5px; font-weight: 600; color: var(--muted); } details.einzeln .plain.rows > li { padding: 8px 0; min-height: 48px; }
+.bp-hinweis { display: block; color: var(--amber); font-weight: 600; font-size: 12px; line-height: 1.25; margin-top: 2px; }
+.sig-box.signed > .btn { align-self: flex-start; }
+@media (max-width: 719px) { .abw-akt { flex-basis: 100%; justify-content: stretch; } .abw-akt .btn { flex: 1; } }

@@ -1,6 +1,6 @@
 // Meine Woche: Stunden je Tag, Summe, Überstunden, Abwesenheits-Antrag (Urlaub / Zeitausgleich).
-import { get, post } from '../api.js';
-import { ic, esc, fmt, dialog, toast, laden, fehlerBox, $ } from '../ui.js';
+import { get } from '../api.js';
+import { ic, esc, fmt, laden, fehlerBox, $ } from '../ui.js';
 
 const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', F: 'Feiertag' };
 export const codeBadge = (c) => (c ? `<span class="code-badge c-${esc(c)}" title="${esc(CODES[c] || c)}">${esc(c)}</span>` : '');
@@ -38,35 +38,19 @@ export default async function woche(el, ctx) {
           const frei = !t.stunden && !t.code;
           return `<div class="wd${t.datum === heute ? ' today' : ''}${frei ? ' off' : ''}">
             <div class="wd-day"><b>${fmt.WTK[d.getDay()]}</b><small>${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.</small></div>
-            <div class="wd-mid">${t.code ? `<span>${codeBadge(t.code)} ${esc(CODES[t.code] || t.code)}</span>` : ''}${(t.baustellen || []).length ? `<span class="wd-site">${(t.baustellen || []).map((x) => esc(bsName(x))).filter(Boolean).join(' · ')}</span>` : frei ? '<span class="wd-site">–</span>' : ''}
+            <div class="wd-mid">${t.code ? `<span>${codeBadge(t.code)} ${esc(CODES[t.code] || t.code)}${t.codeStatus && t.codeStatus !== 'genehmigt' ? ` <span class="chip xs ${t.codeStatus === 'abgelehnt' ? 'st-red' : 'st-amber'}">${t.codeStatus === 'abgelehnt' ? 'abgelehnt' : 'beantragt'}</span>` : ''}</span>` : ''}${t.unplausibel ? '<span class="chip xs st-red">Ausstempeln fehlt – 0 Std. gezählt, bitte im Büro melden</span>' : ''}${(t.baustellen || []).length ? `<span class="wd-site">${(t.baustellen || []).map((x) => esc(bsName(x))).filter(Boolean).join(' · ')}</span>` : frei ? '<span class="wd-site">–</span>' : ''}
               ${t.stunden ? `<span class="wd-bar"><i data-st="width:${Math.min(100, (Math.min(t.stunden, 8) / max) * 100)}%"></i>${t.stunden > 8 ? `<u data-st="left:${(8 / max) * 100}%;width:${((t.stunden - 8) / max) * 100}%"></u>` : ''}</span>` : ''}</div>
             <div class="wd-std"><b>${t.stunden ? fmt.zahl(t.stunden) : '–'}</b><small>Std.</small></div>
           </div>`;
         }).join('') : `<div class="state empty">${ic('calendar')}<p>Keine Einträge in dieser Woche.</p></div>`}
       </section>
       <div class="legend-row"><span><i class="lg-n"></i>Normalstunden</span><span><i class="lg-ue"></i>über 8 Std.</span></div>
-      <button type="button" class="btn ghost block" data-antrag>${ic('calendar')}Urlaub oder Zeitausgleich beantragen</button>
+      <a class="btn ghost block" href="#/abwesenheiten">${ic('away')}Urlaub, Zeitausgleich und Abwesenheiten</a>
     </div>`;
   }
   el.addEventListener('click', async (e) => {
     const w = e.target.closest('[data-w]');
     if (w) { datum = fmt.addTage(datum, Number(w.dataset.w)); zeichne(); return; }
-    if (e.target.closest('[data-antrag]')) {
-      const d = dialog({
-        titel: 'Abwesenheit beantragen',
-        inhalt: `<form id="abw" class="stack-s">
-          <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.addTage(fmt.iso(), 1)}"></label>
-          <label class="field"><span class="field-label">Art</span><select class="input lg" name="code"><option value="U">Urlaub</option><option value="ZA">Zeitausgleich</option></select></label>
-          <p class="muted sm">Krankenstand und Schlechtwetter trägt das Büro bzw. der Polier ein.</p></form>`,
-        fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="abw">Beantragen</button>',
-      });
-      $('#abw', d.el).addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        const f = new FormData(ev.target);
-        try { await post('/abwesenheiten', { benutzerId: ctx.ich.benutzer.id, datum: f.get('datum'), code: f.get('code') }); d.zu(); toast('Abwesenheit eingetragen.'); datum = f.get('datum'); zeichne(); }
-        catch (err) { toast(err.message, 'warn'); }
-      });
-    }
   });
   await zeichne();
 }

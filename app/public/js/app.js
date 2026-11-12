@@ -15,6 +15,8 @@ import { kalkUebersicht, kalkDetail } from './views/kalkulation.js';
 import monat from './views/monat.js';
 import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
+import pin, { pinErzwungen } from './views/pin.js';
+import abwesenheiten from './views/abwesenheiten.js';
 
 const root = document.getElementById('root');
 
@@ -42,6 +44,7 @@ const NAV = [
   { id: 'kolonne', pfad: '/kolonne', text: 'Kolonne stempeln', kurz: 'Kolonne', icon: 'users', darf: eines('kolonne') },
   { id: 'berichte', pfad: '/berichte', text: 'Bautagesberichte', kurz: 'Berichte', icon: 'clipboard', darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
+  { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Preise', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
@@ -53,6 +56,7 @@ const navErlaubt = () => {
   // Büro-Rollen: Übersicht/Berichte zuerst, eigene Stempeluhr dahinter
   if (liste[0] && liste[0].id === 'dashboard') {
     const hinten = ['stempeln', 'kolonne', 'woche'];
+    if (!kann('stammdaten') && !kann('lohn')) hinten.push('abwesenheiten');
     return [...liste.filter((n) => !hinten.includes(n.id)), ...liste.filter((n) => hinten.includes(n.id))];
   }
   return liste;
@@ -74,6 +78,8 @@ const ROUTEN = [
   { muster: /^\/monat$/, nav: 'monat', titel: 'Monatsauswertung', view: monat, darf: eines('lohn') },
   { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: eines('benutzer') },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
+  { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
+  { muster: /^\/pin$/, nav: 'mehr', titel: 'PIN ändern', view: pin },
 ];
 
 /* ---------- Rahmen ---------- */
@@ -154,11 +160,12 @@ function zeigeGlocke() {
   $('#glocke').classList.toggle('has', !!n);
   $('#glocke').setAttribute('aria-label', n ? `Benachrichtigungen, ${n} ungelesen` : 'Benachrichtigungen');
 }
-const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard' };
+const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar' };
 function meldungZiel(m) {
   if (m.typ === 'budget' && m.baustelleId && kann('kalk_sehen')) return `#/kalkulation/${m.baustelleId}`;
   if (m.typ === 'bericht' && (kann('bericht_erstellen') || kann('bericht_freigeben'))) return m.berichtId ? `#/bericht/${m.berichtId}` : '#/berichte';
   if (m.typ === 'azg' && kann('zeit_eigen')) return '#/woche';
+  if (m.typ === 'abwesenheit') return '#/abwesenheiten';
   return '';
 }
 async function glockeAuf() {
@@ -196,6 +203,12 @@ async function zeige() {
   if (!ich) {
     document.title = 'BauTag · Anmelden';
     aufraeumen = await login(root, { angemeldet: nachLogin });
+    return;
+  }
+  // B-03: Start-PIN oder zurückgesetzte PIN muss zuerst geändert werden – vorher gibt es keine andere Ansicht
+  if (ich.mussPinAendern) {
+    document.title = 'BauTag · PIN ändern';
+    pinErzwungen(root, ich, { fertig: async () => { await ladeIch(); location.hash = '#' + start(); zeige(); }, abmelden });
     return;
   }
   const { pfad, query } = pfadJetzt();
@@ -261,6 +274,7 @@ async function ladeIch(nurMitHinweis = false) {
   clearInterval(pollTimer);
   if (ich) {
     root.innerHTML = '';
+    if (ich.mussPinAendern) return; // erst PIN ändern – keine weiteren Abfragen
     rahmen();
     holeMeldungen();
     nachsenden();
@@ -279,6 +293,7 @@ function lokalAbmelden() {
   if (location.hash !== '#/login') location.hash = '#/login'; else zeige();
 }
 window.addEventListener('bt:abgemeldet', () => { if (ich) { toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); lokalAbmelden(); } });
+window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });
 window.addEventListener('focus', () => { if (ich) { holeMeldungen(); nachsenden(); } });
 

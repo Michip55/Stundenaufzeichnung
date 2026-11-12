@@ -28,6 +28,7 @@ export default async function mehr(el, ctx) {
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
       <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
+      <a class="switch-row link" href="#/pin" id="pin-link"><span><b>PIN ändern</b><small>Eigene PIN neu festlegen. Niemand sonst kennt sie.</small></span>${ic('right')}</a>
       <div class="switch-row"><span><b>Offline-Buchungen</b><small id="sync-info">${s.ausstehend ? `${s.ausstehend} Stempelung${s.ausstehend > 1 ? 'en' : ''} warten auf Verbindung.` : 'Alles gesendet.'}</small></span>
         <button type="button" class="btn ghost sm" id="sync-jetzt" ${s.ausstehend ? '' : 'disabled'}>${ic('sync')}Jetzt senden</button></div>
     </section>

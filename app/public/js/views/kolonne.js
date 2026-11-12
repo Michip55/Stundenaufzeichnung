@@ -29,7 +29,7 @@ export default async function kolonne(el, ctx) {
   }
   const liste = () => {
     const ids = new Set(partie.map((p) => p.benutzerId));
-    const rest = alleZeigen ? mitarbeiter.filter((m) => m.aktiv !== false && !ids.has(m.id)).map((m) => ({ benutzerId: m.id, name: m.name, rolle: m.rolle, extra: true })) : [];
+    const rest = alleZeigen ? mitarbeiter.filter((m) => m.aktiv !== false && !ids.has(m.id) && ['mitarbeiter', 'polier'].includes(m.rolle)).map((m) => ({ benutzerId: m.id, name: m.name, rolle: m.rolle, extra: true })) : [];
     return [...partie, ...rest];
   };
   function zeile(m) {
@@ -39,7 +39,7 @@ export default async function kolonne(el, ctx) {
     const info = erg ? (erg.ok ? '<span class="chip xs st-green">gebucht</span>' : `<span class="crew-err">${esc(erg.fehler || 'nicht gebucht')}</span>`)
       : m.code ? `<span class="code-badge c-${esc(m.code)}">${esc(m.code)}</span>`
       : st ? `<span class="chip xs ${cls}">${st}${m.status !== 'aus' && m.seit ? ' seit ' + fmt.uhr(m.seit) : ''}</span>` : '';
-    return `<label class="crew-row${an ? ' sel' : ''}${erg && !erg.ok ? ' err' : ''}"><input type="checkbox" class="vh" data-ma="${m.benutzerId}" ${an ? 'checked' : ''}><span class="check">${ic('check')}</span>${avatar(m.name, m.status === 'arbeit' ? 'on' : m.status === 'pause' ? 'pause' : '')}<span class="crew-txt"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.extra ? ' · nicht in der Partie' : ''}</small></span>${info}</label>`;
+    return `<label class="crew-row${an ? ' sel' : ''}${erg && !erg.ok ? ' err' : ''}"><input type="checkbox" class="vh" data-ma="${m.benutzerId}" ${an ? 'checked' : ''}><span class="check">${ic('check')}</span>${avatar(m.name, m.status === 'arbeit' ? 'on' : m.status === 'pause' ? 'pause' : '')}<span class="crew-txt"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.extra ? ' · Gast (nicht in der Partie, wird protokolliert)' : ''}</small></span>${info}</label>`;
   }
   function zeichne() {
     const sicht = liste();
@@ -57,7 +57,7 @@ export default async function kolonne(el, ctx) {
         <div class="card-h pad-h"><h3>Partie <span class="count" id="kol-zahl">${gewaehlt.size} gewählt</span></h3><button type="button" class="btn ghost sm" data-alle ${sicht.length ? '' : 'disabled'}>${sicht.length && gewaehlt.size === sicht.length ? 'Keine' : 'Alle'}</button></div>
         ${fehlerPartie ? `<div class="state small">${ic('alert')}<p>${esc(fehlerPartie)}</p></div>` : ''}
         <div class="crew-list" id="kol-liste">${sicht.length ? sicht.map(zeile).join('') : fehlerPartie ? '' : `<div class="state empty small">${ic('users')}<p>Dieser Baustelle ist noch niemand zugeteilt.</p></div>`}</div>
-        <button type="button" class="add-row" data-mehr>${ic(alleZeigen ? 'minus' : 'plus')}${alleZeigen ? 'Nur die Partie anzeigen' : 'Weitere Mitarbeiter anzeigen'}</button>
+        <button type="button" class="add-row" data-mehr>${ic(alleZeigen ? 'minus' : 'plus')}${alleZeigen ? 'Nur die Partie anzeigen' : 'Gast aus anderer Partie hinzufügen'}</button>
       </section>
     </div>
     <div class="foot-bar"><button type="button" class="btn primary lg block" id="kol-los" ${gewaehlt.size && baustelleId != null && !sendet ? '' : 'disabled'}>${ic('check')}${gewaehlt.size} ${gewaehlt.size === 1 ? 'Person' : 'Personen'} buchen: ${tName}</button></div>`;
@@ -86,7 +86,11 @@ export default async function kolonne(el, ctx) {
     if (e.target.closest('#kol-los') && !sendet) {
       sendet = true; zeichne();
       try {
-        const r = await post('/zeit/kolonne', { baustelleId, benutzerIds: [...gewaehlt], typ });
+        const ids = new Set(partie.map((x) => x.benutzerId));
+        const gaeste = [...gewaehlt].filter((id) => !ids.has(id));
+        const body = { baustelleId, benutzerIds: [...gewaehlt], typ };
+        if (gaeste.length) body.gast = true; // fremde Personen nur ausdrücklich als Gast – wird am Server protokolliert
+        const r = await post('/zeit/kolonne', body);
         const erg = r.ergebnisse || [];
         const ok = erg.filter((x) => x.ok).length, nok = erg.length - ok;
         toast(nok ? `${ok} gebucht, ${nok} nicht möglich – Details in der Liste.` : `${ok} ${ok === 1 ? 'Person' : 'Personen'} gebucht.`, nok ? 'warn' : 'ok');

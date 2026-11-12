@@ -23,9 +23,10 @@ const GROESSEN = [
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freierPort = () => new Promise((ok, nok) => { const s = net.createServer(); s.unref(); s.on('error', nok); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
 
-async function starteServer() {
+async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test' };
+  // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', ...extra };
   delete env.BAUTAG_UHR;
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
@@ -145,10 +146,33 @@ async function laufe(browser, g) {
     await page.waitForSelector('.clock-card[data-status="arbeit"]');
     await toastWeg();
     await shot('stempeln-arbeit');
-    // Pause → Pause Ende → Gehen
-    await page.click('[data-stempel="pause_start"]');
+    // M-04: Serverfehler (503) beim Stempeln → Buchung bleibt in der Warteschlange und wird später gesendet
+    await page.route('**/api/zeit/stempeln', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ fehler: 'Wartung', code: 'SERVER' }) }));
+    await absichtlich(async () => { await page.click('[data-stempel="pause_start"]'); await page.waitForSelector('#sync[data-ausstehend="1"]'); });
+    pruef((await status()).status === 'arbeit', 'M-04: Test-Vorbedingung – Server sollte die Pause noch nicht haben');
+    pruef((await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'))).length === 1, 'M-04: Buchung nach 503 nicht in der Warteschlange behalten');
+    await absichtlich(async () => { await page.click('#sync'); await sleep(400); });
+    pruef((await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'))).length === 1, 'M-04: Buchung nach wiederholtem 503 verworfen');
+    await page.unroute('**/api/zeit/stempeln');
+    await page.click('#sync');
+    await page.waitForSelector('#sync[data-ausstehend="0"]', { timeout: 20000 });
     await page.waitForSelector('.clock-card[data-status="pause"]');
     pruef((await status()).status === 'pause', 'Pause: Serverstatus nicht „pause“');
+    await toastWeg();
+    // M-04: vom Server abgelehnte Offline-Buchung (älter als 24 h) bleibt sichtbar, bis sie bestätigt wird
+    await page.evaluate((id) => { localStorage.setItem('bt_stempel_queue', JSON.stringify([{ typ: 'kommen', baustelleId: 1, benutzerId: id, zeit: new Date(Date.now() - 72 * 3600e3).toISOString(), nr: 'alt-1' }])); }, ich.benutzer.id);
+    await absichtlich(async () => { await page.click('#sync'); await page.waitForSelector('#sync[data-abgelehnt="1"]', { timeout: 15000 }); });
+    await page.waitForSelector('#abgelehnt li');
+    pruef((await page.locator('#abgelehnt .abg-grund').innerText()).length > 10, 'M-04: abgelehnte Buchung ohne Grund angezeigt');
+    pruef((await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_abgelehnt') || '[]'))).length === 1 && (await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'))).length === 0, 'M-04: abgelehnte Buchung nicht in der Liste „Nicht übernommen“');
+    await ueberlauf('stempeln abgelehnt'); await shot('stempeln-abgelehnt'); await keinEuro('stempeln abgelehnt');
+    await toastWeg();
+    await page.reload(); await bereit();
+    pruef(await page.locator('#abgelehnt li').count() === 1, 'M-04: abgelehnte Buchung nach Neuladen verschwunden');
+    await page.click('[data-abg-weg]');
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForSelector('#sync[data-abgelehnt="0"]');
+    pruef(await page.locator('#abgelehnt').count() === 0, 'M-04: Liste nach „Erledigt“ noch sichtbar');
     await shot('stempeln-pause');
     await page.click('[data-stempel="pause_ende"]');
     await page.waitForSelector('.clock-card[data-status="arbeit"]');
@@ -162,10 +186,26 @@ async function laufe(browser, g) {
     await keinEuro('stempeln');
     await geh('/woche'); await keinEuro('woche');
     pruef(await page.locator('.week-list .wd').count() === 7, 'Meine Woche zeigt nicht 7 Tage');
+    // B-07: eigener Antrag mit Status, Zurückziehen
+    await geh('/abwesenheiten'); await keinEuro('abwesenheiten');
+    const stelleAntrag = async () => { await page.click('[data-akt="antrag"]'); await page.waitForSelector('dialog[open] #abw-f'); await page.click('dialog[open] button[type="submit"]'); await page.waitForSelector('#abw-eigene li[data-status="beantragt"]'); };
+    await stelleAntrag();
+    pruef(await page.locator('#abw-eigene li[data-status="beantragt"] [data-abw-status="beantragt"]').count() === 1, 'B-07: eigener Antrag zeigt nicht den Status „beantragt“');
+    await ueberlauf('abwesenheiten mitarbeiter'); await shot('abwesenheiten-mitarbeiter');
+    await page.click('[data-zurueckziehen]');
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction(() => !document.querySelector('#abw-eigene li[data-status="beantragt"]'));
+    pruef((await api('GET', '/abwesenheiten')).json.filter((a) => a.benutzerId === ich.benutzer.id && a.status === 'beantragt').length === 0, 'B-07: zurückgezogener Antrag noch am Server');
+    await toastWeg();
+    await stelleAntrag();
+    const antragId = (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === ich.benutzer.id && a.status === 'beantragt').id;
+    pruef(await page.locator('#abw-offen, [data-entscheid]').count() === 0, 'B-07: Mitarbeiter sieht die Genehmigungsliste');
+    await toastWeg();
+    await geh('/pin'); await keinEuro('pin');
     await geh('/mehr'); await keinEuro('mehr');
     pruef(await page.locator('.integ-list li').count() >= 5, 'Mehr: Zusatzdienste fehlen');
     pruef((await text()).includes('Noch nicht angebunden'), 'Mehr: Hinweis „Noch nicht angebunden“ fehlt');
-    for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/monat', '/benutzer', '/dashboard', '/berichte']) { await keinZugriff(r); await keinEuro(r); }
+    for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/monat', '/benutzer', '/dashboard', '/berichte', '/kolonne', '/baustellen']) { await keinZugriff(r); await keinEuro(r); }
     // Server liefert dem Mitarbeiter keine €-Felder
     const mPreise = await absichtlich(() => api('GET', '/preise'));
     pruef(mPreise.status === 403, `Mitarbeiter: /api/preise liefert ${mPreise.status} statt 403`);
@@ -185,7 +225,6 @@ async function laufe(browser, g) {
     await geh('/kolonne');
     await keinEuro('kolonne');
     const bsId = Number(await page.locator('#kol-bs').inputValue());
-    if (await page.locator('.crew-row').count() < 2) await page.click('[data-mehr]');
     const reihen = page.locator('.crew-row:has(.st-grey), .crew-row:not(:has(.chip))');
     const nKol = Math.min(3, await reihen.count());
     pruef(nKol >= 1, 'Kolonne: niemand zum Buchen vorhanden');
@@ -216,8 +255,47 @@ async function laufe(browser, g) {
     pruef(ber.personal.length >= gebucht, `Bericht: Personal nicht automatisch übernommen (${ber.personal.length} statt mind. ${gebucht})`);
     pruef(!('kostenTag' in ber), 'Polier: Bericht enthält kostenTag');
     const schritt = async (n) => { if (g.mobil) { await page.click(`[data-schritt-nr="${n}"]`); await sleep(80); } };
-    const gespeichert = async () => { await page.waitForSelector('#save-state.ok', { timeout: 8000 }); };
+    const gespeichert = async () => { await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }); };
     pruef(await page.locator('.bp-row').count() === ber.personal.length, 'Bericht: Personalzeilen stimmen nicht mit dem Server überein');
+    pruef(ber.personal.length >= 1, 'Bericht: kein Personal für die B-06-Prüfung');
+    const zeit = async (i, feld, wert) => { const f = page.locator('.bp-row').nth(i).locator(`[data-p="${feld}"]`); await f.fill(wert); await f.dispatchEvent('change'); };
+    const zustand = () => page.locator('#save-state').getAttribute('data-zustand');
+    // Alle Zeilen wie ein Polier ausfüllen (frisch Gestempelte haben noch kein Ende)
+    for (let i = 0; i < ber.personal.length; i++) { await zeit(i, 'von2', ''); await zeit(i, 'bis2', ''); await zeit(i, 'von1', '07:00'); await zeit(i, 'bis1', '16:00'); await zeit(i, 'pauseMin', '30'); }
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    // B-06: Schicht über Mitternacht ist erfassbar und wird gespeichert
+    await zeit(0, 'von1', '22:00'); await zeit(0, 'bis1', '06:00');
+    pruef(await page.locator('.bp-row').nth(0).locator('.bp-nacht:not([hidden])').count() === 1, 'B-06: Hinweis „+1 Tag“ fehlt bei Schicht über Mitternacht');
+    pruef((await page.locator('.bp-row').nth(0).locator('[data-p="stunden"]').inputValue()) === '7,5', `B-06: Stunden über Mitternacht falsch (${await page.locator('.bp-row').nth(0).locator('[data-p="stunden"]').inputValue()})`);
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
+    pruef(await zustand() === 'ok', `B-06: Nachtschicht wurde nicht gespeichert (Zustand ${await zustand()}: ${await page.locator('#unsaved').innerText().catch(() => '')})`);
+    let p0 = (await api('GET', `/berichte/${berichtId}`)).json.personal[0];
+    pruef(p0.von1 === '22:00' && p0.bis1 === '06:00' && p0.stunden === 7.5, `B-06: Server hat die Nachtschicht nicht (${JSON.stringify(p0)})`);
+    await shot('bericht-nachtschicht');
+    // B-06: ungültige Zeile → nie „Gespeichert“, Hinweis sichtbar, Unterschrift gesperrt
+    await zeit(0, 'bis1', '');
+    await sleep(900);
+    pruef(await zustand() === 'invalid', `B-06: ungültige Zeile, aber Zustand „${await zustand()}“`);
+    pruef(!(await page.locator('#save-state').innerText()).includes('Gespeichert') || (await page.locator('#save-state').innerText()).includes('Nicht'), 'B-06: zeigt „Gespeichert“ trotz ungültiger Zeile');
+    pruef(await page.locator('#unsaved:not([hidden])').count() === 1 && await page.locator('.bp-row.invalid .bp-err:not([hidden])').count() === 1, 'B-06: kein sichtbarer Hinweis auf die ungültige Zeile');
+    await schritt(2);
+    await page.locator('.pf-g').nth(3).locator('[data-d="1"]').click(); // andere Felder werden trotzdem gespeichert …
+    await sleep(900);
+    pruef(await zustand() === 'invalid', 'B-06: Zustand wechselt trotz ungültigem Personal auf gespeichert');
+    await page.locator('.pf-g').nth(3).locator('[data-d="-1"]').click();
+    await schritt(6);
+    await page.locator('.sig-box[data-sig="an"] canvas').scrollIntoViewIfNeeded();
+    { const r = await page.locator('.sig-box[data-sig="an"] canvas').boundingBox(); await page.mouse.move(r.x + 20, r.y + 40); await page.mouse.down(); await page.mouse.move(r.x + 120, r.y + 70, { steps: 4 }); await page.mouse.up(); }
+    await page.locator('.sig-box[data-sig="an"] [data-sig-save]').click();
+    await sleep(500);
+    pruef(await page.locator('.sig-box.signed').count() === 0 && !(await api('GET', `/berichte/${berichtId}`)).json.unterschriften.an, 'B-06: Unterschrift trotz ungültigem Personal möglich');
+    await ueberlauf('bericht ungültig'); await shot('bericht-ungueltig');
+    await toastWeg();
+    await schritt(1);
+    await zeit(0, 'von1', '07:00'); await zeit(0, 'bis1', '16:00');
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    p0 = (await api('GET', `/berichte/${berichtId}`)).json.personal[0];
+    pruef(p0.von1 === '07:00' && p0.bis1 === '16:00' && p0.stunden === 8.5, `B-06: korrigierte Zeile nicht am Server (${JSON.stringify(p0)})`);
     await ueberlauf('bericht schritt 1'); await shot('bericht-1-personal'); await keinEuro('bericht personal');
     // Geräte: erstes Gerät 2 × + (= 1 Std.), zweites 1 × +
     await schritt(2);
@@ -274,6 +352,18 @@ async function laufe(browser, g) {
     await ueberlauf('bericht schritt 6'); await shot('bericht-6-unterschrift-leer');
     await unterschreibe('an');
     await shot('bericht-6-unterschrift-an');
+    // M-02: nach der ersten Unterschrift ist der Inhalt gesperrt – mit klarem Hinweis
+    pruef(await page.locator('#gesperrt-hinweis').count() === 1, 'M-02: Hinweis „Inhalt gesperrt“ fehlt nach der ersten Unterschrift');
+    pruef(await page.locator('.bform textarea:not([disabled]), .bform .stepper button:not([disabled]), .bform .bp-row input:not([disabled])').count() === 0, 'M-02: Bericht ist nach der ersten Unterschrift noch bearbeitbar');
+    const m02 = await absichtlich(() => api('PUT', `/berichte/${berichtId}`, { vorkommnisse: 'nachträglich geändert' }));
+    pruef(m02.status === 409, `M-02: Server nimmt Änderung nach Unterschrift an (Status ${m02.status})`);
+    // Unterschrift zurückziehen → wieder bearbeitbar → neu unterschreiben
+    await page.click('[data-sig-weg="an"]');
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForSelector('.sig-box[data-sig="an"]:not(.signed) canvas');
+    pruef(await page.locator('#gesperrt-hinweis').count() === 0 && await page.locator('[data-f="vorkommnisse"]:not([disabled])').count() === 1, 'M-02: nach dem Zurückziehen nicht wieder bearbeitbar');
+    await toastWeg();
+    await unterschreibe('an');
     await unterschreibe('bh', 'Ing. Maria Gruber');
     await bereit();
     ber = (await api('GET', `/berichte/${berichtId}`)).json;
@@ -284,6 +374,19 @@ async function laufe(browser, g) {
     await ueberlauf('bericht unterschrieben'); await shot('bericht-unterschrieben'); await keinEuro('bericht unterschrieben');
     await toastWeg();
     for (const r of ['/preise', '/kalkulation', `/kalkulation/${bsId}`, '/monat', '/benutzer']) { await keinZugriff(r); await keinEuro(r); }
+    // B-07: Polier darf nur Schlechtwetter für seine Partie eintragen
+    await geh('/abwesenheiten'); await keinEuro('polier abwesenheiten');
+    pruef(await page.locator('[data-entscheid]').count() === 0, 'B-07: Polier sieht Genehmigen/Ablehnen');
+    await page.click('[data-akt="eintragen"]');
+    await page.waitForSelector('dialog[open] #abw-e');
+    pruef((await page.locator('dialog[open] select[name="code"] option').allInnerTexts()).join('|').startsWith('SW') && await page.locator('dialog[open] select[name="code"] option').count() === 1, 'B-07: Polier kann andere Kürzel als SW wählen');
+    pruef(await page.locator('dialog[open] input[name="wer"]').count() >= 1, 'B-07: Polier hat niemanden aus der Partie zur Auswahl');
+    await page.locator('dialog[open] input[name="wer"]').first().check();
+    await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('#abw-andere li');
+    pruef((await api('GET', '/abwesenheiten')).json.some((a) => a.code === 'SW' && a.datum === new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' })), 'B-07: Schlechtwetter des Poliers nicht am Server');
+    await toastWeg();
     await geh('/woche'); await keinEuro('polier woche');
     await geh('/mehr'); await keinEuro('polier mehr');
     const pKalk = await absichtlich(() => api('GET', `/kalkulation/${bsId}`));
@@ -324,6 +427,26 @@ async function laufe(browser, g) {
     pruef(pdf.status() === 200 && /application\/pdf/.test(pdf.headers()['content-type'] || '') && pdfBuf.slice(0, 5).toString() === '%PDF-', `PDF: Status ${pdf.status()}, Typ ${pdf.headers()['content-type']}`);
     const [popup] = await Promise.all([context.waitForEvent('page'), page.click('#pdf')]);
     await popup.close();
+    // B-07: Büro genehmigt den Antrag des Mitarbeiters; erst dann zählt er im Monat
+    const monatU = async () => { const m = (await api('GET', `/monat?monat=${String((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).datum).slice(0, 7)}`)).json; return (m.mitarbeiter.find((x) => x.name === NAME.mitarbeiter) || {}).u; };
+    const uVor = await monatU();
+    await geh('/abwesenheiten');
+    pruef(await page.locator(`#abw-offen li[data-abw="${antragId}"]`).count() === 1, 'B-07: Antrag des Mitarbeiters fehlt in der Genehmigungsliste');
+    await ueberlauf('abwesenheiten büro'); await shot('abwesenheiten-buero');
+    await page.click(`#abw-offen li[data-abw="${antragId}"] [data-entscheid="genehmigt"]`);
+    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), antragId);
+    pruef((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).status === 'genehmigt', 'B-07: Genehmigung nicht am Server');
+    const uNach = await monatU();
+    pruef(uNach === uVor + 1, `B-07: Urlaubstag zählt nicht erst ab Genehmigung (vorher ${uVor}, nachher ${uNach})`);
+    await toastWeg();
+    await page.click('[data-akt="eintragen"]');
+    await page.waitForSelector('dialog[open] #abw-e');
+    pruef(await page.locator('dialog[open] select[name="code"] option').count() === 4, 'B-07: Büro kann nicht alle Kürzel eintragen');
+    await page.selectOption('dialog[open] select[name="code"]', 'K');
+    await page.locator('dialog[open] input[name="wer"]').nth(2).check();
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('#abw-andere li:has(.c-K)');
+    await toastWeg();
     // Nachkalkulation vorher
     await geh(`/kalkulation/${bsId}`);
     const kostenText1 = await page.locator('[data-wert="kosten-gesamt"]').innerText();
@@ -361,9 +484,34 @@ async function laufe(browser, g) {
     const summe = Math.max(1, Math.round((kalkNach.kosten.gesamt / (ziel / 100) - nt) * 100) / 100);
     const budgetVorher = (await api('GET', '/benachrichtigungen')).json.filter((m) => m.typ === 'budget' && m.baustelleId === bsId).length;
     await geh(`/baustelle/${bsId}`);
+    // B-04: „250.000“ sind zweihundertfünfzigtausend – und unklare Eingaben werden nicht gespeichert
+    const feldSumme = page.locator('#auftrag input[name="auftragssumme"]');
+    const summeServer = async () => (await api('GET', `/baustellen/${bsId}`)).json.auftragssumme;
+    const summeAlt = await summeServer();
+    await feldSumme.fill('1.2345');
+    pruef(await page.locator('#auftrag .geld-echo.err').count() === 1, 'B-04: Auftragssumme „1.2345“ nicht als unklar markiert');
+    await page.click('#auftrag-ok'); await sleep(300);
+    pruef(await summeServer() === summeAlt && await page.locator('#auftrag .form-err:not([hidden])').count() === 1, 'B-04: unklare Auftragssumme wurde gespeichert');
+    await feldSumme.fill('250.000');
+    pruef((await page.locator('#auftrag .geld-echo').innerText()).includes('250.000,00'), 'B-04: Rückanzeige „250.000,00“ fehlt');
+    await page.click('#auftrag-ok');
+    if (summeAlt && (250000 / summeAlt > 10 || summeAlt / 250000 > 10)) await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction(() => document.querySelector('#auftrag input[name="auftragssumme"]') && document.querySelector('#auftrag input[name="auftragssumme"]').value === '250.000,00');
+    pruef(await summeServer() === 250000, `B-04: „250.000“ als ${await summeServer()} gespeichert`);
+    await toastWeg();
+    // B-04: Änderung um mehr als Faktor 10 → Rückfrage; Abbrechen ändert nichts
+    await page.fill('#auftrag input[name="auftragssumme"]', '250');
+    await page.click('#auftrag-ok');
+    await page.waitForSelector('dialog[open] [data-ok]');
+    pruef((await page.locator('dialog[open]').innerText()).includes('250.000,00'), 'B-04: Rückfrage nennt den alten Betrag nicht');
+    await shot('auftrag-rueckfrage');
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await sleep(200);
+    pruef(await summeServer() === 250000, 'B-04: Auftragssumme trotz abgebrochener Rückfrage geändert');
     await page.fill('#auftrag input[name="auftragssumme"]', String(summe).replace('.', ','));
     await shot('baustelle-auftrag');
     await page.click('#auftrag-ok');
+    if (250000 / summe > 10) await page.click('dialog[open] [data-ok]');
     await page.waitForFunction((z) => { const e = document.querySelector('[data-wert="verbrauch"]'); return e && Math.abs(parseFloat(e.textContent.replace(',', '.')) - z) < 3; }, ziel);
     const kalkBudget = (await api('GET', `/kalkulation/${bsId}`)).json;
     pruef(kalkBudget.budgetVerbrauchProzent >= ziel - 2, `Budget-Verbrauch ${kalkBudget.budgetVerbrauchProzent} % statt ca. ${ziel} %`);
@@ -379,8 +527,62 @@ async function laufe(browser, g) {
     pruef((await api('GET', '/benachrichtigungen')).json.filter((m) => m.typ === 'budget' && m.baustelleId === bsId && m.gelesen).length >= 1, 'Benachrichtigung wird beim Öffnen nicht als gelesen markiert');
     pruef(await page.locator('.bud:not(.none) .bud-fill').count() >= 1, 'Nachkalkulation: Budget-Balken fehlt');
     await ueberlauf('kalkulation mit budget'); await shot('kalkulation-budget');
+    // M-03: Fremdleistung erfassen (B-04: „12.500“ = zwölftausendfünfhundert) und wieder stornieren
+    const fremdVor = (await api('GET', `/baustellen/${bsId}/fremdleistungen`)).json.length;
+    await page.click('[data-akt="fremd"]');
+    await page.fill('dialog[open] input[name="text"]', 'E2E Subunternehmer');
+    await page.fill('dialog[open] input[name="betrag"]', '1.2345');
+    pruef(await page.locator('dialog[open] .geld-echo.err').count() === 1, 'B-04: unklare Eingabe „1.2345“ wird nicht als Fehler angezeigt');
+    await page.click('dialog[open] button[type="submit"]');
+    await sleep(300);
+    pruef((await api('GET', `/baustellen/${bsId}/fremdleistungen`)).json.length === fremdVor && await page.locator('dialog[open] .form-err:not([hidden])').count() === 1, 'B-04: unklarer Betrag wurde trotzdem gesendet');
+    await page.fill('dialog[open] input[name="betrag"]', '12.500');
+    pruef((await page.locator('dialog[open] .geld-echo').innerText()).includes('12.500,00'), 'B-04: Rückanzeige für „12.500“ fehlt');
+    await shot('fremdleistung-dialog');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('#fremd-einzeln');
+    const fremdListe = (await api('GET', `/baustellen/${bsId}/fremdleistungen`)).json;
+    const fremdNeu = fremdListe.find((f) => f.text === 'E2E Subunternehmer');
+    pruef(fremdListe.length === fremdVor + 1 && fremdNeu && fremdNeu.betrag === 12500, `B-04: „12.500“ als ${fremdNeu && fremdNeu.betrag} gespeichert`);
+    await toastWeg();
+    await page.click('#fremd-einzeln summary');
+    await page.click(`#fremd-einzeln [data-storno][data-id="${fremdNeu.id}"]`);
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction((id) => !document.querySelector(`#fremd-einzeln [data-id="${id}"]`), fremdNeu.id);
+    pruef((await api('GET', `/baustellen/${bsId}/fremdleistungen`)).json.length === fremdVor, 'M-03: stornierte Fremdleistung noch am Server');
+    await toastWeg();
+    // M-03: Leistungsmeldung erfassen und stornieren
+    const leistVor = (await api('GET', `/baustellen/${bsId}/leistungen`)).json.length;
+    await page.click('[data-akt="leistung"]');
+    await page.waitForSelector('dialog[open] #lf');
+    await page.fill('dialog[open] input[name="menge"]', '2,5');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    await bereit();
+    const leistListe = (await api('GET', `/baustellen/${bsId}/leistungen`)).json;
+    pruef(leistListe.length === leistVor + 1, 'M-03: Leistungsmeldung nicht gespeichert');
+    const leistNeu = leistListe.reduce((a, x) => (x.id > a.id ? x : a), leistListe[0]);
+    await toastWeg();
+    await page.click('#leistung-einzeln summary');
+    await page.click(`#leistung-einzeln [data-storno][data-id="${leistNeu.id}"]`);
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction((id) => !document.querySelector(`#leistung-einzeln [data-id="${id}"]`), leistNeu.id);
+    pruef((await api('GET', `/baustellen/${bsId}/leistungen`)).json.length === leistVor, 'M-03: stornierte Leistungsmeldung noch am Server');
+    await toastWeg();
     await geh('/kalkulation', 'kalkulation-uebersicht');
     pruef(await page.locator('.kalk-card').count() >= 1, 'Nachkalkulation-Übersicht leer');
+    // N-09: Auftragssumme lässt sich löschen
+    const andereBs = (await api('GET', '/baustellen')).json.find((x) => x.id !== bsId && x.auftragssumme != null);
+    if (andereBs) {
+      await geh(`/baustelle/${andereBs.id}`);
+      await page.fill('#auftrag input[name="auftragssumme"]', '');
+      await page.click('#auftrag-ok');
+      await page.click('dialog[open] [data-ok]');
+      await page.waitForFunction(() => document.querySelector('#auftrag input[name="auftragssumme"]') && document.querySelector('#auftrag input[name="auftragssumme"]').value === '' && !document.querySelector('dialog[open]'));
+      await bereit();
+      pruef((await api('GET', `/baustellen/${andereBs.id}`)).json.auftragssumme == null, 'N-09: Auftragssumme wurde nicht gelöscht');
+      await toastWeg();
+    } else pruef(false, 'N-09: keine zweite Baustelle mit Auftragssumme in den Testdaten');
     await geh('/baustellen');
     pruef(await page.locator('.site-card').count() >= 3, 'Baustellenliste zu kurz');
     await geh('/berichte');
@@ -409,6 +611,13 @@ async function laufe(browser, g) {
     pruef(await page.locator('.price-in input').count() === 0, 'Bauleiter kann Preise bearbeiten');
     await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
     await keinZugriff('/monat'); await keinZugriff('/benutzer');
+    // N-07: fremde Baustelle zeigt kein Auftragsformular
+    const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !('auftragssumme' in x));
+    if (fremdeBs) {
+      await geh(`/baustelle/${fremdeBs.id}`, 'baustelle-fremd');
+      pruef(await page.locator('#auftrag').count() === 0 && !(await text()).includes('Budget-Alarm'), 'N-07: Auftragsformular bei fremder Baustelle sichtbar');
+    } else pruef(false, 'N-07: keine fremde Baustelle für den Bauleiter in den Testdaten');
+    await geh('/abwesenheiten');
     await abmelden();
 
     /* ============ 5. Polier: bekommt keinen Budget-Alarm ============ */
@@ -455,13 +664,60 @@ async function laufe(browser, g) {
     await page.fill('dialog[open] input[name="name"]', 'Test Probe');
     await page.selectOption('dialog[open] select[name="rolle"]', 'mitarbeiter');
     await page.fill('dialog[open] input[name="pin"]', '4711');
+    NAME.neu = 'Test Probe';
     await ueberlauf('dialog benutzer'); await shot('benutzer-dialog');
     await page.click('dialog[open] button[type="submit"]');
     await page.waitForSelector('#benutzerliste li:has-text("Test Probe")');
     await page.click('[data-tab="matrix"]');
     await toastWeg();
-    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/kolonne', '/stempeln', '/woche', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
+    pruef(await page.locator('#matrix td[data-rolle="polier"][data-recht="benutzer"][data-gesperrt]').count() === 1 && await page.locator('#matrix td[data-rolle="buero"][data-recht="benutzer"][data-gesperrt]').count() === 1, 'B-01: Recht „benutzer“ ist in der Matrix nicht für alle außer GF gesperrt');
+    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
     await abmelden();
+
+    /* ============ 6b. B-03: neuer Benutzer muss zuerst die PIN ändern ============ */
+    await page.fill('#login-suche', 'Probe');
+    await page.click('.login-user:has-text("Test Probe")');
+    for (const z of '4711') await page.click(`.pin-pad [data-z="${z}"]`);
+    await page.click('.pin-pad [data-ok]');
+    await page.waitForSelector('[data-zustand="pin-aendern"]');
+    pruef(await page.locator('#view, .sidenav, .tabbar').count() === 0, 'B-03: trotz PIN-Pflicht ist die App erreichbar');
+    await ueberlauf('pin pflicht'); await shot('pin-pflicht');
+    await page.evaluate(() => { location.hash = '#/stempeln'; }); await sleep(300);
+    pruef(await page.locator('[data-zustand="pin-aendern"]').count() === 1, 'B-03: PIN-Pflicht lässt sich über die Adresse umgehen');
+    const gesperrtApi = await absichtlich(() => api('GET', '/zeit/status'));
+    pruef(gesperrtApi.status === 403 && gesperrtApi.json.code === 'PIN_AENDERN', `B-03: Server lässt vor der PIN-Änderung zu (Status ${gesperrtApi.status})`);
+    await page.fill('#pinform input[name="alt"]', '4711');
+    await page.fill('#pinform input[name="neu"]', '1234'); await page.fill('#pinform input[name="neu2"]', '1234');
+    await page.click('#pin-ok');
+    pruef(await page.locator('#pin-err:not([hidden])').count() === 1, 'B-03: einfache Folge „1234“ wird als neue PIN angenommen');
+    await page.fill('#pinform input[name="neu"]', '80'); await page.fill('#pinform input[name="neu2"]', '80');
+    await page.click('#pin-ok');
+    pruef((await page.locator('#pin-err').innerText()).includes('mindestens'), 'B-03: zu kurze PIN wird nicht abgelehnt');
+    await page.fill('#pinform input[name="neu"]', '8052'); await page.fill('#pinform input[name="neu2"]', '8052');
+    await page.click('#pin-ok');
+    await page.waitForSelector('#view');
+    await bereit();
+    pruef((await api('GET', '/auth/ich')).json.mussPinAendern === false, 'B-03: nach der Änderung besteht die PIN-Pflicht weiter');
+    await keinEuro('neuer benutzer');
+    await toastWeg();
+    await abmelden();
+    // alte PIN gilt nicht mehr, neue schon
+    await page.fill('#login-suche', 'Probe');
+    await page.click('.login-user:has-text("Test Probe")');
+    for (const z of '4711') await page.click(`.pin-pad [data-z="${z}"]`);
+    await absichtlich(async () => { await page.click('.pin-pad [data-ok]'); await page.waitForSelector('.pin-msg.err'); });
+    for (const z of '8052') await page.click(`.pin-pad [data-z="${z}"]`);
+    await page.click('.pin-pad [data-ok]');
+    await page.waitForSelector('#view'); await bereit();
+    await abmelden();
+    pruef((await page.locator('.login-user small').allInnerTexts()).every((t) => !/Geschäftsführung|Büro|Bauleiter|Polier/.test(t)), 'B-03: Anmeldeliste zeigt Rollen');
+
+    /* ============ 6c. M-06: Sicherheits-Header, kein Inline-Skript ============ */
+    const start = await context.request.get(srv.url + '/');
+    const csp = start.headers()['content-security-policy'] || '';
+    pruef(/script-src 'self'/.test(csp) && !/script-src[^;]*unsafe-inline/.test(csp), `M-06: Content-Security-Policy fehlt oder erlaubt Inline-Skripte („${csp.slice(0, 80)}“)`);
+    pruef(await page.evaluate(() => [...document.scripts].every((x) => x.src) && !document.querySelector('[onclick],[onload],[onerror],[onchange],[oninput],[onsubmit]')), 'M-06: Inline-Skript oder Inline-Ereignis im Dokument');
+    pruef(!/ style=/.test(await (await context.request.get(srv.url + '/index.html')).text()), 'M-06: index.html enthält Inline-Styles');
 
     /* ============ 7. PWA ============ */
     const man = await context.request.get(srv.url + '/manifest.webmanifest');
@@ -472,6 +728,21 @@ async function laufe(browser, g) {
     pruef(sw, 'Service Worker ist nicht registriert');
     const apiImCache = await page.evaluate(async () => { for (const n of await caches.keys()) { const c = await caches.open(n); for (const k of await c.keys()) if (new URL(k.url).pathname.startsWith('/api/')) return k.url; } return ''; });
     pruef(!apiImCache, `Service Worker hat eine API-Antwort gespeichert: ${apiImCache}`);
+
+    /* ============ 8. B-03: Anmeldung mit Personalnummer, wenn die Namensliste abgeschaltet ist ============ */
+    const srv2 = await starteServer({ BAUTAG_LOGIN_LISTE: '0' });
+    try {
+      await absichtlich(async () => { await page.goto(srv2.url + '/#/login'); await page.waitForSelector('#pnr'); });
+      pruef(await page.locator('.login-user').count() === 0, 'B-03: Namensliste trotz Abschaltung sichtbar');
+      await ueberlauf('login personalnummer'); await shot('login-personalnummer');
+      await page.fill('#pnr', '1002');
+      await page.click('#pnr-form button[type="submit"]');
+      for (const z of PIN) await page.click(`.pin-pad [data-z="${z}"]`);
+      await page.click('.pin-pad [data-ok]');
+      await page.waitForSelector('#view'); await bereit();
+      const ich2 = (await api('GET', '/auth/ich')).json;
+      pruef(ich2 && ich2.benutzer && ich2.benutzer.name === NAME.mitarbeiter, `B-03: Anmeldung mit Personalnummer liefert ${ich2 && ich2.benutzer && ich2.benutzer.name}`);
+    } finally { srv2.stop(); }
 
     pruef(konsole.length === 0, `Konsolenfehler:\n      ${konsole.slice(0, 12).join('\n      ')}`);
   } catch (e) {
@@ -488,6 +759,10 @@ async function laufe(browser, g) {
 }
 
 (async () => {
+  // Unit-Test der Zahlen-/Zeitlogik (B-04, B-06)
+  const unit = spawnSync(process.execPath, [path.join(__dirname, 'parse.test.js')], { encoding: 'utf8' });
+  process.stdout.write(unit.stdout + unit.stderr);
+  if (unit.status !== 0) { console.log('E2E: Unit-Test der Zahleneingabe fehlgeschlagen'); process.exit(1); }
   const browser = await chromium.launch();
   let gesamt = 0;
   const bilanz = [];

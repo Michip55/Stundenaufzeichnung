@@ -48,6 +48,7 @@ const IC = {
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.500"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/>',
   scan: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.500A1.5 1.5 0 0 1 20 5.5V8M20 16v2.500a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16"/>',
+  away: '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9.5 13.5l5 5M14.5 13.5l-5 5"/>',
   plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.500a5.5 5.5 0 0 1-11 0zM12 17v4"/>',
 };
 export const ic = (n, cls = '') =>
