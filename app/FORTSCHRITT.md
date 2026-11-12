@@ -4,10 +4,11 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 
 ## Erledigt
 - Architektur & API-Vertrag festgelegt (`app/API.md`)
+- Oberfläche/PWA fertig (`app/public`): alle Ansichten, rollenabhängig, Offline-Stempeln, „Noch nicht angebunden“ für externe Dienste
+- E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
 - Backend (`app/server`, Tests `app/tests/unit|api`) – Opus-Agent
-- Oberfläche/PWA (`app/public`, E2E `app/tests/e2e`) – Fable-Agent
 
 ## Offen
 - Integration Backend ↔ Oberfläche, E2E auf Handy/Tablet/PC
@@ -15,4 +16,4 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - Freigabe: Pull Request nur wenn alle Tests grün
 
 ## Nächster Schritt
-- Agenten-Zwischenstände abwarten, laufend committen
+- Backend-Abschluss abwarten, dann Gesamttest + unabhängige Prüfung
