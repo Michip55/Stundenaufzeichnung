@@ -1,9 +1,21 @@
 'use strict';
 const v = require('../validierung');
-const { ungueltig, nichtGefunden, konflikt } = require('../fehler');
+const { ungueltig, nichtGefunden, konflikt, keinZugriff } = require('../fehler');
 const R = require('../rechte');
 const auth = require('../auth');
 const { brauche } = require('./hilfe');
+
+/** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
+const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm'];
+
+function protokollFuer(ctx, zeilen) {
+  if (ctx.hat('preise_sehen')) return zeilen;
+  const saeubern = (t) => {
+    if (t == null) return t;
+    try { return JSON.stringify(R.entferneEuroFelder(JSON.parse(t), { kalk: false })); } catch (_) { return t; }
+  };
+  return zeilen.filter((p) => !EURO_ARTEN.includes(p.art)).map((p) => ({ ...p, alt: saeubern(p.alt), neu: saeubern(p.neu) }));
+}
 
 function benutzerVoll(b) {
   return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1 };
@@ -25,7 +37,7 @@ module.exports = function benutzerRouten(api, bt) {
       immer: R.IMMER,
       ausnahmen: db.alle('SELECT benutzer_id, recht, erteilt, erteilt_von FROM benutzer_recht ORDER BY benutzer_id, recht')
         .map((a) => ({ benutzerId: a.benutzer_id, name: namen.get(a.benutzer_id), recht: a.recht, erteilt: a.erteilt, erteiltVon: a.erteilt_von })),
-      protokoll: db.alle('SELECT * FROM protokoll ORDER BY id DESC LIMIT 300').map((p) => ({
+      protokoll: protokollFuer(req.ctx, db.alle('SELECT * FROM protokoll ORDER BY id DESC LIMIT 300')).map((p) => ({
         id: p.id, zeit: p.zeit, benutzerId: p.benutzer_id, name: namen.get(p.benutzer_id) || null, art: p.art, objekt: p.objekt, alt: p.alt, neu: p.neu, text: p.text
       }))
     });
@@ -64,7 +76,7 @@ module.exports = function benutzerRouten(api, bt) {
   });
 
   /* ---------- Benutzer ---------- */
-  function pruefeFelder(body, teil) {
+  function pruefeFelder(body, teil, rolleAlt) {
     const f = {};
     if (!teil || body.name !== undefined) f.name = v.text(body.name, 'name', { max: 100 });
     if (!teil || body.rolle !== undefined) f.rolle = v.auswahl(body.rolle, 'rolle', R.ROLLEN);
@@ -84,10 +96,15 @@ module.exports = function benutzerRouten(api, bt) {
       }
     }
     if (body.pnr !== undefined) f.pnr = v.zahl(body.pnr, 'pnr', { min: 1, max: 999999, ganz: true, pflicht: false });
+    if (f.pnr != null) {
+      const vergeben = db.eins('SELECT id, name FROM benutzer WHERE pnr = ?', f.pnr);
+      if (vergeben && vergeben.id !== body.__id) throw konflikt(`Die Personalnummer ${f.pnr} ist bereits an ${vergeben.name} vergeben.`);
+    }
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
     let pin = null;
     if (!teil || body.pin !== undefined) {
-      if (typeof body.pin !== 'string' || !/^\d{4,8}$/.test(body.pin)) throw ungueltig('pin muss aus 4 bis 8 Ziffern bestehen.');
+      const fehler = auth.pinFehler(body.pin, f.rolle || rolleAlt);
+      if (fehler) throw ungueltig(`pin: ${fehler}`);
       pin = body.pin;
     }
     return { f, pin };
@@ -100,6 +117,7 @@ module.exports = function benutzerRouten(api, bt) {
   api.post('/benutzer', brauche('benutzer'), async (req, res) => {
     const { f, pin } = pruefeFelder(v.objekt(req.body), false);
     f.pin_hash = await auth.hashPin(pin);
+    f.muss_pin_aendern = 1; // Start-PIN muss beim ersten Anmelden geändert werden
     f.erstellt = jetzt();
     if (f.aktiv === undefined) f.aktiv = 1;
     const k = Object.keys(f);
@@ -112,14 +130,18 @@ module.exports = function benutzerRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const alt = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Benutzer nicht gefunden.');
-    const { f, pin } = pruefeFelder(v.objekt(req.body), true);
+    const body = v.objekt(req.body);
+    const { f, pin } = pruefeFelder({ ...body, __id: id }, true, alt.rolle);
     if (!Object.keys(f).length && !pin) throw ungueltig('Keine Änderungen angegeben.');
+    if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
+      throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
+    }
     // Aussperren verhindern: mindestens eine aktive Geschäftsführung bleibt
     const verliertGf = alt.rolle === 'gf' && ((f.rolle && f.rolle !== 'gf') || f.aktiv === 0);
     if (verliertGf && db.eins("SELECT COUNT(*) AS n FROM benutzer WHERE rolle = 'gf' AND aktiv = 1 AND id <> ?", id).n === 0) {
       throw konflikt('Mindestens eine aktive Geschäftsführung muss bestehen bleiben.');
     }
-    if (pin) f.pin_hash = await auth.hashPin(pin);
+    if (pin) { f.pin_hash = await auth.hashPin(pin); f.muss_pin_aendern = 1; }
     const k = Object.keys(f);
     db.transaktion(() => {
       db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
@@ -131,7 +153,7 @@ module.exports = function benutzerRouten(api, bt) {
       if (pin) bt.bremse.entsperre(id);
       const altW = {}, neuW = {};
       for (const x of k) {
-        if (x === 'pin_hash') continue;
+        if (x === 'pin_hash' || x === 'muss_pin_aendern') continue;
         altW[x] = alt[x]; neuW[x] = f[x];
       }
       if (pin) neuW.pin = 'zurückgesetzt';

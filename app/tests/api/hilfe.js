@@ -16,16 +16,23 @@ async function starte(opt = {}) {
   const uhr = () => new Date(jetzt.getTime());
   uhr.setze = (iso) => { jetzt = new Date(iso); };
   uhr.plus = (min) => { jetzt = new Date(jetzt.getTime() + min * 60000); };
-  const app = createApp({ dbPath: ':memory:', uhr, seed: opt.seed !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz, pdfUnkomprimiert: opt.pdfUnkomprimiert });
+  const app = createApp({
+    dbPath: ':memory:', uhr, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
+    pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
+    // Standard in Tests: lange Sitzungen, damit Uhrsprünge nicht abmelden (eigener Test für Ablaufzeiten)
+    sitzung: opt.sitzung || { feldMin: 720, bueroMin: 24 * 60, maxH: 24 * 30 }
+  });
   const server = await new Promise((res) => { const s = app.listen(0, '127.0.0.1', () => res(s)); });
   const basis = `http://127.0.0.1:${server.address().port}`;
 
-  function client(cookie = null) {
+  function client(cookie = null, ip = null) {
     const c = {
       cookie,
+      ip,
       async anfrage(methode, pfad, body, header = {}) {
         const h = { ...header };
         if (c.cookie) h.cookie = c.cookie;
+        if (c.ip) h['x-forwarded-for'] = c.ip; // wirkt nur mit trustProxy
         let b;
         if (body !== undefined) {
           if (typeof body === 'string') b = body;
@@ -52,8 +59,8 @@ async function starte(opt = {}) {
     return c;
   }
 
-  async function login(benutzerId, pin = '1234') {
-    const c = client();
+  async function login(benutzerId, pin = '1234', ip) {
+    const c = client(null, ip || null);
     const r = await c.post('/auth/login', { benutzerId, pin });
     if (r.status !== 200) throw new Error(`Login ${benutzerId} fehlgeschlagen: ${r.status} ${JSON.stringify(r.daten)}`);
     return c;

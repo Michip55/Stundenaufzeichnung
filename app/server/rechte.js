@@ -35,11 +35,13 @@ const STANDARD_MATRIX = {
 /** Für diese Rollen technisch gesperrt – weder per Matrix noch per Ausnahme vergebbar. */
 const PREIS_LOHN_RECHTE = ['preise_sehen', 'preise_bearbeiten', 'kalk_sehen', 'lohn'];
 const GESPERRT = {
-  mitarbeiter: [...PREIS_LOHN_RECHTE],
-  polier: [...PREIS_LOHN_RECHTE],
+  // Polier/Mitarbeiter: nie Preise/Kalkulation/Lohn, keine Stammdaten, keine Benutzerverwaltung
+  mitarbeiter: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
+  polier: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
   // Konzept 2.2: Preis-Bearbeitung und Lohnauswertung nie für Bauleiter (dafür Rolle Büro)
-  bauleiter: ['preise_bearbeiten', 'lohn'],
-  buero: [],
+  bauleiter: ['preise_bearbeiten', 'lohn', 'benutzer'],
+  // „Rollen und Ausnahmen vergeben“ nur Geschäftsführung
+  buero: ['benutzer'],
   gf: []
 };
 /** Rechte, die einer Rolle nie entzogen werden können */

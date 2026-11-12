@@ -8,11 +8,17 @@ const express = require('express');
 const { oeffneDatenbank } = require('./db');
 const { erzeugeUhr } = require('./datum');
 const { ApiFehler, nichtGefunden } = require('./fehler');
-const { sitzungMiddleware, angemeldet, LoginBremse } = require('./auth');
+const { sitzungMiddleware, angemeldet, LoginBremse, sitzungsKonfig } = require('./auth');
 const { entferneEuroFelder, schreibeStandardMatrix } = require('./rechte');
 
 const VERSION = require('../package.json').version;
 const PUBLIC = path.join(__dirname, '..', 'public');
+// Oberfläche nutzt keine Inline-Skripte; style-Attribute kommen vor → 'unsafe-inline' nur für Styles
+const CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:",
+  "connect-src 'self'", "font-src 'self'", "manifest-src 'self'", "worker-src 'self'", "object-src 'none'",
+  "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'"
+].join('; ');
 
 /**
  * @param {object} [opt]
@@ -26,22 +32,29 @@ function createApp(opt = {}) {
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
-  const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert) };
+  const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
+  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
   bt.bremse = new LoginBremse(db, uhr);
 
   // Rechte-Matrix beim ersten Start anlegen
   if (!db.eins('SELECT 1 AS x FROM rolle_recht LIMIT 1')) db.transaktion(() => schreibeStandardMatrix(db));
-  if (opt.seed) require('./seed').seed(db, { uhr: uhr() });
+  if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: opt.demo !== undefined ? opt.demo : process.env.BAUTAG_DEMO === '1' });
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false);
+  // Nur hinter einem Reverse-Proxy: dann gelten X-Forwarded-For/-Proto (Client-IP, HTTPS)
+  const trustProxy = opt.trustProxy !== undefined ? opt.trustProxy : process.env.TRUST_PROXY === '1';
+  app.set('trust proxy', trustProxy ? 1 : false);
   app.locals.bt = bt;
 
   app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+    if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
   });
 
@@ -69,6 +82,13 @@ function createApp(opt = {}) {
   });
   api.use(sitzungMiddleware(bt));
 
+  // Öffentlich (vor dem €-Sicherheitsnetz, damit 'db' nicht als €-Feld entfernt wird)
+  api.get('/gesundheit', (req, res) => {
+    let ok = 'ok';
+    try { db.eins('SELECT 1 AS x'); } catch (_) { ok = 'fehler'; }
+    res.json({ ok: ok === 'ok', version: VERSION, db: ok });
+  });
+
   // Sicherheitsnetz: ohne preise_sehen verlassen keine €-Felder den Server
   if (opt.euroSicherheitsnetz !== false) {
     api.use((req, res, next) => {
@@ -81,16 +101,14 @@ function createApp(opt = {}) {
     });
   }
 
-  // Öffentliche Routen
-  api.get('/gesundheit', (req, res) => {
-    let ok = 'ok';
-    try { db.eins('SELECT 1 AS x'); } catch (_) { ok = 'fehler'; }
-    res.json({ ok: ok === 'ok', version: VERSION, db: ok });
-  });
   require('./routes/auth')(api, bt);
 
-  // Ab hier nur angemeldet
+  // Ab hier nur angemeldet – und erst nach Änderung einer vorgegebenen PIN
   api.use(angemeldet);
+  api.use((req, res, next) => {
+    if (req.ctx.benutzer.muss_pin_aendern) return next(new ApiFehler(403, 'PIN_AENDERN', 'Bitte zuerst die PIN ändern.'));
+    next();
+  });
   require('./routes/stammdaten')(api, bt);
   require('./routes/preise')(api, bt);
   require('./routes/zeit')(api, bt);
@@ -109,6 +127,10 @@ function createApp(opt = {}) {
   app.use(express.static(publicDir, { index: 'index.html', fallthrough: true }));
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    // Fehlende Dateien (Endung) oder Punkt-Pfade (/.git/…) → 404 statt index.html
+    if (/\.[A-Za-z0-9]{1,8}$/.test(req.path) || /(^|\/)\./.test(req.path)) {
+      return res.status(404).type('text/plain; charset=utf-8').send('Nicht gefunden.');
+    }
     const index = path.join(publicDir, 'index.html');
     if (fs.existsSync(index)) return res.sendFile(index);
     res.status(404).type('text/plain; charset=utf-8').send('BauTag: Oberfläche (app/public) ist noch nicht vorhanden.');

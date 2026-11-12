@@ -71,9 +71,9 @@ const MITARBEITER = [
   M(28, 'Erwin', 'Pürrer', 'lkw', '26-050'), M(29, 'Johann', 'Tisch', 'lkw', '26-050'), M(30, 'Alois', 'Dorfmeister', 'ma', '90-001')
 ];
 const BUERO = [
-  { id: 101, name: 'Martina Koller', rolle: 'buero' },
-  { id: 102, name: 'Michael Pichler', rolle: 'gf' },
-  { id: 103, name: 'Stefan Aigner', rolle: 'bauleiter' }
+  { id: 101, name: 'Martina Koller', rolle: 'buero', pnr: 1101 },
+  { id: 102, name: 'Michael Pichler', rolle: 'gf', pnr: 1102 },
+  { id: 103, name: 'Stefan Aigner', rolle: 'bauleiter', pnr: 1103 }
 ];
 
 const BAUSTELLEN = [
@@ -160,7 +160,7 @@ const SW_TAG = '2026-11-03';
 /**
  * Spielt die Testdaten in eine LEERE Datenbank ein.
  * @param {import('./db').Datenbank} db
- * @param {{uhr?: Date}} [opt]
+ * @param {{uhr?: Date, demo?: boolean}} [opt]  demo=true: PIN 1234 ohne Änderungspflicht (nur Vorführung/Tests)
  */
 function seed(db, opt = {}) {
   const jetzt = opt.uhr instanceof Date ? opt.uhr : new Date();
@@ -191,9 +191,10 @@ function seed(db, opt = {}) {
     const leistungEp = {};
     LEISTUNGEN.forEach(([key, code, text, einheit, ep]) => { leistungId[key] = db.lauf('INSERT INTO leistung (code, text, einheit, ep) VALUES (?, ?, ?, ?)', code, text, einheit, ep).id; leistungEp[key] = ep; });
 
-    // Benutzer (Demo-PIN 1234, je Benutzer eigener Salt)
+    // Benutzer (Start-PIN 1234, je Benutzer eigener Salt). Ohne Demo-Modus muss jeder die PIN beim ersten Anmelden ändern.
+    const mussAendern = opt.demo ? 0 : 1;
     for (const m of [...MITARBEITER, ...BUERO]) {
-      db.lauf('INSERT INTO benutzer (id, name, rolle, lohngruppe_id, pnr, aktiv, pin_hash, erstellt) VALUES (?, ?, ?, ?, ?, 1, ?, ?)', m.id, m.name, m.rolle, m.lg || null, m.pnr || null, hashPinSync(DEMO_PIN), jetztIso);
+      db.lauf('INSERT INTO benutzer (id, name, rolle, lohngruppe_id, pnr, aktiv, pin_hash, erstellt, muss_pin_aendern) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)', m.id, m.name, m.rolle, m.lg || null, m.pnr || null, hashPinSync(DEMO_PIN), jetztIso, mussAendern);
     }
 
     // Baustellen
@@ -376,12 +377,15 @@ if (require.main === module) {
   const db = oeffneDatenbank(dbPfad);
   const uhr = erzeugeUhr(process.env.BAUTAG_UHR);
   const t0 = Date.now();
-  const r = seed(db, { uhr: uhr() });
+  const demo = process.env.BAUTAG_DEMO === '1';
+  const r = seed(db, { uhr: uhr(), demo });
   const zahl = (t) => db.eins(`SELECT COUNT(*) AS n FROM ${t}`).n;
   console.log(`BauTag-Testdaten eingespielt in ${dbPfad} (${Date.now() - t0} ms)`);
   console.log(`  heute: ${r.heute}, Historie: ${r.historieTage} Arbeitstage`);
   console.log(`  Benutzer: ${zahl('benutzer')}, Baustellen: ${zahl('baustelle')}, Buchungen: ${zahl('buchung')}, Berichte: ${zahl('bericht')}, Benachrichtigungen: ${zahl('benachrichtigung')}`);
-  console.log('  Demo-PIN für alle Benutzer: 1234 – nur Testdaten, VOR ECHTBETRIEB ÄNDERN!');
+  console.log(demo
+    ? '  DEMO-Modus (BAUTAG_DEMO=1): PIN 1234 für alle, keine Änderungspflicht – nur zur Vorführung!'
+    : '  Start-PIN für alle Benutzer: 1234 – muss beim ersten Anmelden geändert werden (Demo ohne Änderungspflicht: BAUTAG_DEMO=1).');
   db.schliessen();
 }
 

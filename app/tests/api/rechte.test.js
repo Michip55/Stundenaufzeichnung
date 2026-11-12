@@ -191,7 +191,7 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     assert.equal((await c.mitarbeiter.get(`/zeit/kolonne?baustelleId=${BS.pitten}`)).status, 403);
     const r = (await c.gf.get('/rechte')).daten;
     assert.deepEqual(r.rollen, ROLLEN);
-    assert.deepEqual(r.gesperrt.polier.sort(), ['kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen']);
+    assert.deepEqual(r.gesperrt.polier.sort(), ['benutzer', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten']);
     assert.equal(r.matrix.gf.benutzer, true);
     assert.ok(r.protokoll.some((p) => p.art === 'recht' && /mitarbeiter – kolonne entzogen/i.test(p.text)));
     assert.ok(r.protokoll.some((p) => p.art === 'recht' && /Ausnahme für Josef Haidbauer/.test(p.text)));
@@ -203,15 +203,16 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
   });
 
   await t.test('Benutzer verwalten: anlegen, Rolle ändern, letzte GF nicht entfernbar', async () => {
-    const n = await c.gf.post('/benutzer', { name: 'Test Neu', rolle: 'mitarbeiter', lohngruppe: 'hi', pin: '5678', baustelleId: BS.kogler });
+    const n = await c.gf.post('/benutzer', { name: 'Test Neu', rolle: 'mitarbeiter', lohngruppe: 'hi', pin: '5917', baustelleId: BS.kogler });
     assert.equal(n.status, 201);
     assert.equal(n.daten.lohngruppe, 'hi');
-    await s.login(n.daten.id, '5678');
-    assert.equal((await c.gf.post('/benutzer', { name: 'X', rolle: 'chef', pin: '5678' })).status, 400);
+    await s.login(n.daten.id, '5917');
+    assert.equal((await c.gf.post('/benutzer', { name: 'X', rolle: 'chef', pin: '5917' })).status, 400);
     assert.equal((await c.gf.post('/benutzer', { name: 'X', rolle: 'mitarbeiter', pin: '12' })).status, 400);
     assert.equal((await c.gf.post('/benutzer', { name: 'X', rolle: 'mitarbeiter', pin: '1234', lohngruppe: 'zz' })).status, 400);
-    assert.equal((await c.gf.put(`/benutzer/${U.gf}`, { rolle: 'buero' })).status, 409);
-    assert.equal((await c.gf.put(`/benutzer/${U.gf}`, { aktiv: false })).status, 409);
+    // B-01: eigene Rolle nicht änderbar, sich selbst nicht deaktivieren (schützt auch die letzte GF)
+    assert.equal((await c.gf.put(`/benutzer/${U.gf}`, { rolle: 'buero' })).status, 403);
+    assert.equal((await c.gf.put(`/benutzer/${U.gf}`, { aktiv: false })).status, 403);
     assert.equal((await c.gf.put('/benutzer/99999', { name: 'x' })).status, 404);
     // Rollenwechsel → Protokoll art 'rolle'
     assert.equal((await c.gf.put(`/benutzer/${n.daten.id}`, { rolle: 'polier' })).status, 200);

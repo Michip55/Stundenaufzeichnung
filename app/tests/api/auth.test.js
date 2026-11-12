@@ -17,7 +17,7 @@ test('Anmeldung, Sitzung, Abmeldung, Sperre', async (t) => {
     const r = await s.client().get('/auth/benutzerliste');
     assert.equal(r.status, 200);
     assert.equal(r.daten.length, 33);
-    for (const b of r.daten) assert.deepEqual(Object.keys(b).sort(), ['id', 'name', 'rolle']);
+    for (const b of r.daten) assert.deepEqual(Object.keys(b).sort(), ['id', 'name']); // B-03: keine Rollen
   });
 
   await t.test('geschützte Routen ohne Anmeldung → 401', async () => {
@@ -128,12 +128,12 @@ test('Anmeldung, Sitzung, Abmeldung, Sperre', async (t) => {
   await t.test('inaktive Benutzer können sich nicht anmelden; PIN-Reset beendet Sitzungen', async () => {
     const gf = await s.login(U.gf);
     const ma = await s.login(15);
-    assert.equal((await gf.put('/benutzer/15', { pin: '4321' })).status, 200);
+    assert.equal((await gf.put('/benutzer/15', { pin: '4826' })).status, 200);
     assert.equal((await ma.get('/auth/ich')).status, 401);
     assert.equal((await s.client().post('/auth/login', { benutzerId: 15, pin: '1234' })).status, 401);
-    await s.login(15, '4321');
+    await s.login(15, '4826');
     assert.equal((await gf.put('/benutzer/15', { aktiv: false })).status, 200);
-    assert.equal((await s.client().post('/auth/login', { benutzerId: 15, pin: '4321' })).status, 401);
+    assert.equal((await s.client().post('/auth/login', { benutzerId: 15, pin: '4826' })).status, 401);
     assert.ok(!(await s.client().get('/auth/benutzerliste')).daten.some((b) => b.id === 15));
   });
 

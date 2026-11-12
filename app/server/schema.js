@@ -283,6 +283,60 @@ BEGIN SELECT RAISE(ABORT, 'Das Protokoll ist unveränderbar'); END;
 CREATE TRIGGER protokoll_kein_delete BEFORE DELETE ON protokoll
 BEGIN SELECT RAISE(ABORT, 'Das Protokoll ist unveränderbar'); END;
 `
+  },
+  {
+    version: 2,
+    name: 'Prüfbericht 1: Login-Sperre je IP, Abwesenheit abgelehnt, PIN-Pflicht, eindeutige Personalnummer',
+    sql: `
+DROP TABLE login_versuch;
+CREATE TABLE login_versuch (
+  benutzer_id INTEGER NOT NULL,
+  ip TEXT NOT NULL,
+  fehlversuche INTEGER NOT NULL DEFAULT 0,
+  sperren INTEGER NOT NULL DEFAULT 0,
+  gesperrt_bis TEXT,
+  letzter TEXT,
+  PRIMARY KEY (benutzer_id, ip)
+);
+
+ALTER TABLE abwesenheit RENAME TO abwesenheit_alt;
+CREATE TABLE abwesenheit (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
+  datum TEXT NOT NULL,
+  code TEXT NOT NULL CHECK (code IN ('K','U','SW','ZA')),
+  status TEXT NOT NULL CHECK (status IN ('beantragt','genehmigt','abgelehnt')),
+  erfasst_von INTEGER REFERENCES benutzer(id),
+  erfasst TEXT NOT NULL,
+  entschieden_von INTEGER REFERENCES benutzer(id),
+  entschieden TEXT,
+  UNIQUE (benutzer_id, datum)
+);
+INSERT INTO abwesenheit (id, benutzer_id, datum, code, status, erfasst_von, erfasst)
+  SELECT id, benutzer_id, datum, code, status, erfasst_von, erfasst FROM abwesenheit_alt;
+DROP TABLE abwesenheit_alt;
+
+ALTER TABLE benachrichtigung RENAME TO benachrichtigung_alt;
+CREATE TABLE benachrichtigung (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  typ TEXT NOT NULL CHECK (typ IN ('budget','azg','bericht','abwesenheit')),
+  titel TEXT NOT NULL,
+  text TEXT NOT NULL,
+  zeit TEXT NOT NULL,
+  gelesen INTEGER NOT NULL DEFAULT 0,
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  schluessel TEXT,
+  UNIQUE (benutzer_id, schluessel)
+);
+INSERT INTO benachrichtigung SELECT * FROM benachrichtigung_alt;
+DROP TABLE benachrichtigung_alt;
+DROP INDEX IF EXISTS benachrichtigung_benutzer;
+CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
+
+ALTER TABLE benutzer ADD COLUMN muss_pin_aendern INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX benutzer_pnr ON benutzer(pnr) WHERE pnr IS NOT NULL;
+`
   }
 ];
 
