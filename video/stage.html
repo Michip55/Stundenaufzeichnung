@@ -18,7 +18,7 @@
 
   /* ---------- brand bar ---------- */
   #brand{position:absolute;left:96px;top:58px;display:flex;align-items:center;gap:18px;transition:opacity .6s var(--ease)}
-  #brand img{height:46px}
+  #brand .name{font-size:21px;font-weight:800;letter-spacing:-.015em;color:var(--ink)}
   #brand .sep{width:1px;height:30px;background:var(--line)}
   #brand .tag{font-size:15px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
   #brand .pill{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#fff;background:var(--ink);padding:6px 11px;border-radius:999px}
@@ -104,8 +104,8 @@
   #title.off{opacity:0;pointer-events:none}
   #title .part{transition:opacity .8s var(--ease),transform 1s var(--ease)}
   #title.pre .part{opacity:0;transform:translateY(24px)}
-  #title img{height:120px}
-  #title .pill{margin-top:44px;font-size:15px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#fff;background:var(--red);padding:8px 16px;border-radius:999px}
+  #title .mark{display:block;filter:drop-shadow(0 16px 30px rgba(208,32,42,.3))}
+  #title .pill{margin-top:40px;font-size:15px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#fff;background:var(--red);padding:8px 16px;border-radius:999px}
   #title h1{margin-top:26px;font-size:76px;line-height:1.04;font-weight:850;letter-spacing:-.035em;max-width:1300px}
   #title h2{margin-top:26px;font-size:26px;font-weight:500;color:var(--ink2);letter-spacing:-.005em}
   #title .devs{margin-top:46px;display:flex;gap:16px}
@@ -127,7 +127,7 @@
 <div id="stage">
   <svg id="contours" width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true"></svg>
 
-  <div id="brand"><img src="assets/logo.png" alt=""><span class="sep"></span><span class="tag">Baustellen-Plattform</span><span class="pill">Entwurf</span></div>
+  <div id="brand"><svg class="mark" width="40" height="40" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="13" fill="#D0202A"/><path d="M7 36 L17 25 L23 30 L31 20 L41 31" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="13.5" r="6.2" fill="none" stroke="#fff" stroke-width="2.6"/><path d="M33 10.6 V13.8 L35.2 15.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M7 41 H41" stroke="#fff" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/></svg><span class="name">Baustellen-Plattform</span><span class="sep"></span><span class="tag">Zeit · Bericht · Kalkulation</span><span class="pill">Entwurf</span></div>
 
   <div id="caption" class="pre">
     <div class="part"><span class="kicker"><i></i><span id="c-kicker"></span></span></div>
@@ -159,7 +159,7 @@
   <div id="ring"></div>
 
   <div id="title" class="pre">
-    <img class="part" src="assets/logo.png" alt="">
+    <div class="part"><svg class="mark" width="96" height="96" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="13" fill="#D0202A"/><path d="M7 36 L17 25 L23 30 L31 20 L41 31" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="13.5" r="6.2" fill="none" stroke="#fff" stroke-width="2.6"/><path d="M33 10.6 V13.8 L35.2 15.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><path d="M7 41 H41" stroke="#fff" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/></svg></div>
     <div class="part pill">Entwurf · Plattform-Konzept</div>
     <h1 class="part">Digitale Stundenaufzeichnung<br>&amp; Bautagesbericht</h1>
     <h2 class="part">Einstempeln · Bautagesbericht · Preise · Nachkalkulation je Baustelle</h2>
