@@ -197,7 +197,7 @@
           <aside class="print-side">
             <div class="card pad"><div class="card-h"><h3>1:1 wie die Papiervorlage</h3></div><p class="muted sm">Gleiche Felder, gleiche Reihenfolge – für Auftraggeber und Bauherr ändert sich nichts. Das PDF entsteht automatisch aus den Eingaben am Handy.</p><div class="banner info" style="margin-top:10px">${icon('shield')}<span>Das PDF enthält <b>keine internen Kosten oder Preise</b>.</span></div></div>
             <div class="card pad"><div class="card-h"><h3>Verlauf</h3></div><ul class="timeline compact">${tl.map((t) => `<li class="${t[2] ? 'tl-in' : 'tl-open'}"><i></i><div><b>${t[0]}</b><small>${esc(t[1])}</small></div></li>`).join('')}</ul></div>
-            ${!A.can('preise') ? '' : `<div class="card pad"><div class="card-h"><h3>Kosten dieses Tages</h3><span class="chip st-outline xs">nur Büro &amp; GF</span><span class="muted sm">automatisch</span></div>
+            ${!A.can('preise') ? '' : `<div class="card pad"><div class="card-h"><h3>Kosten dieses Tages</h3><span class="chip st-outline xs">${icon('lock')} intern</span></div>
               <div class="mini-cost"><div><span><i class="sw c-lohn"></i>Lohn · ${F.num(A.repStd(rep), 2)} Std.</span><b>${F.eur(c.lohn)}</b></div><div><span><i class="sw c-ger"></i>Geräte</span><b>${F.eur(c.ger)}</b></div><div><span><i class="sw c-mat"></i>Material</span><b>${F.eur(c.mat)}</b></div><div class="sum"><span>Summe</span><b data-demo="tageskosten">${F.eur(c.sum)}</b></div></div>
               ${A.can('kalk') ? `<a class="btn ghost block" href="#/nachkalkulation/${rep.kst}" data-demo="pdf-zur-nachkalkulation">${icon('chart')} Nachkalkulation ${esc(b.kurz)}</a>` : ''}</div>`}
           </aside>

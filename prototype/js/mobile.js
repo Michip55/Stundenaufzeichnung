@@ -188,7 +188,7 @@
       const row = (m) => {
         const st = A.stamp(m.id); let chip, cls = '';
         if (st.code) { chip = `<span class="chip st-grey">${st.code} · ${codeName[st.code]}</span>`; cls = 'absent'; }
-        else if (st.status === 'ein') { chip = `<span class="chip st-green"><i class="dot"></i>seit ${F.hm(st.segs[st.segs.length - 1].von / 60)}</span>`; cls = 'in'; }
+        else if (st.status === 'ein') { chip = `<span class="chip st-green"><i class="dot"></i>${F.hm(st.segs[st.segs.length - 1].von / 60)}</span>`; cls = 'in'; }
         else if (st.status === 'pause') { chip = `<span class="chip st-amber"><i class="dot"></i>Pause</span>`; cls = 'in'; }
         else if (st.status === 'fertig') { chip = `<span class="chip st-grey">Feierabend</span>`; cls = 'in'; }
         else chip = `<span class="chip st-outline">Offen</span>`;
@@ -328,7 +328,7 @@
     3(rep, b) {
       const fav = Object.keys(b.geraete || {}); const q = (S.ui.geraetSuche || '').toLowerCase();
       const row = (g) => `<div class="eq-row ${rep.geraete[g.id] ? 'on' : ''} ${rep.ai && rep.ai['geraet-' + g.id] ? 'ai' : ''}" data-name="${esc(g.name.toLowerCase())}" data-demo="geraet-${g.id}" ${q && !g.name.toLowerCase().includes(q) ? 'style="display:none"' : ''}><span class="eq-txt"><b>${esc(g.name)}</b><small>${g.kat}</small></span>${stepper('geraet-' + g.id, rep.geraete[g.id] || 0, 'Std.', 'geraet-step', `data-id="${g.id}"`)}</div>`;
-      const favs = D.geraete.filter((g) => fav.includes(g.id)), rest = D.geraete.filter((g) => !fav.includes(g.id));
+      const favs = D.geraete.filter((g) => fav.includes(g.id)).sort((x, y) => (rep.ai ? (rep.ai['geraet-' + y.id] || 0) - (rep.ai['geraet-' + x.id] || 0) : 0)), rest = D.geraete.filter((g) => !fav.includes(g.id));
       const n = Object.keys(rep.geraete).length;
       return `<label class="search"><span>${icon('search')}</span><input type="search" placeholder="Gerät suchen, z. B. Bagger" value="${esc(S.ui.geraetSuche || '')}" data-input="geraet-suche" data-demo="geraete-suche"></label>
       <div class="sum-strip" data-demo="geraete-summe"><b>${n}</b> ${n === 1 ? 'Gerät' : 'Geräte'} · <b>${F.menge(gStd(rep))}</b> Std. erfasst<span class="muted">+ / − in ganzen Stunden</span></div>

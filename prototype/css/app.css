@@ -602,3 +602,14 @@ body.bm .punch { min-height: 104px; border-radius: 22px; } body.bm .punch b { fo
 body.bm .act-btn { min-height: 86px; font-size: 15px; font-weight: 800; } body.bm .act-btn .ic { width: 28px; height: 28px; } body.bm .tabbar .nav-item { height: 62px; font-size: 13px; color: #15181c; } body.bm .tabbar .nav-item.active { background: #15181c; color: #fff; }
 body.bm .site-txt b { font-size: 18px; } body.bm .site-txt span, body.bm .site-txt small, body.bm small { font-size: 14px; } body.bm .plan-box, body.bm .clock-card > .site-row { background: #fff; border: 2px solid #15181c; } body.bm .btn { height: 52px; font-size: 16px; } body.bm .btn.sm { height: 46px; font-size: 15px; } body.bm .loc-badge { border: 2px solid #0b7a34; } body.bm .st-btn { border: 2px solid #15181c; }
 .pf-ggrid > div { min-width: 0; }
+.quick-pill.lang { flex: none; } .quick-pill.lang span { flex: none; font-weight: 800; }
+.dk-foot .btn { min-width: 0; padding: 0 14px; } .dk-foot .btn.ghost { flex: none; }
+@media (max-width: 719px) { .ai-chip span { flex-basis: 100%; } .ai-chip button { flex: 1; justify-content: center; } .foot-bar .btn.lg { font-size: 15px; gap: 6px; } .wx .card-h .btn { padding: 0 9px; font-size: 12.5px; } }
+.perm-grid { grid-template-columns: minmax(0, 1fr); } .perm-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pm { table-layout: fixed; } .pm thead th:first-child { width: 34%; } .pm thead th { min-width: 0; }
+@media (max-width: 899px) { .perm-side { grid-template-columns: minmax(0, 1fr); } .pm { min-width: 760px; } }
+.sl-main b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
+.site-line { grid-template-columns: minmax(0, 1fr) 172px 124px 84px 18px; }
+@media (max-width: 719px) { .site-line { grid-template-columns: minmax(0, 1fr) auto; } }
+.tbl.prices th, .tbl.prices td { padding-left: 10px; padding-right: 10px; } .price-cell { width: 128px; } .price-in { width: 104px; }
+body.bm .plan-box .site-row { flex-wrap: wrap; } body.bm .plan-box .site-row .btn { width: 100%; }

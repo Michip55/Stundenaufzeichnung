@@ -31,7 +31,7 @@
   A.t = (k, d) => { const L = I18N[S.lang]; if (!L || A.isOffice(S.user)) return d; if (L[k]) return L[k]; if (k.startsWith('title_')) return L['nav_' + k.slice(6)] || d; return d; };
   const langName = () => LANGS.find((l) => l[0] === S.lang) || LANGS[0];
   A.stempelTop = () => `<div class="quick-row">
-      <button class="quick-pill" data-act="sprache" data-demo="sprache">${icon('globe')}<span>${langName()[1]}</span>${icon('down')}</button>
+      <button class="quick-pill lang" data-act="sprache" data-demo="sprache">${icon('globe')}<span>${langName()[2]}</span>${icon('down')}</button>
       <button class="quick-pill toggle ${S.bm ? 'on' : ''}" data-act="bm-toggle" data-demo="baustellen-modus">${icon('sun')}<span>${A.t('modus', 'Baustellen-Modus')}</span><i class="switch ${S.bm ? 'on' : ''}"></i></button></div>`;
   A.profilExtra = (u) => A.isOffice(u) ? '' : `<div class="card def-list"><div><span>Sprache</span><button class="btn ghost sm" data-act="sprache" data-demo="profil-sprache">${icon('globe')} ${langName()[1]}</button></div><div><span>Baustellen-Modus<small class="muted" style="display:block">Extra große Tasten, maximaler Kontrast</small></span><button class="switch-btn" data-act="bm-toggle" data-demo="profil-baustellen-modus"><i class="switch ${S.bm ? 'on' : ''}"></i></button></div></div>`;
   act.sprache = () => A.sheet(`<div class="sheet-head"><h3>Sprache wählen</h3><button class="icon-btn" data-act="sheet-close" aria-label="Schließen">${icon('x')}</button></div><div class="sheet-body list">${LANGS.map((l) => `<button class="pick-row ${S.lang === l[0] ? 'sel' : ''}" data-act="sprache-set" data-l="${l[0]}" data-demo="sprache-${l[0]}"><span class="lang-code">${l[2]}</span><span class="pick-txt"><b>${l[1]}</b></span>${S.lang === l[0] ? icon('check', 'ok') : ''}</button>`).join('')}<p class="muted sm" style="padding:8px 10px">Stempeluhr und Navigation werden sofort übersetzt. Berichte bleiben auf Deutsch – so wie sie der Auftraggeber bekommt.</p></div>`);
@@ -47,8 +47,8 @@
   let undoFn = null;
   function toastUndo(msg, fn) {
     undoFn = fn; const root = document.getElementById('toast-root'); const el = document.createElement('div');
-    el.className = 'toast undo'; el.innerHTML = icon('check') + '<span>' + msg + '</span><button data-act="undo" data-demo="rueckgaengig">' + icon('undo') + ' Rückgängig</button>';
-    root.appendChild(el); requestAnimationFrame(() => el.classList.add('in')); setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, 6000);
+    root.innerHTML = ''; el.className = 'toast undo'; el.setAttribute('data-demo', 'toast'); el.innerHTML = icon('check') + '<span>' + msg + '</span><button data-act="undo" data-demo="rueckgaengig">' + icon('undo') + ' Rückgängig</button>';
+    root.appendChild(el); requestAnimationFrame(() => el.classList.add('in')); setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, 5000);
   }
   act.undo = (el) => { if (undoFn) { undoFn(); undoFn = null; A.render(); A.toast('Rückgängig gemacht'); } const t = el.closest('.toast'); if (t) t.remove(); };
 
@@ -98,7 +98,7 @@
     const w = wx(); rep.temp = w.t; rep.wetter = S.wetterRegen ? 'Regen' : 'bewölkt';
     const swDone = rep.personal.some((p) => p.code === 'SW');
     return `<div class="card pad wx ${S.wetterRegen ? 'bad' : ''}" data-demo="wetter-karte">
-      <div class="card-h"><h3>${icon(w.ic)} Wetter <span class="chip st-green xs">${icon('check')} automatisch</span></h3><button class="btn ghost sm" data-act="wetter-demo" data-demo="wetter-demo-regen">${S.wetterRegen ? 'Demo: Normalwetter' : 'Demo: Starkregen'}</button></div>
+      <div class="card-h"><h3>${icon(w.ic)} Wetter <span class="chip st-green xs">${icon('check')} automatisch</span></h3><button class="btn ghost sm" data-act="wetter-demo" data-demo="wetter-demo-regen">${S.wetterRegen ? 'Demo: normal' : 'Demo: Regen'}</button></div>
       <div class="wx-main"><div class="wx-now"><b>${w.t} °C</b><span>${w.txt}</span></div>
         <div class="wx-facts"><div>${icon('rain')}<span><b>${F.num(w.regen, 1)} mm/h</b><small>Niederschlag</small></span></div><div>${icon('wind')}<span><b>${w.wind} km/h</b><small>Wind</small></span></div><div>${icon('pin')}<span><b>${esc(b.ort.split(',')[0].replace(/^\d+ /, ''))}</b><small>Standort Baustelle</small></span></div></div></div>
       <div class="wx-hours">${w.std.map((h) => `<div>${icon(h[1])}<b>${h[2]}°</b><small>${h[0]} Uhr</small></div>`).join('')}</div>
@@ -196,7 +196,7 @@
   /* ---------- G) Prognose & Hinweise in der Nachkalkulation ---------- */
   A.kalkInsights = (b, c) => {
     const t = c.tage, last = t.slice(-6), dK = last.length > 1 ? last[last.length - 1].kumK - last[0].kumK : 0, dE = last.length > 1 ? last[last.length - 1].kumE - last[0].kumE : 0;
-    const ratio = dE > 0 ? Math.min(1.25, Math.max(0.6, dK / dE)) : c.kosten / c.erloes;
+    const base = c.erloes ? c.kosten / c.erloes : 1, ratio = base * (dE > 0 ? Math.min(1.06, Math.max(0.98, dK / dE / base)) : 1);
     const rest = Math.max(0, c.auftrag - c.erloes), eac = c.kosten + rest * ratio, progDB = c.auftrag ? (c.auftrag - eac) / c.auftrag : 0, planDB = c.erloes ? (c.erloes - c.sollKosten) / c.erloes : 0, diff = progDB - planDB;
     const tone = diff < -0.02 ? 'neg' : diff > 0.01 ? 'pos' : '';
     const mk = Object.keys(c.mat).sort((x, y) => c.mat[y].kosten - c.mat[x].kosten), mid = c.mat.frostschutz ? 'frostschutz' : mk[0], mv = c.soll.material ? c.material / c.soll.material - 1 : 0, mm = mid ? A.byId(S.preise.material, mid) : null;
@@ -247,8 +247,8 @@
         <div class="banner info">${icon('shield')}<span><b>Grundregel:</b> Preise, €-Werte und Nachkalkulation sehen nur Büro, Geschäftsführung und Bauleitung (eigene Baustellen). Für Poliere und Mitarbeiter sind diese Rechte fix gesperrt – auch nicht als Ausnahme vergebbar.</span></div>
         <div class="perm-grid">
           <div class="card"><div class="card-h pad-h"><h3>Berechtigungsmatrix</h3><span class="muted sm">Änderungen gelten sofort auf allen Geräten</span></div>
-            <div class="tbl-wrap"><table class="pm" data-demo="rechte-matrix"><thead><tr><th>Funktion</th>${A.ROLLEN.map((r) => `<th><b>${r[1]}</b><small>${n(r[0])} Benutzer</small>${r[0] !== 'gf' ? `<button class="btn ghost sm" data-act="vorschau" data-r="${r[0]}" data-demo="vorschau-${r[0]}">${icon('user')} Ansicht testen</button>` : '<span class="chip st-grey xs">Admin</span>'}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></div>
-          <div class="stack">
+            <div class="tbl-wrap"><table class="pm" data-demo="rechte-matrix"><thead><tr><th>Funktion</th>${A.ROLLEN.map((r) => `<th><b>${r[1]}</b><small>${n(r[0])} Benutzer</small>${r[0] !== 'gf' ? `<button class="btn ghost sm" data-act="vorschau" data-r="${r[0]}" data-demo="vorschau-${r[0]}">${icon('user')} Ansicht testen</button>`.replace('  ', ' ') : '<span class="chip st-grey xs">Admin</span>'}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></div>
+          <div class="perm-side">
             <div class="card pad"><div class="card-h"><h3>Ausnahmen je Benutzer <span class="count">${exc.length}</span></h3></div>
               ${exc.map((e) => `<div class="exc" data-demo="ausnahme-${e.u.id}-${e.k}"><span>${A.avatar(e.u, 'sm')}</span><div><b>${esc(e.u.name)}</b><small>${A.isOffice(e.u) ? esc(e.u.funktion) : esc(A.lgName(e.u.lg))} darf zusätzlich: „${A.RECHTE.find((x) => x[0] === e.k)[1].split(' (')[0]}“</small></div><button class="icon-btn sm" data-act="ausnahme-del" data-id="${e.u.id}" data-k="${e.k}" aria-label="Entfernen">${icon('x')}</button></div>`).join('') || '<p class="muted sm">Keine Ausnahmen vergeben.</p>'}
               <p class="muted sm" style="margin-top:8px">Neue Ausnahme: in der Benutzerliste auf „Rechte“ klicken.</p></div>
@@ -281,6 +281,7 @@
     A.routes.forEach((r) => { const p = PERM[r.pattern]; if (p) { r.perm = p[0]; r.permText = p[1]; } });
     start0();
     Object.assign(window.demo, { ankunft: () => hinweis('ankunft'), hinweis, diktat: () => act['diktat-start'](), sprache: (l) => { S.lang = l; A.render(); }, vorschau: (r) => act.vorschau({ dataset: { r } }) });
+    const r0 = window.demo.reset; window.demo.reset = () => { S.geraetLauf = null; S.wetterRegen = false; closeOverlay(); hinweisZu(); r0(); };
     const h = qs.get('hinweis'); if (h) setTimeout(() => hinweis(h), 1200);
   };
 })();

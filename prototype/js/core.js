@@ -239,7 +239,7 @@
   }
   function seedHeute() {
     const rep = leererBericht('26-041');
-    if (szenario !== 'morgen') {
+    if (szenario !== 'morgen' && qs.get('bericht') !== 'leer') {
       Object.assign(rep, {
         geraete: { b9: 8, lkw3: 4, ruettel: 6 }, material: { frostschutz: 42, splitt: 6 },
         zusatz: { pflaster8: 38, randstein: 24 },
@@ -366,9 +366,9 @@
   function closeSheet() { const root = document.getElementById('sheet-root'); root.classList.remove('open'); setTimeout(() => { if (!root.classList.contains('open')) root.innerHTML = ''; }, 220); }
   function toast(msg, kind) {
     const root = document.getElementById('toast-root'); const el = document.createElement('div');
-    el.className = 'toast ' + (kind || ''); el.setAttribute('data-demo', 'toast'); el.innerHTML = icon(kind === 'warn' ? 'alert' : 'check') + '<span>' + msg + '</span>';
+    root.innerHTML = ''; el.className = 'toast ' + (kind || ''); el.setAttribute('data-demo', 'toast'); el.innerHTML = icon(kind === 'warn' ? 'alert' : 'check') + '<span>' + msg + '</span>';
     root.appendChild(el); requestAnimationFrame(() => el.classList.add('in'));
-    setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, 3200);
+    setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, 2800);
   }
   Object.assign(A, { sheet, closeSheet, toast });
 

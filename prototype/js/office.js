@@ -39,7 +39,7 @@
         const c = b.intern || !can('kalk') ? null : A.calc(b.kst);
         const first = Math.min(...crew.filter((m) => A.stamp(m.id).segs.length).map((m) => A.stamp(m.id).segs[0].von).concat([1e9]));
         return `<a class="site-line" href="#/baustellen/${b.kst}" data-demo="dash-baustelle-${b.kst}">
-          <div class="sl-main"><small>KST ${b.kst} · ${esc(b.art)}</small><b>${esc(b.name)}</b><span>${esc(b.ort)}${pol ? ' · Polier ' + esc(pol.nn) : ''}</span></div>
+          <div class="sl-main"><small>KST ${b.kst}${pol ? ' · Polier ' + esc(pol.nn) : ''}</small><b>${esc(b.name)}</b><span>${esc(b.ort)}</span></div>
           <div class="sl-crew">${avatars(crew, 5)}<small><b>${n}</b> von ${crew.length} vor Ort${first < 1e9 ? ' · seit ' + F.hm(first / 60) : ''}</small></div>
           <div class="sl-rep">${rep ? A.statusChip(rep.status) : b.intern ? '<span class="chip st-outline">intern</span>' : '<span class="chip st-outline">Bericht offen</span>'}</div>
           <div class="sl-db">${c ? `${ampel(c.ampel)}<span><b>${F.pct(c.dbPct)}</b><small>DB</small></span>` : ''}</div>${icon('right')}</a>`;
@@ -307,7 +307,7 @@
       return `<div class="page monat">
         <div class="toolbar">
           <div class="seg-tabs">${[['2026-10', 'Oktober 2026'], ['2026-11', 'November 2026 · laufend']].map((x) => `<button class="${mon === x[0] ? 'sel' : ''}" data-act="monat-set" data-m="${x[0]}" data-demo="monat-${x[0]}">${x[1]}</button>`).join('')}</div>
-          <span class="chip ${lfd ? 'st-amber' : 'st-green'}"><i class="dot"></i>${lfd ? 'Monat läuft · Stand 11.11.' : 'Monat abgeschlossen · bereit für Export'}</span>
+          <span class="chip ${lfd ? 'st-amber' : 'st-green'}"><i class="dot"></i>${lfd ? 'Monat läuft · Stand 11.11.' : 'Abgeschlossen · bereit für Export'}</span>
           <span class="grow"></span>
           <button class="btn ghost" data-act="export-buak" data-demo="export-buak">${icon('shield')} BUAK-Meldung</button>
           <button class="btn primary" data-act="export-lohn" data-demo="export-lohn">${icon('download')} Export Lohnverrechnung (BMD/CSV)</button>

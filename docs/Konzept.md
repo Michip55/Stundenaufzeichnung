@@ -386,7 +386,7 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 | 23 | Materialbeistellung: Eigenmaterial | Material und Menge, Herkunft „Eigen (Kieswerk/Lager)“ | Polier | Nachkalkulation zum internen Verrechnungspreis |
 | 24 | Materialbeistellung: Fremdmaterial | Material und Menge, dazu Lieferant mit Lieferschein-Nr. oder „vom Bauherrn beigestellt“ | Polier; Foto vom Lieferschein, ab Phase 2 liest die KI Lieferant, Material und Menge | Nachkalkulation (Einkaufspreis bzw. 0 € bei Beistellung), Rechnungsprüfung |
 | 25 | Paletten retour: Euro | Anzahl Europaletten | Polier | Palettenkonto je Baustelle und Lieferant |
-| 26 | Paletten retour: Weissenböck | Anzahl Paletten dieses Lieferanten; weitere Lieferanten einstellbar | Polier | Pfand-Gutschrift kontrollieren |
+| 26 | Paletten retour: Weissenböck | Anzahl zurückgegebener Leerpaletten des Lieferanten Weissenböck (vom Betrieb bestätigt); weitere Lieferanten einstellbar | Polier | Pfand-Gutschrift kontrollieren |
 | 27 | Regieleistungen (Zeilen) | Regieposition: Beschreibung, Personen mit Stunden, Geräte mit Stunden, Material | Mit „Regie“ gekennzeichnete Stempelungen; Polier ergänzt | Regierechnung zu Regiesätzen; eigener Regieschein-Ausdruck |
 | 28 | Besondere Vorkommnisse (z. B. Anweisungen AG, Beschädigungen, Sonstiges) | Einträge mit Kategorie (Anweisung AG, Behinderung/Wartezeit, Beschädigung, Unfall/Beinahe-Unfall, Mangel, Sonstiges), Text und Fotos | Polier | Sofortige Nachricht ans Büro; Grundlage für Mehrkostenforderungen |
 | 29 | Unterschrift Auftragnehmer oder dessen Beauftragter | Unterschrift des Poliers am Gerät mit Name und Zeitpunkt | Angemeldeter Polier | Abschluss des Berichts |
@@ -1381,7 +1381,7 @@ Sind diese Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger und sof
 **Bautagesbericht**
 
 12. Was bedeutet „Materialbeistellung Fremdmaterial“ bei Ihnen: zugekauft, oder vom Bauherrn beigestellt, oder beides?
-13. „Paletten retour“: nur Euro- und Weissenböck-Paletten oder weitere Lieferanten? Wird das Pfand heute nachverfolgt?
+13. „Paletten retour“ (Leerpaletten; Weissenböck = Lieferant, bestätigt): Gibt es neben Euro- und Weissenböck-Paletten weitere Lieferanten mit Pfandpaletten? Wird das Pfand heute nachverfolgt?
 14. Wofür werden die zwei „von–bis“-Blöcke heute genutzt (Vormittag/Nachmittag, zwei Baustellen)? Sollen Fahrzeiten im Bericht stehen?
 15. Wie oft unterschreibt der Bauherr heute wirklich? Wer soll das PDF bekommen (Bauherr, Bauleitung, ÖBA)? Gibt es Auftraggeber mit eigenen Formularen (Gemeinden, Land NÖ, Generalunternehmer)?
 16. Reicht der Bautagesbericht als Regienachweis, oder braucht es einen eigenen Regieschein?
