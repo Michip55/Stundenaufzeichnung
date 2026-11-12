@@ -39,7 +39,7 @@ export default async function woche(el, ctx) {
           return `<div class="wd${t.datum === heute ? ' today' : ''}${frei ? ' off' : ''}">
             <div class="wd-day"><b>${fmt.WTK[d.getDay()]}</b><small>${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.</small></div>
             <div class="wd-mid">${t.code ? `<span>${codeBadge(t.code)} ${esc(CODES[t.code] || t.code)}</span>` : ''}${(t.baustellen || []).length ? `<span class="wd-site">${(t.baustellen || []).map((x) => esc(bsName(x))).filter(Boolean).join(' · ')}</span>` : frei ? '<span class="wd-site">–</span>' : ''}
-              ${t.stunden ? `<span class="wd-bar"><i style="width:${Math.min(100, (Math.min(t.stunden, 8) / max) * 100)}%"></i>${t.stunden > 8 ? `<u style="left:${(8 / max) * 100}%;width:${((t.stunden - 8) / max) * 100}%"></u>` : ''}</span>` : ''}</div>
+              ${t.stunden ? `<span class="wd-bar"><i data-st="width:${Math.min(100, (Math.min(t.stunden, 8) / max) * 100)}%"></i>${t.stunden > 8 ? `<u data-st="left:${(8 / max) * 100}%;width:${((t.stunden - 8) / max) * 100}%"></u>` : ''}</span>` : ''}</div>
             <div class="wd-std"><b>${t.stunden ? fmt.zahl(t.stunden) : '–'}</b><small>Std.</small></div>
           </div>`;
         }).join('') : `<div class="state empty">${ic('calendar')}<p>Keine Einträge in dieser Woche.</p></div>`}

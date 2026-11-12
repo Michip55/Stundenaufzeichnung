@@ -1,4 +1,5 @@
 // BauTag – gemeinsame Bausteine der Oberfläche: Icons, Formatierung (de-AT), Dialoge, Zustände.
+import { parseZahl, starkGeaendert } from './zahl.js';
 
 const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -87,14 +88,8 @@ export const fmt = {
   hm: (stunden) => { if (!istZahl(stunden)) return '–'; const m = Math.round(stunden * 60); return `${Math.floor(m / 60)}:${p2(m % 60)}`; },
   monat: (ym) => { const [y, m] = ym.split('-').map(Number); return `${MON[m - 1]} ${y}`; },
 };
-// Eingabe "1.234,5" oder "1234.5" → Zahl
-export const parseZahl = (s) => {
-  if (typeof s === 'number') return s;
-  let t = String(s || '').trim().replace(/[€\s ]/g, '');
-  if (!t) return NaN;
-  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-  return Number(t);
-};
+// Zahleneingabe (de-AT) liegt in zahl.js – dort auch unter Node getestet (Prüfbericht B-04)
+export { parseZahl, starkGeaendert };
 
 export const ROLLEN = { mitarbeiter: 'Mitarbeiter', polier: 'Polier', bauleiter: 'Bauleiter', buero: 'Büro', gf: 'Geschäftsführung' };
 export const rolleText = (r) => ROLLEN[r] || r || '';
@@ -166,3 +161,38 @@ export const integBtn = (integ, schluessel, text, icon, cls = '') => {
   const hinweis = (i && i.hinweis) || 'Anbieter/Vertrag fehlt.';
   return `<span class="integ ${cls}" data-integ="${esc(schluessel)}"><button type="button" class="btn ghost sm" disabled aria-describedby="ih-${esc(schluessel)}">${ic(icon)}${esc(text)}</button><small id="ih-${esc(schluessel)}"><b>Noch nicht angebunden</b> · ${esc(hinweis)}</small></span>`;
 };
+
+/* ---------- Betragsfelder: sofort zeigen, wie die Eingabe verstanden wird (B-04) ---------- */
+// Jedes <input data-geld> bekommt darunter eine Zeile „= € 250.000,00“ bzw. eine Fehlermeldung.
+// data-geld="leer" erlaubt ein leeres Feld. Rückgabe von geldWert(): Zahl, null (leer erlaubt) oder NaN.
+export function geldWert(inp) {
+  const roh = inp.value.trim();
+  if (!roh) return inp.dataset.geld === 'leer' ? null : NaN;
+  const n = parseZahl(roh);
+  return Number.isFinite(n) && (n >= 0 || inp.dataset.negativ === 'ja') ? Math.round(n * 100) / 100 : NaN;
+}
+export function geldFelder(wurzel) {
+  $$('input[data-geld]', wurzel).forEach((inp) => {
+    if (inp.dataset.geldAn || inp.disabled) return;
+    inp.dataset.geldAn = '1';
+    const echo = document.createElement('small');
+    echo.className = 'geld-echo'; echo.id = 'ge' + ++dlgNr; echo.setAttribute('aria-live', 'polite');
+    inp.setAttribute('aria-describedby', echo.id);
+    inp.insertAdjacentElement('afterend', echo);
+    const zeig = () => {
+      const roh = inp.value.trim(), w = geldWert(inp);
+      const fehler = roh !== '' && Number.isNaN(w);
+      inp.classList.toggle('invalid', fehler);
+      if (fehler) inp.setAttribute('aria-invalid', 'true'); else inp.removeAttribute('aria-invalid');
+      echo.classList.toggle('err', fehler);
+      echo.textContent = fehler ? 'Eingabe unklar – bitte so schreiben: 250.000,00' : roh === '' ? '' : `wird gespeichert als ${fmt.eur(w)}`;
+    };
+    inp.addEventListener('input', zeig);
+    zeig();
+  });
+}
+// Rückfrage, wenn sich ein Betrag um mehr als Faktor 10 ändert
+export async function starkOk(alt, neu, was = 'Der Betrag') {
+  if (!starkGeaendert(alt, neu)) return true;
+  return bestaetigen('Stimmt dieser Betrag?', `${was} ändert sich stark: von ${fmt.eur(alt)} auf ${fmt.eur(neu)}. Wirklich so speichern?`, 'Ja, speichern');
+}

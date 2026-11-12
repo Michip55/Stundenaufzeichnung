@@ -1,10 +1,10 @@
 // BauTag – Service Worker.
 // Hält nur die App-Hülle (HTML, CSS, JS, Icons) vor, damit die App ohne Netz startet.
 // /api wird NIE zwischengespeichert (Preise, Löhne, Kalkulation bleiben am Server) – Anfragen gehen direkt ins Netz.
-const VERSION = 'bautag-huelle-v1';
+const VERSION = 'bautag-huelle-v2';
 const HUELLE = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
-  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/offline.js',
+  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/offline.js',
   '/js/views/login.js', '/js/views/stempeln.js', '/js/views/kolonne.js', '/js/views/woche.js', '/js/views/berichte.js',
   '/js/views/dashboard.js', '/js/views/baustellen.js', '/js/views/preise.js', '/js/views/kalkulation.js',
   '/js/views/monat.js', '/js/views/benutzer.js', '/js/views/mehr.js',

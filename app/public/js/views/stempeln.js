@@ -1,8 +1,8 @@
 // Stempeluhr: Status, laufende Zeit, Baustelle wählen, Kommen / Pause / Wechsel / Gehen.
 // Ohne Netz wird die Buchung lokal gemerkt und später nachgesendet (siehe offline.js).
 import { get, post } from '../api.js';
-import { ic, esc, fmt, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
-import { einreihen, warteschlange, nachsenden, setzOnline } from '../offline.js';
+import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
@@ -52,7 +52,11 @@ export default async function stempeln(el, ctx) {
       setzOnline(false);
       offlineModus = true;
       const alt = speicher.lies('bt_status');
-      st = alt && alt.tag === fmt.iso() ? alt : { status: 'aus', seit: null, baustelleId: null, heute: { stunden: 0, pauseMin: 0, buchungen: [] } };
+      // Eine laufende Schicht gilt auch nach Mitternacht weiter (M-04); nur die Tagesliste beginnt neu
+      const laeuftNoch = alt && alt.status !== 'aus' && alt.seit && Date.now() - new Date(alt.seit).getTime() < 24 * 3600e3;
+      st = alt && alt.tag === fmt.iso() ? alt
+        : laeuftNoch ? { ...alt, heute: { stunden: 0, pauseMin: 0, buchungen: [] } }
+        : { status: 'aus', seit: null, baustelleId: null, heute: { stunden: 0, pauseMin: 0, buchungen: [] } };
       baustellen = speicher.lies('bt_baustellen', []);
     }
     // noch nicht gesendete Buchungen einrechnen
@@ -73,6 +77,7 @@ export default async function stempeln(el, ctx) {
     const b = bs(st.status === 'aus' ? wahl : st.baustelleId);
     const buch = st.heute.buchungen || [];
     const offen = warteschlange().length;
+    const abg = abgelehnte();
 
     const baustelleZeile = b
       ? `<span class="site-ic">${ic('pin')}</span><span class="site-txt"><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b>${b.adresse ? `<span>${esc(b.adresse)}</span>` : ''}</span>`
@@ -108,6 +113,12 @@ export default async function stempeln(el, ctx) {
           <p class="cc-note">${ic('info')}<span>${speicher.lies('bt_standort', false) ? 'Standort wird nur im Moment des Stempelns erfasst – keine laufende Ortung.' : 'Standort wird nicht erfasst (in „Mehr“ einschaltbar, dann nur im Moment des Stempelns).'}</span></p>
         </section>
         ${(st.warnungen || []).map((w) => banner('warn', esc(warnText(w)))).join('')}
+        ${abg.length ? `<section class="card" id="abgelehnt" aria-labelledby="h-abg">
+          <div class="card-h pad-h"><h3 id="h-abg">${ic('alert')}Nicht übernommene Buchungen <span class="count red">${abg.length}</span></h3></div>
+          <ul class="plain rows">${abg.map((x) => `<li data-nr="${esc(x.nr)}"><span class="grow"><b>${esc((TYP[x.typ] || [x.typ])[0])} · ${esc(buchungText(x))}</b><small>${esc(bsName(x.baustelleId))}</small><small class="abg-grund">Grund: ${esc(x.grund || 'vom Server abgelehnt')}</small></span>
+            <span class="abg-akt"><button type="button" class="btn ghost sm" data-abg-kopie="${esc(x.nr)}">Text fürs Büro kopieren</button><button type="button" class="btn ghost sm" data-abg-weg="${esc(x.nr)}">Erledigt</button></span></li>`).join('')}</ul>
+          <p class="card-note">Diese Buchungen wurden offline erfasst, vom Server aber nicht angenommen. Bitte dem Büro melden – es kann die Zeit nachtragen. Die Einträge bleiben hier, bis sie als erledigt bestätigt werden.</p>
+        </section>` : ''}
       </div>
       <div class="stack">
         <section class="card pad">
@@ -143,14 +154,16 @@ export default async function stempeln(el, ctx) {
       const ort = await standortHolen();
       if (ort) body.standort = ort;
       if (warteschlange().length) await nachsenden(); // Reihenfolge wahren
-      if (warteschlange().length) throw { netz: true };
+      if (warteschlange().length) throw { netz: navigator.onLine === false, status: 503 };
       await post('/zeit/stempeln', body);
       setzOnline(true);
       toast((TYP[typ] || [typ])[0] + ' – gebucht.');
     } catch (e) {
-      if (e.netz) {
+      if (vorlaeufig(e)) {
+        // Kein Netz oder Server gerade nicht bereit: Buchung behalten und später senden
         einreihen({ ...body, zeit });
-        toast('Keine Verbindung – Buchung gespeichert, wird nachgesendet.', 'warn');
+        if (e.netz) setzOnline(false);
+        toast(e.netz ? 'Keine Verbindung – Buchung gespeichert, wird nachgesendet.' : 'Server gerade nicht erreichbar – Buchung gespeichert, wird nachgesendet.', 'warn');
       } else {
         toast(e.message, 'warn');
       }
@@ -163,6 +176,19 @@ export default async function stempeln(el, ctx) {
   el.addEventListener('click', async (e) => {
     const s = e.target.closest('[data-stempel]');
     if (s && !s.disabled) { stemple(s.dataset.stempel, s.dataset.stempel === 'kommen' ? wahl : undefined); return; }
+    const kopie = e.target.closest('[data-abg-kopie]');
+    if (kopie) {
+      const x = abgelehnte().find((y) => y.nr === kopie.dataset.abgKopie); if (!x) return;
+      const text = `Nicht übernommene Stempelung: ${ctx.ich.benutzer.name}, ${(TYP[x.typ] || [x.typ])[0]} am ${buchungText(x)}${bsName(x.baustelleId) ? ', ' + bsName(x.baustelleId) : ''}. Grund: ${x.grund || 'abgelehnt'}. Bitte nachtragen.`;
+      try { await navigator.clipboard.writeText(text); toast('Text kopiert – bitte ans Büro schicken.'); }
+      catch (err) { dialog({ titel: 'Text fürs Büro', inhalt: `<p>${esc(text)}</p>`, fuss: '<button class="btn primary" type="button" data-zu>Schließen</button>' }); }
+      return;
+    }
+    const weg = e.target.closest('[data-abg-weg]');
+    if (weg) {
+      if (await bestaetigen('Als erledigt markieren?', 'Die Buchung wird aus dieser Liste entfernt. Bitte nur bestätigen, wenn das Büro Bescheid weiß oder die Buchung nicht mehr gebraucht wird.', 'Erledigt')) { abgelehntErledigt(weg.dataset.abgWeg); zeichne(); }
+      return;
+    }
     const a = e.target.closest('[data-akt]');
     if (!a || a.disabled) return;
     if (a.dataset.akt === 'waehlen') {

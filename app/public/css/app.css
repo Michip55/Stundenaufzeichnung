@@ -568,3 +568,18 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
   .bp-head, .bp-row { grid-template-columns: minmax(90px, 1.3fr) repeat(4, minmax(72px, 1fr)) minmax(44px, .6fr) minmax(50px, .7fr) minmax(54px, .7fr) 36px; }
   .pf-ggrid .stepper input { width: 40px; } .pf-ggrid .stepper button { width: 28px; } .pf-ggrid .pf-g small { width: 26px; }
 }
+
+/* B-04: Betragsfelder zeigen, wie die Eingabe verstanden wird */
+.geld-echo { font-size: 12.5px; color: var(--muted); min-height: 17px; font-variant-numeric: tabular-nums; } .geld-echo.err, .price-err { color: var(--red-d); font-weight: 600; }
+.input.invalid, .price-in.invalid { border-color: var(--red); box-shadow: 0 0 0 3px rgba(212, 48, 43, .14); } .price-err { display: block; font-size: 12px; margin-top: 3px; white-space: normal; max-width: 180px; margin-left: auto; }
+
+/* B-06 / M-02: Speicherstatus, ungültige Zeilen, Nachtschicht */
+.save-state.neutral { color: var(--muted); font-weight: 500; }
+.bp-nacht { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bp-row.invalid .input[type="time"] { border-color: var(--red); }
+
+/* M-04: nicht übernommene Offline-Buchungen */
+.sync-chip.rejected { background: var(--red-bg); color: var(--red-d); width: auto !important; padding: 0 10px !important; } .sync-chip.rejected span { display: inline !important; }
+#abgelehnt li { flex-wrap: wrap; } .abg-grund { color: var(--red-d) !important; font-weight: 600; white-space: normal; } .abg-akt { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.noscript { padding: 24px; }

@@ -1,6 +1,6 @@
 // Baustellen: Liste und Detail (Stammdaten, Auftragssumme, Nachträge, Budget-Schwellen und Empfänger).
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, $, $$ } from '../ui.js';
 
 const STATUS = { geplant: ['Geplant', 'st-blue'], aktiv: ['Aktiv', 'st-green'], abgeschlossen: ['Abgeschlossen', 'st-grey'] };
 const stChip = (s) => { const [t, c] = STATUS[s] || [s || '–', 'st-grey']; return `<span class="chip ${c}">${esc(t)}</span>`; };
@@ -39,7 +39,7 @@ export async function baustellen(el, ctx) {
       ${sicht.length ? `<div class="site-cards">${sicht.map((b) => `<a class="card pad site-card" href="#/baustelle/${b.id}">
         <div class="kc-h"><div><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b></div>${stChip(b.status)}</div>
         <p class="muted sm">${esc(b.auftraggeber || '')}</p><p class="muted sm">${ic('pin', 'xs')} ${esc(b.adresse || '–')}</p>
-        ${b.budgetVerbrauchProzent != null ? `<div class="site-bud"><span class="meter"><i style="width:${Math.min(100, b.budgetVerbrauchProzent)}%" class="${b.budgetVerbrauchProzent >= 100 ? 'red' : b.budgetVerbrauchProzent >= 80 ? 'amber' : ''}"></i></span><small>Budget ${fmt.pct(b.budgetVerbrauchProzent)}${b.leistungsstandProzent != null ? ' · Leistung ' + fmt.pct(b.leistungsstandProzent) : ''}</small></div>` : ''}
+        ${b.budgetVerbrauchProzent != null ? `<div class="site-bud"><span class="meter"><i data-st="width:${Math.min(100, b.budgetVerbrauchProzent)}%" class="${b.budgetVerbrauchProzent >= 100 ? 'red' : b.budgetVerbrauchProzent >= 80 ? 'amber' : ''}"></i></span><small>Budget ${fmt.pct(b.budgetVerbrauchProzent)}${b.leistungsstandProzent != null ? ' · Leistung ' + fmt.pct(b.leistungsstandProzent) : ''}</small></div>` : ''}
       </a>`).join('')}</div>` : `<div class="card">${leer('Keine Baustellen vorhanden.', 'pin')}</div>`}
     </div>`;
   }
@@ -62,7 +62,8 @@ export async function baustelle(el, ctx) {
   const schwellen = b.schwellen || (kalk && kalk.schwellen) || [80, 90, 100];
   const empf = b.empfaenger || { bauleiter: true, buero: true, gf: true };
   const nachtraege = b.nachtraege || (kalk && kalk.nachtraege) || [];
-  const zeigAuftrag = auftragssumme !== undefined || kalk || darfAuftrag;
+  // N-07: Abschnitt nur zeigen, wenn der Server Budgetdaten für diese Baustelle liefert (nicht bei fremden Baustellen)
+  const zeigAuftrag = 'auftragssumme' in b || 'schwellen' in b || !!kalk;
 
   el.innerHTML = `
   <div class="page">
@@ -76,7 +77,7 @@ export async function baustelle(el, ctx) {
       ${zeigAuftrag ? `<section class="card" aria-labelledby="h-auf">
         <div class="card-h pad-h"><h3 id="h-auf">Auftrag &amp; Budget-Alarm</h3></div>
         <form id="auftrag" class="pad stack-s">
-          <label class="field"><span class="field-label">Auftragssumme in Euro (netto)</span><input class="input lg num" name="auftragssumme" inputmode="decimal" value="${auftragssumme != null ? fmt.betrag(auftragssumme) : ''}" placeholder="noch nicht erfasst" ${darfAuftrag ? '' : 'disabled'}></label>
+          <label class="field"><span class="field-label">Auftragssumme in Euro (netto)</span><input class="input lg num" name="auftragssumme" data-geld="leer" inputmode="decimal" autocomplete="off" value="${auftragssumme != null ? fmt.betrag(auftragssumme) : ''}" placeholder="noch nicht erfasst" ${darfAuftrag ? '' : 'disabled'}></label>
           <fieldset class="field"><legend class="field-label">Warnschwellen (Budget-Verbrauch in %)</legend><div class="thr">${[0, 1, 2].map((i) => `<label><span class="vh">Schwelle ${i + 1}</span><input class="input num" name="s${i}" inputmode="numeric" value="${schwellen[i] ?? ''}" ${darfAuftrag ? '' : 'disabled'}><span>%</span></label>`).join('')}</div></fieldset>
           <fieldset class="field"><legend class="field-label">Wer wird benachrichtigt?</legend><div class="chk-row">${['bauleiter', 'buero', 'gf'].map((r) => `<label class="check-inline"><input type="checkbox" name="e_${r}" ${empf[r] !== false ? 'checked' : ''} ${darfAuftrag ? '' : 'disabled'}> ${esc(rolleText(r))}</label>`).join('')}</div>
             <small class="muted">Polier und Mitarbeiter erhalten nie Budget-Meldungen. Derzeit nur in der App – Push und E-Mail sind noch nicht angebunden.</small></fieldset>
@@ -94,10 +95,11 @@ export async function baustelle(el, ctx) {
     const a = e.target.closest('[data-akt]');
     if (a && a.dataset.akt === 'stamm') return stammDialog(ctx, leute, b);
     if (a && a.dataset.akt === 'nachtrag') {
-      const d = dialog({ titel: 'Nachtrag erfassen', inhalt: `<form id="ntf" class="stack-s"><label class="field"><span class="field-label">Bezeichnung</span><input class="input lg" name="text" required maxlength="200"></label><label class="field"><span class="field-label">Betrag in Euro (netto)</span><input class="input lg num" name="betrag" inputmode="decimal" required placeholder="0,00"></label><p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="ntf">Speichern</button>' });
+      const d = dialog({ titel: 'Nachtrag erfassen', inhalt: `<form id="ntf" class="stack-s"><label class="field"><span class="field-label">Bezeichnung</span><input class="input lg" name="text" required maxlength="200"></label><label class="field"><span class="field-label">Betrag in Euro (netto)</span><input class="input lg num" name="betrag" data-geld data-negativ="ja" inputmode="decimal" autocomplete="off" required placeholder="0,00"></label><p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="ntf">Speichern</button>' });
+      geldFelder(d.el);
       $('#ntf', d.el).addEventListener('submit', async (ev) => {
-        ev.preventDefault(); const f = new FormData(ev.target); const betrag = parseZahl(f.get('betrag')); const err = $('.form-err', d.el);
-        if (!isFinite(betrag)) { err.hidden = false; err.textContent = 'Bitte einen gültigen Betrag eingeben.'; return; }
+        ev.preventDefault(); const f = new FormData(ev.target); const betrag = geldWert(ev.target.elements.betrag); const err = $('.form-err', d.el);
+        if (!Number.isFinite(betrag) || betrag === 0) { err.hidden = false; err.textContent = 'Betrag unklar – bitte so schreiben: 12.500,00'; ev.target.elements.betrag.focus(); return; }
         try { await post(`/baustellen/${id}/nachtraege`, { text: f.get('text').trim(), betrag }); d.zu(); toast('Nachtrag gespeichert.'); ctx.neuLaden(); ctx.meldungenNeu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
       });
       return;
@@ -108,17 +110,20 @@ export async function baustelle(el, ctx) {
     }
   });
   const form = $('#auftrag', el);
+  geldFelder(el);
   if (form) form.addEventListener('submit', async (e) => {
     e.preventDefault(); if (!darfAuftrag) return;
     const f = new FormData(form), err = $('.form-err', form);
-    const summe = parseZahl(f.get('auftragssumme'));
+    const summe = geldWert(form.elements.auftragssumme); // null = Auftragssumme löschen (N-09)
     const sw = [0, 1, 2].map((i) => parseZahl(f.get('s' + i))).filter((n) => isFinite(n));
-    if (!isFinite(summe) || summe < 0) { err.hidden = false; err.textContent = 'Bitte eine gültige Auftragssumme eingeben.'; return; }
+    if (Number.isNaN(summe)) { err.hidden = false; err.textContent = 'Auftragssumme unklar – bitte so schreiben: 250.000,00'; form.elements.auftragssumme.focus(); return; }
+    if (!(await starkOk(auftragssumme, summe, 'Die Auftragssumme'))) return;
+    if (summe === null && auftragssumme != null && !(await bestaetigen('Auftragssumme löschen?', 'Ohne Auftragssumme gibt es keinen Budget-Verbrauch und keinen Budget-Alarm für diese Baustelle.', 'Löschen', 'danger'))) return;
     if (sw.length !== 3 || sw.some((n) => n <= 0 || n > 200)) { err.hidden = false; err.textContent = 'Bitte drei Schwellen zwischen 1 und 200 % eingeben.'; return; }
     err.hidden = true; $('#auftrag-ok', form).disabled = true;
     try {
       await put(`/baustellen/${id}/auftrag`, { auftragssumme: summe, schwellen: sw.sort((x, y) => x - y), empfaenger: { bauleiter: f.get('e_bauleiter') === 'on', buero: f.get('e_buero') === 'on', gf: f.get('e_gf') === 'on' } });
-      toast('Auftrag gespeichert.'); await ctx.meldungenNeu(); ctx.neuLaden();
+      toast(summe === null ? 'Auftrag gespeichert – ohne Auftragssumme.' : `Auftrag gespeichert: ${fmt.eur(summe)}.`); await ctx.meldungenNeu(); ctx.neuLaden();
     } catch (x) { err.hidden = false; err.textContent = x.message; $('#auftrag-ok', form).disabled = false; }
   });
 }

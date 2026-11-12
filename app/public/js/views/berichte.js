@@ -2,6 +2,7 @@
 // Handy: Schritt-für-Schritt-Assistent. Tablet/PC: Formular im Aufbau der Papiervorlage.
 import { get, post, put } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$ } from '../ui.js';
+import { stundenAus, personalFehler, bloecke } from '../zahl.js';
 
 /* =================== Liste =================== */
 export async function berichte(el, ctx) {
@@ -121,29 +122,7 @@ function signaturFeld(canvas) {
 /* =================== Bearbeitung =================== */
 const SCHRITTE = ['Personal', 'Geräte', 'Material', 'Leistung', 'Regie & Vorkommnisse', 'Unterschrift'];
 const CODES = [['', '–'], ['K', 'K · Krank'], ['U', 'U · Urlaub'], ['SW', 'SW · Schlechtwetter'], ['ZA', 'ZA · Zeitausgleich']];
-const min = (hhmm) => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 const rund2 = (n) => Math.round(n * 100) / 100;
-// Gleiche Rechnung wie am Server: Pause wird nur abgezogen, soweit sie nicht schon in der Lücke zwischen den Blöcken liegt
-function stundenAus(p) {
-  const a = min(p.von1), b = min(p.bis1), c = min(p.von2), d = min(p.bis2);
-  const b1 = a != null && b != null, b2 = c != null && d != null;
-  let m = 0;
-  if (b1) m += Math.max(0, b - a);
-  if (b2) m += Math.max(0, d - c);
-  const luecke = b1 && b2 ? Math.max(0, c - b) : 0;
-  m -= Math.max(0, (Number(p.pauseMin) || 0) - luecke);
-  return rund2(Math.max(0, m) / 60);
-}
-// Der Server nimmt nur vollständige, sich nicht überschneidende Zeitblöcke an
-function personalFehler(p) {
-  const z = (k) => p[k] || '';
-  if (!!z('von1') !== !!z('bis1') || !!z('von2') !== !!z('bis2')) return 'Zeitblock unvollständig – bitte „von“ und „bis“ eintragen.';
-  if ((z('von1') && z('von1') >= z('bis1')) || (z('von2') && z('von2') >= z('bis2'))) return '„bis“ muss nach „von“ liegen.';
-  if (z('von2') && !z('von1')) return 'Zweiter Zeitblock ohne ersten.';
-  if (z('von2') && z('von2') < z('bis1')) return 'Die beiden Zeitblöcke überschneiden sich.';
-  return '';
-}
-
 export async function bericht(el, ctx) {
   const id = ctx.params[0];
   const [b, geraeteKat, matKat, mitarbeiter, integ] = await Promise.all([
@@ -158,7 +137,11 @@ export async function bericht(el, ctx) {
   const bs = b.baustelle || {};
   ctx.titel('Bautagesbericht', `${bs.kst ? bs.kst + ' · ' : ''}${bs.name || ''} · ${fmt.datum(b.datum)}`);
 
-  const editierbar = () => b.status === 'entwurf' && ctx.kann('bericht_erstellen');
+  const signiert = () => !!(b.unterschriften.an || b.unterschriften.bh);
+  const signierbar = () => b.status === 'entwurf' && ctx.kann('bericht_erstellen');
+  // M-02: Sobald eine Unterschrift vorliegt, ist der Inhalt gesperrt (der Server lehnt Änderungen mit 409 ab)
+  const editierbar = () => signierbar() && !signiert();
+  const ungueltig = () => b.personal.some((p) => personalFehler(p));
   const dis = () => (editierbar() ? '' : 'disabled');
   const gStd = (gid) => (b.geraete.find((g) => g.geraetId === gid) || {}).stunden || 0;
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
@@ -167,10 +150,26 @@ export async function bericht(el, ctx) {
   /* ---- Speichern (automatisch, entprellt) ---- */
   const offen = new Set();
   let speichert = false, fehlerText = '';
+  let gespeichertUm = null;
   const anzeige = () => {
-    const s = $('#save-state', el); if (!s) return;
-    s.className = 'save-state ' + (fehlerText ? 'err' : speichert || offen.size ? 'busy' : 'ok');
-    s.innerHTML = fehlerText ? `${ic('alert')}<span>Nicht gespeichert: ${esc(fehlerText)}</span>` : speichert || offen.size ? `<span class="spinner xs"></span><span>Speichert …</span>` : `${ic('check')}<span>Gespeichert</span>`;
+    const s = $('#save-state', el);
+    const inv = ungueltig();
+    const zustand = inv ? 'invalid' : fehlerText ? 'err' : speichert || offen.size ? 'busy' : gespeichertUm ? 'ok' : 'neutral';
+    if (s) {
+      s.dataset.zustand = zustand;
+      s.className = 'save-state ' + (zustand === 'invalid' ? 'err' : zustand);
+      s.innerHTML = zustand === 'invalid' ? `${ic('alert')}<span>Nicht gespeichert</span>`
+        : zustand === 'err' ? `${ic('alert')}<span>Nicht gespeichert</span>`
+        : zustand === 'busy' ? '<span class="spinner xs"></span><span>Speichert …</span>'
+        : zustand === 'ok' ? `${ic('check')}<span>Gespeichert</span>` : '<span>Keine Änderungen</span>';
+    }
+    const u = $('#unsaved', el);
+    if (u) {
+      u.hidden = !(inv || fehlerText);
+      $('span', u).textContent = inv
+        ? 'Nicht gespeichert: Beim Personal sind Zeiten unvollständig oder widersprüchlich (rot markiert). Bitte korrigieren – vorher kann nicht unterschrieben werden.'
+        : fehlerText ? `Nicht gespeichert: ${fehlerText}${/Verbindung/.test(fehlerText) ? ' Die Eingaben bleiben am Bildschirm und werden bei der nächsten Änderung erneut gesendet.' : ''}` : '';
+    }
   };
   const wert = (feld) => {
     if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden }));
@@ -181,26 +180,29 @@ export async function bericht(el, ctx) {
   };
   async function sichern() {
     if (speichert || !offen.size) return;
-    const felder = [...offen]; offen.clear();
+    // Ungültiges Personal wird nicht gesendet – es bleibt als „offen“ stehen, bis es stimmt
+    const felder = [...offen].filter((f) => f !== 'personal' || !ungueltig());
+    if (!felder.length) { anzeige(); return; }
+    felder.forEach((f) => offen.delete(f));
     speichert = true; anzeige();
     try {
       const body = {}; felder.forEach((f) => { body[f] = wert(f); });
       const neu = await put(`/berichte/${id}`, body);
       if (neu && 'kostenTag' in neu) { b.kostenTag = neu.kostenTag; zeichneKosten(); }
-      fehlerText = '';
+      fehlerText = ''; gespeichertUm = Date.now();
     } catch (e) {
-      felder.forEach((f) => offen.add(f));
-      fehlerText = e.netz ? 'keine Verbindung' : e.message;
-      if (!e.netz) offen.clear(); // abgelehnte Eingaben nicht endlos wiederholen
+      felder.forEach((f) => offen.add(f)); // nichts gilt als gespeichert, was der Server nicht bestätigt hat
+      fehlerText = e.netz ? 'Keine Verbindung zum Server.' : e.message;
       speichert = false; anzeige();
+      if (e.status === 409) { toast('Der Bericht wurde inzwischen unterschrieben oder geändert – er wird neu geladen.', 'warn'); offen.clear(); ctx.neuLaden(); }
       return;
     }
     speichert = false; anzeige();
-    if (offen.size) sichern();
+    if ([...offen].some((f) => f !== 'personal' || !ungueltig())) sichern();
   }
   const spaeter = entprellt(sichern, 600);
   const geaendert = (feld) => { if (!editierbar()) return; offen.add(feld); fehlerText = ''; anzeige(); spaeter(); };
-  const allesSichern = async () => { spaeter.sofort(); for (let i = 0; i < 40 && (speichert || offen.size) && !fehlerText; i++) await new Promise((r) => setTimeout(r, 100)); return !fehlerText && !offen.size; };
+  const allesSichern = async () => { if (ungueltig()) return false; spaeter.sofort(); for (let i = 0; i < 40 && (speichert || offen.size) && !fehlerText; i++) await new Promise((r) => setTimeout(r, 100)); return !fehlerText && !offen.size && !speichert; };
 
   /* ---- Bausteine ---- */
   const stepper = (attr, val, schrittw, einheit, label) => `
@@ -229,6 +231,18 @@ export async function bericht(el, ctx) {
       <p class="pf-legend">K = Krank · U = Urlaub · SW = Schlechtwetter · ZA = Zeitausgleich</p>
       ${editierbar() ? `<div class="add-line">${frei.length ? `<select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${frei.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn ghost sm" data-p-sync>${ic('sync')}Aus Stempelungen neu übernehmen</button></div>` : ''}`;
   }
+  function zeilenStatus(pr, p) {
+    const fehler = personalFehler(p);
+    pr.classList.toggle('invalid', !!fehler);
+    let h = $('.bp-err', pr);
+    if (fehler && !h) { h = document.createElement('p'); h.className = 'bp-err'; h.setAttribute('role', 'alert'); pr.appendChild(h); }
+    if (h) { h.textContent = fehler; h.hidden = !fehler; }
+    const nacht = !fehler && bloecke(p).naechsterTag;
+    let n = $('.bp-nacht', pr);
+    if (nacht && !n) { n = document.createElement('p'); n.className = 'bp-nacht'; pr.appendChild(n); }
+    if (n) { n.hidden = !nacht; n.innerHTML = nacht ? '<span class="chip xs st-blue">+1 Tag</span> Schicht über Mitternacht – das Ende liegt am nächsten Tag.' : ''; }
+  }
+  const alleZeilenStatus = () => $$('#personal .bp-row', el).forEach((pr) => zeilenStatus(pr, b.personal[Number(pr.dataset.i)]));
   function regieHtml() {
     return `${b.regie.map((r, i) => `<div class="regie-row" data-i="${i}">
         <input type="text" class="input" data-r="text" value="${esc(r.text || '')}" placeholder="Regieleistung beschreiben" aria-label="Regieleistung ${i + 1}" ${dis()}>
@@ -240,7 +254,7 @@ export async function bericht(el, ctx) {
   function sigHtml(rolle, titel, sub) {
     const u = b.unterschriften[rolle];
     if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div></div>`;
-    if (!editierbar()) return `<div class="sig-box" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div></div><p class="muted sm">Keine Unterschrift vorhanden.</p></div>`;
+    if (!signierbar()) return `<div class="sig-box" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div></div><p class="muted sm">Keine Unterschrift vorhanden.</p></div>`;
     return `<div class="sig-box" data-sig="${rolle}">
       <div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><button type="button" class="btn ghost sm" data-sig-clear>Löschen</button></div>
       <div class="sig-pad"><canvas aria-label="Unterschriftsfeld ${titel}" role="img"></canvas><span class="sig-ph">${ic('sign')}Hier unterschreiben</span><span class="sig-line"></span></div>
@@ -254,7 +268,7 @@ export async function bericht(el, ctx) {
     const darfFrei = ctx.kann('bericht_freigeben');
     return `
       <div class="pf-two sigs">${sigHtml('an', 'AUFTRAGNEHMER', 'oder dessen Beauftragter')}${sigHtml('bh', 'BAUHERR', 'oder dessen bevollmächtigter Vertreter')}</div>
-      ${b.status === 'entwurf' && editierbar() ? banner('info', 'Sobald beide unterschrieben haben, ist der Bericht abgeschlossen und kann nicht mehr geändert werden.') : ''}
+      ${signierbar() && !signiert() ? banner('info', 'Mit der ersten Unterschrift wird der Inhalt gesperrt. Bitte vorher alles prüfen.') : ''}
       <div class="final-bar">
         <div class="final-state">${statusChip(b.status)}<span class="muted sm">${b.status === 'entwurf' ? `${(u.an ? 1 : 0) + (u.bh ? 1 : 0)} von 2 Unterschriften` : b.status === 'unterschrieben' ? 'Wartet auf Freigabe durch Büro/Bauleitung' : 'Freigegeben – fließt in die Auswertungen ein'}</span></div>
         <a class="btn ghost" id="pdf" href="/api/berichte/${id}/pdf" target="_blank" rel="noopener">${ic('file')}PDF öffnen</a>
@@ -272,6 +286,7 @@ export async function bericht(el, ctx) {
       : `<span>Kosten dieses Tages</span>${Object.entries(v).filter(([, x]) => typeof x === 'number').map(([key, x]) => `<span class="kt ${key === 'gesamt' ? 'sum' : ''}">${esc(TXT[key] || key)} <b>${fmt.eur(x)}</b></span>`).join('')}`;
   }
 
+  const pads = {};
   function zeichne() {
     const halb = Math.ceil(geraeteKat.length / 2);
     const gSpalte = (liste) => liste.map((g) => `<div class="pf-g${gStd(g.id) ? ' on' : ''}" data-g="${g.id}"><span>${esc(g.name)}</span>${stepper(`data-geraet="${g.id}"`, gStd(g.id), 0.5, 'Stunden', g.name)}<small>Std.</small></div>`).join('');
@@ -282,9 +297,10 @@ export async function bericht(el, ctx) {
         <a class="link-back" href="#/berichte">${ic('left')}Alle Berichte</a>
         <span class="grow"></span>
         ${statusChip(b.status)}
-        ${editierbar() ? '<span class="save-state ok" id="save-state" role="status"></span>' : ''}
+        ${editierbar() ? '<span class="save-state neutral" id="save-state" role="status"></span>' : ''}
       </div>
-      ${!editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
+      ${b.status === 'entwurf' && signiert() ? `<div id="gesperrt-hinweis">${banner('info', '<b>Inhalt gesperrt:</b> Es liegt bereits eine Unterschrift vor. Der Bericht kann nicht mehr geändert werden – es fehlt nur noch die zweite Unterschrift.', 'lock')}</div>` : !editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
+      <div class="banner err" id="unsaved" role="alert" hidden>${ic('alert')}<span></span></div>
       ${b.status !== 'entwurf' ? banner(b.status === 'freigegeben' ? 'ok' : 'info', b.status === 'freigegeben' ? 'Dieser Bericht ist freigegeben und abgeschlossen.' : 'Dieser Bericht ist unterschrieben und kann nicht mehr geändert werden.', b.status === 'freigegeben' ? 'check' : 'lock') : ''}
       <div class="kosten-zeile" id="kosten" hidden></div>
 
@@ -335,10 +351,10 @@ export async function bericht(el, ctx) {
       <button type="button" class="btn ghost lg" id="wiz-zurueck">${ic('left')}Zurück</button>
       <button type="button" class="btn primary lg grow" id="wiz-weiter">Weiter${ic('right')}</button>
     </div></div>`;
-    anzeige(); zeichneKosten(); setzSchritt(schritt, false); sigInit();
+    Object.keys(pads).forEach((k) => delete pads[k]);
+    alleZeilenStatus(); anzeige(); zeichneKosten(); setzSchritt(schritt, false); sigInit();
   }
 
-  const pads = {};
   function sigInit() {
     $$('.sig-box:not(.signed) canvas', el).forEach((cv) => {
       const box = cv.closest('.sig-box');
@@ -363,7 +379,12 @@ export async function bericht(el, ctx) {
   }
 
   /* ---- Ereignisse ---- */
-  const zahl = (s) => { const n = parseZahl(s); return isFinite(n) && n > 0 ? rund2(n) : 0; };
+  const zahl = (s, alt = 0) => {
+    if (String(s).trim() === '') return 0;
+    const n = parseZahl(s);
+    if (!isFinite(n) || n < 0) { toast(`„${s}“ ist als Zahl unklar – der bisherige Wert bleibt.`, 'warn'); return alt || 0; }
+    return rund2(n);
+  };
   function setzStepper(sp, v) {
     v = Math.max(0, rund2(v));
     $('input', sp).value = v ? fmt.zahl(v) : '';
@@ -386,12 +407,12 @@ export async function bericht(el, ctx) {
     if (e.target.closest('#wiz-weiter')) { setzSchritt(schritt + 1); return; }
     if (e.target.closest('[data-p-weg]')) {
       const i = Number(e.target.closest('.bp-row').dataset.i);
-      if (await bestaetigen('Person entfernen?', `${b.personal[i].name || 'Diese Person'} aus dem Bericht entfernen? Die Stempelungen bleiben erhalten.`, 'Entfernen', 'danger')) { b.personal.splice(i, 1); $('#personal', el).innerHTML = personalHtml(); geaendert('personal'); }
+      if (await bestaetigen('Person entfernen?', `${b.personal[i].name || 'Diese Person'} aus dem Bericht entfernen? Die Stempelungen bleiben erhalten.`, 'Entfernen', 'danger')) { b.personal.splice(i, 1); $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); geaendert('personal'); }
       return;
     }
     if (e.target.closest('[data-p-sync]')) {
       if (!(await bestaetigen('Personal neu übernehmen?', 'Die Zeiten werden aus den Stempelungen dieses Tages neu eingetragen. Händische Änderungen am Personal gehen verloren.', 'Übernehmen'))) return;
-      try { const neu = await post(`/berichte/${id}/personal-aktualisieren`); b.personal = neu.personal || []; $('#personal', el).innerHTML = personalHtml(); toast('Personal aus den Stempelungen übernommen.'); } catch (x) { toast(x.message, 'warn'); }
+      try { const neu = await post(`/berichte/${id}/personal-aktualisieren`); b.personal = neu.personal || []; offen.delete('personal'); $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); anzeige(); toast('Personal aus den Stempelungen übernommen.'); } catch (x) { toast(x.message, 'warn'); }
       return;
     }
     if (e.target.closest('[data-r-neu]')) { b.regie.push({ text: '', stunden: 0 }); $('#regie', el).innerHTML = regieHtml(); const ins = $$('#regie [data-r="text"]', el); ins[ins.length - 1].focus(); return; }
@@ -404,35 +425,34 @@ export async function bericht(el, ctx) {
   el.addEventListener('change', (e) => {
     const t = e.target;
     const sp = t.closest('[data-stepper]');
-    if (sp) { setzStepper(sp, zahl(t.value)); return; }
+    if (sp) {
+      const alt = sp.dataset.geraet ? gStd(Number(sp.dataset.geraet)) : sp.dataset.material ? mMenge(Number(sp.dataset.material)) : b.paletten[sp.dataset.pal] || 0;
+      setzStepper(sp, zahl(t.value, alt)); return;
+    }
     if (t.id === 'p-neu' && t.value) {
       const m = mitarbeiter.find((x) => String(x.id) === t.value);
       b.personal.push({ benutzerId: m.id, name: m.name, von1: '', bis1: '', von2: '', bis2: '', pauseMin: 0, stunden: 0, code: '' });
-      $('#personal', el).innerHTML = personalHtml(); geaendert('personal'); return;
+      $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); geaendert('personal'); return;
     }
     const pr = t.closest('.bp-row');
     if (pr && t.dataset.p) {
       const p = b.personal[Number(pr.dataset.i)], k = t.dataset.p;
-      if (k === 'stunden') { p.stunden = zahl(t.value); t.value = p.stunden ? fmt.zahl(p.stunden) : ''; }
-      else if (k === 'pauseMin') { p.pauseMin = Math.round(zahl(t.value)); t.value = p.pauseMin || ''; }
+      if (k === 'stunden') { p.stunden = zahl(t.value, p.stunden); t.value = p.stunden ? fmt.zahl(p.stunden) : ''; }
+      else if (k === 'pauseMin') { p.pauseMin = Math.round(zahl(t.value, p.pauseMin)); t.value = p.pauseMin || ''; }
       else p[k] = t.value;
       if (k !== 'stunden' && k !== 'code') { p.stunden = stundenAus(p); $('[data-p="stunden"]', pr).value = p.stunden ? fmt.zahl(p.stunden) : ''; }
       $('#gesamt', el).textContent = fmt.zahl(gesamt());
-      const fehler = personalFehler(p);
-      pr.classList.toggle('invalid', !!fehler);
-      let h = $('.bp-err', pr);
-      if (fehler && !h) { h = document.createElement('p'); h.className = 'bp-err'; h.setAttribute('role', 'alert'); pr.appendChild(h); }
-      if (h) { h.textContent = fehler; h.hidden = !fehler; }
-      if (!b.personal.some(personalFehler)) geaendert('personal');
+      zeilenStatus(pr, p);
+      geaendert('personal'); // ungültige Zeilen werden nicht gesendet, bleiben aber sichtbar „nicht gespeichert“
       return;
     }
     const rr = t.closest('.regie-row');
     if (rr && t.dataset.r) {
       const r = b.regie[Number(rr.dataset.i)];
-      if (t.dataset.r === 'stunden') { r.stunden = zahl(t.value); t.value = r.stunden ? fmt.zahl(r.stunden) : ''; } else r.text = t.value;
+      if (t.dataset.r === 'stunden') { r.stunden = zahl(t.value, r.stunden); t.value = r.stunden ? fmt.zahl(r.stunden) : ''; } else r.text = t.value;
       geaendert('regie'); return;
     }
-    if (t.dataset.f === 'seg.stunden') { b.seg.stunden = zahl(t.value); t.value = b.seg.stunden ? fmt.zahl(b.seg.stunden) : ''; geaendert('seg'); }
+    if (t.dataset.f === 'seg.stunden') { b.seg.stunden = zahl(t.value, b.seg.stunden); t.value = b.seg.stunden ? fmt.zahl(b.seg.stunden) : ''; geaendert('seg'); }
   });
   el.addEventListener('input', (e) => {
     const t = e.target, f = t.dataset.f;
@@ -447,15 +467,19 @@ export async function bericht(el, ctx) {
     const name = $('[data-sig-name]', box).value.trim();
     if (!pad || pad.leer()) { box.classList.add('shake'); setTimeout(() => box.classList.remove('shake'), 500); toast('Bitte zuerst im Feld unterschreiben.', 'warn'); return; }
     if (!name) { $('[data-sig-name]', box).focus(); toast('Bitte den Namen eintragen.', 'warn'); return; }
-    const knopf = $('[data-sig-save]', box); knopf.disabled = true;
-    if (!(await allesSichern())) { toast('Änderungen konnten nicht gespeichert werden – bitte Verbindung prüfen.', 'warn'); knopf.disabled = false; return; }
+    const knopf = $('[data-sig-save]', box);
+    if (!ungueltig()) knopf.disabled = true;
+    if (ungueltig()) { toast('Unterschrift nicht möglich: Beim Personal sind Zeiten ungültig (rot markiert).', 'warn'); setzSchritt(1); anzeige(); return; }
+    const knopfAus = () => { knopf.disabled = false; };
+    if (!(await allesSichern())) { toast('Unterschrift nicht möglich: Die letzten Änderungen sind noch nicht gespeichert.', 'warn'); anzeige(); knopfAus(); return; }
     try {
       const r = await post(`/berichte/${id}/unterschrift`, { rolle, name, bildPng: pad.png() });
       const neu = r && r.unterschriften ? r : await get(`/berichte/${id}`);
       b.unterschriften = neu.unterschriften || {}; b.status = neu.status;
       delete pads[rolle];
       toast(b.status === 'unterschrieben' ? 'Beide Unterschriften vorhanden – Bericht abgeschlossen.' : 'Unterschrift gespeichert.');
-      if (b.status !== 'entwurf') { zeichne(); ctx.meldungenNeu(); } else { $('#abschluss', el).innerHTML = abschlussHtml(); Object.keys(pads).forEach((k) => delete pads[k]); sigInit(); }
+      zeichne(); // Inhalt ist ab jetzt gesperrt (M-02)
+      if (b.status !== 'entwurf') ctx.meldungenNeu();
     } catch (e) { toast(e.message, 'warn'); knopf.disabled = false; }
   }
   async function freigeben() {

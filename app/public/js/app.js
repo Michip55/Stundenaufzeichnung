@@ -17,6 +17,15 @@ import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 
 const root = document.getElementById('root');
+
+// M-06 (Content-Security-Policy): Die Vorlagen enthalten keine style-Attribute und kein Inline-Skript.
+// Maße wie Balkenbreiten stehen als data-st im Markup und werden hier über das CSSOM gesetzt.
+const setzStile = (knoten) => {
+  if (knoten.nodeType !== 1) return;
+  if (knoten.dataset && knoten.dataset.st != null) knoten.style.cssText = knoten.dataset.st;
+  knoten.querySelectorAll('[data-st]').forEach((e) => { e.style.cssText = e.dataset.st; });
+};
+new MutationObserver((liste) => { for (const m of liste) m.addedNodes.forEach(setzStile); }).observe(document.body, { childList: true, subtree: true });
 let ich = null;            // {benutzer, rechte, baustellenIds}
 let aufraeumen = null;     // Aufräumfunktion der aktuellen Ansicht
 let lauf = 0;              // schützt vor überholten Renderläufen
@@ -124,11 +133,12 @@ function zeigeSync() {
   const el = $('#sync'); if (!el) return;
   const s = syncStatus();
   let cls = 'online', icon = 'wifi', text = 'Online';
-  if (s.ausstehend) { cls = 'pending'; icon = 'sync'; text = `${s.ausstehend} ausstehend`; }
+  if (s.abgelehnt) { cls = 'rejected'; icon = 'alert'; text = `${s.abgelehnt} nicht übernommen`; }
+  else if (s.ausstehend) { cls = 'pending'; icon = 'sync'; text = `${s.ausstehend} ausstehend`; }
   else if (!s.online) { cls = 'offline'; icon = 'wifiOff'; text = 'Offline'; }
-  const lang = s.ausstehend ? `${s.ausstehend} Stempelung${s.ausstehend > 1 ? 'en' : ''} gespeichert – wird gesendet, sobald Verbindung besteht` : s.online ? 'Verbunden – alle Buchungen gesendet' : 'Keine Verbindung – Stempeln wird zwischengespeichert';
-  el.outerHTML = `<button type="button" id="sync" class="sync-chip ${cls}" data-sync="${cls}" data-ausstehend="${s.ausstehend}" title="${esc(lang)}" aria-label="${esc(lang)}">${ic(icon)}<span>${esc(text)}</span></button>`;
-  $('#sync').addEventListener('click', () => { toast(lang, s.ausstehend || !s.online ? 'warn' : 'ok'); nachsenden(); });
+  const lang = s.abgelehnt ? `${s.abgelehnt} Offline-Buchung${s.abgelehnt > 1 ? 'en wurden' : ' wurde'} vom Server nicht übernommen – Details in der Stempeluhr` : s.ausstehend ? `${s.ausstehend} Stempelung${s.ausstehend > 1 ? 'en' : ''} gespeichert – wird gesendet, sobald Verbindung besteht` : s.online ? 'Verbunden – alle Buchungen gesendet' : 'Keine Verbindung – Stempeln wird zwischengespeichert';
+  el.outerHTML = `<button type="button" id="sync" class="sync-chip ${cls}" data-sync="${cls}" data-ausstehend="${s.ausstehend}" data-abgelehnt="${s.abgelehnt}" title="${esc(lang)}" aria-label="${esc(lang)}">${ic(icon)}<span>${esc(text)}</span></button>`;
+  $('#sync').addEventListener('click', () => { toast(lang, s.abgelehnt || s.ausstehend || !s.online ? 'warn' : 'ok'); nachsenden(); if (s.abgelehnt && kann('zeit_eigen')) location.hash = '#/stempeln'; });
 }
 window.addEventListener('bt:sync', zeigeSync);
 

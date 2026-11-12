@@ -1,6 +1,6 @@
 // Nachkalkulation & Budget: Übersicht aller Baustellen und Detail je Baustelle.
 import { get, post, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, leer, banner, dialog, bestaetigen, toast, kalkChip, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, geldFelder, geldWert, leer, banner, dialog, bestaetigen, toast, kalkChip, $, $$ } from '../ui.js';
 
 const FARBE = { lohn: '#3b6fd4', geraete: '#e08a1e', material: '#2a9d8f', fremd: '#8b5fbf' };
 const KTXT = { lohn: 'Lohn', geraete: 'Geräte', material: 'Material', fremd: 'Fremdleistungen' };
@@ -13,9 +13,9 @@ export function budgetBalken(k, klein = false) {
   const x = (p) => Math.min(100, (p / max) * 100);
   const st = k.status || 'ok';
   return `<div class="bud ${klein ? 'sm' : ''} s-${esc(st)}" role="img" aria-label="Budget-Verbrauch ${fmt.pct(v)}, Leistungsstand ${fmt.pct(l)}">
-    <div class="bud-track"><i class="bud-fill" style="width:${x(v)}%"></i>${l != null ? `<i class="bud-leist" style="left:${x(l)}%" title="Leistungsstand ${fmt.pct(l)}"></i>` : ''}
-      ${(k.schwellen || [80, 90, 100]).map((s) => `<i class="bud-mark${v >= s ? ' hit' : ''}" style="left:${x(s)}%"></i>`).join('')}</div>
-    ${klein ? '' : `<div class="bud-scale">${(k.schwellen || [80, 90, 100]).map((s) => `<span style="left:${x(s)}%">${s}</span>`).join('')}</div>`}
+    <div class="bud-track"><i class="bud-fill" data-st="width:${x(v)}%"></i>${l != null ? `<i class="bud-leist" data-st="left:${x(l)}%" title="Leistungsstand ${fmt.pct(l)}"></i>` : ''}
+      ${(k.schwellen || [80, 90, 100]).map((s) => `<i class="bud-mark${v >= s ? ' hit' : ''}" data-st="left:${x(s)}%"></i>`).join('')}</div>
+    ${klein ? '' : `<div class="bud-scale">${(k.schwellen || [80, 90, 100]).map((s) => `<span data-st="left:${x(s)}%">${s}</span>`).join('')}</div>`}
   </div>`;
 }
 
@@ -38,6 +38,7 @@ export async function kalkUebersicht(el, ctx) {
 }
 
 /* =================== Verlauf: Kosten und Erlös kumuliert (Inline-SVG) =================== */
+let chartDaten = null; // Geometrie des zuletzt gezeichneten Diagramms (kein Inline-Skript nötig, M-06)
 function verlaufChart(verlauf, auftragGesamt) {
   if (!verlauf || !verlauf.length) return leer('Noch kein Verlauf – es gibt noch keine abgeschlossenen Berichte.', 'chart');
   const W = 720, H = 260, L = 58, R = 76, T = 16, B = 30;
@@ -55,8 +56,9 @@ function verlaufChart(verlauf, auftragGesamt) {
   const ticks = []; for (let v = 0; v <= top + 1e-9; v += stufe) ticks.push(v);
   const nX = Math.min(pts.length, 6);
   const xIdx = [...new Set(Array.from({ length: nX }, (_, i) => Math.round((i / Math.max(1, nX - 1)) * (pts.length - 1))))];
+  chartDaten = { pts, L, R, T, B, W, H, top };
   return `<figure class="chart" data-chart>
-    <div class="legend-row" aria-hidden="true"><span><i class="lg-line" style="background:${FARBE.geraete}"></i>Kosten (kumuliert)</span><span><i class="lg-line" style="background:${FARBE.lohn}"></i>Erlös (kumuliert)</span>${auftragGesamt && auftragGesamt <= top ? '<span><i class="lg-dash"></i>Auftragssumme gesamt</span>' : ''}</div>
+    <div class="legend-row" aria-hidden="true"><span><i class="lg-line" data-st="background:${FARBE.geraete}"></i>Kosten (kumuliert)</span><span><i class="lg-line" data-st="background:${FARBE.lohn}"></i>Erlös (kumuliert)</span>${auftragGesamt && auftragGesamt <= top ? '<span><i class="lg-dash"></i>Auftragssumme gesamt</span>' : ''}</div>
     <div class="chart-box"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Verlauf von Kosten und Erlös, kumuliert. Zuletzt Kosten ${fmt.eur0(letzter.kosten)}, Erlös ${fmt.eur0(letzter.erloes)}." preserveAspectRatio="xMidYMid meet">
       ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" class="ax">${kurz(v)}</text>`).join('')}
       ${xIdx.map((i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="ax">${fmt.datum(pts[i].datum).slice(0, 6)}</text>`).join('')}
@@ -70,11 +72,10 @@ function verlaufChart(verlauf, auftragGesamt) {
       <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" class="hit" tabindex="0" aria-label="Verlauf: mit dem Zeiger oder den Pfeiltasten Werte je Tag ablesen"/>
     </svg><div class="chart-tip" hidden></div></div>
     <details class="chart-table"><summary>Werte als Tabelle</summary><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th class="r">Kosten kumuliert</th><th class="r">Erlös kumuliert</th></tr></thead><tbody>${verlauf.map((p) => `<tr><td>${fmt.datum(p.datum)}</td><td class="r num">${fmt.eur(p.kosten)}</td><td class="r num">${fmt.eur(p.erloes)}</td></tr>`).join('')}</tbody></table></div></details>
-    <script type="application/json">${JSON.stringify({ pts, L, R, T, B, W, H, top }).replace(/</g, '\\u003c')}</script>
   </figure>`;
 }
 function chartHover(fig) {
-  const d = JSON.parse($('script', fig).textContent), svg = $('svg', fig), tip = $('.chart-tip', fig), g = $('.hover', fig), hit = $('.hit', fig);
+  const d = chartDaten, svg = $('svg', fig), tip = $('.chart-tip', fig), g = $('.hover', fig), hit = $('.hit', fig);
   const x = (i) => d.L + (d.pts.length === 1 ? 0 : (i / (d.pts.length - 1)) * (d.W - d.L - d.R));
   const y = (v) => d.T + (1 - v / d.top) * (d.H - d.T - d.B);
   let akt = d.pts.length - 1;
@@ -86,7 +87,7 @@ function chartHover(fig) {
     $('.hk', g).setAttribute('cx', x(akt)); $('.hk', g).setAttribute('cy', y(p.kosten));
     $('.he', g).setAttribute('cx', x(akt)); $('.he', g).setAttribute('cy', y(p.erloes));
     tip.hidden = false;
-    tip.innerHTML = `<b>${p.null ? 'Beginn' : fmt.datum(p.datum)}</b><span><i style="background:${FARBE.geraete}"></i>Kosten <b>${fmt.eur(p.kosten)}</b></span><span><i style="background:${FARBE.lohn}"></i>Erlös <b>${fmt.eur(p.erloes)}</b></span>`;
+    tip.innerHTML = `<b>${p.null ? 'Beginn' : fmt.datum(p.datum)}</b><span><i data-st="background:${FARBE.geraete}"></i>Kosten <b>${fmt.eur(p.kosten)}</b></span><span><i data-st="background:${FARBE.lohn}"></i>Erlös <b>${fmt.eur(p.erloes)}</b></span>`;
     const r = svg.getBoundingClientRect(), px = (x(akt) / d.W) * r.width;
     tip.style.left = Math.max(0, Math.min(r.width - tip.offsetWidth, px + (px > r.width / 2 ? -tip.offsetWidth - 12 : 12))) + 'px';
   };
@@ -111,7 +112,7 @@ export async function kalkDetail(el, ctx) {
   const H_ICON = { alarm: 'alert', kritisch: 'alert', warnung: 'alert', info: 'info' };
   const H_ART = { alarm: 'err', kritisch: 'err', warnung: 'warn', info: 'info' };
   const posTab = (titel, key, zeilen, mengeFeld, einheit) => `
-    <details class="pos" ${zeilen.length ? '' : 'data-leer'}><summary><i class="sw" style="background:${FARBE[key]}"></i><span>${titel}</span><b class="num">${fmt.eur(kosten[key] || 0)}</b>${ic('down')}</summary>
+    <details class="pos" ${zeilen.length ? '' : 'data-leer'}><summary><i class="sw" data-st="background:${FARBE[key]}"></i><span>${titel}</span><b class="num">${fmt.eur(kosten[key] || 0)}</b>${ic('down')}</summary>
     ${zeilen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Position</th><th class="r">Menge</th><th class="r">Satz</th><th class="r">Betrag</th></tr></thead><tbody>${zeilen.map((z) => `<tr><td>${esc(z.name || z.text || '')}${z.datum ? ` <small class="muted">${fmt.datum(z.datum)}</small>` : ''}</td><td class="r num">${mengeFeld && z[mengeFeld] != null ? fmt.zahl(z[mengeFeld]) + '\u00a0' + esc(z.einheit || einheit || '') : ''}</td><td class="r num">${z.satz != null ? fmt.eur(z.satz) : ''}</td><td class="r num">${fmt.eur(z.betrag)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted sm pad-s">Keine Positionen.</p>'}</details>`;
 
   el.innerHTML = `
@@ -133,7 +134,7 @@ export async function kalkDetail(el, ctx) {
     <div class="two-col">
       <section class="card pad" aria-labelledby="h-kost">
         <div class="card-h"><h3 id="h-kost">Kosten nach Art</h3><b class="num" data-wert="kosten-gesamt">${fmt.eur(kosten.gesamt)}</b></div>
-        ${teile.length ? `<div class="stackbar" role="img" aria-label="${teile.map((t) => `${KTXT[t.key]} ${fmt.eur0(t.wert)}`).join(', ')}">${teile.map((t) => `<i style="flex:${t.wert};background:${FARBE[t.key]}" title="${KTXT[t.key]}: ${fmt.eur(t.wert)}"></i>`).join('')}</div>` : ''}
+        ${teile.length ? `<div class="stackbar" role="img" aria-label="${teile.map((t) => `${KTXT[t.key]} ${fmt.eur0(t.wert)}`).join(', ')}">${teile.map((t) => `<i data-st="flex:${t.wert};background:${FARBE[t.key]}" title="${KTXT[t.key]}: ${fmt.eur(t.wert)}"></i>`).join('')}</div>` : ''}
         ${posTab('Lohn', 'lohn', pos.lohn || [], 'stunden', 'Std.')}
         ${posTab('Geräte', 'geraete', pos.geraete || [], 'stunden', 'Std.')}
         ${posTab('Material', 'material', pos.material || [], 'menge', '')}
@@ -157,13 +158,14 @@ export async function kalkDetail(el, ctx) {
     if (a.dataset.akt === 'fremd') {
       const d = dialog({ titel: 'Fremdleistung erfassen', inhalt: `<form id="ff" class="stack-s">
         <label class="field"><span class="field-label">Bezeichnung</span><input class="input lg" name="text" required maxlength="200" placeholder="z. B. Asphaltierung Subunternehmer"></label>
-        <label class="field"><span class="field-label">Betrag in Euro (netto)</span><input class="input lg num" name="betrag" inputmode="decimal" required placeholder="0,00"></label>
+        <label class="field"><span class="field-label">Betrag in Euro (netto)</span><input class="input lg num" name="betrag" data-geld inputmode="decimal" autocomplete="off" required placeholder="0,00"></label>
         <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}"></label><p class="form-err" role="alert" hidden></p></form>`,
         fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="ff">Speichern</button>' });
+      geldFelder(d.el);
       $('#ff', d.el).addEventListener('submit', async (ev) => {
-        ev.preventDefault(); const f = new FormData(ev.target); const betrag = parseZahl(f.get('betrag'));
+        ev.preventDefault(); const f = new FormData(ev.target); const betrag = geldWert(ev.target.elements.betrag);
         const err = $('.form-err', d.el);
-        if (!isFinite(betrag) || betrag <= 0) { err.hidden = false; err.textContent = 'Bitte einen gültigen Betrag eingeben.'; return; }
+        if (!Number.isFinite(betrag) || betrag <= 0) { err.hidden = false; err.textContent = 'Betrag unklar – bitte so schreiben: 12.500,00'; ev.target.elements.betrag.focus(); return; }
         try { await post(`/baustellen/${id}/fremdleistungen`, { text: f.get('text'), betrag, datum: f.get('datum') }); d.zu(); toast('Fremdleistung erfasst.'); ctx.neuLaden(); }
         catch (x) { err.hidden = false; err.textContent = x.message; }
       });
@@ -178,7 +180,7 @@ export async function kalkDetail(el, ctx) {
       $('#lf', d.el).addEventListener('submit', async (ev) => {
         ev.preventDefault(); const f = new FormData(ev.target); const menge = parseZahl(f.get('menge'));
         const err = $('.form-err', d.el);
-        if (!isFinite(menge) || menge <= 0) { err.hidden = false; err.textContent = 'Bitte eine gültige Menge eingeben.'; return; }
+        if (!isFinite(menge) || menge <= 0) { err.hidden = false; err.textContent = 'Menge unklar – bitte so schreiben: 1.250,5'; ev.target.elements.menge.focus(); return; }
         const lid = f.get('leistungId');
         try { await post(`/baustellen/${id}/leistungen`, { leistungId: /^\d+$/.test(lid) ? Number(lid) : lid, menge, datum: f.get('datum') }); d.zu(); toast('Leistung gemeldet.'); ctx.neuLaden(); ctx.meldungenNeu(); }
         catch (x) { err.hidden = false; err.textContent = x.message; }

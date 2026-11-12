@@ -1,6 +1,6 @@
 // Preise: Lohngruppen, Geräte, Material, Leistungen – mit direkter Bearbeitung in der Tabelle.
 import { get, put } from '../api.js';
-import { ic, esc, fmt, parseZahl, leer, banner, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, starkOk, leer, banner, toast, speicher, $, $$ } from '../ui.js';
 
 const TABS = [
   { art: 'lohngruppen', text: 'Lohngruppen', spalten: [['name', 'Lohngruppe']], preise: [['kostensatz', 'Kostensatz / Std.'], ['regiesatz', 'Regiesatz / Std.']] },
@@ -41,9 +41,19 @@ export default async function preise(el, ctx) {
     const zeile = (daten[tab] || []).find((z) => String(z.id) === tr.dataset.id);
     const wert = parseZahl(inp.value);
     const zurueck = () => { inp.value = fmt.betrag(zeile[feld]); };
-    if (!isFinite(wert) || wert < 0) { toast('Bitte einen gültigen Betrag eingeben.', 'warn'); zurueck(); return; }
+    const box = inp.closest('.price-in');
+    let hinweis = $('.price-err', box.parentElement);
+    if (!isFinite(wert) || wert < 0) {
+      // B-04: unklare Eingabe nie raten – Feld markieren, alten Wert behalten
+      box.classList.add('invalid'); inp.setAttribute('aria-invalid', 'true');
+      if (!hinweis) { hinweis = document.createElement('small'); hinweis.className = 'price-err'; hinweis.setAttribute('role', 'alert'); box.insertAdjacentElement('afterend', hinweis); }
+      hinweis.textContent = `„${inp.value}“ ist unklar – bitte so schreiben: 1.250,00`;
+      return;
+    }
+    box.classList.remove('invalid'); inp.removeAttribute('aria-invalid'); if (hinweis) hinweis.remove();
     if (wert === zeile[feld]) { zurueck(); return; }
-    const box = inp.closest('.price-in'); box.classList.add('busy');
+    if (!(await starkOk(zeile[feld], wert, `Der Preis „${zeile.name || zeile.text || ''}“`))) { zurueck(); return; }
+    box.classList.add('busy');
     try {
       const neu = await put(`/preise/${tab}/${encodeURIComponent(zeile.id)}`, { feld, wert });
       Object.assign(zeile, neu && typeof neu === 'object' ? neu : { [feld]: wert });
