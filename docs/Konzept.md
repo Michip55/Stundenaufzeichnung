@@ -29,68 +29,65 @@
 
 ## 0 Zusammenfassung
 
-**Was ist geplant?** Eine App, die am Handy, am Tablet und am PC gleich funktioniert:
+**Was ist geplant?** Eine App für Handy, Tablet und PC. Es ist eine einzige Web-App (PWA), die auch ohne Empfang funktioniert. Sie umfasst fünf Teile:
 
-1. **Stempeln:** Mitarbeiter stempeln auf der Baustelle ein und aus. Der Polier kann seine ganze Partie mit einem Tipp einstempeln, damit niemand ein eigenes Smartphone braucht.
-2. **Bautagesbericht:** Am Abend füllt der Polier den Bautagesbericht im gewohnten Aufbau Ihrer Papiervorlage aus. Personal, Uhrzeiten und Baustelle sind aus den Stempelungen schon eingetragen. Der Bauherr unterschreibt am Tablet, das PDF geht sofort per Mail an Bauherr und Büro.
-3. **Preise und Nachkalkulation:** Im Büro sind Lohnkostensätze, Gerätesätze, Materialpreise und die Einheitspreise aus dem Angebot hinterlegt. Daraus rechnet die App je Baustelle laufend Kosten, Erlös und Deckungsbeitrag und zeigt eine Ampel.
-4. **Monatsabschluss:** Geprüfte Stunden, Abwesenheiten, Schlechtwetterstunden und SEG-Zulagen gehen als Export an die Lohnverrechnung. Die BUAK-Meldungen werden daraus vorbereitet.
-5. **Für die Baustelle gemacht (Kapitel 4):** Die Bedienung folgt dem Grundsatz „höchstens drei Tipps, kaum Tippen“:
-   - große Knöpfe, Baustellen-Modus für Sonne und Handschuhe, fünf Sprachen;
-   - den Bericht diktieren statt schreiben, Lieferscheine fotografieren statt abschreiben;
-   - Wetter und Schlechtwetter-Vorschlag automatisch, Gerätestunden per NFC-/QR-Tag;
-   - Warnungen bei Pause und Höchstarbeitszeit, Hochrechnung der Baustelle bis Bauende;
-   - Fernunterschrift per SMS-Link.
-
-   KI macht dabei immer nur Vorschläge, der Polier bestätigt.
+1. **Stempeln:** Jeder stempelt selbst, oder der Polier stempelt die ganze Partie mit einem Tipp. Der Standort wird nur im Moment des Stempelns erfasst.
+2. **Bautagesbericht:** im Aufbau Ihrer Papiervorlage, vorbefüllt aus den Stempelungen. Der Bauherr unterschreibt am Tablet oder per SMS-Link, und das PDF geht sofort per Mail hinaus.
+3. **Preise und Nachkalkulation je Baustelle:** Kosten, Erlös, Deckungsbeitrag, Hochrechnung bis Bauende und eine Ampel.
+4. **Monatsabschluss:** Geprüfte Stunden, Abwesenheiten, Schlechtwetter und SEG-Zulagen gehen als Export an Lohnverrechnung und BUAK.
+5. **Für die Baustelle gemacht (Kapitel 4):**
+   - höchstens drei Tipps, große Knöpfe, fünf Sprachen;
+   - Wetter und Schlechtwetter-Vorschlag automatisch;
+   - Warnungen bei Pause und Höchstarbeitszeit;
+   - Gerätestunden per NFC-/QR-Tag;
+   - Bericht diktieren und Lieferscheine fotografieren. Die KI schlägt vor, der Polier bestätigt.
 
 **Wer sieht was (Kapitel 2.2):**
 
-- Preise, alle €-Werte und die Nachkalkulation sehen **Büro/Lohnverrechnung, die Geschäftsführung und der Bauleiter**. Wir gehen davon aus, dass der Inhaber vollen Zugriff behält.
-- Der **Bauleiter** sieht nur seine eigenen Baustellen. Er darf Preise sehen, aber nicht bearbeiten, und hat keine Lohnauswertung und keine Einzellöhne; die Nachkalkulation rechnet mit Kostensätzen je Lohngruppe.
-- **Polier und Mitarbeiter** sehen nichts davon. Das ist eine feste Regel, auch per Ausnahme nicht freischaltbar.
-- Auf ihre Geräte werden diese Daten **gar nicht übertragen**, also nicht bloß ausgeblendet.
-- Das PDF für den Auftraggeber enthält nie interne Kosten.
+- Preise, €-Werte und die Nachkalkulation sehen nur Büro/Lohnverrechnung und die Geschäftsführung. Annahme: Der Inhaber hat vollen Zugriff.
+- Der **Bauleiter** sieht sie nur für seine eigenen Baustellen: ohne Einzellöhne, ohne Bearbeitung, ohne Lohnauswertung.
+- **Polier und Mitarbeiter sehen sie nie.** Das ist fest gesperrt und auch per Ausnahme nicht freischaltbar. Diese Daten werden auf ihre Geräte gar nicht erst übertragen.
+- Das PDF für den Auftraggeber enthält keine internen Werte.
 
-**Warum?** Heute wird jede Stunde mehrfach geschrieben: am Zettel, im Bautagesbericht, im Lohnprogramm und in Excel. Zettel gehen verloren oder kommen spät. Regie wird nicht immer unterschrieben und verrechnet. Ob eine Baustelle Geld verdient hat, weiß man erst Wochen nach der Schlussrechnung, oft gar nicht. Grob geschätzt bringt die Umstellung **rund 40.000–50.000 € pro Jahr** an Zeitersparnis und zusätzlich verrechneter Regie. Die Annahmen dazu stehen in Kapitel 1 und werden im Pilot überprüft.
+**Warum?** Heute wird jede Stunde mehrfach geschrieben. Zettel kommen spät oder gehen verloren, Regie wird nicht immer verrechnet, und ob eine Baustelle verdient hat, weiß man erst lange nach der Schlussrechnung. Wir schätzen das Potenzial auf **rund 40.000–50.000 € pro Jahr** (Kapitel 1).
 
 **Unsere Empfehlung:**
 
-- **Eine schlanke, eigene Web-App (PWA) bauen lassen.** Sie läuft mit einem Programmcode auf allen Geräten und funktioniert auch ohne Empfang. Der Grund: Wir haben kein Standardprodukt gefunden, das Ihren Bautagesbericht und eine Nachkalkulation mit Ihren eigenen Preisen samt den österreichischen Bau-Besonderheiten (BUAK, Schlechtwetter, SEG-Zulagen) in einem Guss abbildet.
-- **Nicht selbst bauen** sollten Sie Lohnverrechnung, BUAK-Meldung, Buchhaltung und Angebotskalkulation. Diese Aufgaben bleiben in den bestehenden Programmen, die App liefert ihnen die Daten zu (Hybrid-Lösung).
-- **Vor der Auftragsvergabe eine Gegenprobe machen:** Ein Polier testet zwei Wochen lang 123erfasst, das am ehesten passende Standardprodukt. Passen Bautagesbericht, Lohnexport und Nachkalkulation dort ohne Verbiegen, ist Kaufen die günstigere Variante.
-- **Datenschutz:** Der Standort wird nur im Moment des Stempelns erfasst, es gibt kein Tracking. Vor dem Start braucht es eine Betriebsvereinbarung oder die schriftliche Zustimmung jedes Mitarbeiters.
+- **Eine eigene, schlanke Web-App bauen lassen.** Kein geprüftes Standardprodukt bildet in einem Guss ab: Ihren Bericht, die Nachkalkulation mit eigenen Preisen, die österreichischen Besonderheiten (BUAK, Schlechtwetter, SEG), die strengen Sichtbarkeitsregeln und die gewünschten Neuerungen.
+- **Nicht selbst bauen:** Lohnverrechnung, BUAK-Meldung, Buchhaltung und Angebotskalkulation. Dafür liefert die App nur die Daten (Hybrid-Lösung).
 - **Innovation mit Augenmaß:**
-  - *Gleich in Phase 1*, weil verlässlich: Baustellen-Modus, Mehrsprachigkeit, AZG-Wächter, Wetter mit Schlechtwetter-Vorschlag, Fernunterschrift.
-  - *Erst testen, dann Phase 2:* die KI-Funktionen „Bericht diktieren“ und „Lieferschein lesen“. Vorher prüfen wir sie im Dezember mit echten Aufnahmen Ihrer Poliere und echten Lieferscheinen (Dialekt, Baulärm).
-  - *Später und nur optional*, weil eher Komfort als Muss: Ankunfts-Hinweis per Geofence und „KI-Fragen an die Daten“.
+  - Was verlässlich funktioniert, kommt gleich in Phase 1.
+  - KI-Diktat und Lieferschein-Erkennung kommen erst nach einem Test mit echten Aufnahmen (Dialekt, Baulärm).
+  - Geofence-Hinweis und „KI-Fragen an die Daten“ sind optional und kommen später.
+- **Gegenprobe:** Vor der Beauftragung zwei Wochen lang 123erfasst testen. Passt es ohne Verbiegen, ist Kaufen deutlich günstiger (Kapitel 8).
+- **Vor dem Start:** Betriebsvereinbarung bzw. schriftliche Zustimmung jedes Mitarbeiters (Standort, Rollen, KI-Funktionen).
 
-**Kosten und Zeitplan (Richtwerte, netto):**
+**Kosten (Richtwerte, netto):**
 
 | Baustein | Einmalig | Laufend |
 |---|---|---|
-| Phase 0 und 1: Klärung, KI-Test, Stempeln und digitaler Bautagesbericht (MVP) inkl. Rollen und Rechte, Baustellen-Modus, 2 Fremdsprachen, AZG-Wächter, Wetter, Fernunterschrift | 39.000–80.000 € | |
-| Phase 2: Preise, Nachkalkulation mit Hochrechnung, Geräte-Tags, weitere Sprachen | 23.000–48.500 € | |
+| Phase 0 und 1: Klärung, KI-Test, Stempeln und digitaler Bautagesbericht (MVP) inkl. Rollen und Rechte, Baustellen-Modus, 2 Fremdsprachen, AZG-Wächter, Wetter, Fernunterschrift | 40.000–80.000 € | |
+| Phase 2: Preise, Nachkalkulation mit Hochrechnung, Geräte-Tags, weitere Sprachen | 23.000–48.000 € | |
 | Phase 2, nur nach erfolgreichem Test: KI-Diktat und Lieferschein-Erkennung | 9.000–22.500 € | |
 | Geräte: 6–8 robuste Tablets, NFC-Chips, Geräte-Tags, Halterungen | 4.000–7.500 € | |
 | Betrieb: Hosting, Wartung, Support, KI-Dienste, SMS, Mobilfunk | | ca. 400–1.000 € pro Monat |
 
-Das ist deutlich mehr als ein Standardprodukt, siehe den ehrlichen Vergleich in Kapitel 8. Die Spannen werden mit Festpreisangeboten enger.
+**Zeitplan:**
 
-- **Feinkonzept, KI-Test und Angebote:** bis Mitte Dezember 2026.
-- **Entwicklung von Phase 1:** Jänner bis März 2027.
-- **Pilot mit einer Partie:** ab Saisonstart (März/April 2027), Papier läuft parallel weiter.
-- **Alle Partien:** ab Mai 2027.
-- **Nachkalkulation:** ab Spätsommer 2027.
+- Feinkonzept, KI-Test und Angebote: bis Mitte Dezember 2026
+- Entwicklung: Jänner bis März 2027
+- Pilot mit einer Partie: ab Saisonstart (März/April 2027), Papier läuft parallel
+- Alle Partien: ab Mai 2027
+- Nachkalkulation: ab Spätsommer 2027
 
-Mögliche Förderung: KMU.DIGITAL (Details in Kapitel 9).
+Förderung: KMU.DIGITAL prüfen (Kapitel 9).
 
 **Nächste Schritte:**
 
-1. Die offenen Fragen aus Kapitel 10 beantworten, in etwa zwei Stunden mit Büro und einem Polier.
-2. Mit dem Steuerberater bzw. der Lohnverrechnung das Exportformat und die Lohnarten klären. Betriebsrat bzw. Mitarbeiter informieren.
-3. Den Prototyp mit zwei Polieren durchklicken, die Rechte-Matrix (Kapitel 2.2) bestätigen, den KI-Test (ca. 20 Diktate, 30 Lieferscheine) machen und die Gegenprobe mit 123erfasst starten.
-4. Zwei bis drei Angebote von Entwicklern einholen, Förderung beantragen, Entscheidung treffen.
+1. Die offenen Fragen (Kapitel 10) und die Rechte-Matrix mit Büro und einem Polier klären.
+2. Das Exportformat mit der Lohnverrechnung abstimmen; Mitarbeiter bzw. Betriebsrat informieren.
+3. Den Prototyp mit zwei Polieren testen, den KI-Test machen (ca. 20 Diktate, 30 Lieferscheine) und die Gegenprobe mit 123erfasst starten.
+4. Angebote von 2–3 Entwicklern einholen und entscheiden.
 
 ---
 
@@ -174,29 +171,29 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 | Schlechtwetter melden bzw. bestätigen | – | melden | bestätigen | bestätigen | ja |
 | Bautagesbericht erstellen, Fotos, Unterschrift Auftragnehmer, Versand | – | ja (eigene Baustellen) | ja | nur korrigieren | ja |
 | Bautagesbericht prüfen und freigeben | – | – | ja | ja | ja |
-| Mengen, Leistungsstand, Geräte- und Materialmengen | – | eigene Baustellen, **ohne €** | eigene Baustellen, **ohne €** | ja | ja |
+| Mengen, Leistungsstand, Geräte- und Materialmengen | – | eigene Baustellen, **ohne €** | eigene Baustellen | ja | ja |
 | Stundenrahmen der Baustelle (Soll-/Ist-Stunden, ohne €) | – | optional je Baustelle | ja | ja | ja |
 | Hinweise ohne € (z. B. Regie nicht unterschrieben, Angebotsmenge überschritten, Stunden ohne Leistungsmeldung) | – | eigene Baustellen | eigene Baustellen | ja | ja |
-| Einheitspreise, Angebotssummen, Regiesätze sehen | **nie** | **nie** | – (per Ausnahme) | ja | ja |
-| Interne Kostensätze (Lohn, Geräte, Material-Einkauf) sehen | **nie** | **nie** | – (per Ausnahme) | ja | ja |
-| Preise und Kostensätze bearbeiten | **nie** | **nie** | – | ja | ja |
-| Nachkalkulation, Hochrechnung, Hinweise mit €-Werten | **nie** | **nie** | – (per Ausnahme, nur eigene Baustellen, Lohn nur als Summe) | ja | ja |
-| Lohnauswertung je Person (Lohngruppe, SEG, Taggeld, Mehrstunden), Lohn- und BUAK-Export | nur eigene Stundenliste, ohne € | **nie** (für andere) | – | ja | ja |
+| Einheitspreise, Angebotssummen, Regiesätze sehen | **nie** | **nie** | eigene Baustellen | ja | ja |
+| Interne Kostensätze sehen (Lohn je Lohngruppe, Geräte, Material-Einkauf) | **nie** | **nie** | ja, für die eigenen Baustellen (Lohn nur je Lohngruppe) | ja | ja |
+| Preise und Kostensätze bearbeiten | **nie** | **nie** | nein | ja | ja |
+| Nachkalkulation, Hochrechnung, Hinweise mit €-Werten | **nie** | **nie** | eigene Baustellen (Lohn über Kostensätze je Lohngruppe, keine Einzellöhne) | ja | ja |
+| Lohnauswertung je Person (Einzellöhne, SEG, Taggeld, Mehrstunden), Lohn- und BUAK-Export | nur eigene Stundenliste, ohne € | **nie** (für andere) | nein | ja | ja |
 | Stammdaten (Baustellen, Geräte, Material, Positionen; ohne Preise) | – | – | Baustellen und Positionen anlegen | ja | ja |
 | Benutzer anlegen, PIN zurücksetzen, Gerät abmelden | – | – | – | ja | ja |
 | Rollen und Ausnahmen vergeben | – | – | – | – | ja |
-| Änderungsprotokoll einsehen | eigene Daten | eigene Partie (ohne Preise) | eigene Baustellen (ohne Preise) | ja | alles, inkl. Rechte |
-| KI-Fragen an die Daten (Phase 3, optional) | – | – | – | im Rahmen der eigenen Rechte | ja |
+| Änderungsprotokoll einsehen | eigene Daten | eigene Partie (ohne Preise) | eigene Baustellen | ja | alles, inkl. Rechte |
+| KI-Fragen an die Daten (Phase 3, optional) | – | – | im Rahmen der eigenen Rechte | im Rahmen der eigenen Rechte | ja |
 
 „**nie**“ bedeutet: technisch gesperrt und auch per Ausnahme nicht freischaltbar. „Eigene Partie“ und „eigene Baustellen“ ergeben sich aus der Zuordnung Polier ↔ Partie und Bauleiter ↔ Baustellen; diese Zuordnung pflegt das Büro. Annahme: Die Geschäftsführung (Inhaber) behält immer vollen Zugriff, und dieses Recht kann ihr in der App niemand entziehen.
 
 **Ausnahmen je Benutzer:** Die Geschäftsführung kann einzelnen Personen Rechte zusätzlich geben oder wegnehmen, auf Wunsch befristet. Beispiele:
 
 - Ein Vorarbeiter vertritt zwei Wochen lang einen Polier und darf in dieser Zeit „Partie Huber stempeln“.
-- Ein Bauleiter bekommt Einsicht in die Nachkalkulation seiner Baustellen. Das ist eine bewusste Entscheidung der Geschäftsführung.
+- Ein Bauleiter betreut vertretungsweise eine weitere Baustelle und sieht in dieser Zeit auch deren Nachkalkulation.
 - Eine Büro-Teilzeitkraft bekommt keine Einsicht in Lohndaten.
 
-**Grenze:** Für die Rollen Polier/Vorarbeiter und Mitarbeiter bietet die Ausnahme-Funktion Preis-, €-, Nachkalkulations- und Lohnrechte gar nicht an. Soll ein Polier solche Daten sehen, muss er bewusst eine andere Rolle bekommen (z. B. Bauleiter), und das steht im Protokoll. Die App zeigt außerdem eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir empfehlen, sie einmal im Quartal durchzusehen.
+**Grenze:** Für die Rollen Polier/Vorarbeiter und Mitarbeiter bietet die Ausnahme-Funktion Preis-, €-, Nachkalkulations- und Lohnrechte gar nicht an. Soll ein Polier solche Daten sehen, muss er bewusst die Rolle Bauleiter bekommen, und das steht im Protokoll. Dem Bauleiter können Preis-Bearbeitung, Lohnauswertung und Einzellöhne ebenfalls nicht per Ausnahme gegeben werden; dafür ist die Rolle Büro nötig. Die App zeigt außerdem eine Liste „Wer darf mehr oder weniger als seine Rolle“. Wir empfehlen, sie einmal im Quartal durchzusehen.
 
 **Änderungsprotokoll:**
 
@@ -208,7 +205,7 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 **Technischer Grundsatz: Rechte werden am Server durchgesetzt, nicht in der Oberfläche.**
 
 - Der Server prüft bei jeder Anfrage, wer fragt, welche Rolle und Ausnahmen gelten und für welchen Bereich (alles, eigene Baustellen, eigene Partie, nur selbst).
-- Er liefert **nur die Daten, für die ein Recht besteht**. Preise, Kostensätze, €-Werte, Nachkalkulation und Lohndaten verlassen den Server nie in Richtung der Geräte von Polieren, Mitarbeitern und Bauleitern ohne Freischaltung, auch nicht in den Offline-Speicher. Die Positionsliste für die Leistungsmeldung kommt beim Polier ohne Einheitspreise an.
+- Er liefert **nur die Daten, für die ein Recht besteht**. Preise, Kostensätze, €-Werte, Nachkalkulation und Lohndaten verlassen den Server nie in Richtung der Geräte von Polieren und Mitarbeitern, auch nicht in den Offline-Speicher. Der Bauleiter bekommt nur die Preise und Nachkalkulation seiner eigenen Baustellen und nie Einzellöhne. Die Positionsliste für die Leistungsmeldung kommt beim Polier ohne Einheitspreise an.
 - Bloßes Ausblenden in der Oberfläche wäre unsicher, weil technisch versierte Nutzer versteckte Daten auslesen könnten.
 - Exporte (Lohn, BUAK, Nachkalkulation) erzeugt nur der Server, und nur für berechtigte Rollen.
 - Automatische Tests prüfen bei jedem Update, dass die Antworten an Polier- und Mitarbeiterrollen keine Preis- oder Lohnfelder enthalten.
@@ -223,7 +220,7 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 **Datenschutz: Lohndaten von Kollegen.**
 
 - Löhne, Lohngruppen, Kostensätze sowie SEG- und Taggeld-Beträge sind vertrauliche personenbezogene Daten. Sehen darf sie nur, wer sie für seine Aufgabe braucht, also Büro und Geschäftsführung (DSGVO: Datenminimierung, Vertraulichkeit, Sicherheit der Verarbeitung).
-- Bekommt ein Bauleiter per Ausnahme die Nachkalkulation, sieht er Lohnkosten nur als **Summe**. Bei einer Lohngruppe mit nur einer Person wird zusammengefasst, damit man nicht auf den Lohn eines Einzelnen schließen kann.
+- Der Bauleiter sieht in der Nachkalkulation Lohnkosten nur über die **Kostensätze je Lohngruppe**. Das sind Durchschnittssätze, keine Einzellöhne. Bei einer Lohngruppe mit nur einer Person wird mit der nächsten Gruppe zusammengefasst, damit man nicht auf den Lohn eines Einzelnen schließen kann.
 - Der Polier sieht die Stunden seiner Partie, weil er sie verantwortet, aber nicht deren Löhne.
 - Beim Krankenstand wird nur das Kürzel „K“ gespeichert, nie eine Diagnose. Die Krankmeldung als Beleg sieht nur das Büro.
 - Das Rollenkonzept wird Teil der Betriebsvereinbarung bzw. der Mitarbeiterinformation (Kapitel 5.7).
@@ -257,14 +254,15 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 |---|---|---|
 | 06:45 | Partie Huber trifft sich im Bauhof und lädt Rüttelplatte und Splitt | Polier: „Partie stempeln“ → Tätigkeit *Laden Bauhof*, KST der Baustelle |
 | 07:05 | Fahrt zur Baustelle Hofeinfahrt Musterstraße | „Fahrt“; der LKW-Fahrer wählt sein Fahrzeug |
-| 07:30 | Ankunft, Arbeitsbeginn | „Baustelle“; einmalig wird der Standort gespeichert (im Umkreis der Baustelle: ja/nein) |
+| 07:30 | Ankunft, Arbeitsbeginn | „Baustelle“; einmalig wird der Standort gespeichert (im Umkreis der Baustelle: ja/nein). Ab Phase 3 optional: Hinweis am Gerät „Musterstraße erreicht – jetzt einstempeln?“ |
+| 07:40 | Der Maschinist startet den Bagger | Er hält das Handy an den NFC-/QR-Tag in der Kabine, und die Gerätestunden laufen auf die KST (ab Phase 2) |
 | 10:15 | Bauherr ordnet zusätzlich das Abtragen eines Gartenmäuerchens an | Polier: „Regie starten“ für 2 Mann und den Bagger 2,7 t |
-| 12:00–12:30 | Mittagspause | Pause wird automatisch laut Vereinbarung gebucht, oder per Taste |
-| 14:00 | Starkregen, die Arbeit wird eingestellt | Polier: „Schlechtwetter“ mit Grund und Uhrzeit, gilt für alle Anwesenden |
+| 12:00–12:30 | Mittagspause | Pause wird automatisch laut Vereinbarung gebucht, oder per Taste. Der AZG-Wächter würde erinnern, wenn nach 6 Std. noch keine Pause gebucht ist. |
+| 14:00 | Starkregen | Die App zeigt den Niederschlag der nächsten Messstation und schlägt „Schlechtwetter ab 14:00?“ vor. Der Polier entscheidet und bestätigt; das gilt für alle Anwesenden. |
 | 14:20 | Ein Mitarbeiter fährt zur Werkstatt | Einzeln: „Baustelle wechseln“ → *Werkstatt* |
-| 16:30 | Bericht | Der Assistent hat alles vorbefüllt. Der Polier ergänzt Geräte, Material, Leistung (m²) und macht 3 Fotos. |
-| 16:40 | Unterschrift | Der Bauherr unterschreibt am Tablet, das PDF geht an Bauherr und Büro. |
-| am nächsten Morgen | Büro | Ampel: Bericht vollständig, eine AZG-Warnung (Ruhezeit) zu prüfen, Regie bereit zur Verrechnung |
+| 16:30 | Bericht | Der Assistent hat alles vorbefüllt, das Wetter ist schon eingetragen. Der Polier diktiert: „180 m² Pflaster verlegt, Rüttelplatte 4 Stunden, 2 Fuhren Frostschutz“. Die KI trägt das in die Felder ein (ab Phase 2), der Polier prüft. Den Lieferschein fotografiert er, 3 Fotos kommen dazu. |
+| 16:40 | Unterschrift | Der Bauherr ist nicht da. Er bekommt einen SMS-Link und unterschreibt am Abend am Handy. Das PDF geht an Bauherr und Büro. |
+| am nächsten Morgen | Büro / Bauleiter | Bericht vollständig, eine AZG-Warnung (Ruhezeit) zu prüfen, Regie bereit zur Verrechnung. Hochrechnung: erwarteter Deckungsbeitrag 18 % (nur Büro, GF, Bauleiter) |
 
 ---
 
@@ -324,7 +322,7 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 - 17-Wochen-Schnitt über 48 Stunden;
 - strengeren Grenzen für Jugendliche (8 Std. pro Tag, 40 Std. pro Woche, 12 Std. Ruhezeit).
 
-Die App verhindert nichts, sie macht aufmerksam. Entscheiden müssen Polier und Büro.
+Die App verhindert nichts, sie macht aufmerksam. Entscheiden müssen Polier und Büro. Als Push-Nachricht aufs Handy („AZG-Wächter“, inkl. „Ausstempeln vergessen?“) siehe Kapitel 4.
 
 **Offline-Betrieb (Baustellen ohne Empfang):**
 
@@ -357,7 +355,7 @@ Die App verhindert nichts, sie macht aufmerksam. Entscheiden müssen Polier und 
 9. **Besondere Vorkommnisse und Fotos.**
 10. **Kontrolle und Unterschriften**, dann PDF und Mail.
 
-Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch am Handy ausfüllbar, das Tablet ist aber angenehmer.
+Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch am Handy ausfüllbar, das Tablet ist aber angenehmer. Statt alles zu tippen, kann der Polier diktieren und Lieferscheine fotografieren; Wetter und Geräte-Tags füllen Felder automatisch vor (Kapitel 4).
 
 **Feldzuordnung: jedes Feld der Papiervorlage und sein digitales Gegenstück**
 
@@ -379,23 +377,23 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 | 14 | SEG-Zulagen: Stunden | Stunden je Person und Zulagenart | Vorschlag = Arbeitsstunden, Polier korrigiert | Lohn |
 | 15 | Geräte: LKW mit Kran 3-A / 4-A, LKW 2-/3-/4-Achser, LKW Zug oder Sattel, LKW mit Tieflader | Konkretes Fahrzeug (Kennzeichen/Inventarnr.) mit Stunden | Fahrzeug, das der Fahrer beim Stempeln gewählt hat; Stunden = seine Stempelzeit | Nachkalkulation (interner Satz), Regie, Auslastung |
 | 16 | Geräte: Leerzeile in der Liste | „Sonstiges Gerät“ | Auswahl aus der ganzen Geräteliste, auch Mietgeräte | wie oben |
-| 17 | Verlegemaschine, Schneidgerät, Kompressor, Dumper | Gerät mit Stunden | Polier; Vorschlag aus dem Vortag auf dieser Baustelle | wie oben |
-| 18 | Bobcat, Bagger 1,5 / 2,7 / 9 / 23 to., Radlader, Gräder | Gerät mit Stunden | Stempelzeit des Maschinisten, der das Gerät gewählt hat | wie oben |
-| 19 | Bomag BW 177, Hamm Walz 2 to., Handwalze, Rüttelplatte, Grabenwalze | Gerät mit Stunden | Polier; Vorschlag aus dem Vortag | wie oben |
-| 20 | Material: Aushub, Betonbruch, Asphaltbruch (to/m³) | Menge, Einheit (t oder m³) und Ziel (Deponie, Kieswerk/Recycling, andere Baustelle) | Polier; später Wiege- oder Lieferschein | Nachkalkulation (Entsorgungskosten), Abrechnung, Recyclingmengen |
-| 21 | Material: Frostschutz, Grädermaterial, Splitt (to.) | Menge in t mit Herkunft | Polier; später Lieferschein des Kieswerks | Nachkalkulation, Abrechnung |
+| 17 | Verlegemaschine, Schneidgerät, Kompressor, Dumper | Gerät mit Stunden | Polier; Vorschlag aus dem Vortag auf dieser Baustelle; ab Phase 2 per Geräte-Tag (NFC/QR) | wie oben |
+| 18 | Bobcat, Bagger 1,5 / 2,7 / 9 / 23 to., Radlader, Gräder | Gerät mit Stunden | Stempelzeit des Maschinisten, der das Gerät gewählt hat; ab Phase 2 per Geräte-Tag (NFC/QR) | wie oben |
+| 19 | Bomag BW 177, Hamm Walz 2 to., Handwalze, Rüttelplatte, Grabenwalze | Gerät mit Stunden | Polier; Vorschlag aus dem Vortag; ab Phase 2 per Geräte-Tag | wie oben |
+| 20 | Material: Aushub, Betonbruch, Asphaltbruch (to/m³) | Menge, Einheit (t oder m³) und Ziel (Deponie, Kieswerk/Recycling, andere Baustelle) | Polier (auch per Diktat); ab Phase 2 Lieferschein-Foto, später digitaler Wiegeschein | Nachkalkulation (Entsorgungskosten), Abrechnung, Recyclingmengen |
+| 21 | Material: Frostschutz, Grädermaterial, Splitt (to.) | Menge in t mit Herkunft | Polier (auch per Diktat); ab Phase 2 Lieferschein-Foto, später digitaler Lieferschein des Kieswerks | Nachkalkulation, Abrechnung |
 | 22 | Arbeitsleistung (Freitextzeilen) | Leistungsmeldung: Position aus dem Angebot, Menge und Einheit; Freitext weiter möglich | Polier wählt aus der Positionsliste der Baustelle | Erlös (Einheitspreis × Menge), Soll/Ist, Aufwandswerte |
 | 23 | Materialbeistellung: Eigenmaterial | Material und Menge, Herkunft „Eigen (Kieswerk/Lager)“ | Polier | Nachkalkulation zum internen Verrechnungspreis |
-| 24 | Materialbeistellung: Fremdmaterial | Material und Menge, dazu Lieferant mit Lieferschein-Nr. oder „vom Bauherrn beigestellt“ | Polier, Foto vom Lieferschein | Nachkalkulation (Einkaufspreis bzw. 0 € bei Beistellung), Rechnungsprüfung |
+| 24 | Materialbeistellung: Fremdmaterial | Material und Menge, dazu Lieferant mit Lieferschein-Nr. oder „vom Bauherrn beigestellt“ | Polier; Foto vom Lieferschein, ab Phase 2 liest die KI Lieferant, Material und Menge | Nachkalkulation (Einkaufspreis bzw. 0 € bei Beistellung), Rechnungsprüfung |
 | 25 | Paletten retour: Euro | Anzahl Europaletten | Polier | Palettenkonto je Baustelle und Lieferant |
 | 26 | Paletten retour: Weissenböck | Anzahl Paletten dieses Lieferanten; weitere Lieferanten einstellbar | Polier | Pfand-Gutschrift kontrollieren |
 | 27 | Regieleistungen (Zeilen) | Regieposition: Beschreibung, Personen mit Stunden, Geräte mit Stunden, Material | Mit „Regie“ gekennzeichnete Stempelungen; Polier ergänzt | Regierechnung zu Regiesätzen; eigener Regieschein-Ausdruck |
 | 28 | Besondere Vorkommnisse (z. B. Anweisungen AG, Beschädigungen, Sonstiges) | Einträge mit Kategorie (Anweisung AG, Behinderung/Wartezeit, Beschädigung, Unfall/Beinahe-Unfall, Mangel, Sonstiges), Text und Fotos | Polier | Sofortige Nachricht ans Büro; Grundlage für Mehrkostenforderungen |
 | 29 | Unterschrift Auftragnehmer oder dessen Beauftragter | Unterschrift des Poliers am Gerät mit Name und Zeitpunkt | Angemeldeter Polier | Abschluss des Berichts |
 | 30 | Unterschrift Bauherr oder dessen bevollmächtigter Vertreter | Unterschrift am Tablet mit Name in Druckschrift und Funktion; alternativ „nicht anwesend“ mit Versand zur Bestätigung | Bauherr vor Ort | Beweis, Bestätigung der Regie |
-| neu | (nicht auf Papier) Wetter | Temperatur, Niederschlag, Wind | Automatisch von einem Wetterdienst; der Polier kann ergänzen | Nachweis für Schlechtwetter und Behinderung |
+| neu | (nicht auf Papier) Wetter | Temperatur, Niederschlag, Wind | Automatisch (z. B. GeoSphere Austria, nächste Messstation); der Polier kann ergänzen; daraus Schlechtwetter-Vorschlag | Nachweis für Schlechtwetter und Behinderung |
 | neu | (nicht auf Papier) Fotos | Fotos mit Zeitstempel | Kamera | Dokumentation |
-| neu | (nicht auf Papier) Status und Versand | Entwurf, abgeschlossen, unterschrieben, versendet, geprüft | Automatisch | Nachvollziehbarkeit |
+| neu | (nicht auf Papier) Status und Versand | Entwurf, abgeschlossen, unterschrieben (vor Ort oder per SMS-/Mail-Link), versendet, geprüft | Automatisch | Nachvollziehbarkeit |
 
 **Plausibilitätsprüfungen beim Abschließen:**
 
@@ -411,11 +409,14 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 
 - **Fotos:** Die App verkleinert Fotos automatisch (ca. 300–500 KB), damit die Übertragung auch bei schlechtem Netz klappt. Zu jedem Foto gibt es Zeitstempel, Baustelle und Kategorie (Leistungsstand, Vorkommnis, Lieferschein, Mangel). Personen sollen nicht im Mittelpunkt der Fotos stehen.
 - **Unterschrift:** Der Bauherr unterschreibt mit Finger oder Stift am Tablet, darüber steht eine Zusammenfassung des Berichts. Gespeichert werden das Unterschriftsbild, der Name in Druckschrift, Zeitpunkt, Gerät und eine Prüfsumme des PDFs. So ist erkennbar, falls das PDF später verändert wurde.
-- **Ist der Bauherr nicht vor Ort,** bekommt er das PDF mit einem Bestätigungslink per Mail. Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 5.9).
+- **Ist der Bauherr nicht vor Ort,** bekommt er einen Link per SMS oder Mail und unterschreibt am eigenen Handy (Fernunterschrift, Kapitel 4). Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 5.9).
 - **PDF:** Gleicher Aufbau und gleiche Reihenfolge wie die Papiervorlage, damit Bauherren und Bauleiter ihn sofort wiedererkennen. Fotos kommen auf Folgeseiten, Regie zusätzlich als eigener Regieschein.
+- **Zwei Fassungen:** Die Fassung für den Auftraggeber enthält nie €-Werte und keine Kürzel K/U. Die interne Fassung ist vollständig (Kapitel 2.2).
 - **Mail:** Das PDF geht automatisch an den Ansprechpartner des Auftraggebers und ans Büro, auf Wunsch auch an die örtliche Bauaufsicht. Jeder Versand wird protokolliert.
 
 ### 3.4 Preise und Nachkalkulation
+
+**Wer sieht das?** Preise und Nachkalkulation sehen Büro/Lohnverrechnung und Geschäftsführung, der Bauleiter nur für seine eigenen Baustellen und ohne Einzellöhne. Polier und Mitarbeiter sehen nie €-Werte (Kapitel 2.2).
 
 **Stammdaten Preise.** Jeder Preis hat ein „gültig ab“-Datum. Eine Preisänderung wirkt also nicht rückwirkend auf alte Baustellen.
 
@@ -508,24 +509,273 @@ Der DB ist der Betrag, der zur Deckung von Büro, Bauhof, Geschäftsführung (Ge
 **Grenzen ehrlich benannt:**
 
 - Die Nachkalkulation ist nur so gut wie die Bautagesberichte. Gerätestunden und Mengen werden anfangs geschätzt sein.
-- Eingangsrechnungen kommen oft Wochen später. Deshalb gilt die Nachkalkulation bis zum Eingang aller Rechnungen als **„vorläufig“**. In Phase 3 kann der Lieferschein als vorläufiger Wert dienen.
+- Eingangsrechnungen kommen oft Wochen später. Deshalb gilt die Nachkalkulation bis zum Eingang aller Rechnungen als **„vorläufig“**. Fotografierte Lieferscheine (ab Phase 2, Kapitel 4) dienen bis dahin als vorläufiger Wert.
+- Hochrechnung bis Bauende und automatische Hinweise: siehe Kapitel 4.
 
 ### 3.5 Auswertungen und Exporte
 
 | Auswertung / Export | Inhalt | Für wen | Phase |
 |---|---|---|---|
-| **Dashboard „Heute“** | Wer ist wo, fehlende Stempel, offene Berichte, AZG-Warnungen, Regie ohne Unterschrift | Büro, Geschäftsführung | 1 |
+| **Dashboard „Heute“** | Wer ist wo, fehlende Stempel, offene Berichte, AZG-Warnungen, Regie ohne Unterschrift | Büro, Geschäftsführung, Bauleiter (eigene Baustellen) | 1 |
 | **Monatsliste je Mitarbeiter** | Tage mit Beginn, Ende, Pause, Stunden; Normal- und Mehrstunden (Vorschlag), Fahrt, SW, U, K, ZA, FT, BS; SEG-Stunden je Art; Taggeld-Tage, Nächtigungen | Lohnverrechnung; auf Verlangen der Mitarbeiter bzw. Arbeitsinspektorat | 1 |
 | **Export Lohnverrechnung** | CSV/Excel nach abgestimmter Vorlage; in Phase 3 direkt im Importformat des Lohnprogramms | Steuerberater / Lohnverrechnung | 1 / 3 |
 | **BUAK-Vorbereitung** | Je Mitarbeiter: Beschäftigungstage, Urlaub, Schlechtwetterstunden mit Datum, Zeit und Grund | Lohnverrechnung (die Meldung selbst läuft weiter über eBUAK) | 1 |
 | **Berichtsarchiv** | Alle Bautagesberichte einer Baustelle als PDF-Paket (ZIP), Regiescheine gesammelt | Büro, Bauleitung, Streitfall | 1 |
-| **Nachkalkulation je Baustelle** | Kosten nach Kostenart, Erlös, DB, Soll/Ist, Ampel, Aufwandswerte | Geschäftsführung | 2 |
-| **Baustellenvergleich** | DB-Quote je Sparte (Pflaster, Asphalt, Erdbau) und je Auftraggeber | Geschäftsführung | 2 |
-| **Geräteauslastung** | Stunden je Gerät und Monat, Stillstand | Geschäftsführung | 2 |
+| **Nachkalkulation je Baustelle** | Kosten nach Kostenart, Erlös, DB, Soll/Ist, Ampel, Hochrechnung, Aufwandswerte | Büro, Geschäftsführung, Bauleiter (eigene Baustellen, ohne Einzellöhne) | 2 |
+| **Baustellenvergleich** | DB-Quote je Sparte (Pflaster, Asphalt, Erdbau) und je Auftraggeber | Büro, Geschäftsführung | 2 |
+| **Geräteauslastung** | Stunden je Gerät und Monat, Stillstand | Büro, Geschäftsführung, Bauleiter | 2 |
 | **Palettenkonto** | Offene Paletten je Lieferant | Büro | 2 |
 | **Aufwandswerte-Bibliothek** | Ist-Stunden je Einheit aus abgeschlossenen Baustellen | Angebotskalkulation | 2 |
 
 > **Grundsatz:** Die App **rechnet keine Löhne aus**. Sie liefert geprüfte Stunden mit allen Kennzeichen. Die Lohnberechnung, die Überstundenbewertung im Detail und die BUAK-Meldung bleiben im Lohnprogramm. Das hält die App schlank und vermeidet doppelte Pflege der KV-Regeln.
+
+---
+
+## 4 Innovative Funktionen und Benutzerfreundlichkeit
+
+Der Auftraggeber wünscht eine **sehr innovative und äußerst benutzerfreundliche** Lösung. Unser Maßstab dafür: Eine Neuerung muss auf der Baustelle Zeit sparen oder im Büro Geld bringen. Was nur gut aussieht, nennen wir ehrlich so. Für alle KI-Funktionen gilt: **Die KI schlägt vor, der Mensch bestätigt.** Nichts wird von der KI automatisch unterschrieben, versendet oder an den Lohn übergeben.
+
+### 4.1 Grundsätze der Bedienung
+
+| Grundsatz | Was das konkret heißt |
+|---|---|
+| **3-Tap-Regel** | Die häufigsten Aufgaben brauchen höchstens drei Berührungen: einstempeln, Partie einstempeln, Pause, Baustelle wechseln, ausstempeln, Bericht abschließen. Beispiel: App öffnen → vorgeschlagene Baustelle passt → „Arbeitsbeginn“. |
+| **Kaum Tippen** | Auswahl statt Eingabe. Stunden und Mengen über +/−-Tasten und Schnellwerte („ganzer Tag“, „½ Tag“, „1 Fuhre = 14 t“). Sprache statt Tastatur, Foto statt Abschreiben. |
+| **Einhandbedienung** | Die wichtigen Knöpfe liegen im unteren Bildschirmdrittel, im Bereich des Daumens. Keine Wischgesten, die Präzision verlangen. |
+| **Smarte Vorbelegung** | Baustelle aus der letzten Stempelung bzw. dem Plan, Partie von gestern, Geräte vom Vortag, Bericht aus den Stempelungen, Wetter automatisch. Der Polier muss nur noch korrigieren statt ausfüllen. |
+| **Offline-first** | Jede Funktion arbeitet zuerst am Gerät, das Netz ist ein Bonus. Eine Anzeige zeigt immer „alles übertragen“ bzw. „3 offen“. |
+| **Ohne Schulung bedienbar** | Wörter aus der Baustellensprache („Partie“, „Regie“, „Rüttelplatte“), Symbol und Wort zusammen. Eine Rückgängig-Taste (10 Sekunden) statt „Sind Sie sicher?“-Fragen. Keine versteckten Menüs, beim ersten Mal ein kurzer Hinweis. |
+| **Fehlertoleranz** | Nichts geht verloren, Entwürfe werden laufend gespeichert. Fehlermeldungen in einfacher Sprache, immer mit Lösungsvorschlag. |
+| **Klare Rückmeldung** | Vibration und deutliche Bestätigung, z. B. „Eingestempelt 07:30 – Musterstraße“. |
+| **Barrierefreiheit** | Kontraste nach WCAG 2.1 AA als Richtschnur, Schrift vergrößerbar. Farbe trägt nie allein Information (Ampel immer mit Symbol und Wort). Bildschirmleser-tauglich, einfache Sprache. |
+
+**Messbar machen:** Im Pilot gibt es einen kurzen Bedienungstest mit 5 Mitarbeitern, ohne Erklärung. Ziel: Mindestens 4 von 5 schaffen das Einstempeln in unter 30 Sekunden, und ein Polier schafft den vorbefüllten Bericht in unter 5 Minuten.
+
+### 4.2 Überblick
+
+| | Funktion | Nutzen in einem Satz | Unsere Einschätzung | Phase |
+|---|---|---|---|---|
+| A | Bautagesbericht per Sprache diktieren | Bericht in 1–2 statt 10 Minuten, auch mit Handschuhen | lohnt sich **nach Test** (Dialekt, Lärm) | Stufe 1: 1; Stufe 2 (KI): 2 |
+| B | Lieferschein fotografieren, KI liest | Genaue Mengen ohne Abschreiben, Beleg für die Rechnungsprüfung | lohnt sich **nach Test** | 2 |
+| C | Wetter automatisch und Schlechtwetter-Vorschlag | Nachweis für BUAK und Behinderungen ohne Mehrarbeit | **sicherer Gewinn** | 1 |
+| D | AZG-Wächter (Pause, Höchstarbeitszeit, Ausstempeln vergessen) | Verstöße und vergessene Stempel fallen sofort auf, nicht erst bei der Kontrolle | **sicherer Gewinn** | 1 |
+| D | Ankunfts-Hinweis per Geofence am Gerät | Erinnert beim Eintreffen ans Einstempeln | **Komfort, optional**; höchstes Akzeptanzrisiko | 3 |
+| E | Geräte per NFC-/QR-Tag | Gerätestunden genau statt geschätzt, automatisch auf die KST | **sicherer Gewinn**, braucht Disziplin | 2 (Test in 1) |
+| F | Mehrsprachigkeit und Baustellen-Modus | Jeder versteht die App, und sie ist bei Sonne und mit Handschuhen bedienbar | **sicherer Gewinn** | 1 (weitere Sprachen 2) |
+| G | Nachkalkulation mit Hochrechnung und automatischen Hinweisen | Probleme am 2. Tag statt nach der Schlussrechnung erkennen | **sicherer Gewinn** | 2 |
+| H | Fernunterschrift per SMS-Link | Unterschrift auch, wenn der Bauherr nicht vor Ort ist | **sicherer Gewinn** | 1 |
+| – | Plantafel / Einsatzplanung mit Push | Jeder weiß am Vortag, wo er morgen arbeitet | sinnvoll, **wenn** heute viel telefoniert wird | 3 |
+| – | KI-Fragen an die Daten (Büro) | Fragen in Alltagssprache statt Auswertung suchen | **eher Spielerei**; Standardberichte decken das meiste ab | 3, optional |
+
+### 4.3 (A) Bautagesbericht per Sprache diktieren
+
+**So funktioniert es:** Der Polier drückt im Bericht die Mikrofon-Taste und spricht, etwa:
+
+> „Heute 180 m² Pflaster verlegt, Bagger 2,7 Tonnen 6 Stunden, Rüttelplatte 4 Stunden, zwei Fuhren Frostschutz vom Kieswerk, 30 Europaletten retour. Bauherr will zusätzlich das Mäuerchen weg, 2 Stunden Regie mit zwei Mann.“
+
+Die App ordnet das so zu:
+
+- **Arbeitsleistung:** Position „Pflaster verlegen“, 180 m²
+- **Geräte:** Bagger 2,7 t 6 Std., Rüttelplatte 4 Std.
+- **Material:** Frostschutz 28 t, Eigenmaterial
+- **Paletten:** 30 Euro
+- **Regie:** 2 × 2 Std. mit Beschreibung
+
+Der Polier sieht die Vorschläge markiert und bestätigt oder ändert sie mit einem Tipp.
+
+- **Nutzen:** Der Bericht dauert 1–2 Minuten statt 10. Das hilft mit Handschuhen, bei Schreibschwäche und Mitarbeitern mit anderer Muttersprache (die KI versteht auch andere Sprachen und trägt auf Deutsch ein).
+- **Technik heute:** Wir schlagen zwei Stufen vor.
+  - *Stufe 1 (Phase 1, ohne Zusatzkosten):* Die eingebaute Diktierfunktion der Handy-Tastatur füllt Textfelder wie Arbeitsleistung und Vorkommnisse.
+  - *Stufe 2 (Phase 2):* Spracherkennung und ein KI-Sprachmodell wandeln das Gesagte in strukturierte Felder um. Beides läuft über einen **in der EU gehosteten Dienst**, z. B. Mistral (Frankreich) oder die EU-Rechenzentren großer Anbieter (nicht im Detail geprüft).
+  - Die KI bekommt nur die Auswahllisten der Baustelle (Positionen, Geräte, Material). Sie kann also nur zuordnen, was es gibt, und erfindet keine Geräte.
+  - Ohne Netz wird die Aufnahme gespeichert und verarbeitet, sobald wieder Empfang da ist.
+- **Ehrliches Risiko:**
+  - Dialekt, Fachwörter („Gräder“, „Frostschutz 0/32“) und Lärm (Rüttelplatte, Bagger) können die Erkennung verschlechtern.
+  - Deshalb machen wir in Phase 0 einen **Test mit ca. 20 echten Diktaten von 3 Polieren**. Ziel: mindestens 90 % der Felder richtig erkannt.
+  - Wenn die Poliere lieber tippen, bleibt es bei Stufe 1. Dann war es eine Spielerei, die wenig gekostet hat.
+- **Datenschutz und Arbeitsrecht:**
+  - Die Stimme ist ein personenbezogenes Datum. Die Aufnahme dient nur der Umwandlung und wird danach gelöscht (höchstens 7 Tage für Fehlerprüfungen). Es bleibt nur der Text.
+  - Auftragsverarbeitungsvertrag mit dem Anbieter, Verarbeitung in der EU, keine Verwendung zum Training seiner KI.
+  - Keine Stimm-Identifikation (keine Biometrie). Die Funktion wird in die Betriebsvereinbarung aufgenommen.
+- **Laufende Kosten:** Spracherkennung kostet laut Preisvergleichen ca. 0,3–1,6 US-Cent je Minute, die KI-Auswertung wenige Cent je Bericht. Bei ca. 130 Berichten im Monat sind das unter 20 € pro Monat.
+- **Phase:** Stufe 1 in Phase 1, Stufe 2 in Phase 2 nach positivem Test.
+
+### 4.4 (B) Lieferschein fotografieren
+
+- **So funktioniert es:** Der Polier fotografiert den Lieferschein. Die KI liest Lieferant, Lieferschein-Nr., Datum, Material, Menge, Einheit und, wenn vorhanden, das Kennzeichen. Daraus wird ein Vorschlag für „Material“ bzw. „Materialbeistellung“, mit dem Foto als Beleg. Der Polier bestätigt.
+- **Nutzen:**
+  - genaue statt geschätzter Mengen;
+  - die Buchhaltung kann Eingangsrechnungen gegen die Lieferscheine prüfen;
+  - die Nachkalkulation hat schon vor der Rechnung einen Wert;
+  - kein Abschreiben.
+- **Technik heute:** Texterkennung (OCR) und KI-Auszug über einen EU-gehosteten Dienst. Laut Preisvergleichen kostet reine Texterkennung ab ca. 1,5–2 US-$ je 1.000 Seiten, strukturierte Auszüge ca. 10 US-$ je 1.000 Seiten.
+- **Ehrliches Risiko:**
+  - Zerknitterte, nasse oder handschriftliche Lieferscheine und viele verschiedene Formulare verschlechtern die Erkennung.
+  - Deshalb testen wir vorher **ca. 30 echte Lieferscheine der 5 häufigsten Lieferanten**.
+  - Für Material aus dem **eigenen Kieswerk** ist ein digitaler Lieferschein (Phase 3) besser als die Foto-Erkennung des eigenen Papiers.
+- **Datenschutz:** Lieferscheine enthalten Fahrernamen und Kennzeichen. Sie werden nur für Abrechnung und Nachkalkulation verwendet und mit dem Bericht aufbewahrt (Kapitel 5.8).
+- **Laufende Kosten:** wenige € pro Monat.
+- **Phase:** 2, nach dem Test.
+
+### 4.5 (C) Wetter automatisch und Schlechtwetter-Vorschlag
+
+- **So funktioniert es:**
+  - Für den Baustellenort holt die App stündliche Werte (Temperatur, Niederschlag, Wind, Schnee) der nächstgelegenen Messstation, z. B. vom **Data Hub der GeoSphere Austria**, und trägt sie in den Bericht ein.
+  - Überschreitet ein Wert die Schlechtwetter-Kriterien der BUAK (z. B. über 32,5 °C im Schatten, Regen ab 1 mm), schlägt die App vor: „Schlechtwetter ab 13:00 prüfen?“
+  - **Entscheiden muss der Arbeitgeber bzw. der Polier in seinem Auftrag (§ 5 BSchEG).** Die App entscheidet nie selbst.
+  - Die Werte werden als Nachweis beim Bericht und für den eBUAK-Antrag gespeichert (Kapitel 5.4).
+- **Nutzen:** Nachweis für die BUAK-Rückerstattung und für Behinderungen gegenüber dem Auftraggeber, ohne händisches Eintragen.
+- **Technik heute:** Die Daten-Schnittstelle des GeoSphere Data Hub ist ohne Schlüssel nutzbar. Die Quellenangabe ist Pflicht, die Lizenz ist je Datensatz zu prüfen. Weil die nächste Station einige Kilometer entfernt sein kann, darf der Polier ergänzen („vor Ort stärker“).
+- **Risiko:** gering.
+- **Datenschutz:** keine personenbezogenen Daten.
+- **Laufende Kosten:** voraussichtlich 0 € (offene Daten); ein kommerzieller Wetterdienst kostet 0–50 € pro Monat.
+- **Phase:** 1.
+
+### 4.6 (D) AZG-Wächter und Ankunfts-Hinweis
+
+**AZG-Wächter (Phase 1).** Push-Nachrichten aufs Handy des Mitarbeiters bzw. auf das Tablet des Poliers für seine Partie, z. B.:
+
+- „Seit 6 Stunden ohne Pause – Pause buchen?“ (bei Jugendlichen nach 4½ Stunden)
+- „10. Stunde erreicht“ bzw. „Höchstarbeitszeit von 12 Std. in 30 Minuten erreicht“
+- „Ruhezeit: frühestens morgen 06:15 beginnen“
+- „Ausstempeln vergessen? Noch eingestempelt seit 18:30“
+- „Partie Huber ist 15 Minuten nach dem üblichen Beginn noch nicht eingestempelt“
+
+So funktioniert es technisch:
+
+- Der Server rechnet nur aus den Stempelungen. **Standortdaten sind nicht nötig.**
+- Die Nachrichten kommen als Web-Push: auf Android-Geräten problemlos, am iPhone ab iOS 16.4, wenn die App am Startbildschirm installiert ist.
+- **Risiko:** Zu viele Nachrichten nerven und werden ignoriert. Deshalb gibt es wenige, gut gewählte Nachrichten, die Poliere einstellen können.
+- **Kosten:** keine laufenden Kosten.
+
+**Ankunfts-Hinweis per Geofence (Phase 3, optional).**
+
+- **So funktioniert es:** Das Gerät kennt die Umkreise der heutigen Baustellen. Beim Betreten zeigt **das Gerät selbst** „Musterstraße erreicht – jetzt einstempeln?“. Der Standort wird dafür nicht an den Server geschickt, und es gibt kein Bewegungsprotokoll.
+- **Technik:** Ehrlich gesagt geht das in einer reinen Web-App nicht im Hintergrund. Es braucht eine native „Hülle“ (z. B. Capacitor) mit der Geofencing-Funktion des Betriebssystems, die Berechtigung „Standort immer“ und eine Veröffentlichung über die App-Stores. Die Kosten der Entwicklerkonten liegen bei ca. 100 € pro Jahr.
+- **Datenschutz und Arbeitsrecht:**
+  - Die Berechtigung „Standort immer“ würde technisch eine Dauerortung erlauben, auch wenn die App sie nicht nutzt. Das ist eine Vertrauensfrage.
+  - Deshalb nur auf Firmengeräten, nur mit Betriebsvereinbarung bzw. Zustimmung, abschaltbar, und mit dokumentiert geprüftem Programmcode. **Nie auf privaten Handys.**
+- **Einschätzung:** Das ist Komfort, kein Muss. Die Uhrzeit-Erinnerung des AZG-Wächters erreicht den Großteil des Nutzens ohne Standort. Deshalb gibt es den Geofence-Hinweis erst, wenn die Mitarbeiter ihn ausdrücklich wollen.
+
+### 4.7 (E) Geräte per NFC- oder QR-Tag
+
+- **So funktioniert es:**
+  - Jedes Gerät bekommt einen robusten NFC-Aufkleber bzw. ein QR-Schild in der Kabine.
+  - Der Maschinist oder Polier hält das Handy bzw. Tablet hin, und die App meldet z. B. „Bagger 9 t – Musterstraße, Start 07:40“.
+  - Die Gerätezeit endet beim Abmelden am Tag, spätestens beim Ausstempeln des Bedieners.
+  - Die Stunden fließen automatisch in den Bericht (Abschnitt Geräte) und in die Nachkalkulation der KST.
+- **Nutzen:**
+  - Gerätestunden werden gemessen statt am Abend geschätzt, und Gerätekosten sind ein großer Kostenblock.
+  - Das Büro sieht, welches Gerät auf welcher Baustelle steht.
+  - Die Gerätestunden der Regie sind belegbar.
+- **Technik heute:** NFC funktioniert in einer Web-App nur auf Android (Chrome), QR-Codes überall (Kamera). Richtwerte: metalltaugliche NFC-Tags ca. 2–10 € je Stück, QR-Schilder ca. 2–5 €. Bei ca. 40 Geräten sind das ca. 200–600 € einmalig.
+- **Später möglich:** Betriebsstunden direkt aus der Maschinen-Telematik der Hersteller (bei neueren Geräten; nicht im Detail geprüft).
+- **Ehrliches Risiko:**
+  - Das Abmelden wird vergessen. Dagegen helfen die Regel „endet spätestens mit dem Ausstempeln des Bedieners“ und Plausibilitätsprüfungen.
+  - Tags werden beschädigt. Dann dient der QR-Code als Reserve.
+- **Datenschutz:** Geräte-Buchungen sind mit dem Bediener verknüpft und damit indirekt Arbeitszeitdaten; sie gehören in die Betriebsvereinbarung. Eine spätere GPS-Telematik der Maschinen wäre eine indirekte Ortung des Fahrers und ist **ausdrücklich in die Betriebsvereinbarung aufzunehmen**.
+- **Laufende Kosten:** keine.
+- **Phase:** 2. Ein Test an 5 Geräten ist schon im Pilot möglich.
+
+### 4.8 (F) Mehrsprachigkeit und Baustellen-Modus
+
+- **Sprachen:**
+  - Deutsch, Bosnisch/Kroatisch/Serbisch (BKS), Ungarisch, Rumänisch und Türkisch. Jeder stellt seine Sprache selbst ein.
+  - Das PDF für den Auftraggeber ist immer auf Deutsch.
+  - Freie Texte (Vorkommnisse, Korrekturgrund) werden für das Büro automatisch ins Deutsche übersetzt; das Original bleibt sichtbar.
+- **Baustellen-Modus:**
+  - Ein Schalter, am Tablet auf Wunsch standardmäßig ein: sehr große Knöpfe (mind. ca. 15 mm), hoher Kontrast für direkte Sonne, keine Wischgesten, Bestätigung mit Vibration.
+  - Handschuhtauglich, denn robuste Tablets haben einen Handschuh-Modus für den Bildschirm. Ein Stift ist die Alternative.
+- **Technik heute:**
+  - Die Texte der Oberfläche liegen in Übersetzungsdateien. Sie werden einmal professionell übersetzt (ca. 300–600 € je Sprache) und von einem Mitarbeiter mit dieser Muttersprache gegengelesen.
+  - Die Übersetzung freier Texte läuft über einen EU-Dienst (z. B. DeepL; nicht im Detail geprüft).
+- **Risiko:** gering. Jede neue Funktion braucht ihre Texte in allen Sprachen, das ist ein kleiner laufender Aufwand.
+- **Laufende Kosten:** wenige € pro Monat für die Übersetzung freier Texte.
+- **Phase:** Baustellen-Modus, das Grundgerüst und die 2 wichtigsten Fremdsprachen in Phase 1, die übrigen in Phase 2. Welche Sprachen wirklich gebraucht werden, steht in den offenen Fragen (Kapitel 10).
+
+### 4.9 (G) Nachkalkulation mit Hochrechnung und automatischen Hinweisen
+
+**Hochrechnung bis Bauende:**
+
+- **Formel:** erwartete Endkosten = bisherige Ist-Kosten + Restmenge × bisherige Ist-Kosten je Einheit (je Position; bei Pauschalen über den Fertigstellungsgrad). Daraus ergibt sich der **erwartete End-Deckungsbeitrag**.
+- **Am Beispiel aus Kapitel 3.4:**
+  - Nach Tag 2 sind 65 % der Angebotssumme als Leistung gemeldet (ca. 11.140 € von 17.138 €). Die Ist-Kosten liegen bisher bei 9.400 €.
+  - Hochrechnung der Endkosten: ca. 9.400 € ÷ 0,65 ≈ 14.460 €.
+  - Erwarteter DB: ca. 2.680 € (15,6 %) statt kalkulierter 20,6 %.
+  - Folge: **Ampel Gelb, schon am Abend des 2. Tages.** Ohne die App wäre das erst nach der Schlussrechnung aufgefallen.
+
+**Automatische Hinweise:**
+
+- **Mit €-Bezug** (Prognose, Mehrkosten, nicht verrechnete Regie in €) gehen sie nur an Büro, Geschäftsführung und Bauleiter.
+- **Ohne €** gehen sie auch an den Polier (Kapitel 2.2). Beispiele:
+  - Mehrverbrauch Material: „Frostschutz 15 % über dem Sollverbrauch je m²“
+  - Regie erfasst, aber nach 2 Tagen noch nicht unterschrieben bzw. nach dem Monatsende nicht verrechnet
+  - Stunden ohne Leistungsmeldung: 2 Tage gearbeitet, keine Menge gemeldet
+  - Angebotsmenge überschritten, also Mehrmenge bzw. Nachtrag prüfen
+  - Gerät steht seit 3 Tagen ohne Stunden auf der Baustelle (abziehen?)
+  - Paletten seit über 30 Tagen nicht retour
+
+**Weitere Punkte:**
+
+- **Technik:** Das ist reine Rechenlogik, KI ist nicht nötig. Deshalb ist die Funktion robust und nachvollziehbar.
+- **Risiko:** Sie ist nur so gut wie die Leistungsmeldungen. Hinweise gibt es sparsam (höchstens wenige pro Tag und Person), sonst werden sie ignoriert.
+- **Laufende Kosten:** keine.
+- **Phase:** 2.
+
+### 4.10 (H) Fernunterschrift per SMS-Link
+
+- **So funktioniert es:**
+  - Ist der Bauherr nicht vor Ort, tippt der Polier „per SMS senden“.
+  - Der Bauherr bekommt einen Link, der z. B. 7 Tage gültig ist. Er sieht den Bericht in der Fassung für den Auftraggeber, also ohne €, und unterschreibt mit dem Finger oder lehnt mit Kommentar ab.
+  - Das Büro sieht den Status. Nach 2 Tagen geht automatisch eine Erinnerung hinaus.
+- **Rechtlich:** Das ist eine einfache elektronische Signatur wie am Tablet (Kapitel 5.9). Der Beweiswert entsteht durch das Protokoll: Telefonnummer, Zeitpunkt, Einmal-Link, Prüfsumme des PDFs. Die Telefonnummer des Vertreters sollte im Auftrag als Kontakt festgehalten sein.
+- **Laufende Kosten:** SMS über einen Anbieter in der EU kosten ca. 5–10 Cent je SMS (Richtwert), also wenige € pro Monat. Per Mail ist es kostenlos.
+- **Phase:** 1.
+
+### 4.11 Optional: Plantafel mit Push und KI-Fragen an die Daten
+
+- **Plantafel / Einsatzplanung (Phase 3):**
+  - Das Büro zieht Mitarbeiter und Geräte mit der Maus auf die Baustellen von morgen.
+  - Jeder bekommt am Vortag eine Push-Nachricht, z. B. „Morgen 07:00 Musterstraße, Partie Huber, Treffpunkt Bauhof“.
+  - Beim Stempeln schlägt die App dann die geplante Baustelle vor.
+  - **Einschätzung:** sehr nützlich, wenn heute viel telefoniert wird oder eine Tafel im Büro hängt. Erst nach einer Saison mit der App entscheiden.
+- **KI-Fragen an die Daten (Phase 3, optional):**
+  - Büro und Geschäftsführung (und der Bauleiter im Rahmen seiner Rechte) fragen in Alltagssprache, z. B. „Wie viele Regiestunden haben wir heuer bei der Gemeinde X verrechnet?“.
+  - Die KI erstellt die Abfrage und zeigt das Ergebnis mit der zugrunde liegenden Tabelle. Sie sieht nur Daten, die der Fragende sehen darf (Kapitel 2.2).
+  - **Einschätzung:** eher Spielerei, weil die Standardauswertungen das meiste abdecken. Antworten der KI können falsch sein, deshalb wird die Rechengrundlage immer angezeigt. Nur machen, wenn nach einem Jahr Fragen offen bleiben, die die Auswertungen nicht beantworten.
+
+### 4.12 Rechtlicher Rahmen für die KI-Funktionen
+
+- **Vorschlag statt Automatik:** Die KI füllt Felder vor. Bestätigen, unterschreiben und freigeben tun Menschen.
+- **EU-KI-Verordnung (VO (EU) 2024/1689):**
+  - Wer KI im Betrieb einsetzt, muss für ausreichende **KI-Kompetenz** der Nutzer sorgen (Art. 4, laut Quellen seit 2. 2. 2025). Bei unseren Funktionen reicht voraussichtlich eine kurze Einweisung samt Merkblatt.
+  - KI zur **Leistungsbewertung oder Verhaltensüberwachung von Beschäftigten** gilt als Hochrisiko (Anhang III Nr. 4; die Pflichten dafür wurden laut Quellen auf 2027 verschoben). Das machen wir ausdrücklich **nicht**: keine Bewertung von Polieren oder Mitarbeitern durch KI, keine Ranglisten je Person. Aufwandswerte werden je Baustelle und Position ausgewertet, nicht je Person.
+  - **Prüfen:** die aktuelle Fassung, da 2026 Änderungen („Digital Omnibus“) diskutiert bzw. beschlossen wurden.
+- **DSGVO:** Auftragsverarbeitungsverträge mit den KI-Anbietern, Verarbeitung in der EU, keine Nutzung der Daten zum Training, Löschung der Audioaufnahmen. Die Fotos bleiben beim Bericht.
+- **Mitbestimmung:** Diktat, Geräte-Tags, AZG-Wächter und ein allfälliger Geofence werden in die Betriebsvereinbarung bzw. die Zustimmungserklärung aufgenommen (Kapitel 5.7).
+
+### 4.13 Aufwand und laufende Kosten der Neuerungen
+
+| Funktion | Phase | Aufwand | Einmalig (netto) | Laufend pro Monat |
+|---|---|---|---|---|
+| KI-Test (Diktat, Lieferscheine) | 0 | 15–30 Std. | 1.500–3.500 € | – |
+| Rollen & Berechtigungen am Server, Ausnahmen, Protokoll (Kapitel 2.2) | 1 | 15–25 Std. | 1.500–3.000 € | – |
+| Baustellen-Modus und UX-Feinschliff inkl. Bedienungstest | 1 | 15–30 Std. | 1.500–3.500 € | – |
+| Mehrsprachigkeit: Grundgerüst + 2 Sprachen | 1 | 15–25 Std. | 1.500–3.000 € + Übersetzung 600–1.200 € | wenige € |
+| AZG-Wächter und Uhrzeit-Erinnerung (Push) | 1 | 25–40 Std. | 2.500–5.000 € | – |
+| Wetter automatisch und Schlechtwetter-Vorschlag | 1 | 20–35 Std. | 2.000–4.000 € | 0–50 € |
+| Fernunterschrift per SMS-/Mail-Link | 1 | 15–25 Std. | 1.500–3.000 € | wenige € (SMS) |
+| Diktat Stufe 1 (Tastatur-Diktat) | 1 | im MVP enthalten | – | – |
+| Hochrechnung und automatische Hinweise | 2 | 40–70 Std. | 3.500–8.500 € | – |
+| Geräte per NFC-/QR-Tag | 2 | 30–50 Std. | 2.500–6.000 € + Tags 200–600 € | – |
+| Diktat Stufe 2 (KI füllt Felder) | 2, nach Test | 60–110 Std. | 5.500–13.000 € | unter 20 € |
+| Lieferschein-Erkennung | 2, nach Test | 40–80 Std. | 3.500–9.500 € | wenige € |
+| 3 weitere Sprachen | 2 | 10–20 Std. | 1.000–2.500 € + Übersetzung 900–1.800 € | – |
+| Ankunfts-Hinweis per Geofence (native Hülle) | 3, optional | 60–100 Std. | 5.500–12.000 € | ca. 10 € (Store-Konten) |
+| Plantafel / Einsatzplanung mit Push | 3 | 80–150 Std. | 7.000–18.000 € | – |
+| KI-Fragen an die Daten | 3, optional | 40–80 Std. | 3.500–9.500 € | 5–30 € |
+
+Alle Werte sind Richtwerte bei 90–120 €/Std. Sie sind in den Phasen in Kapitel 9 enthalten.
 
 ---
 
@@ -625,6 +875,11 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 > 3. Ohne Zustimmung funktioniert die App ohne Standort.
 > 4. **Prüfen:** Rechtsberatung oder WKO-Arbeitsrecht für den Text der Vereinbarung.
 
+In die Betriebsvereinbarung bzw. Zustimmungserklärung gehören außerdem:
+
+- das Rollen- und Rechtekonzept: Wer sieht welche Zeiten, wer sieht Lohndaten (Kapitel 2.2);
+- die zusätzlichen Datenflüsse der Neuerungen: Sprachaufnahmen, Lieferschein-Fotos, Geräte-Tags, AZG-Wächter und ein allfälliger Geofence-Hinweis, der nur am Gerät ausgewertet wird (Kapitel 4.12).
+
 ### 5.8 Aufbewahrungsfristen
 
 | Daten | Empfohlene Frist | Grundlage / Begründung |
@@ -676,6 +931,9 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 | Betriebsvereinbarung bzw. Zustimmungserklärung, Datenschutz-Dokumente | Rechtsberatung oder WKO-Arbeitsrecht; Datenschutzberatung |
 | Vertragsklausel elektronischer Bautagesbericht, ÖNORM B 2110 | Rechtsberatung, WKO Landesinnung Bau |
 | Lenkzeiten, Tachograph, Ausnahmen Baustellenverkehr | WKO Fachgruppe Güterbeförderung |
+| KI-Funktionen: EU-KI-Verordnung (KI-Kompetenz, keine Mitarbeiterbewertung), Verträge mit KI-, Übersetzungs- und SMS-Anbietern | Datenschutzberatung, Rechtsberatung |
+| Rollenkonzept, Sichtbarkeit von Lohndaten, Mitarbeiternamen im PDF für den Auftraggeber | Datenschutzberatung, ggf. Betriebsrat |
+| Nutzungsbedingungen der Wetterdaten (GeoSphere Austria) | Entwickler, beim Anbieter |
 
 ---
 
@@ -695,7 +953,18 @@ erDiagram
     LOHNGRUPPE ||--o{ MITARBEITER : "Einstufung"
     MITARBEITER ||--o{ ZEITBUCHUNG : stempelt
     MITARBEITER ||--o{ ABWESENHEIT : hat
-    ZEITBUCHUNG ||--o{ KORREKTUR : "Aenderungsprotokoll"
+    ZEITBUCHUNG ||--o{ AENDERUNGSPROTOKOLL : "Aenderungen"
+    MITARBEITER ||--o{ AENDERUNGSPROTOKOLL : "hat geaendert"
+    ROLLE ||--o{ MITARBEITER : "Rolle"
+    ROLLE ||--o{ ROLLENRECHT : umfasst
+    RECHT ||--o{ ROLLENRECHT : "Teil von"
+    MITARBEITER ||--o{ RECHTE_AUSNAHME : "Ausnahme"
+    RECHT ||--o{ RECHTE_AUSNAHME : betrifft
+    MITARBEITER ||--o{ ENDGERAET : "angemeldet auf"
+    MITARBEITER |o--o{ BAUSTELLE : "Bauleiter von"
+    GERAET ||--o{ GERAETEBUCHUNG : "Tag gescannt"
+    BAUSTELLE ||--o{ GERAETEBUCHUNG : "KST"
+    BAUSTELLE ||--o{ HINWEIS : "automatische Hinweise"
     LOHNGRUPPE ||--o{ KOSTENSATZ : "gueltig ab"
     GERAET ||--o{ KOSTENSATZ : "gueltig ab"
     MATERIAL ||--o{ KOSTENSATZ : "gueltig ab"
@@ -714,23 +983,32 @@ erDiagram
     BAUTAGESBERICHT ||--o{ VORKOMMNIS : Vorkommnisse
     BAUTAGESBERICHT ||--o{ FOTO : Fotos
     BAUTAGESBERICHT ||--o{ UNTERSCHRIFT : Unterschriften
+    BAUTAGESBERICHT ||--o{ LIEFERSCHEIN : Lieferscheine
 ```
 
 ### 6.2 Die wichtigsten Datenobjekte
 
 | Objekt | Wichtige Inhalte |
 |---|---|
-| **Mitarbeiter** | Name, Personalnummer, Rolle, Lohngruppe, jugendlich bis (Datum), PIN (verschlüsselt), NFC-/QR-Kennung, Standort-Zustimmung ja/nein, Sprache, Ein- und Austritt |
+| **Mitarbeiter (= Benutzer)** | Name, Personalnummer, Rolle, Lohngruppe, jugendlich bis (Datum), PIN (verschlüsselt), NFC-/QR-Kennung, Standort-Zustimmung ja/nein, Sprache, Baustellen-Modus ein/aus, Ein- und Austritt |
+| **Rolle** | Mitarbeiter, Polier/Vorarbeiter, Bauleiter, Büro/Lohnverrechnung, Geschäftsführung (Admin); Kennzeichen „Preis-/Lohnrechte gesperrt“ (fix für Mitarbeiter und Polier) |
+| **Recht / Rollenrecht** | Einzelrecht (z. B. „Nachkalkulation sehen“, „Preise bearbeiten“, „Partie stempeln“) mit Bereich (alles, eigene Baustellen, eigene Partie, nur selbst); Zuordnung Rolle ↔ Recht |
+| **Rechte-Ausnahme** | Mitarbeiter, Recht, geben/entziehen, gültig von–bis, Grund, vergeben von. Preis- und Lohnrechte sind für gesperrte Rollen nicht vergebbar |
+| **Endgerät** | Gerätekennung, Typ (Firmen-Tablet, Firmenhandy, privat, Terminal), angemeldeter Benutzer, letzte Synchronisierung, Status (aktiv, abgemeldet, gesperrt) |
 | **Kolonne (Partie)** | Name, Polier, Mitglieder (mit Gültigkeitszeitraum) |
 | **Auftraggeber** | Name, Adresse, Ansprechpartner, Mail für Berichte, UID |
 | **Baustelle** | KST-Nummer, Bauvorhaben, Adresse, Koordinaten und Radius, Auftraggeber, Sparte, Status, Ziel-DB, Taggeld-Merkmal / Entfernung |
 | **LV-Position** | Positionsnummer, Kurztext, Einheit, Angebotsmenge, Einheitspreis, Art (EP, Pauschale, Regie), optional Soll-Kosten bzw. Std. je Einheit |
 | **Zeitbuchung** | Mitarbeiter, KST, Beginn, Ende, Art (Arbeit, Fahrt, Laden, Werkstatt, Kieswerk, Transport, Pause), Regie ja/nein, Fahrzeug/Gerät, Quelle (selbst, Polier, Büro), Gerätezeit / Synchronisierungszeit, „bei Baustelle ja/nein“, Status (offen, freigegeben, gesperrt) |
 | **Abwesenheit** | Mitarbeiter, von–bis, Code (K, U, SW, ZA, FT, BS, SD), Stunden, Status, Beleg |
-| **Korrektur** | Objekt, alter Wert, neuer Wert, Grund, wer, wann, Freigabe |
-| **Bautagesbericht** | Baustelle, Datum, Polier, Wetter, Status, Version, PDF-Prüfsumme, Versandprotokoll |
+| **Änderungsprotokoll** | Objekt (Zeit, Bericht, Preis, Kostensatz, Recht, Rolle), alter Wert, neuer Wert, Grund, wer, wann, Freigabe; nicht löschbar |
+| **Bautagesbericht** | Baustelle, Datum, Polier, Wetterwerte (Quelle, Station, Uhrzeit), Status, Version, PDF-Prüfsummen (Fassung Auftraggeber / intern), Versand- und Unterschriftsprotokoll (vor Ort, SMS- oder Mail-Link) |
+| **Lieferschein** | Foto, erkannte Felder (Lieferant, Nummer, Datum, Material, Menge, Einheit, Kennzeichen), Erkennungsstatus, vom Polier bestätigt ja/nein |
+| **Gerätebuchung** | Gerät, KST, Beginn, Ende, Bediener, Quelle (NFC, QR, händisch), Status |
+| **Hinweis** | Baustelle, Art (Mehrverbrauch, Regie offen, Menge überschritten …), mit €-Bezug ja/nein (steuert, wer ihn sieht), Status (offen, erledigt) |
+| **Einsatzplan** (Phase 3) | Datum, Baustelle, Mitarbeiter, Geräte, Treffpunkt, Push gesendet |
 | **Berichtszeilen** | Personal (Zeitblöcke, Pause, Stunden, Code), SEG-Eintrag, Geräteeinsatz (Gerät, Stunden, Regie ja/nein), Materialbewegung (Material, Menge, Einheit, Richtung, Herkunft Eigen/Zukauf/Beistellung AG, Lieferschein), Leistungsmeldung (Position, Menge), Regieposition, Palettenbewegung (Art, Anzahl), Vorkommnis (Kategorie, Text), Foto, Unterschrift (Rolle, Name, Zeitpunkt, Bild) |
-| **Gerät** | Inventarnummer, Bezeichnung, Kategorie (entspricht der Zeile in der Vorlage), Gewichtsklasse, Eigen- oder Mietgerät |
+| **Gerät** | Inventarnummer, Bezeichnung, Kategorie (entspricht der Zeile in der Vorlage), Gewichtsklasse, Eigen- oder Mietgerät, NFC-/QR-Kennung |
 | **Material** | Bezeichnung, Einheit, Umrechnung m³ ↔ t, Eigenmaterial (Kieswerk) ja/nein |
 | **Kostensatz** | Bezug (Lohngruppe, Gerät oder Material), gültig ab, Kostensatz, Verkaufs- bzw. Regiesatz, Regiesatz inkl. Bediener ja/nein |
 | **Zulagenart** | Bezeichnung, Typ (Schmutz, Erschwernis, Gefahr), Satz, Grundlage (KV oder Betriebsvereinbarung) |
@@ -751,7 +1029,7 @@ für jede Person mit Zeitbuchungen auf KST = Baustelle und Datum = Tag:
 Gerätevorschlag = Fahrzeug/Gerät aus den Buchungen der Lenker/Maschinisten + Geräte vom Vortag
 ```
 
-Der Polier kann alles übersteuern. Jede Abweichung von den Stempeln wird als Korrektur mit Grund gespeichert.
+Der Polier kann alles übersteuern. Jede Abweichung von den Stempeln wird mit Grund im Änderungsprotokoll gespeichert.
 
 **B) Nachkalkulation (je Baustelle, beliebiger Zeitraum):**
 
@@ -780,6 +1058,33 @@ Ist-Aufwandswert(Position) = zugeordnete Lohnstunden / Leistungsmenge
 - Fehlen noch Eingangsrechnungen, gilt das Ergebnis als „vorläufig“.
 - Mengen werden über den Materialfaktor zwischen m³ und t umgerechnet.
 - Regiestunden werden nicht zusätzlich in Leistungsmengen verrechnet.
+- Gerätestunden aus NFC-/QR-Buchungen werden als Vorschlag in den Bericht übernommen. Der Polier kann sie korrigieren, und die Korrektur kommt ins Protokoll.
+
+**D) Hochrechnung bis Bauende (Kapitel 4.9):**
+
+```
+Tageskosten auf die an diesem Tag gemeldeten Positionen verteilen
+    (im Verhältnis der kalkulierten Kosten; der Polier kann genauer zuordnen)
+je Position:  Ist-Kosten je Einheit = zugeordnete Ist-Kosten / gemeldete Menge
+              Restkosten = (Angebotsmenge − gemeldete Menge) × Ist-Kosten je Einheit
+              (bis ca. 20 % Leistungsstand mit den kalkulierten Kosten gemischt,
+               weil Anfangswerte stark schwanken)
+Prognose Endkosten = Ist-Kosten + Σ Restkosten + noch offene Fremdleistungen
+Prognose End-DB    = Angebotssumme + Regie + Nachträge − Prognose Endkosten
+```
+
+**E) Berechtigungsprüfung (bei jeder Anfrage am Server, Kapitel 2.2):**
+
+```
+Rechte  = Rechte der Rolle + gewährte Ausnahmen − entzogene Ausnahmen   (nur gültige)
+          Preis-, €-, Nachkalkulations- und Lohnrechte für Rolle Mitarbeiter/Polier: immer gesperrt
+          Bauleiter: Preise lesen und Nachkalkulation, beides nur eigene Baustellen;
+                     nie Preise bearbeiten, nie Lohnauswertung, nie Einzellöhne
+Bereich = alles | eigene Baustellen (Bauleiter) | eigene Partie (Polier) | nur selbst
+Antwort = nur Datensätze im Bereich und nur Felder mit Recht
+          (Preis-, €- und Lohnfelder fehlen sonst schon im übertragenen Datensatz)
+jede Änderung → Änderungsprotokoll (wer, wann, alt, neu, Grund)
+```
 
 ---
 
@@ -795,12 +1100,14 @@ Eine **Progressive Web App (PWA)** ist eine Webseite, die sich wie eine App am S
 | Verteilung, Updates | Sofort, ohne App-Store | Über App-Stores, Prüfzeiten |
 | Offline | Ja (Speicher im Gerät) | Ja |
 | Automatische Übertragung im Hintergrund | Android: ja. **iPhone/iPad: nur wenn die App geöffnet wird** | Ja |
-| NFC-Chips lesen | **Nur Android (Chrome)** | Ja |
-| Kamera, Standort, Unterschrift | Ja | Ja |
+| NFC-Chips und Geräte-Tags lesen | **Nur Android (Chrome)**; QR-Codes überall | Ja |
+| Kamera (Fotos, Lieferscheine, QR), Mikrofon (Diktat), Standort beim Stempeln, Unterschrift | Ja | Ja |
+| Push-Nachrichten (AZG-Wächter, Einsatzplan) | Android: ja. iPhone/iPad: ja ab iOS 16.4, wenn die App am Startbildschirm installiert ist | Ja |
+| Hinweis bei Ankunft (Geofence im Hintergrund) | **Nein** | Ja (mit Berechtigung „Standort immer“) |
 
 > **Empfehlung:**
-> - Eine PWA bauen. **Firmengeräte als Android-Geräte** anschaffen, weil dort Offline-Übertragung und NFC voll funktionieren. Private iPhones (freiwillig) funktionieren für Stempeln und „Meine Woche“; die App zeigt dort deutlich an, wenn Daten noch nicht übertragen sind.
-> - Sollte später eine echte App nötig werden (z. B. für NFC am iPhone), kann die PWA ohne Neuentwicklung in eine App „verpackt“ werden.
+> - Eine PWA bauen. **Firmengeräte als Android-Geräte** anschaffen, weil dort Offline-Übertragung, Push und NFC voll funktionieren. Private iPhones (freiwillig) funktionieren für Stempeln und „Meine Woche“; die App zeigt dort deutlich an, wenn Daten noch nicht übertragen sind.
+> - Wird später der Geofence-Hinweis gewünscht (Kapitel 4.6) oder NFC am iPhone, kann die PWA ohne Neuentwicklung in eine native „Hülle“ verpackt werden (z. B. Capacitor). Das braucht dann App-Store-Konten.
 
 ### 7.2 Aufbau
 
@@ -815,7 +1122,10 @@ flowchart LR
 
 - **Server und Datenbank:** bewährte Standardtechnik, z. B. TypeScript bzw. Node.js oder vergleichbar, mit der Datenbank **PostgreSQL**. Kein Exot, damit auch ein anderer Entwickler später weiterarbeiten kann. PDF-Erstellung und Mailversand laufen am Server.
 - **Synchronisierung:** Jede Buchung bekommt am Gerät eine eindeutige Nummer und kann nie doppelt ankommen. Konflikte (Polier und Mitarbeiter stempeln dieselbe Person) werden nicht automatisch überschrieben, sondern dem Polier bzw. Büro zur Entscheidung angezeigt.
-- **Wetter:** Abfrage bei einem Wetterdienst (z. B. GeoSphere Austria) für den Baustellenort, als Vorschlag im Bericht. **Prüfen:** Nutzungsbedingungen des Dienstes.
+- **Wetter:** Abfrage beim Data Hub der GeoSphere Austria (oder einem anderen Wetterdienst) für den Baustellenort, als Vorschlag im Bericht. **Prüfen:** Nutzungsbedingungen des Dienstes.
+- **Rechte:** Die Rechteprüfung passiert am Server, bevor Daten das Haus verlassen. Preis- und Lohnfelder werden für nicht berechtigte Rollen gar nicht erst in die Antwort gepackt (Kapitel 2.2 und 6.3 E).
+- **KI-Dienste (ab Phase 2):** Spracherkennung, Lieferschein-Erkennung und Übersetzung laufen über austauschbare EU-gehostete Dienste mit Auftragsverarbeitungsvertrag. Die App bindet sie über eine eigene Zwischenschicht an, damit ein Anbieterwechsel ohne Umbau möglich ist. Fällt ein Dienst aus, arbeitet der Polier normal per Hand weiter.
+- **Push und SMS:** Web-Push für den AZG-Wächter und Hinweise; SMS über einen EU-Anbieter für die Fernunterschrift.
 
 ### 7.3 Hosting in Österreich bzw. der EU
 
@@ -826,11 +1136,11 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 | Wer | Wie |
 |---|---|
 | Mitarbeiter | Personalnummer und 4–6-stellige **PIN**; optional NFC-Chip oder QR-Ausweis am Polier-Tablet |
-| Polier | Gerät ist fix angemeldet, Entsperren mit PIN; Sperre nach Inaktivität |
+| Polier, Bauleiter | Gerät ist fix angemeldet, Entsperren mit PIN; Sperre nach ca. 10 Minuten Inaktivität |
 | Büro, Geschäftsführung | Benutzername und Passwort plus **zweiter Faktor** (Code aus einer Authenticator-App) |
 | Bauherr | Kein Konto; unterschreibt am Gerät des Poliers bzw. über einen einmaligen Bestätigungslink |
 
-**Verlorenes Gerät:** Das Büro meldet es aus der Ferne ab. Die Daten am Gerät sind verschlüsselt und nur mit PIN zugänglich.
+**Verlorenes oder gemeinsam genutztes Gerät:** Automatische Sperre, sofortige Abmeldung am gemeinsamen Tablet, Fernabmeldung durch das Büro und keine Preise am Gerät (Details in Kapitel 2.2). Die Daten am Gerät sind verschlüsselt und nur mit PIN zugänglich.
 
 ### 7.5 Datensicherung
 
@@ -842,7 +1152,7 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 ### 7.6 Sicherheit
 
 - verschlüsselte Übertragung (HTTPS);
-- Rechte nach Rolle (Kapitel 2.2);
+- Rechte nach Rolle, **am Server durchgesetzt**, mit automatischen Tests, dass Polier- und Mitarbeitergeräte keine Preis- oder Lohnfelder erhalten (Kapitel 2.2);
 - Änderungsprotokoll;
 - regelmäßige Updates;
 - Firmengeräte über eine einfache Geräteverwaltung (z. B. Android Enterprise) mit Sperre, Fernlöschung und App-Modus;
@@ -856,10 +1166,11 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 | Robustes Android-Handy (z. B. Galaxy XCover-Klasse) | LKW-Fahrer, Maschinisten, falls kein Firmenhandy vorhanden | ca. 300–650 € (XCover7 Pro: österr. Händler ca. 560 €, dt. UVP 609 €) |
 | Normales Tablet mit Schutzhülle | Bauhof/Kieswerk-Terminal | ca. 250–450 € |
 | NFC-Schlüsselanhänger | Stempeln ohne PIN | ca. 3–5 € |
+| Metalltaugliche NFC-Tags bzw. QR-Schilder für Geräte | Gerätestunden per Tag (Kapitel 4.7) | ca. 2–10 € |
 | Fahrzeughalterung und Ladekabel | Tablet im Bus/LKW | ca. 30–80 € |
 | Datentarif | je Tablet/Handy | ca. 5–15 € pro Monat |
 
-**Bedarf (Annahme):** 6–8 Tablets, 1 Terminal, NFC-Chips für alle, dazu die vorhandenen Firmenhandys weiter nutzen. Das ergibt **ca. 4.000–7.000 €**.
+**Bedarf (Annahme):** 6–8 Tablets, 1 Terminal, NFC-Chips für alle, Tags für ca. 40 Geräte, dazu die vorhandenen Firmenhandys weiter nutzen. Das ergibt **ca. 4.000–7.500 €**.
 
 ### 7.8 Eigentum und Unabhängigkeit
 
@@ -903,20 +1214,23 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | Nachkalkulation mit eigenen Lohn-, Geräte- und Materialsätzen, Soll/Ist, Ampel | nein | teilweise (Modul seit 2026, prüfen) | nein | ja |
 | AT-Spezifika: BUAK, Schlechtwetter, SEG, Taggeld, Export an AT-Lohnprogramm | teilweise (BMD-Export) | unklar | nein | ja (nach Vorgabe der Lohnverrechnung) |
 | Kieswerk und Transporte als eigene KST | über Projekte | unklar | nein | ja |
+| Preise und € für Polier technisch gesperrt, Bauleiter nur eigene Baustellen | unklar | unklar | – | ja (Kapitel 2.2) |
+| Neuerungen aus Kapitel 4 (Diktat mit KI, Lieferschein-Erkennung, Hochrechnung, Geräte-Tags, Baustellen-Modus, 5 Sprachen) | teilweise (NFC, Standort beim Stempeln) | unklar | teilweise (Fotos, Formulare) | ja, nach Kapitel 4 |
 
 ### 8.3 Drei Varianten im Vergleich (5 Jahre, netto, grob)
 
 | | **A: Komplettlösung kaufen** (z. B. 123erfasst) | **B: Standard-Bausteine kombinieren** (TimeTac + Bautagebuch-App + Excel) | **C: Eigene schlanke App + bestehende Lohn- und Buchhaltungsprogramme** |
 |---|---|---|---|
-| Einmalig | 3.000–8.000 € (Einrichtung, Schulung) | 2.000–5.000 € | 43.000–83.000 € (Phasen 0–2) |
-| Laufend pro Jahr | 3.600–9.000 € (30 Nutzer à ca. 10–25 €/Monat, Annahme) | 3.600–9.400 € | 3.600–7.800 € (Hosting und Wartung; unabhängig von der Mitarbeiterzahl) |
-| **Summe 5 Jahre** | **ca. 21.000–53.000 €** | **ca. 20.000–52.000 €** plus laufende Excel-Arbeit | **ca. 61.000–122.000 €** |
+| Einmalig | 3.000–8.000 € (Einrichtung, Schulung) | 2.000–5.000 € | 63.000–128.000 € (Phasen 0–2 ohne KI-Module); mit KI-Modulen 72.000–151.000 € |
+| Laufend pro Jahr | 3.600–9.000 € (30 Nutzer à ca. 10–25 €/Monat, Annahme) | 3.600–9.400 € | 4.400–10.300 € (Hosting, Wartung, KI-Dienste, SMS; unabhängig von der Mitarbeiterzahl) |
+| **Summe 5 Jahre** | **ca. 21.000–53.000 €** | **ca. 20.000–52.000 €** plus laufende Excel-Arbeit | **ca. 86.000–180.000 €** (ohne KI-Module), **ca. 95.000–202.000 €** (mit) |
+| Innovation und Bedienung (Kapitel 4) | Was der Anbieter liefert | Gering | Genau nach Kapitel 4 |
 | Passt der Bautagesbericht? | Eigenes Layout, Anpassung unklar | Zwei getrennte Systeme, doppelte Eingabe | Genau Ihre Vorlage |
 | Nachkalkulation | Teilweise, im Test prüfen | Nein (Excel) | Ja, mit Ihrer Struktur |
 | Österreich-Spezifika | Prüfen | Teilweise | Ja |
 | Start | Sofort | Sofort | Pilot ab März/April 2027 |
 | Abhängigkeit | Vom Anbieter (Preise, Funktionen) | Von zwei Anbietern | Vom Entwickler; abgefedert durch Code-Eigentum und Standardtechnik |
-| Geräte (in allen Varianten) | 4.000–7.000 € | 4.000–7.000 € | 4.000–7.000 € |
+| Geräte (in allen Varianten) | 4.000–7.500 € | 4.000–7.500 € | 4.000–7.500 € |
 
 Geräte und Mobilfunk fallen in allen Varianten an und sind in der Summe nicht enthalten.
 
@@ -928,8 +1242,11 @@ Geräte und Mobilfunk fallen in allen Varianten an und sind in der Summe nicht e
 
 1. Ihr eigentlicher Nutzen entsteht dort, wo Standardprodukte schwach sind: Der **Bautagesbericht genau in Ihrer Form**, vorbefüllt aus den Stempeln, und die **Nachkalkulation mit Ihren eigenen Sätzen**, einschließlich Kieswerk-Eigenmaterial und Transporten.
 2. Eine Kombination mehrerer Standardprodukte (Variante B) bringt die Doppelerfassung zurück, die Sie loswerden wollen.
-3. Die Mehrkosten gegenüber dem Kauf von rund 40.000–70.000 € über 5 Jahre stehen einem geschätzten Nutzen von 40.000–50.000 € **pro Jahr** gegenüber. Die laufenden Kosten steigen nicht mit jedem zusätzlichen Mitarbeiter, Lehrling oder Saisonarbeiter.
-4. Der klickbare Prototyp verkürzt die Abstimmung und senkt das Risiko, dass am Bedarf vorbei entwickelt wird.
+3. Der Auftraggeber hat **Innovation und Bedienbarkeit als Priorität** genannt (Kapitel 4). Bei einem Standardprodukt bekommt man nur, was der Anbieter gerade anbietet, und die strengen Sichtbarkeitsregeln für Preise (Kapitel 2.2) sind dort unklar.
+4. **Ehrlich zu den Kosten:** Die Mehrkosten gegenüber dem Kauf liegen bei rund 65.000–125.000 € über 5 Jahre (ohne KI-Module). Dem steht ein geschätzter Nutzen von 40.000–50.000 € **pro Jahr** gegenüber (Kapitel 1), dazu genauere Geräte- und Materialmengen und bessere Angebotspreise. Rechnerisch amortisiert sich das in ca. 2–3 Jahren. Die laufenden Kosten steigen nicht mit jedem zusätzlichen Mitarbeiter, Lehrling oder Saisonarbeiter.
+5. Der klickbare Prototyp verkürzt die Abstimmung und senkt das Risiko, dass am Bedarf vorbei entwickelt wird.
+
+**Sparvariante:** nur Phase 0 und 1, also ca. 40.000–80.000 €. Phase 2 kommt erst nach einer Saison Erfahrung, die KI-Module nur nach bestandenem Test. Wer nur die Pflicht will (Stempeln und Bericht, ohne die Neuerungen aus Kapitel 4), fährt mit Variante A deutlich günstiger.
 
 **Was wir ausdrücklich nicht bauen würden:**
 
@@ -947,7 +1264,9 @@ Dafür gibt es bewährte Programme, und dort ändert sich jährlich viel (KV, St
 - Liefert der Lohnexport das, was Ihre Lohnverrechnung braucht (inkl. SW, SEG, Taggeld)?
 - Lassen sich Ihre Gerätesätze und Kieswerkpreise abbilden, und wie hoch ist der Gesamtpreis?
 
-Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger und sofort verfügbar. Unsere Erwartung ist, dass Berichtsform, österreichische Lohnthemen und die Kieswerk-/Transportlogik die Knackpunkte sind.
+- Lässt sich technisch sicherstellen, dass Poliere keine Preise sehen, und wie weit kommt das Produkt an die Neuerungen aus Kapitel 4 heran?
+
+Sind diese Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger und sofort verfügbar. Unsere Erwartung ist, dass Berichtsform, österreichische Lohnthemen, Kieswerk-/Transportlogik und die gewünschten Neuerungen die Knackpunkte sind.
 
 ---
 
@@ -957,17 +1276,22 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 
 | Phase | Inhalt | Aufwand | Kosten (netto) | Zeitraum |
 |---|---|---|---|---|
-| **0 – Klärung** | Offene Fragen (Kapitel 10), Feinkonzept, Prototyp mit Polieren testen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), Gegenprobe 123erfasst, Förderantrag | 30–50 Std. Entwickler, dazu interne Zeit | 3.000–6.000 € | Nov.–Dez. 2026 |
-| **1 – MVP: Stempeln und digitaler Bautagesbericht** | Anmeldung (PIN), Stempeln inkl. Partie, Fahrt, Laden, Werkstatt, Pause, Baustellenwechsel, Regie-Kennzeichen; offline; Standort beim Stempeln; Abwesenheiten (K/U/SW/ZA); AZG/KJBG-Warnungen; Korrekturen mit Freigabe; Bautagesbericht nach Vorlage (alle Felder aus 3.2), Fotos, Unterschrift, PDF, Mail; Büro-Dashboard; Stammdaten; Monatsliste und Excel-Export für Lohn und BUAK; Sicherung | 280–400 Std. | 25.000–48.000 € | Jänner–März 2027 |
+| **0 – Klärung** | Offene Fragen (Kapitel 10), Feinkonzept, Prototyp mit Polieren testen, Rechte-Matrix bestätigen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), **KI-Test** (ca. 20 Diktate, 30 Lieferscheine), Gegenprobe 123erfasst, Förderantrag | 45–80 Std. Entwickler, dazu interne Zeit | 4.500–9.500 € | Nov.–Dez. 2026 |
+| **1 – MVP: Stempeln und digitaler Bautagesbericht (Kern)** | Anmeldung (PIN); Stempeln inkl. Partie, Fahrt, Laden, Werkstatt, Pause, Baustellenwechsel, Regie-Kennzeichen; offline; Standort beim Stempeln; Abwesenheiten (K/U/SW/ZA); AZG/KJBG-Warnungen; Korrekturen mit Freigabe; Bautagesbericht nach Vorlage (alle Felder aus 3.2) mit Tastatur-Diktat (Stufe 1), Fotos, Unterschrift, PDF in zwei Fassungen (Auftraggeber ohne €/K/U, intern), Mail; Büro-Dashboard; Stammdaten; Monatsliste und Excel-Export für Lohn und BUAK; Sicherung | 280–400 Std. | 25.000–48.000 € | Jänner–März 2027 |
+| **1 – MVP: Rechte und Basis-Neuerungen** | **Rollen & Berechtigungen am Server** (Matrix, Ausnahmen, Sperre der Preis- und Lohnrechte für Polier und Mitarbeiter, Protokoll, Fernabmeldung, automatische Sperre); Baustellen-Modus und Bedienungstest; Mehrsprachigkeit (Grundgerüst + 2 Sprachen); AZG-Wächter mit Push und Uhrzeit-Erinnerung; Wetter automatisch und Schlechtwetter-Vorschlag; Fernunterschrift per SMS-/Mail-Link (Details in Kapitel 2.2 und 4) | 105–180 Std. | 11.000–23.000 € (inkl. Übersetzung) | Jänner–März 2027 |
 | **Pilot** | Eine Partie, 4–6 Wochen, Papier parallel; wöchentliche Verbesserungsrunde | 20–40 Std. Nachbesserung (in Phase 1 enthalten) | – | März/April 2027 |
 | **Rollout** | Alle Partien, Bauhof, Kieswerk | Schulung, Begleitung | interne Zeit | Mai 2027 |
-| **2 – Preise und Nachkalkulation** | Kostensätze mit Gültigkeit (Lohn, Geräte, Material), Angebotspositionen (Excel-Import), Leistungsmeldung auf Positionen, Fremdleistungen (Import aus der Buchhaltung), Nachkalkulation, Soll/Ist, Ampel, Aufwandswerte, Baustellenvergleich, Palettenkonto, Geräteauslastung | 160–240 Std. | 15.000–29.000 € | Juni–August 2027 |
+| **2 – Preise und Nachkalkulation** | Kostensätze mit Gültigkeit (Lohn je Lohngruppe, Geräte, Material), Angebotspositionen (Excel-Import), Leistungsmeldung auf Positionen, Fremdleistungen (Import aus der Buchhaltung), Nachkalkulation, Soll/Ist, Ampel, Aufwandswerte, Baustellenvergleich, Palettenkonto, Geräteauslastung; sichtbar nur für Büro, Geschäftsführung und Bauleiter (eigene Baustellen) | 160–240 Std. | 15.000–29.000 € | Juni–August 2027 |
+| **2 – Neuerungen** | Hochrechnung bis Bauende und automatische Hinweise; Geräte per NFC-/QR-Tag; 3 weitere Sprachen | 80–140 Std. | 8.000–19.000 € (inkl. Übersetzung) | Juni–August 2027 |
+| **2 – KI-Module (nur nach bestandenem Test)** | Diktat Stufe 2 (KI füllt Geräte, Material, Leistung, Regie aus; Polier prüft); Lieferschein fotografieren (KI liest Lieferant, Material, Menge) | 100–190 Std. | 9.000–22.500 € | Juni–September 2027 |
 | **3 – Ausbau (nach Bedarf, je Modul entscheiden)** | Direkter Import ins Lohnprogramm (z. B. BMD/RZL) | 40–80 Std. | 4.000–10.000 € | ab Herbst 2027 |
-| | Einsatzplanung (wer, welches Gerät, wo morgen) | 80–150 Std. | 7.000–18.000 € | |
+| | Plantafel / Einsatzplanung mit Push aufs Handy (wer, welches Gerät, wo morgen) | 80–150 Std. | 7.000–18.000 € | |
+| | Ankunfts-Hinweis per Geofence am Gerät (native Hülle, optional, nur mit Betriebsvereinbarung) | 60–100 Std. | 5.500–12.000 € | |
+| | KI-Fragen an die Daten für Büro und Geschäftsführung (optional) | 40–80 Std. | 3.500–9.500 € | |
 | | Geräteverwaltung (Betriebsstunden, Service, Prüftermine, Werkstattkosten je Gerät) | 60–120 Std. | 5.000–14.000 € | |
 | | Digitale Liefer- und Transportscheine (Kieswerk, Transporte; ggf. Waage-Schnittstelle) | 80–160 Std. | 7.000–19.000 € | |
 | | Übergabe von Regie und Mengen an das Rechnungsprogramm (E-Rechnung bleibt dort) | 40–100 Std. | 4.000–12.000 € | |
-| | Mehrsprachigkeit (z. B. BKS, Ungarisch, Rumänisch), Wetter-Automatik | je 20–60 Std. | je 2.000–7.000 € | |
+| | Maschinen-Telematik (Betriebsstunden direkt aus neueren Geräten; nur mit Betriebsvereinbarung, falls GPS dabei) | 40–80 Std. | 3.500–9.500 € | |
 
 ### 9.2 Annahmen hinter den Kosten
 
@@ -975,10 +1299,11 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 - Ein erfahrenes Entwicklerteam (1–2 Personen) mit Standardtechnik.
 - Der klickbare Prototyp dient als abgestimmte Vorlage für die Oberflächen.
 - Das Büro liefert die Stammdaten als Excel-Listen. Die Geschäftsführung bzw. ein Polier stehen wöchentlich ca. 1 Stunde für Fragen zur Verfügung.
+- KI-Funktionen nutzen fertige, EU-gehostete Dienste (Spracherkennung, Texterkennung, Sprachmodell). Es wird keine eigene KI trainiert.
 - Keine Sonderwünsche außerhalb dieses Konzepts. Änderungen werden über eine kurze Änderungsliste mit Preis vereinbart.
 - **Nicht enthalten:** Rechts- und Steuerberatung, Geräte, interne Arbeitszeit für Schulung und Stammdaten.
 
-> **Empfehlung:** Angebote mit **Festpreis je Phase** und einer klaren Abnahmeliste (die Felder aus 3.2 und die Funktionen aus 3.1) einholen, dazu einen Wartungsvertrag mit festem Monatsbetrag.
+> **Empfehlung:** Angebote mit **Festpreis je Phase** und einer klaren Abnahmeliste einholen, dazu einen Wartungsvertrag mit festem Monatsbetrag. In die Abnahmeliste gehören die Felder aus 3.2, die Funktionen aus 3.1, die Rechte-Matrix aus 2.2 (mit Test „kein Preisfeld am Polier-Gerät“) und die UX-Ziele aus 4.1. Die KI-Module werden getrennt angeboten und erst nach dem Test beauftragt.
 
 **Förderung:** Laut Recherche fördert **KMU.DIGITAL** Beratungen mit bis zu 3.000 € und Umsetzungsprojekte mit 30 % (max. 6.000 €) bei 2.000–30.000 € Projektvolumen. Voraussetzung ist eine vorherige Beratung durch einen zertifizierten Berater. **Prüfen** (WKO / aws): aktuelle Einreichphase, Budget und Bedingungen. Wichtig ist vor allem, ob vor der Beauftragung eingereicht werden muss.
 
@@ -989,6 +1314,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
    - **„Kein Tracking.“** Der Standort wird nur beim Stempeln abgefragt.
    - **„Ihr seht alles, was über euch gespeichert ist“** („Meine Woche“). Das schützt auch vor vergessenen Überstunden.
    - **„Weniger Zettel für die Poliere, schneller richtiger Lohn.“**
+   - **„Löhne und Preise sieht auf der Baustelle niemand, auch nicht die Löhne der Kollegen.“**
 3. **Pilot mit einer Partie, 4–6 Wochen, Papier parallel.** Fehler im Pilot haben keine Folgen. Jede Woche gibt es 15 Minuten Rückmeldung, und kleine Verbesserungen kommen sofort.
 4. **Schulung kurz und praktisch:**
    - Poliere 2 × 1 Stunde am eigenen Tablet;
@@ -998,6 +1324,8 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 5. **Rollout zu einem ruhigen Zeitpunkt** (geplant Mai 2027, nach dem Pilot). Danach 4 Wochen „Sprechstunde“ für Fragen.
 6. **Papier abschalten:** wenn 3 Wochen lang ≥ 95 % der Berichte digital und vollständig sind.
 7. **Ältere Mitarbeiter und Mitarbeiter ohne Handy:** Für sie stempelt der Polier. Es gibt keinen Zwang zur Smartphone-Nutzung.
+8. **Jeder in seiner Sprache:** Die App ist ab dem Pilot in Deutsch und den zwei wichtigsten Fremdsprachen verfügbar. Die Kurzanleitung gibt es ebenfalls in diesen Sprachen.
+9. **Neuerungen schrittweise:** Im Pilot zuerst die Grundfunktionen. Diktat, Geräte-Tags und Lieferschein-Foto kommen erst, wenn das Stempeln sitzt, sonst ist es zu viel auf einmal.
 
 ### 9.4 Laufende Kosten (pro Monat, netto, Richtwerte)
 
@@ -1007,8 +1335,10 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 | Wartung, Updates, Support (Vertrag, ca. 3–5 Std. pro Monat) | 250–500 € |
 | Mailversand, Domain, Zertifikate | 0–30 € |
 | Mobilfunk für 6–8 Tablets | 40–120 € |
+| KI-Dienste (Sprache, Lieferscheine, Übersetzung), SMS, Wetterdaten | 20–80 € |
 | Jährliche Anpassungen (KV-Sätze, Gesetzesänderungen), umgelegt | 50–100 € |
-| **Summe** | **ca. 400–850 € pro Monat** |
+| **Summe** | **ca. 400–1.000 € pro Monat** |
+| Nur bei Geofence-Hülle (Phase 3): App-Store-Konten | ca. 10 € |
 
 ### 9.5 Risiken und Gegenmaßnahmen
 
@@ -1020,7 +1350,12 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 | Schlechte Datenqualität (Gerätestunden geschätzt) | Vorschläge aus Stempeln, Plausibilitätsprüfungen, Ampel „grau“ bei Lücken |
 | Abhängigkeit vom Entwickler | Code- und Datenrechte beim Betrieb, Standardtechnik, Dokumentation, jederzeitiger Datenexport |
 | „Es soll noch das und das können“ | Strikte Phasen, Festpreise, Phase 3 nur nach Nutzen |
-| Rechtliche Änderungen (KV jährlich, BSchEG 2026) | Werte als Stammdaten statt im Programmcode, Wartungsvertrag |
+| Rechtliche Änderungen (KV jährlich, BSchEG 2026, EU-KI-Verordnung) | Werte als Stammdaten statt im Programmcode, Wartungsvertrag |
+| KI versteht Dialekt oder Baulärm schlecht | Test vor Beauftragung (Phase 0), KI nur als Vorschlag, Tastatur-Diktat und Handeingabe bleiben immer möglich |
+| Neuerungen werden als Spielerei empfunden und nicht genutzt | Nur einführen, was im Pilot Zeit spart; Nutzung messen; Optionales (Geofence, KI-Fragen) erst auf Wunsch |
+| Misstrauen gegenüber Standort oder Geofence | Standort nur beim Stempeln, Geofence nur am Gerät und nur optional, Betriebsvereinbarung, offene Information |
+| Preise oder Löhne werden versehentlich sichtbar (Fehler in den Rechten) | Rechteprüfung am Server, Preisfelder für Polier und Mitarbeiter gar nicht übertragen, automatische Tests bei jedem Update, Quartalsdurchsicht der Ausnahmen |
+| Abhängigkeit von einem KI-Anbieter | Austauschbare Anbindung über eine Zwischenschicht, Handeingabe als Rückfall |
 
 ---
 
@@ -1034,7 +1369,7 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 4. Wo beginnt die Arbeit praktisch: Treffpunkt Bauhof oder direkt auf der Baustelle? Wer lenkt, wer fährt mit? Wie werden Fahr- und Ladezeiten heute bezahlt?
 5. Gibt es eine feste Pausenregel (Uhrzeit bzw. Zeitfenster)?
 6. Welches Arbeitszeitmodell gilt (Durchrechnung, Jahresarbeitszeitmodell, Zeitausgleich)? Gibt es eine Betriebsvereinbarung dazu?
-7. Welche Sprachen sprechen die Mitarbeiter? Brauchen wir die App neben Deutsch in weiteren Sprachen?
+7. Welche Sprachen sprechen die Mitarbeiter? Welche zwei Fremdsprachen braucht es zuerst (Vorschlag: BKS, Ungarisch, Rumänisch, Türkisch)?
 
 **Lohn und BUAK**
 
@@ -1062,10 +1397,27 @@ Sind diese drei Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger un
 23. Wie werden Eingangsrechnungen heute Baustellen bzw. KST zugeordnet, und in welchem Programm?
 24. Welcher Deckungsbeitrag ist Ihr Ziel (für die Ampel), und gibt es Unterschiede je Sparte?
 
+**Rollen und Berechtigungen**
+
+25. Wer ist Bauleiter, und welche Baustellen betreut er? Wer vertritt die Geschäftsführung als zweiter Admin?
+26. Passt die Rechte-Matrix aus Kapitel 2.2 so? Bitte besonders bestätigen:
+    - der Bauleiter sieht Preise und Nachkalkulation seiner Baustellen, ohne Einzellöhne;
+    - Poliere sehen nie €-Werte;
+    - wer im Büro darf Lohndaten sehen?
+27. Sollen Poliere einen Stundenrahmen ihrer Baustelle sehen (Soll-/Ist-Stunden, ohne €)?
+28. Sollen Mitarbeiternamen im PDF für den Auftraggeber stehen, oder reichen Funktion und Kürzel?
+
+**Neuerungen**
+
+29. Wären zwei bis drei Poliere bereit, für den KI-Test ca. 20 Berichte zu diktieren? Welche 5 Lieferanten bringen die meisten Lieferscheine?
+30. Wie viele Geräte sollen einen NFC-/QR-Tag bekommen? Haben neuere Maschinen Hersteller-Telematik?
+31. Haben Sie Handynummern der Ansprechpartner Ihrer Auftraggeber für die Fernunterschrift per SMS?
+32. Wie wird heute eingeteilt (Tafel, Telefon, WhatsApp)? Davon hängt ab, ob die Plantafel (Phase 3) lohnt.
+
 **IT und Projekt**
 
-25. Welche Programme sind im Einsatz (Buchhaltung, Rechnung, Angebot)? Wer betreut die IT? Unter welcher Mail-Domain sollen die Berichte verschickt werden?
-26. Wer ist intern verantwortlich (Vorschlag: eine Person aus dem Büro und ein Polier)? Welcher Budgetrahmen und welcher Wunschtermin gelten?
+33. Welche Programme sind im Einsatz (Buchhaltung, Rechnung, Angebot)? Wer betreut die IT? Unter welcher Mail-Domain sollen die Berichte verschickt werden?
+34. Wer ist intern verantwortlich (Vorschlag: eine Person aus dem Büro und ein Polier)? Welcher Budgetrahmen und welcher Wunschtermin gelten?
 
 ---
 
@@ -1157,6 +1509,21 @@ Recherche am 12. 11. 2026 über Websuche. Die Primärtexte (RIS) konnten aus der
 - Samsung, XCover7 Pro und Tab Active5 Pro: https://news.samsung.com/de/robust-sicher-und-smart-samsung-galaxy-xcover7-pro-und-galaxy-tab-active5-pro
 - MediaMarkt AT, Tab Active5 Pro EE: https://www.mediamarkt.at/de/product/_samsung-x356-galaxy-tab-active5-pro-ee-5g-128gb-green-tablet-128-gb-101-zoll-grun-157361455.html
 - MediaMarkt AT, XCover7 Pro EE: https://www.mediamarkt.at/de/product/_samsung-galaxy-xcover7-pro-enterprise-edition-128-gb-schwarz-dual-sim-2029397.html
+- Web Push für Web-Apps ab iOS 16.4 (MacRumors): https://www.macrumors.com/2023/02/16/ios-16-4-web-push-notifications/
+- Web Push auf iOS, Voraussetzungen (OneSignal): https://documentation.onesignal.com/docs/web-push-for-ios
+- Geofencing nur nativ, Capacitor-Plugin (Capawesome): https://capawesome.io/docs/sdks/capacitor/geofences/
+- Capacitor-Geofences auf iOS, Berechtigungen (Capgo): https://capgo.app/blog/capacitor-geofences-not-triggering-ios/
+
+**Neuerungen: Wetter, KI, Kosten**
+- GeoSphere Austria, Dataset-API (Data Hub): https://dataset.api.hub.geosphere.at/v1/docs/
+- GeoSphere Austria, Data Hub – rechtliche Hinweise: https://data.hub.geosphere.at/en/legal
+- EU-KI-Verordnung, Art. 4 KI-Kompetenz: https://artificialintelligenceact.eu/de/article/4/
+- AK Wien, Info zur KI-Verordnung: https://wien.arbeiterkammer.at/interessenvertretung/arbeitdigital/EinEuropafuerdasdigitaleZeitalter/AK-Info_BfdA_KI-Verordnung.pdf
+- Anhang III / Hochrisiko-KI im Personalbereich, Fristverschiebung (Beraterbeitrag): https://skill-sprinters.de/blog/compliance/eu-ai-act-anhang-iii-hochrisiko-kmu/
+- Preise Spracherkennung (developersdigest): https://www.developersdigest.tech/models/speech/speech-to-text
+- Preise Spracherkennung (diyai.io): https://diyai.io/ai-tools/speech-to-text/openai-whisper-api-pricing-2026/
+- Preise Texterkennung Mistral OCR (activepieces): https://www.activepieces.com/blog/mistral-ocr-pricing-2026-cost-per-1000-pages.md
+- Preise Azure Document Intelligence (erpresearch): https://erpresearch.com/erp-add-ons/ocr/azure-document-intelligence/pricing
 
 ---
 
@@ -1164,17 +1531,23 @@ Recherche am 12. 11. 2026 über Websuche. Die Primärtexte (RIS) konnten aus der
 
 | Begriff | Bedeutung |
 |---|---|
+| **Admin** | Benutzer mit dem Recht, Rollen und Ausnahmen zu vergeben (Geschäftsführung und Stellvertretung) |
 | **AZG / KJBG** | Arbeitszeitgesetz / Kinder- und Jugendlichen-Beschäftigungsgesetz |
 | **BSchEG** | Bauarbeiter-Schlechtwetterentschädigungsgesetz |
 | **BUAK** | Bauarbeiter-Urlaubs- und Abfertigungskasse |
 | **Betriebsvereinbarung (BV)** | Schriftliche Vereinbarung zwischen Arbeitgeber und Betriebsrat |
 | **DB / DB-Quote** | Deckungsbeitrag = Erlös minus direkte Kosten; Quote = DB in % vom Erlös |
 | **EP** | Einheitspreis je m², m³, t, lfm laut Angebot |
+| **Geofence** | Gedachter Kreis um eine Baustelle; das Gerät erkennt selbst, wenn man ihn betritt |
+| **KI / Sprachmodell** | Software, die gesprochene oder geschriebene Sprache versteht und z. B. in Formularfelder überträgt |
 | **KST** | Kostenstelle, hier meist = Baustellennummer; dazu Gemeinkosten-KST (Bauhof, Werkstatt, Kieswerk, Transporte) |
 | **Lohnkostensatz / Mittellohnpreis** | Kosten einer Arbeitsstunde inkl. Lohnnebenkosten / Verkaufspreis einer Stunde inkl. Gesamtzuschlag (ÖNORM B 2061, K3-Blatt) |
 | **LV** | Leistungsverzeichnis, die Positionen eines Angebots |
 | **MVP** | „Minimum Viable Product“: die kleinste Version, die im Alltag schon echten Nutzen bringt |
+| **NFC / QR** | Funk-Aufkleber zum Antippen mit dem Handy bzw. gedruckter Code zum Abfotografieren |
+| **OCR** | Texterkennung auf Fotos, z. B. von Lieferscheinen |
 | **Offline-fähig** | Funktioniert ohne Empfang, überträgt später |
+| **Push-Nachricht** | Kurze Meldung, die am Handy erscheint, auch wenn die App gerade nicht offen ist |
 | **PWA** | Progressive Web App: Web-Anwendung, die sich wie eine App installieren lässt und offline funktioniert |
 | **Regie** | Leistungen, die nach Aufwand (Stunden, Geräte, Material) statt nach Einheitspreis verrechnet werden |
 | **SEG-Zulagen** | Schmutz-, Erschwernis- und Gefahrenzulagen |

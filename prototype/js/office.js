@@ -257,6 +257,7 @@
           <div class="kpi" data-demo="kpi-db"><small>Deckungsbeitrag</small><b>${F.eur(c.db, 0)}</b><em>Erlös minus Kosten</em>${dl(c.db, c0.db)}</div>
           <div class="kpi ampel-kpi a-${c.ampel}" data-demo="kpi-db-prozent"><small>DB in %</small><b>${F.pct(c.dbPct)}</b><em>${ampel(c.ampel, true)} · Ziel ≥ 15 %</em>${changed ? `<span class="delta ${c.dbPct < c0.dbPct ? 'neg' : 'pos'}">vorher ${F.pct(c0.dbPct)}</span>` : ''}</div>
         </div>
+        ${A.kalkInsights ? A.kalkInsights(b, c) : ''}
         <div class="kalk-grid">
           <div class="card pad"><div class="card-h"><h3>Kostenverteilung</h3><span class="muted sm">Ist bis heute</span></div>
             <div class="stackbar">${CAT.map((k) => `<i class="${k[2]}" style="flex:${c[k[0]]}" title="${k[1]}: ${F.eur(c[k[0]], 0)}"></i>`).join('')}</div>

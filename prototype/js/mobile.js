@@ -3,6 +3,7 @@
   'use strict';
   const A = window.App, D = window.DATA, S = A.state, F = A.fmt, icon = A.icon, esc = F.esc;
   const act = A.actions, inp = A.inputs;
+  const T = (k, d) => (A.t ? A.t(k, d) : d);
 
   /* ---------- UI-Bausteine ---------- */
   const bump = (key) => (S.ui.bump === key ? ' bump' : '');
@@ -85,7 +86,7 @@
   const myKst = () => S.ui.stempelKst || (S.user && S.user.kst) || '26-041';
   A.tickers.worked = () => F.hms(A.workedSec(S.user.id));
   A.tickers.pauselauf = () => { const st = A.stamp(S.user.id); const p = st.pausen[st.pausen.length - 1]; return p && p.bis == null ? F.hms(A.nowSec() - p.von) : '00:00:00'; };
-  A.tickers.gruss = () => { const h = A.nowSec() / 3600; return h < 10 ? 'Guten Morgen' : h < 17 ? 'Servus' : 'Guten Abend'; };
+  A.tickers.gruss = () => { const h = A.nowSec() / 3600; return h < 10 ? T('gruss', 'Guten Morgen') : h < 17 ? T('gruss2', 'Servus') : T('gruss3', 'Guten Abend'); };
 
   A.route('/stempeluhr', {
     nav: 'stempeluhr', title: 'Stempeluhr', sub: () => F.datumLang(D.HEUTE),
@@ -101,11 +102,11 @@
           <div class="cc-time" data-tick="clocksec">${F.hms(A.nowSec())}</div>
           <div class="cc-date">${F.datumLang(D.HEUTE)}</div>
           <div class="plan-box">
-            <div class="plan-label">${icon('calendar')} Heutige Baustelle laut Einsatzplan${myKst() !== u.kst ? ' · <b>geändert</b>' : ''}</div>
-            ${siteCard(b, `<button class="btn ghost sm" data-act="site-pick" data-demo="baustelle-aendern">Ändern</button>`)}
+            <div class="plan-label">${icon('calendar')} ${T('plan', 'Heutige Baustelle laut Einsatzplan')}${myKst() !== u.kst ? ' · <b>geändert</b>' : ''}</div>
+            ${siteCard(b, `<button class="btn ghost sm" data-act="site-pick" data-demo="baustelle-aendern">${T('aendern', 'Ändern')}</button>`)}
           </div>
-          <button class="punch in" data-act="einstempeln" data-demo="einstempeln"><span class="punch-ic">${icon('play')}</span><span><b>Einstempeln</b><small>${esc(b.kurz)} · KST ${b.kst}</small></span></button>
-          <div class="cc-note">${icon('shield')} Der Standort wird nur im Moment des Stempelns erfasst – kein laufendes Tracking.</div>
+          <button class="punch in" data-act="einstempeln" data-demo="einstempeln"><span class="punch-ic">${icon('play')}</span><span><b>${T('einstempeln', 'Einstempeln')}</b><small>${esc(b.kurz)} · KST ${b.kst}</small></span></button>
+          <div class="cc-note">${icon('shield')} ${T('hinweis_ort', 'Der Standort wird nur im Moment des Stempelns erfasst – kein laufendes Tracking.')}</div>
         </div>`;
       } else if (st.status === 'fertig') {
         hero = `
@@ -121,16 +122,18 @@
         const p = st.status === 'pause';
         hero = `
         <div class="card clock-card running ${p ? 'paused' : ''}">
-          <div class="run-state"><i class="pulse"></i>${p ? 'Pause läuft' : 'Eingestempelt'} <span>seit ${F.hm((p ? st.pausen[st.pausen.length - 1].von : first.von) / 60)} Uhr</span></div>
+          <div class="run-state"><i class="pulse"></i>${p ? T('pause_laeuft', 'Pause läuft') : T('eingestempelt', 'Eingestempelt')} <span>${T('seit', 'seit')} ${F.hm((p ? st.pausen[st.pausen.length - 1].von : first.von) / 60)}</span></div>
           <div class="cc-time big" data-tick="${p ? 'pauselauf' : 'worked'}" data-demo="timer">${p ? '00:00:00' : F.hms(A.workedSec(u.id))}</div>
-          <div class="cc-date">${p ? `Arbeitszeit bisher <b data-tick="worked">${F.hms(A.workedSec(u.id))}</b>` : `Arbeitszeit heute · Pause ${Math.round(A.pauseSec(u.id) / 60)} min`}</div>
+          <div class="cc-date">${p ? `${T('arbeitszeit', 'Arbeitszeit heute')} <b data-tick="worked">${F.hms(A.workedSec(u.id))}</b>` : `${T('arbeitszeit', 'Arbeitszeit heute')} · ${T('pause', 'Pause')} ${Math.round(A.pauseSec(u.id) / 60)} min`}</div>
           ${siteCard(b)}
-          <div class="loc-badge" data-demo="standort-badge">${icon('pin')}<span><b>Standort beim Stempeln erfasst</b><small>${esc(b.ort)} · ± 12 m · ${F.hm(st.segs[st.segs.length - 1].von / 60)} Uhr · kein laufendes Tracking</small></span>${icon('check', 'ok')}</div>
-          <div class="act-grid">
-            <button class="act-btn ${p ? 'resume' : ''}" data-act="pause" data-demo="pause">${icon(p ? 'play' : 'pause')}<span>${p ? 'Pause beenden' : 'Pause'}</span></button>
-            <button class="act-btn" data-act="site-switch" data-demo="baustelle-wechseln" ${p ? 'disabled' : ''}>${icon('swap')}<span>Baustelle wechseln</span></button>
+          <div class="loc-badge" data-demo="standort-badge">${icon('pin')}<span><b>${T('standort', 'Standort beim Stempeln erfasst')}</b><small>${esc(b.ort)} · ± 12 m · ${F.hm(st.segs[st.segs.length - 1].von / 60)} · ${T('kein_tracking', 'kein laufendes Tracking')}</small></span>${icon('check', 'ok')}</div>
+          ${A.stempelExtra ? A.stempelExtra(u, st) : ''}
+          <div class="act-grid three">
+            <button class="act-btn ${p ? 'resume' : ''}" data-act="pause" data-demo="pause">${icon(p ? 'play' : 'pause')}<span>${p ? T('pause_ende', 'Pause beenden') : T('pause', 'Pause')}</span></button>
+            <button class="act-btn" data-act="site-switch" data-demo="baustelle-wechseln" ${p ? 'disabled' : ''}>${icon('swap')}<span>${T('wechseln', 'Baustelle wechseln')}</span></button>
+            <button class="act-btn" data-act="geraet-scan" data-demo="geraet-scannen" ${p ? 'disabled' : ''}>${icon('nfc')}<span>${T('geraet', 'Gerät scannen')}</span></button>
           </div>
-          <button class="punch out" data-act="ausstempeln" data-demo="ausstempeln"><span class="punch-ic">${icon('logout')}</span><span><b>Ausstempeln</b><small>Arbeitstag beenden</small></span></button>
+          <button class="punch out" data-act="ausstempeln" data-demo="ausstempeln"><span class="punch-ic">${icon('logout')}</span><span><b>${T('ausstempeln', 'Ausstempeln')}</b><small>${T('tag_ende', 'Arbeitstag beenden')}</small></span></button>
         </div>`;
       }
       const ev = [];
@@ -141,16 +144,16 @@
       const wk = weekData(u.id, 46);
       const side = `
         <div class="card pad">
-          <div class="card-h"><h3>Heutige Buchungen</h3><span class="chip ${S.sync === 'online' ? 'st-green' : 'st-amber'}">${icon(S.sync === 'online' ? 'wifi' : 'wifiOff')}${S.sync === 'online' ? 'Synchronisiert' : 'Am Gerät gespeichert'}</span></div>
-          ${ev.length ? `<ul class="timeline">${ev.map((e) => `<li class="tl-${e[3]}"><time>${F.hm(e[0] / 60)}</time><i></i><div><b>${e[1]}</b><small>${esc(e[2])}</small></div></li>`).join('')}</ul>` : `<div class="empty">${icon('clock')}<span>Noch keine Buchung heute.</span></div>`}
+          <div class="card-h"><h3>${T('buchungen', 'Heutige Buchungen')}</h3><span class="chip ${S.sync === 'online' ? 'st-green' : 'st-amber'}">${icon(S.sync === 'online' ? 'wifi' : 'wifiOff')}${S.sync === 'online' ? 'Synchronisiert' : 'Am Gerät gespeichert'}</span></div>
+          ${ev.length ? `<ul class="timeline">${ev.map((e) => `<li class="tl-${e[3]}"><time>${F.hm(e[0] / 60)}</time><i></i><div><b>${e[1]}</b><small>${esc(e[2])}</small></div></li>`).join('')}</ul>` : `<div class="empty">${icon('clock')}<span>${T('keine_buchung', 'Noch keine Buchung heute.')}</span></div>`}
         </div>
         <a class="card pad week-mini" href="#/woche" data-demo="woche-mini">
-          <div class="card-h"><h3>Diese Woche · KW 46</h3>${icon('right')}</div>
+          <div class="card-h"><h3>${T('diese_woche', 'Diese Woche')} · KW 46</h3>${icon('right')}</div>
           <div class="wm-bars">${wk.tage.slice(0, 5).map((t) => `<div class="wm-day ${t.heute ? 'today' : ''}"><div class="wm-bar"><i style="height:${Math.min(100, (t.std / 10) * 100)}%"></i></div><small>${F.WTK[F.dt(t.d).getDay()]}</small></div>`).join('')}</div>
           <div class="wm-sum"><span><b>${F.std(wk.ist)}</b> von ${F.std(39)} Std.</span><span class="muted">Überstunden ${F.std(wk.ue)} Std.</span></div>
         </a>
         ${u.rolle === 'polier' ? `<a class="card pad link-card" href="#/kolonne" data-demo="zur-kolonne">${icon('users')}<span><b>Kolonne einstempeln</b><small>${kolonneStatus(u)}</small></span>${icon('right')}</a>` : ''}`;
-      return `<div class="page stempel"><div class="stempel-grid"><div>${hero}</div><div class="stack">${side}</div></div></div>`;
+      return `<div class="page stempel"><div class="stempel-grid"><div class="stack">${A.stempelTop ? A.stempelTop(u, st) : ''}${hero}</div><div class="stack">${side}</div></div></div>`;
     }
   });
   const kolonneStatus = (u) => { const c = D.mitarbeiter.filter((m) => m.kst === u.kst); const n = c.filter((m) => ['ein', 'pause'].includes(A.stamp(m.id).status)).length; return n + ' von ' + c.length + ' eingestempelt'; };
@@ -281,7 +284,8 @@
       return `<div class="page narrow">
         <div class="card pad profile">${avatar(u, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(g ? A.lgName(u.lg) + ' · Personalnr. ' + u.pnr : u.funktion)}</p></div></div>
         ${g ? `<div class="card def-list"><div><span>Stammbaustelle</span><b>${esc(A.site(u.kst).name)}</b></div><div><span>Kostenstelle</span><b>KST ${u.kst}</b></div><div><span>Wochenarbeitszeit</span><b>39,0 Std. (KV Bau)</b></div><div><span>Resturlaub 2026</span><b>11 Tage</b></div><div><span>Zeitkonto</span><b>+ 6,50 Std.</b></div></div>` : ''}
-        <div class="card def-list"><div><span>Gerät</span><b>${window.innerWidth < 720 ? 'Handy' : window.innerWidth < 1280 ? 'Tablet' : 'PC'} · angemeldet seit ${F.hm(A.nowMin())}</b></div><div><span>Offline-Modus</span><b>${S.sync === 'online' ? 'Bereit · alles synchronisiert' : 'Aktiv · ' + S.pending + ' Buchungen warten'}</b></div><div><span>Standort</span><b>Nur beim Stempeln · kein Tracking</b></div><div><span>Sprache</span><b>Deutsch (Österreich)</b></div></div>
+        ${A.profilExtra ? A.profilExtra(u) : ''}
+        <div class="card def-list"><div><span>Gerät</span><b>${window.innerWidth < 720 ? 'Handy' : window.innerWidth < 1280 ? 'Tablet' : 'PC'} · angemeldet seit ${F.hm(A.nowMin())}</b></div><div><span>Offline-Modus</span><b>${S.sync === 'online' ? 'Bereit · alles synchronisiert' : 'Aktiv · ' + S.pending + ' Buchungen warten'}</b></div><div><span>Standort</span><b>Nur beim Stempeln · kein Tracking</b></div></div>
         <button class="btn ghost block lg" data-act="logout" data-demo="logout">${icon('logout')} Abmelden</button>
         <p class="fineprint">BauTag · Entwurf / Prototyp · Demo-Daten sind frei erfunden (Beispielwerte)</p>
       </div>`;
@@ -306,9 +310,7 @@
         <div><span>Bauvorhaben</span><b data-demo="kopf-bv">${esc(b.bv)}</b></div>
         <div><span>Polier</span><b>${esc((D.mitarbeiter.find((m) => m.kst === rep.kst && m.rolle === 'polier') || S.user).name)}</b></div>
       </div>
-      <div class="card pad"><div class="field-label">Wetter</div>
-        <div class="chip-row">${w.map((x) => `<button class="pick-chip ${rep.wetter === x[0] ? 'sel' : ''}" data-act="wetter" data-w="${x[0]}" data-demo="wetter-${x[0]}">${icon(x[1])}${x[0]}</button>`).join('')}</div>
-        <div class="line-row"><span>Temperatur</span>${stepper('temp', rep.temp, '°C', 'temp-step', '')}</div></div>`;
+      ${A.wetterCard ? A.wetterCard(rep, b) : ''}`;
     },
     2(rep) {
       const rows = rep.personal.map((p) => {
@@ -325,7 +327,7 @@
     },
     3(rep, b) {
       const fav = Object.keys(b.geraete || {}); const q = (S.ui.geraetSuche || '').toLowerCase();
-      const row = (g) => `<div class="eq-row ${rep.geraete[g.id] ? 'on' : ''}" data-name="${esc(g.name.toLowerCase())}" data-demo="geraet-${g.id}" ${q && !g.name.toLowerCase().includes(q) ? 'style="display:none"' : ''}><span class="eq-txt"><b>${esc(g.name)}</b><small>${g.kat}</small></span>${stepper('geraet-' + g.id, rep.geraete[g.id] || 0, 'Std.', 'geraet-step', `data-id="${g.id}"`)}</div>`;
+      const row = (g) => `<div class="eq-row ${rep.geraete[g.id] ? 'on' : ''} ${rep.ai && rep.ai['geraet-' + g.id] ? 'ai' : ''}" data-name="${esc(g.name.toLowerCase())}" data-demo="geraet-${g.id}" ${q && !g.name.toLowerCase().includes(q) ? 'style="display:none"' : ''}><span class="eq-txt"><b>${esc(g.name)}</b><small>${g.kat}</small></span>${stepper('geraet-' + g.id, rep.geraete[g.id] || 0, 'Std.', 'geraet-step', `data-id="${g.id}"`)}</div>`;
       const favs = D.geraete.filter((g) => fav.includes(g.id)), rest = D.geraete.filter((g) => !fav.includes(g.id));
       const n = Object.keys(rep.geraete).length;
       return `<label class="search"><span>${icon('search')}</span><input type="search" placeholder="Gerät suchen, z. B. Bagger" value="${esc(S.ui.geraetSuche || '')}" data-input="geraet-suche" data-demo="geraete-suche"></label>
@@ -338,7 +340,7 @@
     4(rep) {
       const row = (m) => {
         const v = rep.material[m.id] || 0, e = rep.einheit[m.id] || m.einheit, lbl = (x) => (x === 'm3' ? 'm³' : 'to.');
-        return `<div class="mat-row ${v ? 'on' : ''}" data-demo="material-${m.id}">
+        return `<div class="mat-row ${v ? 'on' : ''} ${rep.ai && rep.ai['material-' + m.id] ? 'ai' : ''}" data-demo="material-${m.id}">
           <div class="mat-top"><span class="eq-txt"><b>${esc(m.name)}</b><small>${esc(m.hinweis)}</small></span>
             ${m.alt ? `<span class="seg-toggle">${[m.einheit, m.alt].map((x) => `<button class="${e === x ? 'sel' : ''}" data-act="mat-einheit" data-id="${m.id}" data-e="${x}" data-demo="material-${m.id}-einheit-${x}">${lbl(x)}</button>`).join('')}</span>` : `<span class="unit-fix">${lbl(e)}</span>`}</div>
           <div class="mat-ctl"><button class="st-btn" data-act="mat-step" data-id="${m.id}" data-d="-1" data-demo="material-${m.id}-minus" ${v <= 0 ? 'disabled' : ''}>${icon('minus')}</button>
@@ -349,8 +351,8 @@
       return `${A.matTop ? A.matTop(rep) : ''}<div class="card mat-list">${D.material.filter((m) => m.vorlage).map(row).join('')}</div>`;
     },
     5(rep) {
-      return `<div class="card pad"><div class="card-h"><h3>Arbeitsleistung</h3><button class="btn ghost sm" data-act="diktat" data-demo="diktieren">${icon('mic')} Diktieren</button></div>
-        <textarea class="ta" rows="6" placeholder="Was wurde heute gemacht?" data-input="arbeit" data-demo="arbeit-text">${esc(rep.arbeit)}</textarea>
+      return `<div class="card pad"><div class="card-h"><h3>Arbeitsleistung</h3><button class="btn ghost sm" data-act="diktat-start" data-demo="diktieren">${icon('mic')} Diktieren</button></div>
+        <textarea class="ta ${rep.ai && rep.ai.arbeit ? 'ai' : ''}" rows="6" placeholder="Was wurde heute gemacht?" data-input="arbeit" data-demo="arbeit-text">${esc(rep.arbeit)}</textarea>
         <div class="field-label">Textbausteine – antippen statt tippen</div>
         <div class="chip-row">${D.textbausteine.map((t, i) => `<button class="pick-chip" data-act="baustein" data-i="${i}" data-demo="baustein-${i}">${icon('plus')}${esc(t)}</button>`).join('')}</div></div>
       <div class="card pad"><div class="card-h"><h3>Fotos <span class="count">${rep.fotos.length}</span></h3></div>
@@ -361,7 +363,7 @@
       const zus = D.material.filter((m) => !m.vorlage);
       return `<div class="card pad"><div class="card-h"><h3>Materialbeistellung</h3></div>
         <div class="field-label">Eigenmaterial</div>
-        ${zus.map((m) => `<div class="line-row ${rep.zusatz[m.id] ? 'on' : ''}"><span>${esc(m.name)}</span>${stepper('zusatz-' + m.id, rep.zusatz[m.id] || 0, m.einheit, 'zusatz-step', `data-id="${m.id}"`)}</div>`).join('')}
+        ${zus.map((m) => `<div class="line-row ${rep.zusatz[m.id] ? 'on' : ''} ${rep.ai && rep.ai['zusatz-' + m.id] ? 'ai' : ''}"><span>${esc(m.name)}</span>${stepper('zusatz-' + m.id, rep.zusatz[m.id] || 0, m.einheit, 'zusatz-step', `data-id="${m.id}"`)}</div>`).join('')}
         <div class="field-label">Fremdmaterial (vom Auftraggeber beigestellt)</div>
         ${rep.fremdmat.map((t, i) => `<div class="text-line"><span>${esc(t)}</span><button class="icon-btn sm" data-act="fremd-del" data-i="${i}" aria-label="Entfernen">${icon('x')}</button></div>`).join('')}
         <div class="add-line"><input type="text" placeholder="z. B. Schachtabdeckung, beigestellt vom AG" id="fremd-in" data-demo="fremdmaterial-input"><button class="btn ghost" data-act="fremd-add" data-demo="fremdmaterial-add">${icon('plus')}</button></div></div>
@@ -410,7 +412,7 @@
         <div class="wiz-main">
           <div class="wiz-head"><div class="wiz-prog">${STEPS.map((s, i) => `<a href="#/bericht/${i + 1}" class="${i + 1 === step ? 'cur' : ''} ${done(i + 1) ? 'done' : ''}" aria-label="${s[0]}"></a>`).join('')}</div>
             <div class="wiz-title"><small>Schritt ${step} von 8 · ${esc(b.kurz)}</small><h2 data-demo="wizard-titel">${STEPS[step - 1][1]}</h2></div></div>
-          <div class="wiz-body">${stepHtml[step](rep, b)}</div>
+          <div class="wiz-body">${A.wizTop ? A.wizTop(rep, step) : ''}${stepHtml[step](rep, b)}</div>
         </div>
       </div>
       <div class="foot-bar wiz-foot"><div class="foot-split">

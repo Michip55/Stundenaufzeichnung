@@ -29,6 +29,7 @@
           <div class="sig-h"><div><b>${title}</b><small>${sub}</small></div>${locked ? '' : `<button class="btn ghost sm" data-act="sig-clear" data-who="${who}" data-demo="signatur-${who === 'bh' ? 'bauherr' : 'auftragnehmer'}-loeschen">${icon('trash')} Löschen</button>`}</div>
           <div class="sig-pad" data-who="${who}" data-demo="signatur-${who === 'bh' ? 'bauherr' : 'auftragnehmer'}"><canvas></canvas><span class="sig-ph">${icon('sign')} Hier unterschreiben</span><i class="sig-line"></i></div>
           <div class="sig-f"><span>${esc(name)}</span><span class="sig-time">${sig ? 'Unterschrieben · ' + F.datum(rep.datum) : ''}</span></div>
+          ${who === 'bh' && !locked && A.fernSig ? A.fernSig(rep) : ''}
           ${who === 'an' && !locked ? `<button class="btn ghost sm sig-auto" data-act="sig-auto" data-demo="signatur-auftragnehmer-hinterlegt">${icon('pen')} Hinterlegte Unterschrift einsetzen</button>` : ''}
         </div>`; };
       return `<div class="page form-page has-foot">

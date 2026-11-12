@@ -79,6 +79,13 @@
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.500v.01"/>',
     trash: '<path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l1 13h9l1-13"/>',
     helmet: '<path d="M3.500 17.500h17M5 17.500v-2a7 7 0 0 1 14 0v2M10 8.800V6h4v2.800"/>',
+    nfc: '<path d="M6 8.500a6 6 0 0 1 0 7M9.500 6a10 10 0 0 1 0 12M13 3.500a14 14 0 0 1 0 17"/><rect x="16.500" y="7" width="4.500" height="10" rx="1.200"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.800 3 2.800 15 0 18M12 3c-2.800 3-2.800 15 0 18"/>',
+    spark: '<path d="M12 3l1.800 5.200L19 10l-5.200 1.800L12 17l-1.800-5.200L5 10l5.200-1.800zM19 15l.800 2.200L22 18l-2.200.800L19 21l-.800-2.200L16 18l2.200-.800z"/>',
+    sms: '<path d="M4 5.500h16v11H9l-5 4z"/><path d="M8 10h8M8 13h5"/>',
+    wind: '<path d="M3 9h10a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 17h7"/>',
+    lock: '<rect x="5" y="10.500" width="14" height="10" rx="2"/><path d="M8 10.500V8a4 4 0 0 1 8 0v2.500"/>',
+    undo: '<path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2"/>',
     layers: '<path d="M12 3.500l9 4.500-9 4.500-9-4.500zM3 12.500l9 4.500 9-4.500M3 16.500l9 4.500 9-4.500"/>'
   };
   const icon = (n, cls) => `<svg class="ic ${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(IC[n] || '').replace(/(\d)\.(\d)00\b/g, '$1.$2')}</svg>`;
