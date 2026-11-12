@@ -271,8 +271,8 @@
 
   /* ----- chapters ----- */
   const CH = [
-    ['Einstempeln', 'Handy'], ['Bautagesbericht', 'Handy'], ['Unterschrift & PDF', 'Tablet'],
-    ['Live-Überblick', 'PC'], ['Preise hinterlegen', 'PC'], ['Nachkalkulation', 'PC'], ['Lohn-Auswertung', 'PC'],
+    ['Einstempeln', 'Handy'], ['Bericht per Sprache', 'Handy'], ['Unterschrift & PDF', 'Tablet'],
+    ['Live-Überblick', 'PC'], ['Preise hinterlegen', 'PC'], ['Nachkalkulation & Prognose', 'PC'], ['Lohn-Auswertung', 'PC'],
   ];
   $('#chapters').innerHTML = CH.map((c, i) => `<div class="ch" data-i="${i}"><b>${i + 1}</b><span>${c[0]}</span><span class="dev">${c[1]}</span></div>`).join('');
   function chapter(n) {
