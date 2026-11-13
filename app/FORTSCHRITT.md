@@ -3,6 +3,7 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- Befunde aus Prüfbericht 3 behoben (D-01…D-12). Server 253/253 grün
 - Dritte Prüfung (`PRUEFBERICHT_3.md`): alle Blocker aus Bericht 2 bestätigt behoben, €-Kernregel hält (314 Adressen je Rolle geprüft); 1 neuer Blocker
 - Befunde aus Prüfbericht 2 behoben (C-01…C-15, M-01; M-05 als Inhaber-Entscheidung dokumentiert). Tests: Server 225/225, E2E 377/377 je Größe grün (05:30)
 - 01:30–04:45 Pause durch Nutzungslimit (kein Datenverlust, alles war gepusht). Stand danach: Server 225/225, E2E 377/377 je Größe grün
@@ -17,7 +18,8 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- Behebung der Befunde aus `PRUEFBERICHT_3.md` (blockierend: D-01 dauerhafte Kontosperre von GF/Büro; mittel: D-02 Rollenwechsel zu Bauleiter nur GF, D-03 Nachtschicht-Doppelzählung, D-04 Bauleiter/Büro/GF im Personalvorschlag, D-05 Unterschrift überschreiben, D-06 Erstinbetriebnahme ohne Demo-PIN; dazu D-07…D-12)
+- E2E-Tests von der Uhrzeit unabhängig machen (scheiterten um ~06 Uhr an einer Überschneidung mit Testdaten) – Fable-Agent
+- **Neue Kundenvorgabe:** Nachkalkulation nach Positionen aus der Excel-Vorlage des Betriebs (`docs/vorlage/Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx`, ~110 Positionen in 6 Gruppen), je Bauvorhaben in Positionen und Preisen anpassbar; Budget-Alarm bezieht sich auf die Positions-Nachkalkulation. Vertrag: `API.md` Abschnitt 10. Backend: Opus-Agent, Oberfläche: Fable-Agent
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
