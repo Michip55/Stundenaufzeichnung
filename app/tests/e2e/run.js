@@ -30,7 +30,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, ...extra };
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -227,6 +227,7 @@ async function laufe(browser, g) {
     pruef(mPreise.status === 403, `Mitarbeiter: /api/preise liefert ${mPreise.status} statt 403`);
     /* ---- Servicebuch: Mangel, Zählerstand, Schaden mit Fotos (auch ohne Netz) ---- */
     await fp.mitarbeiter(h, z);
+    await fp.pruefbericht5(h, z); // Regressionsprüfungen F-01, F-05, F-06, F-12, F-14, F-16
     await abmelden();
     await anmelden('mitarbeiter', 'Christian Trimmel');
     await fp.fremder(h, z);

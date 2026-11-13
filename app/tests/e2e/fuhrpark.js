@@ -23,7 +23,7 @@ const reiterIds = (page) => page.evaluate(() => [...document.querySelectorAll('.
 const geladen = (page) => page.evaluate(() => [...document.querySelectorAll('#sd-galerie img')].every((i) => i.complete && i.naturalWidth > 0));
 
 // Schaden über die Oberfläche melden. start = Funktion, die den Dialog öffnet.
-async function meldeSchaden(h, { start, suche, fremd, fotos = [], art = 'defekt', ursache, einsatz = 'ja', wo }) {
+async function meldeSchaden(h, { start, suche, fremd, fotos = [], art = 'defekt', ursache, einsatz = 'ja', wo, baustelle }) {
   const { page, pruef } = h;
   await start();
   await page.waitForSelector('#schaden-dlg[open]');
@@ -50,6 +50,7 @@ async function meldeSchaden(h, { start, suche, fremd, fotos = [], art = 'defekt'
   await page.click('#schaden-dlg [data-sm-weiter3]');
   await page.waitForSelector(`#schaden-dlg [data-sm-einsatz="${einsatz}"]`);
   await page.click(`#schaden-dlg [data-sm-einsatz="${einsatz}"]`);
+  if (baustelle != null) await page.selectOption('#schaden-dlg #sm-baustelle', String(baustelle));
   if (einsatz === 'nein') pruef(await sichtbar(page, '#schaden-dlg #sm-warn').count() === 1, `[${wo}] „Nein – stilllegen“ ohne deutliche Warnung`);
   await h.dialogUeberlauf(`${wo} schaden einsatz`); await h.shot(`${wo}-schaden-einsatz`);
   await page.click('#schaden-dlg [data-sm-senden]');
@@ -220,6 +221,124 @@ async function mitarbeiter(h, z) {
   pruef(off.length === 1 && meine.length === anzahlVor + 1, `Offline-Schaden: ${off.length} Meldungen am Server statt genau einer (gesamt ${meine.length}, vorher ${anzahlVor})`);
   pruef(off[0] && off[0].fotos.length === 1, `Offline-Schaden: Foto fehlt oder doppelt (${off[0] && off[0].fotos.length})`);
   pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].every((b) => b.dataset.schWartet !== '1')), 'Offline-Schaden: Zahl am Menüpunkt bleibt nach dem Senden stehen');
+  await h.toastWeg();
+}
+
+/* ================= Regressionsprüfungen Prüfbericht 5 (Mitarbeiter, eingeloggt, nicht eingestempelt) ================= */
+async function pruefbericht5(h, z) {
+  const { page, context, api, geh, pruef, shot, sleep } = h;
+  const fs = require('node:fs'); const path = require('node:path');
+  const meine = async () => (await api('GET', '/fuhrpark/schaeden')).json || [];
+  const warteschlange = () => page.evaluate(() => [...document.querySelectorAll('#sch-warten [data-wartet]')].map((l) => ({ zustand: l.dataset.zustand, versuche: l.dataset.versuche, art: l.dataset.fehlerart, text: l.innerText })));
+  const leer = () => page.waitForFunction(() => !document.querySelector('#sch-warten [data-wartet]'), null, { timeout: 20000 });
+  const foto = [await testBild(page, '#555', 'regress-1')];
+  const ich = (await api('GET', '/auth/ich')).json;
+
+  /* F-14: Testfotos liegen im Temp-Ordner, nicht im Checkout */
+  const checkout = path.resolve(__dirname, '..', '..', 'data', 'uploads');
+  pruef(!fs.existsSync(checkout) || fs.readdirSync(checkout).length === 0, `F-14: E2E schreibt Fotos in den Checkout (${checkout})`);
+
+  /* F-01 + F-12: fremdes Gerät + „nicht einsatzfähig“ über „Mehr“, Baustelle wählbar → kommt an, nichts bleibt hängen */
+  const st = (await api('GET', '/zeit/status')).json;
+  pruef(st.status === 'aus', 'F-12: Test-Vorbedingung – Mitarbeiter sollte ausgestempelt sein');
+  const bs = ((await api('GET', '/baustellen')).json || []).filter((b) => b.status === 'aktiv');
+  const zielBs = bs[bs.length - 1];
+  await geh('/mehr');
+  const U1 = 'E2E F-01: Ausleger des Mietbaggers gegen die Brücke gestoßen';
+  await meldeSchaden(h, { wo: 'f01', start: async () => { await page.click('#mehr-schaden'); }, fremd: 'Mietbagger Fa. Huber', ursache: U1, einsatz: 'nein', baustelle: zielBs.id });
+  await h.bereit();
+  let l = await meine();
+  const s1 = l.find((x) => x.ursache === U1);
+  pruef(!!s1 && s1.fremdGeraet === 'Mietbagger Fa. Huber' && s1.einsatzfaehig === 'nein' && s1.status === 'gemeldet' && s1.anlageId == null, `F-01: Schaden an fremdem Gerät + „nicht einsatzfähig“ kommt nicht an (${JSON.stringify(s1 && { s: s1.status })})`);
+  pruef(!!s1 && s1.baustelleId === zielBs.id, `F-12: im Dialog gewählte Baustelle nicht übernommen (${s1 && s1.baustelleId} statt ${zielBs.id})`);
+  await geh('/fuhrpark?reiter=schaeden');
+  pruef(await page.locator('#sch-warten [data-wartet]').count() === 0, 'F-01: Meldung hängt in der Warteschlange');
+  await h.toastWeg();
+
+  /* F-05: Server lehnt den Zeitpunkt des Geräts ab (Uhr geht vor) → Meldung kommt trotzdem an */
+  let ohneZeit = 0;
+  await page.route('**/api/fuhrpark/schaeden', async (r) => {
+    if (r.request().method() !== 'POST') return r.continue();
+    const b = r.request().postDataJSON();
+    if (b && b.zeitpunkt) return r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ fehler: 'zeitpunkt darf nicht in der Zukunft liegen.', code: 'UNGUELTIG' }) });
+    ohneZeit++; return r.continue();
+  });
+  const U5 = 'E2E F-05: Rücklicht rechts gebrochen, Geräteuhr geht vor';
+  await h.absichtlich(() => meldeSchaden(h, { wo: 'f05', start: async () => { await page.click('.sch-melden'); }, suche: 'Duster', ursache: U5, einsatz: 'ja' }));
+  await page.unroute('**/api/fuhrpark/schaeden');
+  await h.bereit();
+  l = await meine();
+  pruef(ohneZeit === 1 && l.filter((x) => x.ursache === U5).length === 1, `F-05: Meldung mit abgelehntem Zeitpunkt kommt nicht (genau einmal) an (${l.filter((x) => x.ursache === U5).length})`);
+  pruef(await page.locator('#sch-warten [data-wartet]').count() === 0, 'F-05: Meldung bleibt in der Warteschlange');
+  await h.toastWeg();
+
+  /* F-16: abgelehntes Foto bleibt als „nicht übernommen“ mit Grund sichtbar, bis es bestätigt wird */
+  await page.route('**/api/fuhrpark/schaeden/*/fotos', (r) => r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ fehler: 'Bilddatei ist beschädigt.', code: 'UNGUELTIG' }) }));
+  const U16 = 'E2E F-16: Seitenscheibe gesprungen, Foto wird abgelehnt';
+  await h.absichtlich(() => meldeSchaden(h, { wo: 'f16', start: async () => { await page.click('.sch-melden'); }, suche: 'Duster', fotos: foto, ursache: U16, einsatz: 'ja' }));
+  await page.unroute('**/api/fuhrpark/schaeden/*/fotos');
+  await h.bereit();
+  await page.waitForSelector('#sch-warten [data-zustand="foto"]', { timeout: 10000 });
+  let w = await warteschlange();
+  pruef(w.length === 1 && /nicht übernommen/.test(w[0].text) && /Bilddatei ist beschädigt/.test(w[0].text), `F-16: abgelehntes Foto nicht mit Grund sichtbar (${JSON.stringify(w)})`);
+  l = await meine();
+  pruef(l.filter((x) => x.ursache === U16).length === 1 && l.find((x) => x.ursache === U16).fotos.length === 0, 'F-16: Meldung selbst nicht (genau einmal, ohne Foto) am Server');
+  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].every((b) => b.dataset.schWartet !== '1')), 'F-16: gesendete Meldung zählt weiter als „wartet“');
+  await h.ueberlauf('f16 foto nicht übernommen'); await shot('f16-foto-nicht-uebernommen');
+  await page.click('#sch-warten [data-zustand="foto"] [data-sch-verwerfen]');
+  await leer();
+
+  /* F-06: Serverfehler ≠ keine Verbindung. Ein dauerhaft fehlschlagender Eintrag blockiert die übrigen nicht,
+     wird nach 3 Versuchen als Fehler gezeigt und lässt sich erneut senden oder verwerfen. */
+  const UA = 'E2E F-06 A: Meldung, bei der der Server einen Fehler meldet', UB = 'E2E F-06 B: zweite Meldung dahinter', UC = 'E2E F-06 C: Meldung, die der Server ablehnt';
+  await context.setOffline(true);
+  await h.absichtlich(async () => {
+    for (const u of [UA, UB, UC]) {
+      await meldeSchaden(h, { wo: 'f06', start: async () => { await page.click('.sch-melden'); }, suche: 'Octavia', ursache: u, einsatz: 'ja' });
+      await page.waitForFunction((t) => [...document.querySelectorAll('#sch-warten [data-wartet]')].some((x) => x.innerText.includes(t)), u, { timeout: 15000 });
+      await h.toastWeg();
+    }
+  });
+  pruef((await warteschlange()).length === 3, 'F-06: Test-Vorbedingung – drei Meldungen sollten warten');
+  await page.route('**/api/fuhrpark/schaeden', async (r) => {
+    if (r.request().method() !== 'POST') return r.continue();
+    const u = (r.request().postDataJSON() || {}).ursache;
+    if (u === UA) return r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ fehler: 'Interner Fehler', code: 'SERVER' }) });
+    if (u === UC) return r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ fehler: 'ursache enthält unzulässige Zeichen.', code: 'UNGUELTIG' }) });
+    return r.continue();
+  });
+  await context.setOffline(false);
+  await h.absichtlich(async () => {
+    // Senden anstoßen, bis A dreimal gescheitert ist (auch der Hintergrund-Abgleich darf mitzählen)
+    for (let i = 0; i < 8 && !(await warteschlange()).some((x) => x.zustand === 'fehler' && x.art === 'server'); i++) {
+      const knopf = page.locator('[data-sch-senden]');
+      if (await knopf.count()) await knopf.click().catch(() => {});
+      await sleep(900);
+      if (i === 0) {
+        l = await meine();
+        pruef(l.filter((x) => x.ursache === UB).length === 1, 'F-06: Meldung hinter einem fehlschlagenden Eintrag wurde nicht gesendet (Kopf blockiert)');
+        const a = (await warteschlange()).find((x) => x.text.includes(UA));
+        pruef(!!a && !/wartet auf Verbindung/.test(a.text), `F-06: Serverfehler wird als „wartet auf Verbindung“ angezeigt (${a && a.text})`);
+      }
+    }
+  });
+  w = await warteschlange();
+  const wa = w.find((x) => x.text.includes(UA)), wc = w.find((x) => x.text.includes(UC));
+  pruef(!!wa && wa.zustand === 'fehler' && wa.art === 'server' && /Server meldet einen Fehler, bitte Büro verständigen/.test(wa.text) && /Erneut senden/.test(wa.text) && /Verwerfen/.test(wa.text), `F-06: nach 3 Serverfehlern kein klarer Fehlerzustand mit „Erneut senden“/„Verwerfen“ (${JSON.stringify(wa)})`);
+  pruef(!!wc && wc.zustand === 'fehler' && wc.art === 'abgelehnt' && /ursache enthält unzulässige Zeichen/.test(wc.text), `F-06: vom Server abgelehnte Meldung (4xx) ohne Grund (${JSON.stringify(wc)})`);
+  pruef(!w.some((x) => x.text.includes(UB)), 'F-06: gesendete Meldung B steht noch in der Warteschlange');
+  await h.ueberlauf('f06 warteschlange'); await shot('f06-warteschlange-fehler');
+  await page.unroute('**/api/fuhrpark/schaeden');
+  // C verwerfen, A erneut senden
+  await page.locator('#sch-warten [data-wartet]', { hasText: UC }).locator('[data-sch-verwerfen]').click();
+  await page.click('dialog[open] [data-ok]');
+  await page.waitForFunction((t) => ![...document.querySelectorAll('#sch-warten [data-wartet]')].some((x) => x.innerText.includes(t)), UC);
+  await page.locator('#sch-warten [data-wartet]', { hasText: UA }).locator('[data-sch-erneut]').click();
+  await leer();
+  await h.bereit();
+  l = await meine();
+  pruef(l.filter((x) => x.ursache === UA).length === 1 && l.filter((x) => x.ursache === UB).length === 1 && l.filter((x) => x.ursache === UC).length === 0, `F-06: nach „Erneut senden“/„Verwerfen“ falscher Stand am Server (A ${l.filter((x) => x.ursache === UA).length}, B ${l.filter((x) => x.ursache === UB).length}, C ${l.filter((x) => x.ursache === UC).length})`);
+  pruef(ich.benutzer.id === (await api('GET', '/auth/ich')).json.benutzer.id, 'F-06: Sitzung ging beim Nachsenden verloren');
   await h.toastWeg();
 }
 
@@ -413,6 +532,13 @@ async function buero(h, z) {
   pruef(await page.locator('#eintrag-dlg [name="kosten"]').count() === 1, 'Eintrag Büro: Kostenfeld fehlt');
   const vorausgewaehlt = await page.evaluate(() => [...document.querySelectorAll('#eintrag-dlg [name="plan"]:checked')].map((c) => Number(c.value)));
   pruef(faellige.length >= 1 && faellige.every((p) => vorausgewaehlt.includes(p.id)), `Eintrag: fällige Fristen nicht vorausgewählt (${vorausgewaehlt})`);
+  // F-09: Prüfung mit schweren Mängeln erledigt keine Frist – Auswahl gesperrt, deutlicher Hinweis; zurück auf Service stellt die Auswahl wieder her
+  await page.selectOption('#eintrag-dlg [name="art"]', 'pruefung');
+  await page.selectOption('#eintrag-dlg [name="pruefErgebnis"]', 'schwere_maengel');
+  pruef(await page.evaluate(() => [...document.querySelectorAll('#eintrag-dlg [name="plan"]')].every((c) => c.disabled && !c.checked)) && /nicht bestanden/.test(await sichtbar(page, '#eintrag-dlg [data-schwer]').innerText()), 'F-09: bei „schwere Mängel“ bleibt die Frist anhakbar bzw. der Hinweis „Begutachtung nicht bestanden“ fehlt');
+  await h.dialogUeberlauf('eintrag schwere mängel'); await shot('f09-eintrag-schwere-maengel');
+  await page.selectOption('#eintrag-dlg [name="art"]', 'service');
+  pruef(JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('#eintrag-dlg [name="plan"]:checked:not(:disabled)')].map((c) => Number(c.value)))) === JSON.stringify(vorausgewaehlt), 'F-09: Auswahl der Fristen nach Wechsel zurück auf „Service“ nicht wiederhergestellt');
   await page.fill('#eintrag-dlg [name="titel"]', 'E2E Service 1.000 Std.');
   await page.fill('#eintrag-dlg [name="arbeiten"]', 'Motoröl, Hydrauliköl und alle Filter gewechselt');
   await page.fill('#eintrag-dlg [name="kosten"]', '1.480,50');
@@ -496,6 +622,12 @@ async function buero(h, z) {
   await page.selectOption('#anlage-dlg [name="fahrzeugklasse"]', 'N2');
   await page.fill('#anlage-dlg [name="kennzeichen"]', `NK-9${g.width} E`);
   await page.fill('#anlage-dlg [name="erstzulassung"]', '2022-03-15');
+  // F-11: zweite Anlage zur selben Gerätezeile → Hinweis auf die Auswahl im Bautagesbericht
+  const radlader = ((await api('GET', '/geraete')).json || []).find((x) => (x.anlagen || []).length >= 1 && /Radlader/.test(x.name));
+  await page.selectOption('#anlage-dlg [name="geraetId"]', String(radlader.id));
+  pruef(await sichtbar(page, '#anlage-dlg [data-zweit]').count() === 1, 'F-11: kein Hinweis beim Anlegen einer zweiten Anlage zur selben Gerätezeile');
+  await page.selectOption('#anlage-dlg [name="geraetId"]', '');
+  pruef(await sichtbar(page, '#anlage-dlg [data-zweit]').count() === 0, 'F-11: Hinweis bleibt ohne Gerätezeile stehen');
   await page.check('#anlage-dlg [name="zart"][value="km"]');
   await page.fill('#anlage-dlg [name="zstart-km"]', '54.300');
   await h.dialogUeberlauf('anlage neu'); await shot('anlage-neu');
@@ -541,4 +673,4 @@ async function buero(h, z) {
   await h.toastWeg();
 }
 
-module.exports = { mitarbeiter, fremder, polier, berichtGeraete, buero };
+module.exports = { mitarbeiter, pruefbericht5, fremder, polier, berichtGeraete, buero };

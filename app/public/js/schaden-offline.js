@@ -26,8 +26,34 @@ export async function schadenWarteschlange(benutzerId) {
   try { const alle = (await tx('readonly', (s) => s.getAll())) || []; return alle.filter((e) => benutzerId == null || e.benutzerId === benutzerId).sort((a, b) => String(a.erstellt).localeCompare(String(b.erstellt))); }
   catch (x) { return []; }
 }
-// Vorläufig = später noch einmal versuchen (kein Netz, Server nicht bereit, Sitzung abgelaufen)
-export const schadenVorlaeufig = (x) => !!(x && (x.netz || !x.status || x.status >= 500 || x.status === 429 || x.status === 401 || x.status === 408));
+// Prüfbericht 5, F-06: drei Fehlerarten auseinanderhalten.
+//   netz      = keine Verbindung / Sitzung abgelaufen → weiter warten (ohne Zählung)
+//   server    = Antwort 5xx → höchstens MAX_VERSUCHE Versuche, dann Zustand „Fehler“ (der Eintrag blockiert die übrigen nie)
+//   abgelehnt = Antwort 4xx → sofort Zustand „Fehler“ mit dem Grund des Servers
+export const MAX_VERSUCHE = 3;
+export const SERVER_FEHLER = 'Server meldet einen Fehler, bitte Büro verständigen.';
+export const schadenFehlerArt = (x) => (!x || x.netz || !x.status || [401, 408, 429].includes(x.status) ? 'netz' : x.status >= 500 ? 'server' : 'abgelehnt');
+export const schadenVorlaeufig = (x) => schadenFehlerArt(x) !== 'abgelehnt';
+// Fehlversuch am Eintrag festhalten. Rückgabe: Fehlerart.
+export async function schadenFehler(e, x) {
+  const art = schadenFehlerArt(x);
+  if (art === 'server') {
+    e.versuche = (e.versuche || 0) + 1;
+    if (e.versuche >= MAX_VERSUCHE) { e.zustand = 'fehler'; e.fehlerArt = 'server'; e.grund = SERVER_FEHLER; } else e.zustand = 'wartet';
+  } else if (art === 'abgelehnt') { e.zustand = 'fehler'; e.fehlerArt = 'abgelehnt'; e.grund = x.message || 'vom Server abgelehnt'; }
+  else e.zustand = 'wartet';
+  try { await schadenMerken(e); } catch (y) { /* ohne Gerätespeicher bleibt nur die Anzeige */ }
+  return art;
+}
+// „Erneut senden“: Fehlerzustand zurücksetzen (die Versuche zählen neu)
+export async function schadenErneut(clientId) {
+  const e = (await schadenWarteschlange()).find((y) => y.clientId === clientId);
+  if (!e) return;
+  e.zustand = 'wartet'; e.versuche = 0; e.grund = null; e.fehlerArt = null;
+  await schadenMerken(e);
+}
+// Meldungen, die noch nicht am Server sind (ohne bereits gesendete mit Foto-Hinweis)
+export const schadenUngesendet = async (benutzerId) => (await schadenWarteschlange(benutzerId)).filter((e) => e.zustand !== 'foto');
 
 // Sendet eine Meldung: zuerst die Meldung (idempotent über clientId), dann Foto für Foto. Der Stand wird nach jedem Schritt gemerkt.
 const inArbeit = new Set();
@@ -43,33 +69,45 @@ async function sende(e, fortschritt, merken) {
   stand();
   let schaden = null;
   if (!e.serverId) {
-    schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId });
+    try { schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId }); }
+    catch (x) {
+      // F-05: geht die Geräteuhr vor (oder stark nach), lehnt ein älterer Server den Zeitpunkt ab → ohne Zeitpunkt senden, der Server nimmt „jetzt“
+      if (!(x.status === 400 && e.body.zeitpunkt && /zeitpunkt/i.test(x.message || ''))) throw x;
+      delete e.body.zeitpunkt; e.ohneZeitpunkt = true; await sichern();
+      schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId });
+    }
     e.serverId = schaden.id; await sichern(); stand();
   }
   for (const f of e.fotos) {
     if (f.gesendet) continue;
     try { await post(`/fuhrpark/schaeden/${e.serverId}/fotos`, { bildBase64: f.daten, dateiname: f.dateiname }); }
-    catch (x) { if (schadenVorlaeufig(x)) throw x; f.fehler = x.message; } // ein vom Server abgelehntes Foto hält die Meldung nicht auf
+    catch (x) { if (schadenVorlaeufig(x)) throw x; f.fehler = x.message || 'vom Server abgelehnt'; } // ein vom Server abgelehntes Foto hält die Meldung nicht auf
     f.gesendet = true; await sichern(); stand();
   }
-  if (merken) { try { await tx('readwrite', (s) => s.delete(e.clientId)); } catch (x) { /* egal */ } melde(); }
-  return { id: e.serverId, schaden, fotoFehler: e.fotos.filter((f) => f.fehler).map((f) => f.fehler) };
+  const fotoFehler = e.fotos.filter((f) => f.fehler);
+  if (merken) {
+    try {
+      // F-16: abgelehnte Fotos nicht stillschweigend verlieren – die Meldung ist gesendet, die Fotos bleiben mit Grund sichtbar, bis der Benutzer sie bestätigt
+      if (fotoFehler.length) { e.zustand = 'foto'; e.fotos = fotoFehler; e.grund = null; await tx('readwrite', (s) => s.put(e)); }
+      else await tx('readwrite', (s) => s.delete(e.clientId));
+    } catch (x) { /* egal */ }
+    melde();
+  }
+  return { id: e.serverId, schaden, fotoFehler: fotoFehler.map((f) => f.fehler), ohneZeitpunkt: !!e.ohneZeitpunkt };
 }
 
 let laeuft = false;
 // Alle wartenden Meldungen dieses Benutzers nachsenden. Rückgabe: Anzahl gesendeter Meldungen.
+// Ein Eintrag, den der Server ablehnt oder der wiederholt einen Serverfehler auslöst, hält die übrigen nicht auf.
 export async function schadenNachsenden(benutzerId) {
   if (laeuft || benutzerId == null) return 0;
   laeuft = true;
   let gesendet = 0;
   try {
     for (const e of await schadenWarteschlange(benutzerId)) {
-      if (e.zustand === 'fehler' || inArbeit.has(e.clientId)) continue;
+      if (e.zustand === 'fehler' || e.zustand === 'foto' || inArbeit.has(e.clientId)) continue;
       try { await schadenSenden(e); gesendet++; }
-      catch (x) {
-        if (schadenVorlaeufig(x)) break; // Reihenfolge wahren, später weiter
-        e.zustand = 'fehler'; e.grund = x.message; await schadenMerken(e);
-      }
+      catch (x) { if ((await schadenFehler(e, x)) === 'netz') break; } // ohne Verbindung hat auch der nächste Versuch keinen Sinn
     }
   } finally { laeuft = false; }
   if (gesendet) window.dispatchEvent(new CustomEvent('bt:schaden-gesendet', { detail: gesendet }));

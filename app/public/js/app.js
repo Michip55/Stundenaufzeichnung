@@ -21,7 +21,7 @@ import korrektur from './views/korrektur.js';
 import positionen from './views/positionen.js';
 import { fuhrpark } from './views/fuhrpark.js';
 import { anlage } from './views/anlage.js';
-import { schadenNachsenden, schadenWarteschlange } from './schaden-offline.js';
+import { schadenNachsenden, schadenUngesendet } from './schaden-offline.js';
 
 const root = document.getElementById('root');
 
@@ -181,14 +181,14 @@ function zeigeBadge() {
 async function holeSchadenZahl() {
   if (!ich) return;
   const id = ich.benutzer.id;
-  let wartet = (await schadenWarteschlange(id)).length;
-  if (wartet) { await schadenNachsenden(id); wartet = (await schadenWarteschlange(id)).length; }
+  let wartet = (await schadenUngesendet(id)).length;
+  if (wartet) { await schadenNachsenden(id); wartet = (await schadenUngesendet(id)).length; }
   let neu = schadenNeu;
   if (bearbeitetSchaeden()) { try { neu = (await get('/fuhrpark/schaeden?status=gemeldet')).length; } catch (e) { /* Zahl bleibt */ } } else neu = 0;
   if (!ich || ich.benutzer.id !== id) return;
   schadenNeu = neu; schadenWartet = wartet; zeigeBadge();
 }
-window.addEventListener('bt:schaden', async () => { if (!ich) return; schadenWartet = (await schadenWarteschlange(ich.benutzer.id)).length; zeigeBadge(); });
+window.addEventListener('bt:schaden', async () => { if (!ich) return; schadenWartet = (await schadenUngesendet(ich.benutzer.id)).length; zeigeBadge(); });
 window.addEventListener('bt:schaden-gesendet', (e) => { toast(e.detail > 1 ? `${e.detail} Schadensmeldungen wurden nachgesendet.` : 'Schadensmeldung wurde nachgesendet.'); holeMeldungen(); });
 window.addEventListener('online', () => { if (ich) holeSchadenZahl(); });
 function zeigeGlocke() {

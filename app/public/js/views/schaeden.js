@@ -2,7 +2,7 @@
 // Fotos werden am Gerät verkleinert (ohne EXIF/GPS) und einzeln hochgeladen; ohne Netz wartet die Meldung in IndexedDB.
 import { get, put, post, del } from '../api.js';
 import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
-import { neueClientId, schadenMerken, schadenEntfernen, schadenWarteschlange, schadenSenden, schadenNachsenden, schadenVorlaeufig, bildVerkleinern } from '../schaden-offline.js';
+import { neueClientId, schadenMerken, schadenEntfernen, schadenWarteschlange, schadenUngesendet, schadenSenden, schadenNachsenden, schadenFehlerArt, schadenFehler, schadenErneut, MAX_VERSUCHE, bildVerkleinern } from '../schaden-offline.js';
 import { KLASSE, EINTRAG_ART, liste as arr, eintragDialog } from './fuhrpark-dialoge.js';
 
 export const S_ART = { defekt: 'Defekt', verschleiss: 'Verschleiß', unfall: 'Unfall', beschaedigung_dritte: 'Beschädigung durch Dritte', sonstiges: 'Sonstiges' };
@@ -23,7 +23,7 @@ export const merkAnlagen = (l) => speicher.setz('bt_anlagen', arr(l).filter((a) 
 export const schaedenFuerAnlage = (id) => get(`/fuhrpark/schaeden?anlageId=${id}`).catch(() => []);
 // Zahl am Reiter: offene Schäden im eigenen Sichtbereich plus Meldungen, die noch auf Verbindung warten
 export async function schadenZahl(ctx) {
-  const [liste, warten] = await Promise.all([get('/fuhrpark/schaeden').catch(() => []), schadenWarteschlange(ctx.ich.benutzer.id)]);
+  const [liste, warten] = await Promise.all([get('/fuhrpark/schaeden').catch(() => []), schadenUngesendet(ctx.ich.benutzer.id)]);
   return arr(liste).filter(offen).length + warten.length;
 }
 // Zeile in der Servicebuch-Zeitleiste einer Anlage
@@ -38,7 +38,7 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
   const zuletztIds = speicher.lies('bt_schaden_zuletzt', []);
   const m = { anlage, fremd: '', fotos: [], art: '', ursache: '', beschreibung: '', einsatz: '', baustelleId };
   let schritt = anlage ? 2 : 1;
-  let alle = anlagen, baustellen = [], sendet = false, liest = 0;
+  let alle = anlagen, baustellen = [], sendet = false, liest = 0, baustelleGeladen = false;
   const d = dialog({ titel: 'Schaden melden', breit: true, inhalt: '<div id="sm"></div>' });
   d.el.id = 'schaden-dlg';
   d.el.classList.add('voll');
@@ -49,6 +49,9 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
     if (m.baustelleId == null && st && st.status && st.status !== 'aus' && st.baustelleId != null) m.baustelleId = st.baustelleId;
     if (m.baustelleId == null && m.anlage && m.anlage.standort && m.anlage.standort.baustelleId) m.baustelleId = m.anlage.standort.baustelleId;
     if (m.baustelleId == null) { const eig = (ctx.ich.baustellenIds || []).find((id) => baustellen.some((b) => b.id === id)); if (eig != null) m.baustelleId = eig; }
+    // F-12: nicht eingestempelt und keine eigene Baustelle → zuletzt gestempelte Baustelle vorschlagen (änderbar)
+    if (m.baustelleId == null) { const letzte = speicher.lies('bt_baustelle'); if (baustellen.some((b) => b.id === letzte)) m.baustelleId = letzte; }
+    baustelleGeladen = true;
     if (schritt === 4 && d.el.isConnected) zeichne();
   });
   const NAMEN = ['Gerät', 'Fotos', 'Was ist passiert?', 'Einsatzfähig?'];
@@ -103,7 +106,7 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
           <button type="button" class="mm-d red${m.einsatz === 'nein' ? ' on' : ''}" role="radio" aria-checked="${m.einsatz === 'nein'}" data-sm-einsatz="nein">${ic('lock')}<span><b>Nein – Gerät stilllegen</b><small>Darf nicht mehr verwendet werden</small></span></button>
         </div></fieldset>
         <div id="sm-warn" ${m.einsatz === 'nein' ? '' : 'hidden'}>${banner('err', m.anlage ? '<b>Das Gerät wird sofort gesperrt.</b> Büro, Werkstatt und Bauleitung werden verständigt. Bitte das Gerät abstellen und gegen Benutzung sichern.' : '<b>Bitte das Gerät sofort abstellen</b> und gegen Benutzung sichern. Büro und Werkstatt werden verständigt.', 'lock')}</div>
-        <label class="field"><span class="field-label">Baustelle</span><select class="input lg" id="sm-baustelle"><option value="">– keine / Bauhof –</option>${baustellen.map((b) => `<option value="${b.id}" ${m.baustelleId === b.id ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Auf welcher Baustelle? (freiwillig)</span><select class="input lg" id="sm-baustelle" aria-describedby="sm-bs-hinweis"><option value="">– keine / Bauhof –</option>${baustellen.map((b) => `<option value="${b.id}" ${m.baustelleId === b.id ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select><small class="muted" id="sm-bs-hinweis">Mit Baustelle werden auch Polier und Bauleiter dieser Baustelle verständigt.</small></label>
         <div id="sm-fortschritt" hidden><div class="sm-prog"><span class="meter"><i data-st="width:0%"></i></span><small id="sm-prog-text" role="status">Wird gesendet …</small></div></div>
         <p class="form-err" role="alert" hidden></p>${fuss('data-sm-senden', `${ic('check')}Schaden melden`)}`;
     }
@@ -150,15 +153,20 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
       toast(r.fotoFehler.length ? `Schaden gemeldet – ${r.fotoFehler.length} Foto${r.fotoFehler.length > 1 ? 's' : ''} konnte${r.fotoFehler.length > 1 ? 'n' : ''} nicht übernommen werden.` : m.einsatz === 'nein' && m.anlage ? 'Schaden gemeldet – Gerät ist gesperrt.' : 'Schaden gemeldet. Danke!', r.fotoFehler.length ? 'warn' : 'ok');
       ctx.meldungenNeu(); if (ctx.aktuell()) ctx.neuLaden();
     } catch (x) {
-      if (schadenVorlaeufig(x) && gemerkt) {
+      const art = schadenFehlerArt(x);
+      if (art !== 'abgelehnt' && gemerkt) {
+        // F-06: Serverfehler ist nicht „keine Verbindung“ – ehrlich benennen; die Meldung bleibt am Gerät und wird begrenzt oft wiederholt
+        if (art === 'server') await schadenFehler(e, x);
         d.zu(true);
-        toast('Keine Verbindung – die Meldung ist am Gerät gespeichert und wird automatisch gesendet.', 'warn');
+        toast(art === 'server' ? 'Der Server meldet einen Fehler – die Meldung ist am Gerät gespeichert und wird erneut gesendet.' : 'Keine Verbindung – die Meldung ist am Gerät gespeichert und wird automatisch gesendet.', 'warn');
         if (ctx.aktuell()) ctx.neuLaden();
       } else {
         if (gemerkt) await schadenEntfernen(e.clientId).catch(() => {});
         sendet = false; pr.hidden = true;
         $$('.sm-fuss .btn, [data-sm-einsatz], [data-sm-geh]', box).forEach((b) => { b.disabled = false; });
-        fehler(schadenVorlaeufig(x) ? 'Keine Verbindung – die Meldung konnte nicht gesendet und am Gerät nicht gespeichert werden. Bitte später noch einmal versuchen.' : x.message);
+        fehler(art === 'netz' ? 'Keine Verbindung – die Meldung konnte nicht gesendet und am Gerät nicht gespeichert werden. Bitte später noch einmal versuchen.'
+          : art === 'server' ? 'Der Server meldet einen Fehler – die Meldung wurde nicht gesendet. Bitte später noch einmal versuchen oder das Büro verständigen.'
+          : /zeitpunkt/i.test(x.message || '') ? 'Der Server lehnt die Uhrzeit dieses Geräts ab. Bitte Datum und Uhrzeit des Geräts prüfen und noch einmal senden.' : x.message);
       }
     }
   }
@@ -206,10 +214,22 @@ export async function schaedenReiter(el, ctx, kopf) {
 
   function wartenHtml() {
     if (!warten.length) return '';
-    return `<section class="card" id="sch-warten" aria-labelledby="h-warten"><div class="card-h pad-h"><h3 id="h-warten">${ic('wifiOff')}Noch nicht gesendet <span class="count red">${warten.length}</span></h3><button type="button" class="btn ghost sm" data-sch-senden>${ic('sync')}Jetzt senden</button></div>
-      <ul class="plain rows">${warten.map((w) => `<li data-wartet="${esc(w.clientId)}" data-zustand="${esc(w.zustand || 'wartet')}"><span class="grow"><b>${esc(w.geraet || 'Gerät')}</b><small>${esc(w.body.ursache || '')}</small><small>${esc(fmt.zeitpunkt(w.erstellt))} · ${w.fotos.length} Foto${w.fotos.length === 1 ? '' : 's'}${w.zustand === 'fehler' ? ` · <span class="abg-grund">Vom Server abgelehnt: ${esc(w.grund || '')}</span>` : ''}</small></span>
-        ${w.zustand === 'fehler' ? `<button type="button" class="btn ghost sm" data-sch-verwerfen="${esc(w.clientId)}">Verwerfen</button>` : `<span class="chip st-amber">${ic('wifiOff')}wartet auf Verbindung</span>`}</li>`).join('')}</ul>
-      <p class="card-note">Diese Meldungen sind samt Fotos am Gerät gespeichert und werden automatisch gesendet, sobald Verbindung besteht. Nichts wird doppelt gemeldet.</p></section>`;
+    const offen = warten.filter((w) => w.zustand !== 'foto');
+    const zeile = (w) => {
+      const z = w.zustand || 'wartet';
+      const kopf = `<b>${esc(w.geraet || 'Gerät')}</b><small>${esc(w.body.ursache || '')}</small>`;
+      if (z === 'foto') return `<li data-wartet="${esc(w.clientId)}" data-zustand="foto"><span class="grow">${kopf}<small class="sch-gesendet">${ic('check', 'xs')} Meldung gesendet – ${w.fotos.length === 1 ? 'ein Foto wurde' : `${w.fotos.length} Fotos wurden`} nicht übernommen:</small>
+        <span class="sch-fotofehler">${w.fotos.map((f) => `<span><img src="${f.daten}" alt="Nicht übernommenes Foto ${esc(f.dateiname || '')}"><small class="abg-grund">${esc(f.fehler || 'vom Server abgelehnt')}</small></span>`).join('')}</span></span>
+        <button type="button" class="btn ghost sm" data-sch-verwerfen="${esc(w.clientId)}" data-ohne-frage>Verstanden</button></li>`;
+      const zeit = `<small>${esc(fmt.zeitpunkt(w.erstellt))} · ${w.fotos.length} Foto${w.fotos.length === 1 ? '' : 's'}</small>`;
+      if (z === 'fehler') return `<li data-wartet="${esc(w.clientId)}" data-zustand="fehler" data-fehlerart="${esc(w.fehlerArt || 'abgelehnt')}"><span class="grow">${kopf}${zeit}<small class="abg-grund" role="alert">${w.fehlerArt === 'server' ? `Fehler – ${esc(w.grund || '')}` : `Vom Server abgelehnt: ${esc(w.grund || '')}`}</small></span>
+        <span class="abg-akt"><button type="button" class="btn ghost sm" data-sch-erneut="${esc(w.clientId)}">${ic('sync')}Erneut senden</button><button type="button" class="btn ghost sm" data-sch-verwerfen="${esc(w.clientId)}">Verwerfen</button></span></li>`;
+      return `<li data-wartet="${esc(w.clientId)}" data-zustand="wartet" data-versuche="${w.versuche || 0}"><span class="grow">${kopf}${zeit}</span>
+        <span class="abg-akt">${w.versuche ? `<span class="chip st-amber">${ic('alert')}Serverfehler – Versuch ${w.versuche} von ${MAX_VERSUCHE}</span>` : `<span class="chip st-amber">${ic('wifiOff')}wartet auf Verbindung</span>`}<button type="button" class="btn ghost sm" data-sch-verwerfen="${esc(w.clientId)}">Verwerfen</button></span></li>`;
+    };
+    return `<section class="card" id="sch-warten" aria-labelledby="h-warten"><div class="card-h pad-h"><h3 id="h-warten">${ic(offen.length ? 'wifiOff' : 'info')}${offen.length ? 'Noch nicht gesendet' : 'Hinweis zu gesendeten Meldungen'} <span class="count${offen.length ? ' red' : ''}">${offen.length || warten.length}</span></h3>${offen.some((w) => w.zustand !== 'fehler') ? `<button type="button" class="btn ghost sm" data-sch-senden>${ic('sync')}Jetzt senden</button>` : ''}</div>
+      <ul class="plain rows">${warten.map(zeile).join('')}</ul>
+      ${offen.length ? '<p class="card-note">Diese Meldungen sind samt Fotos am Gerät gespeichert und werden automatisch gesendet, sobald Verbindung besteht. Nichts wird doppelt gemeldet. Meldet der Server wiederholt einen Fehler, bitte das Büro verständigen.</p>' : ''}</section>`;
   }
   function listeHtml() {
     const sicht = liste.filter(passt);
@@ -245,14 +265,16 @@ export async function schaedenReiter(el, ctx, kopf) {
     if (e.target.closest('[data-akt="schaden"]')) { schadenMelden(ctx); return; }
     if (e.target.closest('[data-sch-senden]')) { const n = await schadenNachsenden(ich); if (!n) { toast('Noch keine Verbindung – die Meldungen bleiben gespeichert.', 'warn'); neuWarten(); } return; }
     const v = e.target.closest('[data-sch-verwerfen]');
-    if (v) { if (await bestaetigen('Meldung verwerfen?', 'Die Meldung wurde vom Server nicht angenommen. Sie wird samt Fotos vom Gerät gelöscht.', 'Verwerfen', 'danger')) { await schadenEntfernen(v.dataset.schVerwerfen); } return; }
+    if (v) { if (v.dataset.ohneFrage != null || await bestaetigen('Meldung verwerfen?', 'Die Meldung ist noch nicht am Server angekommen. Sie wird samt Fotos vom Gerät gelöscht und NICHT gesendet.', 'Verwerfen', 'danger')) { await schadenEntfernen(v.dataset.schVerwerfen); } return; }
+    const er = e.target.closest('[data-sch-erneut]');
+    if (er) { er.disabled = true; await schadenErneut(er.dataset.schErneut); const n = await schadenNachsenden(ich); if (!n) { await neuWarten(); toast('Senden hat wieder nicht geklappt – die Meldung bleibt am Gerät gespeichert.', 'warn'); } return; }
     const s = e.target.closest('[data-schaden]');
     if (s) schadenOeffnen(ctx, s.dataset.schaden);
   });
   zeichne();
   const direkt = ctx.query.get('schaden');
   if (direkt) { history.replaceState(null, '', '#/fuhrpark?reiter=schaeden'); schadenOeffnen(ctx, direkt); }
-  if (warten.length) schadenNachsenden(ich);
+  if (warten.some((w) => (w.zustand || 'wartet') === 'wartet')) schadenNachsenden(ich);
   return () => { window.removeEventListener('bt:schaden', neuWarten); window.removeEventListener('bt:schaden-gesendet', aufGesendet); };
 }
 

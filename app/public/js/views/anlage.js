@@ -3,7 +3,7 @@
 // Ohne Leserecht (weder fuhrpark noch bericht_erstellen): Kurzinfo, nächste Termine, Mangel melden, Zählerstand eintragen.
 import { get } from '../api.js';
 import { ic, esc, fmt, leer, banner, $, $$ } from '../ui.js';
-import { KLASSE, EIGENTUM, PLAN_ART, EINTRAG_ART, PRUEF, STATUS, statusChip, anlageStatus, fmtZ, zName, zStand, zEinheit, faelligHtml, grundHtml, regelText, dringChip, mangelChip, liste as arr,
+import { KLASSE, EIGENTUM, PLAN_ART, EINTRAG_ART, PRUEF, STATUS, statusChip, anlageStatus, fmtZ, zName, zStand, zEinheit, faelligHtml, grundHtml, regelText, hinweisHtml, dringChip, mangelChip, liste as arr,
   mangelMelden, zaehlerstandDialog, eintragDialog, eintragStorno, mangelBearbeiten, sperreDialog, ausscheidenDialog, standKorrektur, tauschDialog, zaehlerNeu, anlageDialog, planDialog } from './fuhrpark-dialoge.js';
 import { schadenMelden, schaedenFuerAnlage, schadenZeile, schadenOeffnen } from './schaeden.js';
 
@@ -104,7 +104,7 @@ export async function anlage(el, ctx) {
   const sperrGruende = arr(a.sperrGruende).map((g) => (typeof g === 'string' ? g : g.text || g.grund || '')).filter(Boolean);
   const zaehlerKachel = (z) => `<div class="kpi sm fp-zk" data-zaehler="${esc(z.art)}"><small>${esc(zName(z.art))}</small><b>${z.geschaetzt ? '<i>≈ </i>' : ''}${esc(fmt.zahl(z.aktuell, z.art === 'km' || z.art === 'hub' ? 0 : 1))} <i>${esc(zEinheit(z))}</i></b>
     <em>${z.letzterStand && z.letzterStand.datum ? `abgelesen ${esc(fmt.datum(z.letzterStand.datum))}${z.geschaetzt ? ' · seither geschätzt' : ''}` : 'noch nicht abgelesen'}${z.wochenschnitt != null ? ` · Ø ${esc(fmt.zahl(z.wochenschnitt, 1))} ${esc(zEinheit(z))}/Woche` : ''}</em></div>`;
-  const planZeile = (p) => `<li data-plan="${p.id}" data-status="${esc(p.status)}"><span class="grow"><b>${esc(p.titel)}${p.vorlage && p.vorlage.pruefen ? ' <span class="chip xs st-amber" title="Intervall noch nicht abgestimmt">Prüfen</span>' : ''}</b><small class="fp-dues">${faelligHtml(p)}</small></span>${statusChip(p.status)}</li>`;
+  const planZeile = (p) => `<li data-plan="${p.id}" data-status="${esc(p.status)}"><span class="grow"><b>${esc(p.titel)}${p.vorlage && p.vorlage.pruefen ? ' <span class="chip xs st-amber" title="Intervall noch nicht abgestimmt">Prüfen</span>' : ''}</b><small class="fp-dues">${faelligHtml(p)}</small>${hinweisHtml(p)}</span>${statusChip(p.status)}</li>`;
   const mangelZeile = (m) => `<li data-mangel="${m.id}" data-status="${esc(m.status)}"><span class="grow"><b>${esc(m.text)}</b><small>${esc((m.gemeldetVon && m.gemeldetVon.name) || '')} · ${esc(fmt.zeitpunkt(m.gemeldet))}${m.notiz ? ` · Werkstatt: ${esc(m.notiz)}` : ''}</small></span>${dringChip(m.dringlichkeit)}${mangelChip(m.status)}${darf && (m.status === 'offen' || m.status === 'in_arbeit') ? `<button type="button" class="btn ghost sm" data-mangel-bearb="${m.id}">Bearbeiten</button>` : ''}</li>`;
   const eintragKopf = (e) => { const [t, i] = EINTRAG_ART[e.art] || [e.art, 'file']; return { t, i }; };
 
@@ -146,9 +146,9 @@ export async function anlage(el, ctx) {
       <div class="card fp-plan-tbl"><div class="tbl-wrap"><table class="tbl" id="fp-plan"><thead><tr><th>Frist</th><th>Intervall</th><th>Zuletzt</th><th>Fälligkeit</th><th>Status</th>${darf ? '<th></th>' : ''}</tr></thead><tbody>
       ${planSort.map((p) => `<tr data-plan="${p.id}" data-status="${esc(p.status)}"><td class="fp-haupt">${esc(p.titel)}${p.vorlage && p.vorlage.pruefen ? ' <span class="chip xs st-amber" title="Intervall noch nicht abgestimmt">Prüfen</span>' : ''}<small>${esc(PLAN_ART[p.art] || p.art || '')}${p.regel && p.regel.sperrtBeiUeberfaellig ? ' · sperrt bei Überfälligkeit' : ''}</small></td>
         <td>${esc(regelText(p.regel))}</td><td class="nw">${p.letzteDatum ? esc(fmt.datum(p.letzteDatum)) : '<span class="muted">–</span>'}${Object.entries(p.letzteZaehler || {}).filter(([, w]) => w != null).map(([art, w]) => `<small>${esc(fmtZ(w, { art }))}</small>`).join('')}</td>
-        <td class="fp-dues">${faelligHtml(p)}${grundHtml(p.grund)}</td><td>${statusChip(p.status)}</td>${darf ? `<td class="r"><button type="button" class="btn ghost sm" data-plan-bearb="${p.id}" aria-label="Frist ${esc(p.titel)} bearbeiten">${ic('edit')}Bearbeiten</button></td>` : ''}</tr>`).join('')}
+        <td class="fp-dues">${faelligHtml(p)}${grundHtml(p.grund)}${hinweisHtml(p)}</td><td>${statusChip(p.status)}</td>${darf ? `<td class="r"><button type="button" class="btn ghost sm" data-plan-bearb="${p.id}" aria-label="Frist ${esc(p.titel)} bearbeiten">${ic('edit')}Bearbeiten</button></td>` : ''}</tr>`).join('')}
       </tbody></table></div></div>
-      <ul class="plain rows card fp-plan-karten">${planSort.map((p) => `<li data-plan="${p.id}" data-status="${esc(p.status)}"><span class="grow"><b>${esc(p.titel)}${p.vorlage && p.vorlage.pruefen ? ' <span class="chip xs st-amber">Prüfen</span>' : ''}</b><small>${esc(regelText(p.regel))}${p.letzteDatum ? ` · zuletzt ${esc(fmt.datum(p.letzteDatum))}` : ''}</small><small class="fp-dues">${faelligHtml(p)}</small></span><span class="fp-plan-akt">${statusChip(p.status)}${darf ? `<button type="button" class="btn ghost sm" data-plan-bearb="${p.id}">Bearbeiten</button>` : ''}</span></li>`).join('')}</ul>`;
+      <ul class="plain rows card fp-plan-karten">${planSort.map((p) => `<li data-plan="${p.id}" data-status="${esc(p.status)}"><span class="grow"><b>${esc(p.titel)}${p.vorlage && p.vorlage.pruefen ? ' <span class="chip xs st-amber">Prüfen</span>' : ''}</b><small>${esc(regelText(p.regel))}${p.letzteDatum ? ` · zuletzt ${esc(fmt.datum(p.letzteDatum))}` : ''}</small><small class="fp-dues">${faelligHtml(p)}</small>${hinweisHtml(p)}</span><span class="fp-plan-akt">${statusChip(p.status)}${darf ? `<button type="button" class="btn ghost sm" data-plan-bearb="${p.id}">Bearbeiten</button>` : ''}</span></li>`).join('')}</ul>`;
   }
   // Zeitleiste: Einträge, Mängel, Schäden und Zählerstände in einer Reihe, neueste zuerst
   function zeitleiste() {

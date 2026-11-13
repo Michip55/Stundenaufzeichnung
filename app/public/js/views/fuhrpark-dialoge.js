@@ -79,6 +79,7 @@ export const faelligHtml = (p) => {
   return t.map((x) => `<span class="fp-due ${x.art}"${x.art === 'prognose' ? ' data-prognose' : ''}>${x.art === 'prognose' ? ic('chart', 'xs') + ' ' : ''}${esc(x.text)}${x.neben ? ` <small>· ${esc(x.neben)}</small>` : ''}</span>`).join('');
 };
 export const grundHtml = (g) => (g ? `<small class="muted">maßgeblich: ${esc(g)}</small>` : '');
+export const hinweisHtml = (p) => (p && p.hinweis ? `<small class="fp-hinweis">${ic('info', 'xs')} ${esc(p.hinweis)}</small>` : !p || p.letzteDatum || p.letzteZaehler || !['faellig', 'ueberfaellig'].includes(p.status) ? '' : `<small class="fp-hinweis">${ic('info', 'xs')} Keine letzte Durchführung erfasst – falls schon erledigt, bitte als Eintrag nachtragen.</small>`);
 
 /* ---------- Formular-Helfer ---------- */
 const feld = (label, inhalt, cls = '') => `<label class="field ${cls}"><span class="field-label">${label}</span>${inhalt}</label>`;
@@ -243,7 +244,7 @@ export function eintragDialog(ctx, a, { maengel = [], schaeden = [], vorgewaehlt
     <div class="full form-grid" data-nur-pruefung hidden>
       ${feld('Ergebnis der Prüfung', `<select class="input lg" name="pruefErgebnis"><option value="">– bitte wählen –</option>${opt(PRUEF, '')}</select>`)}
       ${feld('Prüfer / Prüfstelle', '<input class="input lg" name="pruefer" maxlength="120">')}
-      <p class="muted sm full" data-schwer hidden>${ic('lock', 'xs')} Bei schweren Mängeln wird das Gerät gesperrt, bis es wieder freigegeben wird.</p>
+      <div class="full" data-schwer hidden>${banner('warn', '<b>Begutachtung nicht bestanden.</b> Das Gerät wird gesperrt, bis es wieder freigegeben wird. Die Frist gilt <b>nicht</b> als erledigt – sie bleibt offen, bis eine Prüfung ohne schwere Mängel eingetragen ist.', 'lock')}</div>
     </div>
     ${feld('Durchgeführte Arbeiten', '<textarea class="input area" name="arbeiten" rows="3" maxlength="2000"></textarea>', 'full')}
     ${feld('Verwendete Teile', '<textarea class="input area" name="teile" rows="2" maxlength="2000"></textarea>', 'full')}
@@ -255,7 +256,12 @@ export function eintragDialog(ctx, a, { maengel = [], schaeden = [], vorgewaehlt
   d.el.id = 'eintrag-dlg';
   const form = $('#eb-f', d.el);
   geldFelder(form);
-  const artWechsel = () => { const p = form.elements.art.value === 'pruefung'; $('[data-nur-pruefung]', form).hidden = !p; $('[data-schwer]', form).hidden = form.elements.pruefErgebnis.value !== 'schwere_maengel'; };
+  const istSchwer = () => form.elements.art.value === 'pruefung' && form.elements.pruefErgebnis.value === 'schwere_maengel';
+  const artWechsel = () => {
+    const p = form.elements.art.value === 'pruefung'; $('[data-nur-pruefung]', form).hidden = !p; $('[data-schwer]', form).hidden = !istSchwer();
+    // Nicht bestandene Prüfung: „Damit erledigt“ ist gesperrt (vorherige Auswahl wird gemerkt und kommt zurück, wenn das Ergebnis geändert wird)
+    $$('[name="plan"]', form).forEach((c) => { if (istSchwer()) { if (!c.disabled) c.dataset.war = c.checked ? '1' : ''; c.checked = false; c.disabled = true; } else if (c.disabled) { c.disabled = false; c.checked = c.dataset.war === '1'; } });
+  };
   form.addEventListener('change', artWechsel); artWechsel();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -275,10 +281,16 @@ export function eintragDialog(ctx, a, { maengel = [], schaeden = [], vorgewaehlt
     if (std != null) body.arbeitsstundenIntern = std;
     if (body.art === 'pruefung') { if (!f.get('pruefErgebnis')) { zeigFehler(d, 'Bitte das Ergebnis der Prüfung wählen.'); return; } body.pruefErgebnis = f.get('pruefErgebnis'); }
     if (preise && form.elements.kosten) { const k = geldWert(form.elements.kosten); if (Number.isNaN(k)) { zeigFehler(d, 'Kosten unklar – bitte so schreiben: 1.250,00'); return; } if (k != null) body.kosten = k; }
-    const pl = f.getAll('plan').map(Number); if (pl.length) body.planpositionIds = pl;
+    const pl = istSchwer() ? [] : f.getAll('plan').map(Number); if (pl.length) body.planpositionIds = pl;
     const mg = f.getAll('mangel').map(Number); if (mg.length) body.maengelIds = mg;
     sperr(d, true);
-    try { await post('/fuhrpark/eintraege', body); fertig(ctx, d, 'Eintrag gespeichert.'); }
+    try {
+      const neu = await post('/fuhrpark/eintraege', body);
+      const hinw = [...liste(neu && neu.warnungen), ...liste(neu && neu.hinweise)].map((w) => (typeof w === 'string' ? w : (w && w.text) || '')).filter(Boolean);
+      d.zu(true);
+      if (hinw.length) toast(`Eintrag gespeichert – ${hinw.join(' ')}`, 'warn'); else if (body.pruefErgebnis === 'schwere_maengel') toast('Eintrag gespeichert – Begutachtung nicht bestanden, Gerät ist gesperrt.', 'warn'); else toast('Eintrag gespeichert.');
+      ctx.meldungenNeu(); if (ctx.aktuell()) ctx.neuLaden();
+    }
     catch (x) { sperr(d, false); fehlerImDialog(d, x, ctx); }
   });
   return d.geschlossen;
@@ -409,11 +421,14 @@ export async function anlageDialog(ctx, a = null) {
     ${feld('Verantwortlich (Fahrer / Maschinist)', `<select class="input lg" name="verantwortlichId"><option value="">– niemand –</option>${leute.filter((m) => m.aktiv !== false && m.aktiv !== 0).map((m) => `<option value="${m.id}" ${a && (a.verantwortlichId ?? (a.verantwortlich && a.verantwortlich.id)) === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`)}
     ${feld('Standort: Baustelle', `<select class="input lg" name="standortBaustelleId"><option value="">– Bauhof / keine –</option>${baustellen.filter((b) => b.status !== 'abgeschlossen' || b.id === st.baustelleId).map((b) => `<option value="${b.id}" ${(a && 'standortBaustelleId' in a ? a.standortBaustelleId : st.baustelleId) === b.id ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select>`)}
     ${feld('Standort: Text', `<input class="input lg" name="standortText" maxlength="120" value="${esc(a && a.standortText != null ? a.standortText : st.baustelleId ? '' : st.text || '')}" placeholder="z. B. Bauhof">`)}
+    <div class="full" data-zweit hidden>${banner('info', '<b>Für diese Gerätezeile gibt es schon ein Gerät.</b> Ab jetzt muss im Bautagesbericht gewählt werden, welches Gerät im Einsatz war – sonst zählen die Stunden für die Service-Prognose bei keinem von beiden.')}</div>
     ${a ? '' : zaehlerFelder()}
     ${feld('Notiz', `<textarea class="input area" name="notiz" rows="2" maxlength="1000">${v('notiz')}</textarea>`, 'full')}
     <p class="form-err full" role="alert" hidden></p></form>`,
     fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="an-f">Speichern</button>' });
   d.el.id = 'anlage-dlg';
+  const zweitHinweis = () => { const g = geraete.find((x) => String(x.id) === $('[name="geraetId"]', d.el).value); $('[data-zweit]', d.el).hidden = !(g && (g.anlagen || []).some((x) => !a || x.id !== a.id)); };
+  $('[name="geraetId"]', d.el).addEventListener('change', zweitHinweis); zweitHinweis();
   $('#an-f', d.el).addEventListener('submit', async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
     const txt = (k) => { const s = (f.get(k) || '').trim(); return s || null; };
