@@ -58,6 +58,7 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 | `kalkulation.js` | Nachkalkulation und Budget-Kennzahlen (reine Funktionen) |
 | `budget.js` | Budget-Alarm (je Baustelle und Schwelle einmalig, Empfänger nie Polier/Mitarbeiter) und Benachrichtigungen |
 | `auswertung.js`, `export.js` | Woche, Monatsauswertung, CSV (Semikolon, UTF-8 mit BOM) für Lohnverrechnung und BUAK |
+| `positionen.js`, `katalog-excel.js`, `positionen-zuordnung.js` | Nachkalkulation nach Positionen (API.md 10): Positionskatalog aus der Excel-Vorlage (`daten/katalog_vorlage.json`, neu erzeugen mit `node server/katalog-excel.js`), Projektpositionen je Baustelle, automatische Mengen aus Berichten, Landschaftsabgabe aus Naturmaterial, Excel-Import/-Export (`exceljs`) |
 | `pdf.js` | Bautagesbericht-PDF im Aufbau der Papiervorlage, ohne €-Werte; Fassung Auftraggeber ohne K/U |
 | `daten.js` | gemeinsame Lade-Funktionen |
 | `routes/*.js` | HTTP-Routen je Bereich (u. a. `abwesenheiten.js` Antrag/Genehmigung, `zeit.js` mit Zeitkorrektur durch das Büro) |
