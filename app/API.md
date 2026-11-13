@@ -545,3 +545,88 @@ Bezug: `app/PRUEFBERICHT_5_SERVICEBUCH.md`. Regressionstests: `tests/api/pruefbe
 - **F-14:** Upload-Standardordner neben der Datenbank; Dateien gescheiterter Meldungen werden gelöscht; Mengengrenze 30 Meldungen/24 h; Sicherung: siehe `server/README.md`.
 - **F-15:** Dokumentation an den Code angeglichen (`Cache-Control: no-store`; `einmaligAm` erledigt nur mit `letzteDatum ≥ bezug_datum`).
 - **F-06, F-16:** Oberfläche (Warteschlange); der Server antwortet bei abgelehnten Fotos mit 400/403 und Text.
+
+## 12. Ausbaustufe 2 (verbindlich)
+
+Stand 13.11.2026. Gilt zusätzlich zu 1–11; bei Widerspruch gilt 12. Alle neuen Antworten ohne `preise_sehen` **ohne** €-Felder (Felder fehlen). Neue €-Feldnamen im Sicherheitsnetz: `wert` (nur in Preis-Verlauf-Antworten), `epVerlauf`, `epGeplant`, `perioden`. Fehlerformat wie Abschnitt 3.
+
+### 12.1 Betrieb (Deployment)
+- Ordner `deploy/` im Repository: `Dockerfile` (node:22-slim, Benutzer `node`, `HEALTHCHECK` auf `/api/gesundheit`), `docker-compose.yml` (Dienste `app` und `caddy`; Caddy holt HTTPS-Zertifikate automatisch), `Caddyfile`, `.env.beispiel`, `installieren.sh` (ein Befehl auf frischem Ubuntu 24.04), `backup.sh`, `update.sh`, `ANLEITUNG.md` (für den Inhaber, deutsch).
+- Umgebungsvariablen (zusätzlich zu 1/7): `BAUTAG_DOMAIN`, `BAUTAG_EMAIL` (für Let's Encrypt, nur Caddy), `BAUTAG_SCHLUESSEL` (≥ 32 Zeichen, verschlüsselt Geheimnisse in der DB: SMTP-Passwort, TOTP-Geheimnisse, privater VAPID-Schlüssel), `BAUTAG_URL` (öffentliche Adresse, z. B. `https://bautag.firma.at`; für Links in Push/E-Mail und VAPID-Subject), `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_SECURE` (`1` = TLS ab Verbindungsbeginn), `BAUTAG_WETTER` (`0` schaltet den Wetterabruf ab), `BAUTAG_ZEITZONE` bleibt Europe/Vienna.
+- Sicherung: `node server/sicherung.js <Zielordner> [--uploads <Ordner>]` erstellt eine **konsistente** Kopie der Datenbank (SQLite-Backup-API, auch bei laufendem Server) `bautag-JJJJ-MM-TT.db` plus `uploads-JJJJ-MM-TT.tar.gz` und rotiert: 14 tägliche, 8 wöchentliche (Sonntag) Stände. Ausgabe JSON `{datei, uploads, geloescht:[…]}`. `deploy/backup.sh` ruft das im Container auf.
+- `GET /api/gesundheit` unverändert (`{ok, version, db}`), wird vom Container-Healthcheck genutzt.
+
+### 12.2 Preise mit „gültig ab“ (löst M-08)
+Jede Preisänderung ist ein **Stand** mit `gueltigAb` (Datum, Wiener Zeit). Alle Rechnungen verwenden den Preis, der **am Tag des Berichts bzw. Eintrags** gilt. Bestehende Preise gelten per Migration seit `2000-01-01`. Betroffen: Lohngruppe `kostensatz`/`regiesatz`, Gerät `kostensatz`/`verrechnungssatz`, Material `ek`/`vk`, Leistung `ep`, Katalog-`ep`, Projektpositions-`ep`.
+- **Regeln:** `gueltigAb` fehlt = heute. Zukunft erlaubt (höchstens 2 Jahre voraus). **Rückwirkend** (`gueltigAb` < heute) nur mit `rueckwirkend:true` (sonst 400 „… rückwirkend … bestätigen“); wird mit `rueckwirkend:true` protokolliert und löst die Budget-Prüfung aus. Gleiches Datum wie ein bestehender Stand ersetzt diesen. Frühestes Datum 2000-01-01.
+- `GET /preise` → je Eintrag zusätzlich `gueltigAb:{[feld]: "YYYY-MM-DD"}` (Stand des heutigen Werts) und `geplant:[{id, feld, wert, gueltigAb}]` (künftige Stände). Die Felder `kostensatz` usw. zeigen den **heute** gültigen Wert.
+- `PUT /preise/:art/:id` `{feld, wert, gueltigAb?, rueckwirkend?}` → Eintrag wie in `GET /preise`.
+- `GET /preise/:art/:id/verlauf` (`preise_sehen`) → `[{id, feld, wert, gueltigAb, erstellt, erstelltVon:{id,name}|null}]` (aufsteigend nach `feld`, `gueltigAb`).
+- `DELETE /preise/:art/:id/verlauf/:vid` (`preise_bearbeiten`) → `{ok:true}`; nur **künftige** Stände (`gueltigAb` > heute), sonst 409.
+- **Katalog:** `PUT /positionen/katalog/:id` nimmt bei `ep` zusätzlich `gueltigAb`, `rueckwirkend`. Katalogposition zusätzlich `epAb` und `epGeplant:[{id, ep, gueltigAb}]`. `GET /positionen/katalog/:id/verlauf` → `[{id, ep, gueltigAb, erstellt, erstelltVon}]`, `DELETE /positionen/katalog/:id/verlauf/:vid` (nur künftige). Beim Kopieren in eine Baustelle werden **alle** Stände ab dem heute gültigen mitkopiert (eine angekündigte Preisliste gilt dann auch in neuen Baustellen). `POST /positionen/katalog/import?uebernehmen=1&gueltigAb=YYYY-MM-DD[&rueckwirkend=1]` – geänderte Preise werden Stände mit diesem Datum.
+- **Projektposition:** `PUT /baustellen/:id/positionen/:pid` nimmt bei `ep` zusätzlich `gueltigAb`, `rueckwirkend`; `POST …/aus-vorlage {modus:"preise", gueltigAb?, rueckwirkend?}`. Position (mit Preisrecht) zusätzlich `epAb` und, **nur wenn sich der EP im Projekt geändert hat**, `perioden:[{gueltigAb, bis|null, ep, menge, summe}]` sowie `epGeplant`. Bei mehreren Perioden gilt: `summe` = Σ der auf Cent gerundeten Periodensummen, `ep` = heute gültiger EP, `menge` = Gesamtmenge. `GET /baustellen/:id/positionen/:pid/verlauf`, `DELETE …/positionen/:pid/verlauf/:vid` (nur künftige).
+- **Mengen je Datum:** Automatische Mengen aus Berichten zählen zum Berichtsdatum, manuelle Einträge zu ihrem `datum`, die Landschaftsabgabe zum Datum der Naturmaterial-Tonnen.
+- **Excel-Export** der Nachkalkulation: Eine Position mit mehreren Perioden erscheint als **eine Zeile je Periode**: `Bezeichnung (bis TT.MM.JJJJ)`, `Bezeichnung (ab TT.MM.JJJJ)` – jede Zeile mit eigener Menge, eigenem EP und `ROUND(M*N;2)`. Positionen ohne Preisänderung bleiben eine Zeile.
+- **Interne Kosten** (`/kalkulation`): Personal-/Geräte-/Materialkosten mit dem Satz am Berichtsdatum, Regie mit dem Regiesatz am Berichtsdatum, Leistungsmeldungen mit dem EP am Meldedatum. Positionen `lohn/geraete/material/leistungen` werden **je Satz** getrennt aufgeführt (gleiche ID kann mehrfach vorkommen, Feld `satz` bzw. `ep` unterscheidet). `kostenTag` im Bericht mit den Sätzen am Berichtsdatum.
+- Die Lohngruppe der Person ist weiterhin die **aktuelle** (keine Historie der Einstufung – offener Punkt).
+- Tritt ein künftiger Stand in Kraft, prüft der stündliche Lauf am ersten Lauf des Tages die Budgets aller Baustellen.
+
+### 12.3 Push-Benachrichtigungen (Web Push, VAPID)
+- VAPID-Schlüssel werden beim ersten Start erzeugt und in der DB gespeichert (privater Schlüssel verschlüsselt, wenn `BAUTAG_SCHLUESSEL` gesetzt). Integration `push` ist dann `angebunden:true`.
+- `GET /push/schluessel` (angemeldet) → `{publicKey}` (Base64url, für `pushManager.subscribe({applicationServerKey})`).
+- `POST /push/abo` `{endpoint (https-URL, ≤ 1000), keys:{p256dh, auth}, geraet? (≤ 100, z. B. „iPhone Josef“)}` → 201 `{id, geraet, erstellt}` (gleicher `endpoint` → 200, wird dem angemeldeten Benutzer zugeordnet). Höchstens 10 Abos je Benutzer (älteste fallen weg).
+- `DELETE /push/abo` `{endpoint}` → `{ok:true}` (nur eigene). `GET /push/abos` → eigene `[{id, geraet, erstellt, zuletzt, fehler}]` (ohne Schlüssel). `DELETE /push/abos/:id` → eigenes Abo löschen.
+- `GET /push/einstellungen` → `{typen:{budget, fuhrpark, schaden, abwesenheit, bericht, plan, azg, sicherheit}: bool}` (Standard alle `true`; nur Typen, die die Rolle erhalten kann, sind enthalten). `PUT /push/einstellungen` `{typen:{…}}` → gleiche Antwort.
+- `POST /push/test` → schickt „Test-Benachrichtigung von BauTag“ an alle eigenen Abos → `{gesendet, fehler}`.
+- **Versand:** Jede neue In-App-Benachrichtigung (Tabelle `benachrichtigung`) wird an die Abos des Empfängers geschickt, wenn der Typ in seinen Einstellungen aktiv ist. Push-Text: `{title, body, url, tag}` – `title` = Titel der Benachrichtigung, `body` = **neutraler Text ohne Beträge** (Budget: „Budget-Schwelle erreicht – Details in BauTag“; sonst der Text, aus dem jede Zahl mit €/EUR entfernt wird). Abos mit Antwort 404/410 werden gelöscht. Typ `schaden` = Fuhrpark-Benachrichtigungen zu Schäden (`schluessel` beginnt mit `fp:schaden`), sonst `fuhrpark`.
+- Benachrichtigungstypen neu: `plan`, `email` (Versandfehler an GF/Büro).
+
+### 12.4 Wetter (GeoSphere Austria, ohne Schlüssel)
+- Baustelle: neue Felder `lat`, `lng` (Dezimalgrad, Österreich und Umgebung: lat 45–50, lng 8–18; `null` = unbekannt), schreiben mit `stammdaten`.
+- `GET /baustellen/:id/wetter?datum=YYYY-MM-DD` (wer die Baustelle sehen darf; Standard heute) →
+  `{verfuegbar:true, datum, quelle:"GeoSphere Austria – Data Hub (CC BY 4.0)", datensatz, abgerufen, stunden:[{zeit:"HH:MM", temperatur, niederschlag, wind, boeen?}], zusammenfassung:{text, temperatur, temperaturMin, temperaturMax, niederschlag, wind}, schlechtwetter:{vorschlag:bool, ab:"HH:MM"|null, gruende:[text], pruefen:true, regeln:[text]}}`
+  oder `{verfuegbar:false, hinweis:"Wetter nicht verfügbar", grund}` (keine Koordinaten, Abruf gescheitert, Datum > morgen oder älter als 1 Jahr, `BAUTAG_WETTER=0`). Einheiten: °C, mm (Summe der Stunde), km/h.
+- Daten: Tag ≥ heute → Vorhersage `nwp-v1-1h-2500m`; vergangene Tage → Analyse `inca-v1-1h-1km` (stündlich). Zwischenspeicher je Baustelle, Datum und Stunde des Abrufs (DB-Tabelle), Fehler werden 10 min gemerkt.
+- **Schlechtwetter-Vorschlag (Prüfen – Grenzwerte bei der BUAK bestätigen):** Stunden 06:00–18:00 mit Temperatur > 32,5 °C, Niederschlag ≥ 1 mm in der Stunde, Wind ≥ 60 km/h oder Temperatur ≤ −10 °C. `ab` = erste solche Stunde. Die App entscheidet nie selbst (§ 5 BSchEG); der Vorschlag ist nur ein Hinweis.
+- **Bericht:** `POST /berichte` füllt `wetter` automatisch (höchstens 4 s Wartezeit; sonst bleibt `wetter` leer), wenn die Baustelle Koordinaten hat. `POST /berichte/:id/wetter` (Bearbeitungsrecht, nur Entwurf ohne Unterschrift) → übernimmt die Werte erneut → Bericht-JSON + `wetterVorschlag` (= `schlechtwetter`). `wetter` = `{text, temperatur, niederschlag, wind, quelle}` (Text z. B. „bewölkt, 8–14 °C, 2,4 mm, Wind bis 25 km/h“). Bericht-JSON enthält zusätzlich `wetterVorschlag` (falls Wetterdaten im Zwischenspeicher).
+- Integration `wetter` ist `angebunden:true`, solange `BAUTAG_WETTER` ≠ `0`.
+
+### 12.5 E-Mail (SMTP)
+- `GET /einstellungen/email` (Recht `benutzer`) → `{host, port, sicher, benutzer, absender, passwortGesetzt:bool, aktiv, quelle:"einstellung"|"umgebung"|null, schluesselVorhanden:bool}` (Passwort nie).
+- `PUT /einstellungen/email` (Recht `benutzer`) `{host, port, sicher, benutzer?, passwort?, absender, aktiv}` → wie GET. `passwort` wird mit `BAUTAG_SCHLUESSEL` verschlüsselt gespeichert (AES-256-GCM); fehlt der Schlüssel → 400. `passwort:""` löscht es. Protokoll (ohne Passwort).
+- `POST /einstellungen/email/test` `{an}` (Recht `benutzer`) → `{ok:true}` oder 502 `{code:"EMAIL_FEHLER", fehler}`. Protokoll.
+- Umgebungsvariablen `SMTP_*` gelten, solange keine Einstellung gespeichert ist.
+- **Bericht an den Auftraggeber:** Baustelle neues Feld `agEmail` (eine oder mehrere Adressen, durch `,` getrennt, ≤ 300) und `berichtMail:bool` (Standard `true`). Wird ein Bericht `unterschrieben` und ist E-Mail eingerichtet, `agEmail` gesetzt und `berichtMail` an, wird das **AG-PDF** (`fassung=ag`, ohne €) im Hintergrund verschickt. Manuell: `POST /berichte/:id/email` `{an?}` (Recht `bericht_freigeben` im Bereich oder `stammdaten`; Bericht mindestens `unterschrieben`) → 202 `{id, status:"wartet"}`.
+- Bericht-JSON zusätzlich `emailVersand:[{id, zeit, an, status:"wartet"|"gesendet"|"fehler", fehler?}]` (nur für `bericht_freigeben`/`stammdaten`). Versandfehler → Benachrichtigung `typ:"email"` an Büro/GF und Protokoll.
+- Integration `email` ist `angebunden:true`, wenn ein SMTP-Host (Einstellung oder Umgebung) gesetzt und aktiv ist.
+
+### 12.6 Fotos im Bautagesbericht
+- Gleiche Prüfung wie Schadensfotos (11.9: Magic Bytes, Struktur, Metadaten/GPS entfernt, 8 MB je Foto, JPEG/PNG/WebP, Anfrage ≤ 12 MB), Ablage unter `BAUTAG_UPLOADS/berichte`.
+- `POST /berichte/:id/fotos` `{bildBase64, dateiname, beschreibung? (≤ 300)}` → 201 Foto (gleiches Bild im selben Bericht → 200). Recht: Bearbeitungsrecht des Berichts (`bericht_erstellen` im Bereich), nur Entwurf **ohne** Unterschrift (sonst 409). Höchstens **10** Fotos je Bericht (sonst 400).
+- `PUT /berichte/:id/fotos/:fid` `{beschreibung}` (gleiche Regeln). `DELETE /berichte/:id/fotos/:fid` → `{ok:true}` (gleiche Regeln), Protokoll.
+- `GET /berichte/:id/fotos/:fid` → Bild für alle, die den Bericht sehen dürfen (Header wie 11.9, Dateiname `bericht-<id>-<fid>.<ext>`).
+- Bericht-JSON zusätzlich `fotos:[{id, dateiname, beschreibung, mime, groesse, erstellt, erstelltVon:{id,name}, url}]`.
+- `GET /berichte/:id/pdf?fotos=1` hängt eine Fotoseite an (Vorschaubilder 2 × 3 je Seite mit Beschreibung; WebP als Hinweis „Bild im Format WebP – in der App ansehen“). Standard ohne Fotos. Fotos enthalten keine GPS-/EXIF-Daten.
+
+### 12.7 Zwei-Faktor-Anmeldung (TOTP, RFC 6238)
+- Für Rollen **bauleiter, buero, gf** (andere Rollen → 400). SHA-1, 6 Ziffern, 30 s, Toleranz ±1 Zeitschritt; ein Code gilt nur einmal.
+- `GET /auth/2fa` → `{aktiv, pflicht, moeglich, restcodes}`.
+- `POST /auth/2fa/einrichten` `{pin}` → `{geheimnis (Base32), otpauthUri, qrSvg (data:image/svg+xml;base64,…)}` (noch nicht aktiv; erneuter Aufruf ersetzt das Geheimnis).
+- `POST /auth/2fa/bestaetigen` `{code}` → `{aktiv:true, wiederherstellungscodes:[10 × "xxxx-xxxx"]}` (nur dieses eine Mal im Klartext; gespeichert als Hash). Falscher Code → 400.
+- `POST /auth/2fa/codes` `{code}` → neue 10 Wiederherstellungscodes (alte ungültig).
+- `POST /auth/2fa/aus` `{pin, code}` → `{aktiv:false}`; ist 2FA für die Rolle Pflicht → 409.
+- `DELETE /benutzer/:id/2fa` (Recht `benutzer`, nicht sich selbst) → setzt 2FA zurück (Gerät verloren), beendet Sitzungen, Protokoll, Benachrichtigung `sicherheit`.
+- **Anmeldung:** Ist 2FA aktiv, antwortet `POST /auth/login` nach richtiger PIN mit `200 {zweiterFaktor:true, vorgang}` (ohne Sitzung). `POST /auth/login/2fa` `{vorgang, code}` (`code` = 6 Ziffern oder Wiederherstellungscode) → wie `/auth/login`. Ein Vorgang gilt 5 min und erlaubt 5 Versuche; Fehlversuche zählen in die Login-Sperre (429/423 wie Abschnitt 7/9).
+- **Pflicht je Rolle:** `GET/PUT /einstellungen/sicherheit` (Recht `benutzer`) `{zweiFaktorPflicht:{bauleiter:bool, buero:bool, gf:bool}}`. Wer Pflicht hat und noch nicht eingerichtet ist, erhält nach dem Login auf alle Routen außer `/auth/*`, `/gesundheit` → 403 `{code:"2FA_EINRICHTEN"}`; `GET /auth/ich` zusätzlich `zweiFaktor:{aktiv, pflicht}`.
+- Wiederherstellungscode verbraucht → Benachrichtigung `sicherheit` an den Benutzer.
+
+### 12.8 Plantafel / Einsatzplanung
+- **Eintrag:** `{id, datum, baustelleId, baustelle:{id,kst,name,kurz}, art:"person"|"anlage", benutzerId?, name?, rolle?, anlageId?, anlage?:{id,nummer,bezeichnung,kennzeichen}, beginn:"HH:MM"|null, treffpunkt, notiz, veroeffentlicht:bool, geaendertNachVeroeffentlichung:bool, konflikte:[{typ:"doppelt"|"abwesenheit"|"gesperrt"|"ausgeschieden"|"faellig", text}], version}`. Keine €-Felder.
+- `GET /plan?von&bis&baustelleId` (Zeitraum ≤ 62 Tage, Standard heute–+6) → `{eintraege:[Eintrag], tage:[{datum, veroeffentlicht:[baustelleId…]}]}`. Büro/GF (Rolle oder `stammdaten`): alle; Bauleiter: seine Baustellen; Polier: Baustellen seines Bereichs (nur lesen); Mitarbeiter 403. Konflikte werden **über alle** Baustellen ermittelt; die Gegenseite außerhalb des Sichtbereichs erscheint als „andere Baustelle“. Abwesenheitscodes nur mit `stammdaten`/`lohn`, sonst Text „abwesend“.
+- `GET /plan/ich?von&bis` (alle) → eigene **veröffentlichte** Einträge `[{datum, baustelleId, baustelle, beginn, treffpunkt, notiz, anlagen:[{id,bezeichnung,kennzeichen}]}]` (Anlagen derselben Baustelle am selben Tag).
+- `POST /plan` `{datum, baustelleId, benutzerIds?:[…], partieBaustelleId?, anlageIds?:[…], beginn?, treffpunkt? (≤ 200), notiz? (≤ 500)}` → 201 `{eintraege:[…], konflikte:[…]}`. `partieBaustelleId` = alle aktiven Mitarbeiter/Poliere mit dieser Stamm-Baustelle. Nur Personen der Rollen mitarbeiter/polier/bauleiter. Gleiche Person/Anlage am selben Tag auf derselben Baustelle → wird übersprungen; auf anderer Baustelle → angelegt **mit** Konflikt `doppelt`. Datum höchstens 7 Tage zurück, 366 voraus.
+- `PUT /plan/:id` `{version, datum?, baustelleId?, beginn?, treffpunkt?, notiz?}`, `DELETE /plan/:id`.
+- `POST /plan/kopieren` `{von:"YYYY-MM-DD", nach:"YYYY-MM-DD", baustelleIds?}` → kopiert die Einträge eines Tages → `{angelegt}`.
+- `POST /plan/veroeffentlichen` `{datum, baustelleIds?}` → `{benachrichtigt, baustellen:[…]}`: Jede eingeplante Person erhält eine Benachrichtigung `typ:"plan"` (und Push): Titel „Einsatz <morgen|heute|am TT.MM.>: <Baustelle>“, Text „<Morgen> 06:30 Baustelle <KST Name>, Treffpunkt …“. Nach späteren Änderungen benachrichtigt eine erneute Veröffentlichung nur geänderte/neue Personen; gelöschte Einträge veröffentlichter Tage → Benachrichtigung „Einsatz entfällt“.
+- **Rechte:** Schreiben: Rolle Büro/GF oder `stammdaten` (alle Baustellen); Bauleiter für seine Baustellen. Sonst 403.
+- **Stempeluhr:** `GET /zeit/status` zusätzlich `geplant:{baustelleId, kst, name, beginn, treffpunkt}|null` (heutiger veröffentlichter Eintrag); die Oberfläche wählt diese Baustelle vor.
