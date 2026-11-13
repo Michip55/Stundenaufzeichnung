@@ -42,6 +42,10 @@ async function sichern(dbPfad, ziel, { uploads = null, jetzt = new Date(), aufbe
   } finally {
     quelle.close();
   }
+  // Kopie als eigenständige Datei (ohne WAL-Begleitdateien)
+  const kopie = new DatabaseSync(tmp);
+  kopie.exec('PRAGMA journal_mode = DELETE');
+  kopie.close();
   const pruefung = pruefen(tmp);
   if (!pruefung.ok) { fs.rmSync(tmp, { force: true }); throw new Error(`Sicherung fehlerhaft: ${pruefung.integritaet}`); }
   fs.renameSync(tmp, datei);
