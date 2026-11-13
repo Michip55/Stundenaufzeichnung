@@ -583,6 +583,7 @@ async function dokumenteUndRechnungen(h, z) {
   await geh(`/baustelle/${W}?reiter=dokumente`);
   await page.waitForSelector('#dokumente');
   pruef(await page.locator('.dok-kat-btn').count() >= 12 && await page.locator('.dok-kat-btn[data-kat="angebot"]').count() === 1 && await page.locator('#dok-ablage').count() === 1, 'A2-Dok: Kategorien (inkl. finanzieller) oder Ablagefläche fehlen');
+  pruef(await page.locator('#dok-kat-neu').count() === 0 && (await h.absichtlich(() => api('POST', '/dokument-kategorien', { name: 'Büro darf nicht', finanziell: false, polier: false }))).status === 403, 'A2-Dok: Büro kann eigene Kategorien anlegen (nur Geschäftsführung)');
   await page.setInputFiles('#dok-datei', [pdfDatei(`Lageplan ${k}.pdf`, 'Lageplan'), { name: `Foto Einbauten ${k}.png`, mimeType: 'image/png', buffer: await pngAusBrowser(page) }]);
   await page.waitForSelector('dialog[open] #dkf');
   pruef(await page.locator('#dok-upload li').count() === 2, 'A2-Dok: Mehrfachauswahl zeigt nicht beide Dateien');
@@ -790,11 +791,39 @@ async function dokumenteUndRechnungen(h, z) {
   pruef(await page.locator('[data-wert="verrechnet"]').count() === 1 && (await page.locator('[data-wert="verrechnet"]').innerText()).includes('12.000,00'), 'A2-Re: Nachkalkulation zeigt „verrechnet“ nicht');
   await abmelden();
 
+  /* ---- Geschäftsführung: eigene Dokument-Kategorien (eine für den Polier lesbar, eine finanzielle) ---- */
+  await anmelden('gf');
+  await geh(`/baustelle/${W}?reiter=dokumente`);
+  await page.waitForSelector('#dok-kat-neu');
+  const neueKat = async (name, finanziell, polier) => {
+    await page.click('#dok-kat-neu');
+    await page.waitForSelector('dialog[open] #dkk');
+    await page.fill('#dkk [name="name"]', name);
+    if (finanziell) { await page.check('#dkk [name="finanziell"]'); pruef(await page.locator('#dkk [name="polier"]').isDisabled(), 'A2-Dok: finanzielle Kategorie lässt sich für den Polier freigeben'); }
+    if (polier) await page.check('#dkk [name="polier"]');
+    await dialogUeberlauf('dokument kategorie');
+    await page.click('#dkk-ok');
+    await page.waitForSelector(`.dok-kat-btn:has-text("${name}")`);
+    await toastWeg();
+  };
+  await neueKat(`Vermessung ${k}`, false, true);
+  await neueKat(`Kalkulation ${k}`, true, false);
+  const katListe = (await api('GET', '/dokument-kategorien')).json;
+  const kVerm = katListe.find((x) => x.name === `Vermessung ${k}`), kKalk = katListe.find((x) => x.name === `Kalkulation ${k}`);
+  pruef(kVerm && kVerm.eigen && kVerm.polier && !kVerm.finanziell && kKalk && kKalk.finanziell && !kKalk.polier, `A2-Dok: eigene Kategorien falsch gespeichert (${JSON.stringify([kVerm, kKalk])})`);
+  await page.click('#dok-kat-neu'); await page.waitForSelector('dialog[open] #dkk');
+  await page.fill('#dkk [name="name"]', `Vermessung ${k}`);
+  await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForSelector('#dkk .form-err:not([hidden])'); });
+  await page.click('dialog[open] [data-zu]');
+  await ueberlauf('dokumente kategorien'); await shot('dokumente-kategorien');
+  await abmelden();
+
   /* ---- Polier: Dokumente nur lesen, keine finanziellen, keine Rechnungen ---- */
   await anmelden('polier');
   await geh(`/baustelle/${W}?reiter=dokumente`);
   await page.waitForSelector('#dokumente');
   pruef(await page.locator('.dok-kat-btn[data-kat="plaene"]').count() === 1 && await page.locator('.dok-kat-btn[data-kat="angebot"], .dok-kat-btn[data-kat="ausgangsrechnungen"]').count() === 0, 'A2-Dok: Polier sieht finanzielle Kategorien oder keine Pläne');
+  pruef(await page.locator(`.dok-kat-btn:has-text("Vermessung ${k}")`).count() === 1 && await page.locator(`.dok-kat-btn:has-text("Kalkulation ${k}")`).count() === 0 && await page.locator('#dok-kat-neu').count() === 0, 'A2-Dok: eigene Kategorien nicht nach den Regeln sichtbar (Polier: lesbare ja, finanzielle nein)');
   pruef(await page.locator('#dok-nur-lesen').count() === 1 && await page.locator('#dok-neu, #dok-ablage').count() === 0, 'A2-Dok: Polier kann hochladen');
   pruef(await page.locator(`#dok-liste li:has-text("Lageplan ${k}")`).count() === 1 && await page.locator(`#dok-liste li:has-text("Angebot ${k}"), #dok-liste li:has-text("${nr}")`).count() === 0, 'A2-Dok: Polier sieht den Plan nicht oder sieht Angebot/Rechnung');
   await page.locator(`#dok-liste li:has-text("Lageplan ${k}") [data-dok-auf]`).click();
@@ -908,6 +937,20 @@ async function urlaub(h, z) {
     await geh(`/urlaub?monat=${jahr}-12`);
     pruef(await page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-code="BU"].ur-BU.ok`).count() === 4, 'A2-Url: Betriebsurlaub wird im Kalender nicht eigens (BU) dargestellt');
   }
+  // Einstellungen Urlaub (nur Büro/GF): Warngrenze je Partie, Beginn des Urlaubsjahres
+  await geh(`/urlaub?monat=${monat}`);
+  await page.click('#ur-einst');
+  await page.waitForSelector('dialog[open] #uef');
+  await page.fill('#uef [name="partieGrenze"]', '0');
+  await page.click('#ue-ok');
+  pruef(await page.locator('#uef .form-err').isVisible(), 'A2-Url: ungültige Warngrenze wird angenommen');
+  await page.fill('#uef [name="partieGrenze"]', '1'); await page.fill('#uef [name="partieGrenzeProzent"]', '25');
+  await dialogUeberlauf('urlaub einstellungen'); await shot('urlaub-einstellungen');
+  await page.click('#ue-ok');
+  await page.waitForFunction(() => !document.querySelector('dialog[open] #uef'));
+  const ue = (await api('GET', '/einstellungen/urlaub')).json;
+  pruef(ue.partieGrenze === 1 && ue.partieGrenzeProzent === 25 && /^\d\d-\d\d$/.test(ue.urlaubsjahrBeginn || ''), `A2-Url: Einstellungen nicht gespeichert (${JSON.stringify(ue)})`);
+  await toastWeg();
   // Verweis aus dem Baustellenplaner
   await geh('/plan?ansicht=woche');
   pruef(await page.locator('#pool-urlaub[href="#/urlaub"]').count() === 1, 'A2-Url: Verweis „Urlaub“ im Planer fehlt');
@@ -925,6 +968,7 @@ async function urlaub(h, z) {
     pruef(await page.locator(`#ur-kalender tr[data-person="${L}"]`).count() === 1 && await page.locator('#ur-bu, #ur-antraege [data-entscheid]').count() === 0, 'A2-Url: Polier sieht seine Partie nicht oder darf entscheiden/Betriebsurlaub eintragen');
     pruef(await page.locator('#ur-kalender [data-code="K"]').count() === 0, 'A2-Url: Polier sieht „Krank“ im Klartext');
   }
+  pruef(await page.locator('#ur-einst').count() === 0 && (await h.absichtlich(() => api('PUT', '/einstellungen/urlaub', { partieGrenze: 9 }))).status === 403, 'A2-Url: Polier erreicht die Urlaubs-Einstellungen');
   await keinEuro('urlaub polier'); await ueberlauf('urlaub polier'); await shot('urlaub-polier');
   await abmelden();
 }

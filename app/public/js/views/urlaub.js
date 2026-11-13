@@ -51,7 +51,7 @@ export default async function urlaub(el, ctx) {
     return `<div class="toolbar wrap"><div class="wp-nav"><button type="button" class="icon-btn" data-mon="-1" aria-label="Voriger Monat">${ic('left')}</button><b id="ur-monat">${MON[m - 1]} ${y}</b><button type="button" class="icon-btn" data-mon="1" aria-label="Nächster Monat">${ic('right')}</button><button type="button" class="btn ghost sm" data-mon="0">Heute</button></div><span class="grow"></span>
         ${leitet ? `<label class="field inline"><span class="vh">Partie / Baustelle</span><select class="input" id="ur-bs"><option value="">Alle Partien</option>${baustellen.filter((b) => !b.intern).map((b) => `<option value="${b.id}" ${String(b.id) === fBs ? 'selected' : ''}>${esc(b.kurz || b.name)}</option>`).join('')}</select></label>
         <label class="field inline"><span class="vh">Rolle</span><select class="input" id="ur-rolle"><option value="">Alle Rollen</option>${['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'].map((r) => `<option value="${r}" ${fRolle === r ? 'selected' : ''}>${esc(rolleText(r))}</option>`).join('')}</select></label>` : ''}
-        ${darfBu ? `<button type="button" class="btn ghost" id="ur-bu">${ic('calendar')}Betriebsurlaub eintragen</button>` : ''}</div>
+        ${darfBu ? `<button type="button" class="btn ghost" id="ur-bu">${ic('calendar')}Betriebsurlaub eintragen</button><button type="button" class="icon-btn" id="ur-einst" aria-label="Einstellungen Urlaub" title="Einstellungen">${ic('wrench')}</button>` : ''}</div>
       ${(kal.warnungen || []).length ? `<section class="card pad" id="ur-warnungen" aria-label="Warnungen"><ul class="warn-list">${kal.warnungen.map((w) => `<li data-warnung="${esc(w.typ)}">${ic('alert')}<span>${w.datum ? `<b>${esc(fmt.datumKurz(w.datum))}</b> ` : ''}${esc(w.text)}${w.typ === 'plan_konflikt' ? ` <a class="link sm" href="#/plan?datum=${w.datum}&ansicht=woche">im Planer ansehen</a>` : ''}</span></li>`).join('')}</ul></section>` : ''}
       <div class="ur-wrap">
         <section class="card ur-karte" aria-label="Team-Kalender ${MON[m - 1]} ${y}"><div class="wp-scroll"><table class="ur-tbl" id="ur-kalender"><thead><tr><th class="ur-name">Mitarbeiter</th>${kal.tage.map((t) => { const d = fmt.dt(t.datum); return `<th class="${t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''}${t.datum === heute ? ' heute' : ''}" title="${t.feiertag ? esc(t.feiertag === true ? 'Feiertag' : t.feiertag) : ''}"><small>${fmt.WTK[d.getDay()]}</small>${d.getDate()}</th>`; }).join('')}</tr></thead>
@@ -182,7 +182,26 @@ export default async function urlaub(el, ctx) {
         <button type="button" class="btn primary lg" id="ur-antrag">${ic('plus')}Urlaub beantragen</button></section>
       <section class="card" aria-label="Meine Abwesenheiten"><h2 class="me-h">Meine nächsten Abwesenheiten</h2><ul class="plain rows" id="ur-meine">${meine.map(([datum, e]) => `<li><span class="ur-z ${zelleKl(e)}">${esc(e.code)}</span><span class="grow"><b>${esc(fmt.datumKurz(datum))}${fmt.dt(datum).getFullYear()}</b><small>${esc(CODES[e.code] || e.code)} · ${esc(e.status)}</small></span>${e.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueck="${e.id}">Zurückziehen</button>` : ''}</li>`).join('') || '<li class="muted">Nichts eingetragen.</li>'}</ul></section>
       ${leitet ? `<section class="card" id="ur-partie" aria-label="Abwesenheiten im Bereich"><h2 class="me-h">${ich.rolle === 'polier' ? 'Meine Partie – Abwesenheiten' : 'Abwesenheiten in meinem Bereich'}</h2><ul class="plain rows">${andere.slice(0, 60).map((a) => `<li data-antrag="${a.id}"><span class="ur-z ${zelleKl(a)}">${esc(a.code === 'abwesend' ? '–' : a.code)}</span><span class="grow"><b>${esc(a.name)}</b><small>${esc(fmt.datumKurz(a.datum))} · ${esc(CODES[a.code] || a.code)} · ${esc(a.status)}</small></span>${a.status === 'beantragt' && darfEntscheiden(a.benutzerId) ? `<button type="button" class="btn ghost sm" data-entscheid="genehmigt" data-id="${a.id}" aria-label="genehmigen">${ic('check', 'xs')}</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}" aria-label="ablehnen">${ic('x', 'xs')}</button>` : ''}</li>`).join('') || '<li class="muted">In den nächsten 60 Tagen ist niemand abwesend.</li>'}</ul></section>` : ''}
+      ${darfBu ? `<button type="button" class="btn ghost" id="ur-einst">${ic('wrench')}Einstellungen Urlaub</button>` : ''}
       ${legende()}`;
+  }
+  /* ---------- Einstellungen (Büro/GF): Warngrenze je Partie, Beginn des Urlaubsjahres ---------- */
+  async function einstDialog() {
+    let ein; try { ein = await get('/einstellungen/urlaub'); } catch (x) { toast(x.message, 'warn'); return; }
+    const [mm, tt] = String(ein.urlaubsjahrBeginn || '01-01').split('-');
+    const dlg = dialog({ titel: 'Einstellungen Urlaub', inhalt: `<form id="uef" class="form-grid" novalidate>
+      <p class="muted sm full">Gewarnt wird, wenn in einer Partie am selben Tag mehr Personen abwesend sind als hier erlaubt – es gilt die Grenze, die zuerst erreicht ist.</p>
+      <label class="field"><span class="field-label">Höchstens abwesend je Partie (Personen)</span><input class="input lg num" name="partieGrenze" inputmode="numeric" value="${esc(ein.partieGrenze ?? 2)}"></label>
+      <label class="field"><span class="field-label">bzw. höchstens (% der Partie)</span><input class="input lg num" name="partieGrenzeProzent" inputmode="decimal" value="${esc(String(ein.partieGrenzeProzent ?? 30).replace('.', ','))}"></label>
+      <fieldset class="field full"><legend class="field-label">Beginn des Urlaubsjahres (Standard für neue Konten)</legend><div class="form-grid"><label class="field"><span class="vh">Tag</span><select class="input lg" name="tag">${Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map((x) => `<option ${x === tt ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label class="field"><span class="vh">Monat</span><select class="input lg" name="monat">${MON.map((n, i) => `<option value="${String(i + 1).padStart(2, '0')}" ${String(i + 1).padStart(2, '0') === mm ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div><small class="muted">Üblich ist der 1. Jänner; bei Abweichung bitte mit der Lohnverrechnung abstimmen.</small></fieldset>
+      <p class="form-err full" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="uef" id="ue-ok">Speichern</button>' });
+    $('#uef', dlg.el).addEventListener('submit', async (e) => {
+      e.preventDefault(); const f = new FormData(e.target); const err = $('.form-err', dlg.el);
+      const g = Number(String(f.get('partieGrenze')).trim()), p = parseZahl(f.get('partieGrenzeProzent'));
+      if (!Number.isInteger(g) || g < 1 || g > 50 || !(p >= 1 && p <= 100)) { err.hidden = false; err.textContent = 'Bitte 1–50 Personen und 1–100 % eintragen.'; return; }
+      if (new Date(2001, Number(f.get('monat')) - 1, Number(f.get('tag'))).getMonth() !== Number(f.get('monat')) - 1) { err.hidden = false; err.textContent = 'Diesen Tag gibt es in dem Monat nicht.'; return; }
+      try { await put('/einstellungen/urlaub', { partieGrenze: g, partieGrenzeProzent: p, urlaubsjahrBeginn: `${f.get('monat')}-${f.get('tag')}` }); dlg.zu(); toast('Einstellungen gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
+    });
   }
 
   function zeichne() {
@@ -197,6 +216,7 @@ export default async function urlaub(el, ctx) {
     const j = e.target.closest('[data-jahr]'); if (j) { jahr += Number(j.dataset.jahr); return neu(); }
     const zm = e.target.closest('[data-zum-monat]'); if (zm) { monat = zm.dataset.zumMonat; tab = 'monat'; return neu(); }
     if (e.target.closest('#ur-bu')) return buDialog();
+    if (e.target.closest('#ur-einst')) return einstDialog();
     if (e.target.closest('#ur-antrag')) return antragDialog(Number(ich.id), ich.name, fmt.addTage(heute, 1));
     const en = e.target.closest('[data-entscheid]');
     if (en && en.dataset.id) { try { await put(`/abwesenheiten/${en.dataset.id}`, { status: en.dataset.entscheid }); toast(en.dataset.entscheid === 'genehmigt' ? 'Antrag genehmigt.' : 'Antrag abgelehnt.'); ctx.meldungenNeu(); } catch (x) { toast(x.message, 'warn'); } return neu(); }

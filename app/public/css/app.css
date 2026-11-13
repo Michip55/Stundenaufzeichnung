@@ -1038,3 +1038,5 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 #lv-import { white-space: normal; text-align: left; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; } .card-h.bt { flex-wrap: wrap; gap: 8px; }
 @media (max-width: 719px) { .tg-fuss .btn, .fu-meine .btn, .me-knoepfe .btn { white-space: normal; height: auto; min-height: 52px; text-align: center; } .tg-karte, .fu-meine, .me-karte { min-width: 0; max-width: 100%; } .fu-inhalt > *, .tg-karte > * { min-width: 0; max-width: 100%; } .tg-auto > span { flex-basis: 100%; } .fu-top { min-width: 0; } .tg-daten dd, .me-felder b { overflow-wrap: anywhere; } }
 .fu-knoepfe { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .fu-knoepfe .btn { min-width: 0; padding-left: 8px; padding-right: 8px; white-space: normal; height: auto; }
+
+.dok-kat-btn.neu { color: var(--muted); justify-content: flex-start; border: 1.5px dashed var(--line); margin-top: 4px; }
