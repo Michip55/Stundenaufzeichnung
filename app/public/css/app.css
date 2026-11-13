@@ -880,3 +880,12 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 .link-box { display: flex; gap: 8px; align-items: center; background: #f6f7f9; border-radius: 10px; padding: 8px 10px; } .link-box code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 
 .integ-zustand { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; } a.link.sm { font-size: 12.5px; }
+
+/* ===== Assistenten im Bericht: Diktat, Lieferschein, Papier, Fernunterschrift ===== */
+.diktat { margin-top: 10px; border: 1.5px dashed #9db4e8; background: #f3f7ff; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; } .diktat-kopf { display: flex; align-items: center; gap: 10px; } .diktat-kopf b { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; } .diktat-text { min-height: 96px; font-size: 16px; }
+#diktat-mic.an { background: var(--red-bg); border-color: var(--red); color: var(--red-d); }
+.ki-neu { box-shadow: inset 0 0 0 2.5px #7da2f0 !important; background: #f3f7ff !important; animation: popin .4s var(--ease); } textarea.ki-neu { background: #f3f7ff !important; }
+.assist-knopf { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; } .assist-knopf small { color: var(--muted); font-size: 12px; flex: 1 1 220px; }
+.vs-zeile { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 4px 0; border-bottom: 1px solid var(--line-2); } .vs-zeile input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: var(--red); } .vs-zeile .input.s { width: 84px; flex: none; } .vs-zeile small { width: 36px; color: var(--muted); flex: none; } .vs-zeile .grow { min-width: 0; overflow-wrap: anywhere; }
+.vs-text { background: #f6f7f9; border-radius: 10px; padding: 10px; font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; max-height: 180px; overflow-y: auto; margin: 0; } .foto-art { position: absolute; left: 4px; top: 4px; background: #fff; }
+.fern-links { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; } .fern-links > li { padding: 8px 10px !important; min-height: 0 !important; flex-wrap: wrap; }

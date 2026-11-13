@@ -4,6 +4,7 @@ import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$ } from '../ui.js';
 import { stundenAus, personalFehler, bloecke } from '../zahl.js';
 import { bildVerkleinern } from '../schaden-offline.js';
+import { fernKnopf, fernDialog, fernLinksZeigen, fernWiderrufen, diktatHtml, diktatMikro, diktatVorschlag, lieferscheinKnopf, lieferscheinVorschlag, papierKnopf, papierAnhaengen, papierErkennen } from './bericht-assistent.js';
 
 /* =================== Liste =================== */
 export async function berichte(el, ctx) {
@@ -21,7 +22,7 @@ export async function berichte(el, ctx) {
       ${darfNeu ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neuer Bericht</button>` : ''}
     </div>
     <section class="card" id="liste" aria-live="polite">${laden()}</section>
-    ${darfNeu ? `<div class="integ-row">${integBtn(integ, 'scan_papier', 'Papier-Bericht scannen', 'camera')}</div>` : ''}
+    ${darfNeu && integ.some((i) => i.schluessel === 'papier') ? `<div class="integ-row"><span class="assist-knopf"><button type="button" class="btn ghost sm" id="papier-liste">${ic('camera')}Papierbericht fotografieren</button><input type="file" id="papier-liste-datei" class="vh" accept="image/jpeg,image/png,image/webp" capture="environment" aria-label="Papierbericht fotografieren"><small>Datum und Kostenstelle werden vom Formular gelesen und der passende Bericht vorgeschlagen. Handschrift nur mit der optionalen KI.</small></span></div>` : ''}
   </div>`;
   $('#f-st', el).value = f.status;
 
@@ -49,15 +50,25 @@ export async function berichte(el, ctx) {
   el.addEventListener('change', (e) => {
     if (e.target.id === 'f-bs') { f.baustelleId = e.target.value; ladeListe(); }
     if (e.target.id === 'f-st') { f.status = e.target.value; ladeListe(); }
+    if (e.target.id === 'papier-liste-datei') {
+      const datei = (e.target.files || [])[0]; e.target.value = ''; if (!datei) return;
+      papierErkennen(datei).then((r) => {
+        const v = (r && r.vorschlag) || {};
+        if (!v.datum && !v.baustelleId) { toast('Datum und Kostenstelle konnten nicht gelesen werden – bitte den Bericht händisch anlegen und das Foto dort anhängen.', 'warn'); neuerBericht(ctx, baustellen, f.baustelleId); return; }
+        toast(`Erkannt: ${[v.kst ? 'KST ' + v.kst : '', v.datum ? fmt.datum(v.datum) : ''].filter(Boolean).join(', ')} – bitte prüfen.`);
+        neuerBericht(ctx, baustellen, v.baustelleId || f.baustelleId, v.datum);
+      }).catch((x) => toast(x.netz ? 'Keine Verbindung.' : x.message, 'warn'));
+    }
   });
   el.addEventListener('click', (e) => {
     if (e.target.closest('[data-nochmal]')) ladeListe();
     if (e.target.closest('#neu')) neuerBericht(ctx, baustellen, f.baustelleId);
+    if (e.target.closest('#papier-liste')) $('#papier-liste-datei', el).click();
   });
   await ladeListe();
 }
 
-function neuerBericht(ctx, baustellen, vorwahl) {
+function neuerBericht(ctx, baustellen, vorwahl, datumVorschlag) {
   const aktive = baustellen.filter((b) => !b.status || b.status === 'aktiv');
   const eigene = (ctx.ich.baustellenIds || []).map(String);
   const start = vorwahl || (aktive.find((b) => eigene.includes(String(b.id))) || aktive[0] || {}).id;
@@ -65,7 +76,7 @@ function neuerBericht(ctx, baustellen, vorwahl) {
     titel: 'Neuer Bautagesbericht',
     inhalt: `<form id="nb" class="stack-s">
       <label class="field"><span class="field-label">Baustelle</span><select class="input lg" name="baustelleId" required>${aktive.map((b) => `<option value="${b.id}" ${String(b.id) === String(start) ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
-      <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${fmt.iso()}" max="${fmt.iso()}"></label>
+      <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${datumVorschlag && datumVorschlag <= fmt.iso() ? datumVorschlag : fmt.iso()}" max="${fmt.iso()}"></label>
       ${banner('info', 'Das Personal wird automatisch aus den Stempelungen dieses Tages übernommen.')}
       <p class="form-err" id="nb-err" role="alert" hidden></p></form>`,
     fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="nb" id="nb-ok">Bericht anlegen</button>',
@@ -322,7 +333,7 @@ export async function bericht(el, ctx) {
       <div class="sig-pad"><canvas aria-label="Unterschriftsfeld ${titel}" role="img"></canvas><span class="sig-ph">${ic('sign')}Hier unterschreiben</span><span class="sig-line"></span></div>
       <label class="field"><span class="field-label">Name in Blockschrift</span><input type="text" class="input" data-sig-name value="${rolle === 'an' ? esc(ctx.ich.benutzer.name) : ''}" placeholder="${rolle === 'an' ? 'Name' : 'Name Bauherr / Vertreter'}" autocomplete="off"></label>
       <button type="button" class="btn primary block" data-sig-save>${ic('check')}Unterschrift speichern</button>
-      ${rolle === 'bh' ? integBtn(integ, 'sms', 'Per SMS-Link unterschreiben lassen', 'sms', 'block') : ''}
+      ${rolle === 'bh' ? fernKnopf(integ) : ''}
     </div>`;
   }
   // 12.5: „PDF an Auftraggeber senden“ ist echt, sobald der E-Mail-Versand eingerichtet ist – sonst deaktiviert mit Hinweis
@@ -399,15 +410,15 @@ export async function bericht(el, ctx) {
   /* ---- Fotos (API.md 12.6): bis zu 10, am Gerät verkleinert, nur im Entwurf ohne Unterschrift ---- */
   function fotosHtml() {
     const f = b.fotos || [];
-    return `${f.length ? `<ul class="foto-galerie" id="foto-liste">${f.map((x) => `<li data-foto="${x.id}"><a href="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" target="_blank" rel="noopener" aria-label="Foto ${esc(x.beschreibung || x.dateiname || '')} groß ansehen"><img src="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" alt="${esc(x.beschreibung || 'Foto zum Bautagesbericht')}" loading="lazy"></a>
+    return `${f.length ? `<ul class="foto-galerie" id="foto-liste">${f.map((x) => `<li data-foto="${x.id}"><a href="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" target="_blank" rel="noopener" aria-label="Foto ${esc(x.beschreibung || x.dateiname || '')} groß ansehen"><img src="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" alt="${esc(x.beschreibung || 'Foto zum Bautagesbericht')}" loading="lazy"></a>${x.art && x.art !== 'foto' ? `<span class="chip xs st-outline foto-art" data-foto-art="${esc(x.art)}">${x.art === 'lieferschein' ? 'Lieferschein' : 'Papierbericht'}</span>` : ''}
         ${editierbar() ? `<input class="input s foto-text" data-foto-text value="${esc(x.beschreibung || '')}" maxlength="300" placeholder="Beschreibung" aria-label="Beschreibung zum Foto"><button type="button" class="icon-btn sm foto-weg" data-foto-weg aria-label="Foto entfernen">${ic('trash')}</button>` : x.beschreibung ? `<small>${esc(x.beschreibung)}</small>` : ''}</li>`).join('')}</ul>` : `<p class="muted sm" id="foto-leer">${editierbar() ? 'Noch keine Fotos.' : 'Keine Fotos.'}</p>`}
-      ${editierbar() ? `<div class="foto-leiste"><button type="button" class="btn ghost" id="foto-neu" ${f.length >= MAX_FOTOS ? 'disabled' : ''}>${ic('camera')}Foto hinzufügen</button><input type="file" id="foto-datei" class="vh" accept="image/jpeg,image/png,image/webp" multiple aria-label="Fotos auswählen oder aufnehmen"><span class="muted sm" id="foto-zahl">${f.length} von ${MAX_FOTOS}</span></div><p class="form-err" id="foto-err" role="alert" hidden></p>` : ''}`;
+      ${editierbar() ? `<div class="foto-leiste"><button type="button" class="btn ghost" id="foto-neu" ${f.filter((x) => x.art !== 'papier').length >= MAX_FOTOS ? 'disabled' : ''}>${ic('camera')}Foto hinzufügen</button><input type="file" id="foto-datei" class="vh" accept="image/jpeg,image/png,image/webp" multiple aria-label="Fotos auswählen oder aufnehmen"><span class="muted sm" id="foto-zahl">${f.filter((x) => x.art !== 'papier').length} von ${MAX_FOTOS}</span></div><p class="form-err" id="foto-err" role="alert" hidden></p>` : ''}`;
   }
   const fotosNeu = () => { const box = $('#fotos', el); if (box) box.innerHTML = fotosHtml(); };
   async function fotosHochladen(dateien) {
     const err = (t) => { const e = $('#foto-err', el); if (e) { e.hidden = !t; e.textContent = t || ''; } };
     err('');
-    const frei = MAX_FOTOS - (b.fotos || []).length;
+    const frei = MAX_FOTOS - (b.fotos || []).filter((x) => x.art !== 'papier').length;
     let liste = [...dateien];
     if (liste.length > frei) { err(`Es sind höchstens ${MAX_FOTOS} Fotos je Bericht möglich – ${liste.length - frei} wurde${liste.length - frei > 1 ? 'n' : ''} nicht übernommen.`); liste = liste.slice(0, Math.max(0, frei)); }
     const k = $('#foto-neu', el); if (k) { k.disabled = true; k.dataset.laedt = '1'; }
@@ -422,6 +433,32 @@ export async function bericht(el, ctx) {
     }
     const e0 = $('#foto-err', el); const text = e0 && !e0.hidden ? e0.textContent : '';
     fotosNeu(); if (text) err(text);
+  }
+
+  /* ---- Übernahme von Vorschlägen (Diktat, Lieferschein): Felder füllen und markieren ---- */
+  const kiFelder = new Set();
+  function markiereKi() {
+    $$('.ki-neu', el).forEach((x) => x.classList.remove('ki-neu'));
+    for (const k of kiFelder) {
+      const [art, wert] = k.split(':');
+      const ziel = art === 'g' ? $(`.pf-g[data-g="${wert}"]`, el) : art === 'm' ? $(`.mat-row[data-m="${wert}"]`, el) : art === 'p' ? $(`.bp-row[data-i="${b.personal.findIndex((x) => String(x.benutzerId) === wert)}"]`, el) : art === 'r' ? $('#regie', el) : $(`[data-f="${wert}"]`, el);
+      if (ziel) ziel.classList.add('ki-neu');
+    }
+    const chip = $('#ki-chip', el);
+    if (chip) { chip.hidden = !kiFelder.size; chip.dataset.anzahl = kiFelder.size; chip.innerHTML = `${ic('spark')}${kiFelder.size} ${kiFelder.size === 1 ? 'Feld' : 'Felder'} ausgefüllt – bitte prüfen`; }
+  }
+  function uebernehmen(wahl, { addieren = false } = {}) {
+    if (!wahl) return 0;
+    let n = 0;
+    for (const z of wahl.geraete || []) { let g = b.geraete.find((x) => x.geraetId === z.id); if (!g) { g = { geraetId: z.id, stunden: 0 }; b.geraete.push(g); } g.stunden = rund2(z.wert); kiFelder.add(`g:${z.id}`); offen.add('geraete'); n++; }
+    for (const z of wahl.material || []) { let m = b.material.find((x) => x.materialId === z.id); if (!m) { m = { materialId: z.id, menge: 0 }; b.material.push(m); } m.menge = rund2(addieren ? (m.menge || 0) + z.wert : z.wert); kiFelder.add(`m:${z.id}`); offen.add('material'); n++; }
+    for (const z of wahl.personal || []) { const p = b.personal.find((x) => x.benutzerId === z.id); if (!p) continue; p.von1 = z.von; p.bis1 = z.bis; p.von2 = ''; p.bis2 = ''; p.stunden = stundenAus(p, b.datum); kiFelder.add(`p:${z.id}`); offen.add('personal'); n++; }
+    for (const z of wahl.arbeitsleistung || []) { b.arbeitsleistung = [b.arbeitsleistung, z.wert].filter((x) => x && String(x).trim()).join('\n'); kiFelder.add('f:arbeitsleistung'); offen.add('arbeitsleistung'); n++; }
+    for (const z of wahl.vorkommnisse || []) { b.vorkommnisse = [b.vorkommnisse, z.wert].filter((x) => x && String(x).trim()).join('\n'); kiFelder.add('f:vorkommnisse'); offen.add('vorkommnisse'); n++; }
+    for (const z of wahl.regie || []) { b.regie.push({ text: z.text, stunden: rund2(z.wert) }); kiFelder.add('r:x'); offen.add('regie'); n++; }
+    for (const z of wahl.beistellung || []) { b.materialbeistellung.fremd = [b.materialbeistellung.fremd, z.wert].filter((x) => x && String(x).trim()).join('\n'); kiFelder.add('f:materialbeistellung.fremd'); offen.add('materialbeistellung'); n++; }
+    if (n) { fehlerText = ''; zeichne(); spaeter(); }
+    return n;
   }
 
   function zeichneKosten() {
@@ -446,6 +483,7 @@ export async function bericht(el, ctx) {
         <a class="link-back" href="#/berichte">${ic('left')}Alle Berichte</a>
         <span class="grow"></span>
         ${statusChip(b.status)}
+        <span class="chip st-blue" id="ki-chip" hidden></span>
         ${editierbar() ? '<span class="save-state neutral" id="save-state" role="status"></span>' : ''}
       </div>
       ${b.status === 'entwurf' && signiert() ? `<div id="gesperrt-hinweis">${banner('info', '<b>Inhalt gesperrt:</b> Es liegt bereits eine Unterschrift vor. Der Bericht kann nicht mehr geändert werden – es fehlt nur noch die zweite Unterschrift.', 'lock')}</div>` : !editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
@@ -481,9 +519,9 @@ export async function bericht(el, ctx) {
           <section class="pf-sec a-ger" data-step="2" aria-labelledby="h-ger"><h4 id="h-ger">GERÄTE <span>Einsatzstunden</span></h4><div class="pf-ggrid"><div>${gSpalte(geraeteKat.slice(0, halb))}</div><div>${gSpalte(geraeteKat.slice(halb))}</div></div></section>
           <section class="pf-sec a-mat" data-step="3" aria-labelledby="h-mat"><h4 id="h-mat">MATERIAL <span>Menge</span></h4><div class="pf-box flush mat-list">
             ${matKat.map((m) => `<div class="mat-row${mMenge(m.id) ? ' on' : ''}" data-m="${m.id}"><span>${esc(m.name)}</span>${stepper(`data-material="${m.id}"`, mMenge(m.id), 1, m.einheit, m.name)}<small>${esc(m.einheit || '')}</small></div>`).join('')}
-          </div>${editierbar() ? `<div class="integ-row">${integBtn(integ, 'scan_lieferschein', 'Lieferschein scannen', 'scan')}</div>` : ''}</section>
+          </div>${editierbar() ? `<div class="integ-row">${lieferscheinKnopf(integ)}</div>` : ''}</section>
           <section class="pf-sec a-leist" data-step="4" aria-labelledby="h-leist"><h4 id="h-leist">ARBEITSLEISTUNG</h4><div class="pf-box flush"><textarea class="input area" rows="5" data-f="arbeitsleistung" aria-labelledby="h-leist" placeholder="Was wurde heute gemacht?" ${dis()}>${esc(b.arbeitsleistung || '')}</textarea></div>
-            ${editierbar() ? `<div class="integ-row">${integBtn(integ, 'diktat', 'Diktieren', 'mic')}</div>` : ''}</section>
+            ${editierbar() ? diktatHtml(integ) : ''}</section>
           <section class="pf-sec a-beist" data-step="4" aria-labelledby="h-beist"><h4 id="h-beist">MATERIALBEISTELLUNG</h4><div class="pf-two tight inner">
             <label class="pf-box flush"><span class="sub-l">Eigenmaterial</span><textarea class="input area" rows="3" data-f="materialbeistellung.eigen" ${dis()}>${esc(b.materialbeistellung.eigen || '')}</textarea></label>
             <label class="pf-box flush"><span class="sub-l">Fremdmaterial</span><textarea class="input area" rows="3" data-f="materialbeistellung.fremd" ${dis()}>${esc(b.materialbeistellung.fremd || '')}</textarea></label>
@@ -495,7 +533,7 @@ export async function bericht(el, ctx) {
           <section class="pf-sec a-regie" data-step="5" aria-labelledby="h-regie"><h4 id="h-regie">REGIELEISTUNGEN</h4><div class="pf-box flush" id="regie">${regieHtml()}</div></section>
           <section class="pf-sec a-vork" data-step="5" aria-labelledby="h-vork"><h4 id="h-vork">BESONDERE VORKOMMNISSE <span>z. B. Anweisungen AG, Beschädigungen, Sonstiges</span></h4><div class="pf-box flush"><textarea class="input area" rows="3" data-f="vorkommnisse" aria-labelledby="h-vork" ${dis()}>${esc(b.vorkommnisse || '')}</textarea></div>
             <div id="wetter-karte">${wetterHtml()}</div></section>
-          <section class="pf-sec a-fotos" data-step="5" aria-labelledby="h-fotos"><h4 id="h-fotos">FOTOS <span>höchstens ${MAX_FOTOS} · ohne Standortdaten</span></h4><div class="pf-box" id="fotos">${fotosHtml()}</div></section>
+          <section class="pf-sec a-fotos" data-step="5" aria-labelledby="h-fotos"><h4 id="h-fotos">FOTOS <span>höchstens ${MAX_FOTOS} · ohne Standortdaten</span></h4><div class="pf-box" id="fotos">${fotosHtml()}</div><div class="integ-row" id="papier-zeile">${papierKnopf(integ, ctx.kann('bericht_erstellen'))}</div></section>
           <section class="a-sig" data-step="6" aria-label="Unterschriften und Abschluss" id="abschluss">${abschlussHtml()}</section>
         </div>
       </div>
@@ -505,7 +543,8 @@ export async function bericht(el, ctx) {
       <button type="button" class="btn primary lg grow" id="wiz-weiter">Weiter${ic('right')}</button>
     </div></div>`;
     Object.keys(pads).forEach((k) => delete pads[k]);
-    alleZeilenStatus(); anzeige(); zeichneKosten(); zeigHinweise(); setzSchritt(schritt, false); sigInit(); wetterGrundLaden();
+    alleZeilenStatus(); anzeige(); zeichneKosten(); zeigHinweise(); setzSchritt(schritt, false); sigInit(); wetterGrundLaden(); markiereKi(); fernLinksZeigen($('[data-fern-links]', el), id, signierbar());
+    const mic = $('#diktat-mic', el); if (mic) diktatMikro(mic, $('#diktat-text', el));
   }
 
   function sigInit() {
@@ -605,6 +644,24 @@ export async function bericht(el, ctx) {
       return;
     }
     if (e.target.closest('#wetter-holen')) return wetterHolen();
+    if (e.target.closest('[data-fern-anfordern]')) {
+      if (ungueltig()) { toast('Bitte zuerst die rot markierten Zeiten beim Personal korrigieren.', 'warn'); return; }
+      if (!(await allesSichern())) { toast('Bitte zuerst die offenen Änderungen speichern.', 'warn'); return; }
+      return fernDialog({ id, bs, integ, fertig: () => fernLinksZeigen($('[data-fern-links]', el), id, signierbar()) });
+    }
+    const lw = e.target.closest('[data-link-weg]');
+    if (lw) { if (await fernWiderrufen(id, lw.dataset.linkWeg)) fernLinksZeigen($('[data-fern-links]', el), id, signierbar()); return; }
+    if (e.target.closest('#diktat-los')) {
+      const feld = $('#diktat-text', el); const text = feld.value.trim(); const knopf = $('#diktat-los', el);
+      if (text.length < 3) { feld.focus(); toast('Bitte zuerst etwas diktieren oder tippen.', 'warn'); return; }
+      knopf.disabled = true;
+      try { const wahl = await diktatVorschlag(id, text); const n = uebernehmen(wahl); if (n) toast(`${n} ${n === 1 ? 'Feld' : 'Felder'} ausgefüllt – bitte prüfen.`); }
+      catch (x) { toast(x.netz ? 'Keine Verbindung – der Vorschlag braucht den Server.' : x.message, 'warn'); }
+      const k2 = $('#diktat-los', el); if (k2) k2.disabled = false;
+      return;
+    }
+    if (e.target.closest('#ls-foto')) { $('#ls-datei', el).click(); return; }
+    if (e.target.closest('#pp-foto')) { $('#pp-datei', el).click(); return; }
     if (e.target.closest('#mail-ag')) return mailDialog();
     if (e.target.closest('#foto-neu')) { $('#foto-datei', el).click(); return; }
     const fw = e.target.closest('[data-foto-weg]');
@@ -618,6 +675,26 @@ export async function bericht(el, ctx) {
   });
   el.addEventListener('change', async (e) => {
     const t = e.target;
+    if (t.id === 'ls-datei') {
+      const datei = (t.files || [])[0]; t.value = ''; if (!datei) return;
+      if (!(await allesSichern())) { toast('Bitte zuerst die offenen Änderungen speichern.', 'warn'); return; }
+      const k = $('#ls-foto', el); if (k) k.disabled = true;
+      try {
+        const r = await lieferscheinVorschlag(id, datei);
+        if (r.foto) { b.fotos = b.fotos || []; if (!b.fotos.some((x) => x.id === r.foto.id)) b.fotos.push(r.foto); }
+        try { const frisch = await get(`/berichte/${id}`); if (frisch.version != null) b.version = frisch.version; } catch (x) { /* Version folgt beim nächsten Speichern */ }
+        const n = uebernehmen(r.wahl, { addieren: true });
+        if (n) toast(`${n} ${n === 1 ? 'Feld' : 'Felder'} aus dem Lieferschein übernommen – bitte prüfen.`); else fotosNeu();
+      } catch (x) { toast(x.netz ? 'Keine Verbindung – der Lieferschein wurde nicht hochgeladen.' : x.message, 'warn'); }
+      const k2 = $('#ls-foto', el); if (k2) k2.disabled = false;
+      return;
+    }
+    if (t.id === 'pp-datei') {
+      const datei = (t.files || [])[0]; t.value = ''; if (!datei) return;
+      try { const foto = await papierAnhaengen(id, datei); if (foto) { b.fotos = b.fotos || []; if (!b.fotos.some((x) => x.id === foto.id)) b.fotos.push(foto); fotosNeu(); } }
+      catch (x) { toast(x.netz ? 'Keine Verbindung – das Foto wurde nicht hochgeladen.' : x.message, 'warn'); }
+      return;
+    }
     if (t.id === 'foto-datei') { const dateien = [...(t.files || [])]; t.value = ''; if (dateien.length) fotosHochladen(dateien); return; }
     if (t.dataset.fotoText !== undefined) {
       const fid = t.closest('[data-foto]').dataset.foto; const f = (b.fotos || []).find((x) => String(x.id) === String(fid));
