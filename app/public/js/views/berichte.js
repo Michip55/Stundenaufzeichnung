@@ -3,6 +3,7 @@
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$ } from '../ui.js';
 import { stundenAus, personalFehler, bloecke } from '../zahl.js';
+import { bildVerkleinern } from '../schaden-offline.js';
 
 /* =================== Liste =================== */
 export async function berichte(el, ctx) {
@@ -324,6 +325,32 @@ export async function bericht(el, ctx) {
       ${rolle === 'bh' ? integBtn(integ, 'sms', 'Per SMS-Link unterschreiben lassen', 'sms', 'block') : ''}
     </div>`;
   }
+  // 12.5: „PDF an Auftraggeber senden“ ist echt, sobald der E-Mail-Versand eingerichtet ist – sonst deaktiviert mit Hinweis
+  const darfMailen = () => ctx.kann('bericht_freigeben') || ctx.kann('stammdaten');
+  const mailAn = () => !!(integ.find((i) => i.schluessel === 'email') || {}).angebunden;
+  function mailKnopf() {
+    if (!darfMailen()) return '';
+    const grund = !mailAn() ? 'E-Mail-Versand ist noch nicht eingerichtet (Geschäftsführung: Benutzer & Rechte → Dienste & Sicherheit).' : b.status === 'entwurf' ? 'Erst nach beiden Unterschriften möglich.' : '';
+    return `<span class="mail-ag" data-mail="${grund ? 'aus' : 'an'}"><button type="button" class="btn ghost" id="mail-ag" ${grund ? 'disabled aria-describedby="mail-ag-hinweis"' : ''}>${ic('mail')}PDF an Auftraggeber senden</button>${grund ? `<small id="mail-ag-hinweis">${!mailAn() ? '<b>Noch nicht eingerichtet</b> · ' : ''}${esc(grund)}</small>` : ''}</span>`;
+  }
+  const VERSAND = { wartet: ['wird gesendet', 'st-amber'], gesendet: ['gesendet', 'st-green'], fehler: ['fehlgeschlagen', 'st-red'] };
+  const versandHtml = () => ((b.emailVersand || []).length ? `<ul class="plain rows" id="mail-versand">${b.emailVersand.map((v) => `<li><span class="grow"><b>${esc(v.an || '')}</b><small>${esc(fmt.zeitpunkt(v.zeit))}${v.fehler ? ' · ' + esc(v.fehler) : ''}</small></span><span class="chip xs ${(VERSAND[v.status] || ['', 'st-grey'])[1]}" data-versand="${esc(v.status)}">${esc((VERSAND[v.status] || [v.status])[0])}</span></li>`).join('')}</ul>` : '');
+  function mailDialog() {
+    const d = dialog({ titel: 'Bericht an den Auftraggeber senden', inhalt: `<form id="mf2" class="stack-s" novalidate>
+      <label class="field"><span class="field-label">Empfänger (mehrere mit Komma)</span><input class="input lg" name="an" maxlength="300" value="${esc(bs.agEmail || '')}" placeholder="name@auftraggeber.at"></label>
+      ${banner('info', 'Gesendet wird das PDF der Fassung für den Auftraggeber – ohne Preise und ohne interne Angaben.')}
+      <p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="mf2">Senden</button>' });
+    $('#mf2', d.el).addEventListener('submit', async (e) => {
+      e.preventDefault(); const an = String(new FormData(e.target).get('an') || '').trim(); const err = $('.form-err', d.el);
+      if (!an || !an.split(',').every((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x.trim()))) { err.hidden = false; err.textContent = 'Bitte eine gültige E-Mail-Adresse eintragen.'; return; }
+      try {
+        const r = await post(`/berichte/${id}/email`, { an });
+        b.emailVersand = [...(b.emailVersand || []), { id: r.id, zeit: new Date().toISOString(), an, status: r.status || 'wartet' }];
+        d.zu(); toast('Der Bericht wird gesendet.'); $('#abschluss', el).innerHTML = abschlussHtml(); sigInit();
+        setTimeout(async () => { try { const neu = await get(`/berichte/${id}`); if (ctx.aktuell() && neu.emailVersand) { b.emailVersand = neu.emailVersand; const v = $('#mail-versand-box', el); if (v) v.innerHTML = versandHtml(); } } catch (x) { /* Anzeige bleibt */ } }, 2500);
+      } catch (x) { err.hidden = false; err.textContent = x.message; }
+    });
+  }
   function abschlussHtml() {
     const u = b.unterschriften;
     const darfFrei = ctx.kann('bericht_freigeben');
@@ -332,10 +359,71 @@ export async function bericht(el, ctx) {
       ${signierbar() && !signiert() ? banner('info', 'Mit der ersten Unterschrift wird der Inhalt gesperrt. Bitte vorher alles prüfen.') : ''}
       <div class="final-bar">
         <div class="final-state">${statusChip(b.status)}<span class="muted sm">${b.status === 'entwurf' ? `${(u.an ? 1 : 0) + (u.bh ? 1 : 0)} von 2 Unterschriften` : b.status === 'unterschrieben' ? 'Wartet auf Freigabe durch Büro/Bauleitung' : 'Freigegeben – fließt in die Auswertungen ein'}</span></div>
-        <a class="btn ghost" id="pdf" href="/api/berichte/${id}/pdf" target="_blank" rel="noopener">${ic('file')}PDF öffnen</a>
+        <a class="btn ghost" id="pdf" href="/api/berichte/${id}/pdf${(b.fotos || []).length ? '?fotos=1' : ''}" target="_blank" rel="noopener">${ic('file')}PDF öffnen</a>
+        ${mailKnopf()}
         ${darfFrei && b.status !== 'freigegeben' ? `<button type="button" class="btn primary" id="freigeben" ${b.status === 'unterschrieben' ? '' : 'disabled'} ${b.status === 'unterschrieben' ? '' : 'title="Freigabe erst möglich, wenn beide unterschrieben haben"'}>${ic('check')}Freigeben</button>` : ''}
-      </div>`;
+      </div>
+      <div id="mail-versand-box">${darfMailen() ? versandHtml() : ''}</div>`;
   }
+  /* ---- Wetter (API.md 12.4): echte Daten von GeoSphere Austria oder ehrlich „nicht verfügbar“ ---- */
+  const MAX_FOTOS = 10;
+  let wetterGrund = '';
+  function wetterHtml() {
+    const w = b.wetter; const v = b.wetterVorschlag;
+    const text = w ? (typeof w === 'string' ? w : w.text || [w.temperatur != null ? `${fmt.zahl(w.temperatur, 1)} °C` : '', w.niederschlag != null ? `${fmt.zahl(w.niederschlag, 1)} mm` : '', w.wind != null ? `Wind ${fmt.zahl(w.wind, 0)} km/h` : ''].filter(Boolean).join(', ')) : '';
+    const knopf = editierbar() ? `<button type="button" class="btn ghost sm" id="wetter-holen">${ic('sync')}${w ? 'Wetter aktualisieren' : 'Wetter abrufen'}</button>` : '';
+    if (!w) return `<div class="wetter leer" data-wetter="fehlt">${ic('cloud')}<span><b>Wetter nicht verfügbar</b><small id="wetter-grund">${esc(wetterGrund || 'Für diesen Bericht liegen keine Wetterdaten vor.')}</small></span>${knopf}</div>`;
+    return `<div class="wetter" data-wetter="da">${ic('cloud')}<span><b>${esc(text)}</b><small>${esc((typeof w === 'object' && w.quelle) || 'Wetterdaten')}</small></span>${knopf}</div>
+      ${v && v.vorschlag ? `<div class="banner warn" id="sw-vorschlag" role="note">${ic('alert')}<span><b>Schlechtwetter möglich${v.ab ? ` ab ${esc(v.ab)} Uhr` : ''}:</b> ${esc((v.gruende || []).join(', '))}. Das ist nur ein Hinweis – ob Schlechtwetter gilt, entscheidet der Polier; gemeldet wird es unter „Abwesenheiten“.</span></div>` : ''}`;
+  }
+  async function wetterGrundLaden() {
+    if (b.wetter || !bs.id) return;
+    try {
+      const r = await get(`/baustellen/${bs.id}/wetter?datum=${b.datum}`);
+      wetterGrund = r.verfuegbar ? 'Für diesen Tag gibt es Wetterdaten – mit „Wetter abrufen“ in den Bericht übernehmen.' : [r.hinweis, r.grund].filter(Boolean).join(': ');
+    } catch (e) { wetterGrund = e.netz ? 'Keine Verbindung – Wetter kann gerade nicht abgerufen werden.' : ''; }
+    const g = $('#wetter-grund', el); if (g && wetterGrund) g.textContent = wetterGrund;
+  }
+  async function wetterHolen() {
+    const k = $('#wetter-holen', el); if (k) k.disabled = true;
+    if (!(await allesSichern())) { toast('Bitte zuerst die offenen Änderungen speichern.', 'warn'); if (k) k.disabled = false; return; }
+    try {
+      const neu = await post(`/berichte/${id}/wetter`, { version: b.version });
+      b.wetter = neu.wetter; b.wetterVorschlag = neu.wetterVorschlag; if (neu.version != null) b.version = neu.version;
+      toast(b.wetter ? 'Wetter übernommen.' : 'Wetter nicht verfügbar.', b.wetter ? 'ok' : 'warn');
+    } catch (e) { toast(e.message, 'warn'); }
+    if (!b.wetter) await wetterGrundLaden();
+    const box = $('#wetter-karte', el); if (box) box.innerHTML = wetterHtml();
+  }
+
+  /* ---- Fotos (API.md 12.6): bis zu 10, am Gerät verkleinert, nur im Entwurf ohne Unterschrift ---- */
+  function fotosHtml() {
+    const f = b.fotos || [];
+    return `${f.length ? `<ul class="foto-galerie" id="foto-liste">${f.map((x) => `<li data-foto="${x.id}"><a href="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" target="_blank" rel="noopener" aria-label="Foto ${esc(x.beschreibung || x.dateiname || '')} groß ansehen"><img src="${esc(x.url || `/api/berichte/${id}/fotos/${x.id}`)}" alt="${esc(x.beschreibung || 'Foto zum Bautagesbericht')}" loading="lazy"></a>
+        ${editierbar() ? `<input class="input s foto-text" data-foto-text value="${esc(x.beschreibung || '')}" maxlength="300" placeholder="Beschreibung" aria-label="Beschreibung zum Foto"><button type="button" class="icon-btn sm foto-weg" data-foto-weg aria-label="Foto entfernen">${ic('trash')}</button>` : x.beschreibung ? `<small>${esc(x.beschreibung)}</small>` : ''}</li>`).join('')}</ul>` : `<p class="muted sm" id="foto-leer">${editierbar() ? 'Noch keine Fotos.' : 'Keine Fotos.'}</p>`}
+      ${editierbar() ? `<div class="foto-leiste"><button type="button" class="btn ghost" id="foto-neu" ${f.length >= MAX_FOTOS ? 'disabled' : ''}>${ic('camera')}Foto hinzufügen</button><input type="file" id="foto-datei" class="vh" accept="image/jpeg,image/png,image/webp" multiple aria-label="Fotos auswählen oder aufnehmen"><span class="muted sm" id="foto-zahl">${f.length} von ${MAX_FOTOS}</span></div><p class="form-err" id="foto-err" role="alert" hidden></p>` : ''}`;
+  }
+  const fotosNeu = () => { const box = $('#fotos', el); if (box) box.innerHTML = fotosHtml(); };
+  async function fotosHochladen(dateien) {
+    const err = (t) => { const e = $('#foto-err', el); if (e) { e.hidden = !t; e.textContent = t || ''; } };
+    err('');
+    const frei = MAX_FOTOS - (b.fotos || []).length;
+    let liste = [...dateien];
+    if (liste.length > frei) { err(`Es sind höchstens ${MAX_FOTOS} Fotos je Bericht möglich – ${liste.length - frei} wurde${liste.length - frei > 1 ? 'n' : ''} nicht übernommen.`); liste = liste.slice(0, Math.max(0, frei)); }
+    const k = $('#foto-neu', el); if (k) { k.disabled = true; k.dataset.laedt = '1'; }
+    for (const datei of liste) {
+      try {
+        if (!/^image\/(jpeg|png|webp)$/.test(datei.type)) throw new Error(`„${datei.name}“ ist kein Foto (JPEG, PNG oder WebP).`);
+        const bild = await bildVerkleinern(datei);
+        const neu = await post(`/berichte/${id}/fotos`, { bildBase64: bild.daten, dateiname: bild.dateiname });
+        b.fotos = b.fotos || [];
+        if (!b.fotos.some((x) => x.id === neu.id)) b.fotos.push(neu);
+      } catch (e) { err(e.netz ? 'Keine Verbindung – das Foto wurde nicht hochgeladen. Bitte später erneut versuchen.' : e.message); if (e.netz || e.status === 409) break; }
+    }
+    const e0 = $('#foto-err', el); const text = e0 && !e0.hidden ? e0.textContent : '';
+    fotosNeu(); if (text) err(text);
+  }
+
   function zeichneKosten() {
     const k = $('#kosten', el); if (!k) return;
     const v = b.kostenTag;
@@ -406,7 +494,8 @@ export async function bericht(el, ctx) {
           </div></section>
           <section class="pf-sec a-regie" data-step="5" aria-labelledby="h-regie"><h4 id="h-regie">REGIELEISTUNGEN</h4><div class="pf-box flush" id="regie">${regieHtml()}</div></section>
           <section class="pf-sec a-vork" data-step="5" aria-labelledby="h-vork"><h4 id="h-vork">BESONDERE VORKOMMNISSE <span>z. B. Anweisungen AG, Beschädigungen, Sonstiges</span></h4><div class="pf-box flush"><textarea class="input area" rows="3" data-f="vorkommnisse" aria-labelledby="h-vork" ${dis()}>${esc(b.vorkommnisse || '')}</textarea></div>
-            <div class="integ-row">${wetter ? `<span class="chip st-blue">${ic('cloud')}Wetter: ${esc(wetter)}</span>` : integBtn(integ, 'wetter', 'Wetter automatisch eintragen', 'cloud')}</div></section>
+            <div id="wetter-karte">${wetterHtml()}</div></section>
+          <section class="pf-sec a-fotos" data-step="5" aria-labelledby="h-fotos"><h4 id="h-fotos">FOTOS <span>höchstens ${MAX_FOTOS} · ohne Standortdaten</span></h4><div class="pf-box" id="fotos">${fotosHtml()}</div></section>
           <section class="a-sig" data-step="6" aria-label="Unterschriften und Abschluss" id="abschluss">${abschlussHtml()}</section>
         </div>
       </div>
@@ -416,7 +505,7 @@ export async function bericht(el, ctx) {
       <button type="button" class="btn primary lg grow" id="wiz-weiter">Weiter${ic('right')}</button>
     </div></div>`;
     Object.keys(pads).forEach((k) => delete pads[k]);
-    alleZeilenStatus(); anzeige(); zeichneKosten(); zeigHinweise(); setzSchritt(schritt, false); sigInit();
+    alleZeilenStatus(); anzeige(); zeichneKosten(); zeigHinweise(); setzSchritt(schritt, false); sigInit(); wetterGrundLaden();
   }
 
   function sigInit() {
@@ -515,10 +604,26 @@ export async function bericht(el, ctx) {
       catch (x) { toast(x.message, 'warn'); }
       return;
     }
+    if (e.target.closest('#wetter-holen')) return wetterHolen();
+    if (e.target.closest('#mail-ag')) return mailDialog();
+    if (e.target.closest('#foto-neu')) { $('#foto-datei', el).click(); return; }
+    const fw = e.target.closest('[data-foto-weg]');
+    if (fw) {
+      const fid = fw.closest('[data-foto]').dataset.foto;
+      if (!(await bestaetigen('Foto entfernen?', 'Das Foto wird aus dem Bericht gelöscht.', 'Entfernen', 'danger'))) return;
+      try { await del(`/berichte/${id}/fotos/${fid}`); b.fotos = (b.fotos || []).filter((x) => String(x.id) !== String(fid)); fotosNeu(); toast('Foto entfernt.'); } catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     if (e.target.closest('#freigeben')) { freigeben(); }
   });
-  el.addEventListener('change', (e) => {
+  el.addEventListener('change', async (e) => {
     const t = e.target;
+    if (t.id === 'foto-datei') { const dateien = [...(t.files || [])]; t.value = ''; if (dateien.length) fotosHochladen(dateien); return; }
+    if (t.dataset.fotoText !== undefined) {
+      const fid = t.closest('[data-foto]').dataset.foto; const f = (b.fotos || []).find((x) => String(x.id) === String(fid));
+      try { const neu = await put(`/berichte/${id}/fotos/${fid}`, { beschreibung: t.value.trim() }); if (f) f.beschreibung = (neu && neu.beschreibung) ?? t.value.trim(); toast('Beschreibung gespeichert.'); } catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     const sp = t.closest('[data-stepper]');
     if (sp) {
       const alt = sp.dataset.geraetExtra ? (gWeitere(Number(sp.dataset.geraetExtra.split(':')[0])).find((y) => y.anlageId === Number(sp.dataset.geraetExtra.split(':')[1])) || {}).stunden || 0 : sp.dataset.geraet ? gStd(Number(sp.dataset.geraet)) : sp.dataset.material ? mMenge(Number(sp.dataset.material)) : b.paletten[sp.dataset.pal] || 0;
@@ -554,6 +659,7 @@ export async function bericht(el, ctx) {
   });
   el.addEventListener('input', (e) => {
     const t = e.target, f = t.dataset.f;
+    if (t.dataset.fotoText !== undefined) return;
     if (!f || f === 'seg.stunden') return;
     const [a, c] = f.split('.');
     if (c) b[a][c] = t.value; else b[a] = t.value;

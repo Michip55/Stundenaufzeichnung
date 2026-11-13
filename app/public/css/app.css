@@ -436,7 +436,7 @@ em.pend { font-style: normal; color: var(--amber); font-weight: 700; } .tl-in i 
 .kosten-zeile { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; color: var(--muted); } .kosten-zeile b { color: var(--text); font-variant-numeric: tabular-nums; } .kosten-zeile .kt.sum { margin-left: auto; font-size: 15px; }
 .wiz-steps, .wiz-foot, .bf-kopf-m, .bp-l { display: none; }
 .bform { gap: 14px; } .bf-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start;
-  grid-template-areas: "pers seg" "pers ger" "mat ger" "leist leist" "beist beist" "pal pal" "regie regie" "vork vork" "sig sig"; grid-template-rows: auto auto 1fr; }
+  grid-template-areas: "pers seg" "pers ger" "mat ger" "leist leist" "beist beist" "pal pal" "regie regie" "vork vork" "fotos fotos" "sig sig"; grid-template-rows: auto auto 1fr; }
 .a-pers { grid-area: pers; } .a-seg { grid-area: seg; } .a-ger { grid-area: ger; } .a-mat { grid-area: mat; } .a-leist { grid-area: leist; } .a-beist { grid-area: beist; } .a-pal { grid-area: pal; } .a-regie { grid-area: regie; } .a-vork { grid-area: vork; } .a-sig { grid-area: sig; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .pf-sec h4 { margin: 0; } .pf-box.flush { padding: 0; overflow: hidden; } .pf-box.flush > textarea.input { border: 0; border-radius: 0; box-shadow: none; } .pf-box.flush > textarea.input:focus { box-shadow: inset 0 0 0 2.5px var(--blue); }
 .pf-box b { color: var(--text); } .pf-co b { display: block; }
@@ -543,7 +543,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
   .chart .ax { font-size: 15px; } .chart .lbl { font-size: 16px; }
   .matrix .sticky { min-width: 112px; max-width: 112px; padding-left: 10px; }
 }
-@media (max-width: 899px) and (min-width: 720px) { .bf-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pers" "seg" "ger" "mat" "leist" "beist" "pal" "regie" "vork" "sig"; grid-template-rows: none; } }
+@media (max-width: 899px) and (min-width: 720px) { .bf-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pers" "seg" "ger" "mat" "leist" "beist" "pal" "regie" "vork" "fotos" "sig"; grid-template-rows: none; } }
 @media print { .sidenav, .topbar, .tabbar, .foot-bar { display: none !important; } body { overflow: visible; } }
 
 /* Nachträge aus der Abstimmung mit dem Server */
@@ -835,3 +835,13 @@ body.offline-seite { overflow: auto; display: grid; place-items: center; min-hei
 .pv-btn { width: 30px !important; height: 30px !important; vertical-align: middle; margin-left: 2px; } .pv-btn .ic { width: 16px; height: 16px; }
 td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto; }
 #preisstand .banner.warn { align-items: flex-start; }
+
+/* ===== Ausbaustufe 2 · Schritte 3/4: Wetter, E-Mail, Fotos im Bericht ===== */
+.a-fotos { grid-area: fotos; }
+.wetter { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1.5px solid var(--graphite); border-top: 0; border-radius: 0 0 10px 10px; margin-top: -1px; background: #f3f7ff; } .wetter.leer { background: #f6f7f9; } .wetter > .ic { width: 24px; height: 24px; color: var(--blue); flex: none; } .wetter.leer > .ic { color: var(--muted); } .wetter > span { flex: 1; min-width: 0; } .wetter b { display: block; } .wetter small { color: var(--muted); display: block; }
+#wetter-karte .banner { margin-top: 8px; } .a-vork > .pf-box { border-radius: 0; }
+.foto-galerie { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px; } .foto-galerie li { position: relative; display: flex; flex-direction: column; gap: 4px; } .foto-galerie img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; background: #eef0f3; }
+.foto-weg { position: absolute; top: 4px; right: 4px; background: rgba(255, 255, 255, .92); color: var(--red-d); box-shadow: var(--shadow); } .foto-text { text-align: left !important; padding: 0 8px !important; height: 36px; } .foto-leiste { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } #foto-neu[data-laedt] { opacity: .6; }
+.mail-ag { display: inline-flex; flex-direction: column; gap: 3px; max-width: 320px; } .mail-ag small { color: var(--muted); font-size: 12px; } .mail-ag small b { color: #4a525c; } #mail-versand-box:empty { display: none; } #mail-versand-box { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.btn-zeile { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 719px) { .foto-galerie { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mail-ag { max-width: none; flex: 1 1 100%; } .mail-ag .btn { width: 100%; } .foto-weg { width: 44px; height: 44px; } }
