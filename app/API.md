@@ -421,3 +421,10 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
   - Eigenmaterial (Material, je t): Wandschotter KK ungewaschen 8,30 (`naturmaterial:true`); RMH III 0/32, U-A 1,70 (`naturmaterial:false`).
   - Abgaben/Gebühren (je Stk): Gefälligkeitswiegung 15,00; Abfallinformation 35,00; Fehlende grundlegende Charakterisierung 2.500,00.
 - Betrifft den Firmenkatalog und – über „Aus Vorlage übernehmen“ – neue Baustellen; bestehende Baustellen werden nicht automatisch geändert. Demo-Seed verwendet den angepassten Katalog.
+
+### 10e. Umsetzung 10c/10d (Backend)
+- Katalogdaten = Excel-Vorlage (Basis, unverändert gelesen) **+ versionierte Anpassungsschicht** `server/daten/katalog_anpassungen.js` (Version `10d-2026-11-13`: Rollschotter RK 16/63 → 12,50; 7 Geräte umbenannt, Preise unverändert; 16 neue Positionen aus den Preislisten 2026). `node server/katalog-excel.js` erzeugt daraus `katalog_vorlage.json` (119 Positionen); der Unit-Test prüft „JSON = Excel + Anpassungen“ und jeden 10d-Wert.
+- Neues Feld **`herkunft`** an Katalog- und Projektpositionen: `"vorlage_excel"` (aus der Excel-Vorlage bzw. Excel-Import), `"preisliste_2026"` (neu aus Preisliste 2026), `"eigen"` (selbst angelegt).
+- Bestehende Firmenkataloge erhalten die Anpassung **einmalig** beim Serverstart (Einstellung `katalog_anpassungen`, Protokolleintrag). Bestehende Baustellen bleiben unverändert („Aus Vorlage übernehmen“ je Baustelle). Zuordnungen aus dem Bautagesbericht gelten unter den neuen Gerätenamen weiter.
+- Abgaben = Landschaftsabgabe + Maut (+ neue Gebühren); kein Gräder (bestätigt, bleibt ohne Zuordnung).
+- Neue Positionen „Aufzahlung Meißel/Abbruchzange … (50 % vom Regiepreis)“ heißen je Gerät „Aufzahlung Meißel/Abbruchzange Minibagger Takeuchi 3,0 t (50 % vom Regiepreis)“ usw. und stehen direkt hinter dem Gerät.

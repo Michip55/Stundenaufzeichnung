@@ -81,7 +81,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
   await t.test('Aufbau, Startzuordnung und automatische Mengen aus Berichten (≠ Entwurf)', async () => {
     const d = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
     assert.deepEqual(d.gruppen.map((g) => [g.schluessel, g.name]), [['arbeit', 'Arbeit'], ['transport', 'Transport'], ['geraete', 'Geräte'], ['eigenmaterial', 'Eigenmaterial'], ['fremdmaterial', 'Fremdmaterial'], ['abgaben', 'Abgaben']]);
-    assert.equal(alle(d).length, 103);
+    assert.equal(alle(d).length, 119);
     assert.equal(d.stand, '2026-04-01');
     const summe = (sql, ...p) => s.db.eins(sql, ...p).m || 0;
     const fa = finde(d, 'Facharbeiter');
@@ -91,7 +91,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
       WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND b.lohngruppe_id IN ('pol','va','fa','hi','le')`, BS.pitten)));
     const geraet = (code) => summe(`SELECT SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id JOIN geraet g ON g.id = bg.geraet_id
       WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND g.code = ?`, BS.pitten, code);
-    assert.equal(finde(d, 'Mobilbagger 9-11 to').mengeAuto, geraet('b9'));
+    assert.equal(finde(d, 'Mobilbagger 7-11 t').mengeAuto, geraet('b9'));
     assert.equal(finde(d, 'Kleingeräte').mengeAuto, r2(['verlege', 'schneid', 'kompressor', 'handwalze', 'ruettel'].reduce((a, x) => a + geraet(x), 0)));
     const frost = summe(`SELECT SUM(bm.menge) AS m FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id JOIN material m ON m.id = bm.material_id
       WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND m.code = 'frostschutz'`, BS.pitten);
@@ -129,17 +129,17 @@ test('Nachkalkulation nach Positionen', async (t) => {
   });
 
   await t.test('Projektpositionen je Baustelle unabhängig – Katalog und andere Baustellen bleiben unverändert', async () => {
-    const pos = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 9-11 to');
+    const pos = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 7-11 t');
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99 })).status, 400); // version fehlt
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99, version: pos.version + 5 })).status, 409);
-    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 9-11 to (Pitten)', version: pos.version });
+    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 7-11 t (Pitten)', version: pos.version });
     assert.equal(r.status, 200);
     assert.equal(r.daten.ep, 100);
     assert.equal(r.daten.version, pos.version + 1);
-    const neu = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 9-11 to (Pitten)');
+    const neu = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 7-11 t (Pitten)');
     assert.equal(neu.summe, r2(neu.menge * 100));
-    assert.equal(finde((await c.buero.get(`/baustellen/${BS.ternitz}/positionen`)).daten, 'Mobilbagger 9-11 to').ep, 94.4);
-    const kat = (await c.buero.get('/positionen/katalog')).daten.gruppen.find((g) => g.schluessel === 'geraete').positionen.find((p) => p.bezeichnung === 'Mobilbagger 9-11 to');
+    assert.equal(finde((await c.buero.get(`/baustellen/${BS.ternitz}/positionen`)).daten, 'Mobilbagger 7-11 t').ep, 94.4);
+    const kat = (await c.buero.get('/positionen/katalog')).daten.gruppen.find((g) => g.schluessel === 'geraete').positionen.find((p) => p.bezeichnung === 'Mobilbagger 7-11 t');
     assert.equal(kat.ep, 94.4);
     // ausblenden: zählt nicht mehr
     const ges0 = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten.gesamtsumme;
@@ -202,7 +202,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
     const nb = await c.buero.post('/baustellen', { kst: '26-070', name: 'Neue Baustelle', status: 'aktiv' });
     assert.equal(nb.status, 201);
     const d = (await c.buero.get(`/baustellen/${nb.daten.id}/positionen`)).daten;
-    assert.equal(alle(d).length, 103);
+    assert.equal(alle(d).length, 119);
     assert.equal(finde(d, 'LKW 2A').ep, 80);
     assert.ok(!finde(d, 'Deponiegebühr'));
     assert.equal(d.gesamtsumme, 0);
@@ -261,10 +261,12 @@ test('Nachkalkulation nach Positionen', async (t) => {
     let r = await c.buero.post('/positionen/katalog/import', { dateiBase64: vorlage });
     assert.equal(r.status, 200);
     assert.equal(r.daten.uebernommen, false);
-    assert.equal(r.daten.neu.length, 0);
-    // LKW 2A wurde oben auf 80 geändert → Vorlage hat 75
-    assert.deepEqual(r.daten.geaendert.map((g) => [g.bezeichnung, g.epAlt, g.epNeu]), [['LKW 2A', 80, 75]]);
-    assert.equal(r.daten.unveraendert, 102);
+    // Original-Excel gegen den angepassten Katalog (10d): alte Gerätenamen erscheinen als „neu“, Rollschotter-Preis als geändert
+    assert.equal(r.daten.neu.length, 7);
+    assert.ok(r.daten.neu.some((p) => p.bezeichnung === 'Mobilbagger 9-11 to'));
+    // LKW 2A wurde oben auf 80 geändert → Vorlage hat 75; Rollschotter 12,50 (10d) → Vorlage 14,50
+    assert.deepEqual(r.daten.geaendert.map((g) => [g.bezeichnung, g.epAlt, g.epNeu]).sort(), [['LKW 2A', 80, 75], ['Rollschotter RK 16/63', 12.5, 14.5]]);
+    assert.equal(r.daten.unveraendert, 94);
     // geänderte Datei: neue Position + anderer Preis
     const json = X.ladeKatalogVorlage();
     const gruppen = X.GRUPPEN.map((g) => ({ schluessel: g.schluessel, positionen: json.positionen.filter((p) => p.gruppe === g.schluessel).map((p) => ({ ...p, ep: p.bezeichnung === 'Dumper' ? 50 : p.ep })) }));
@@ -331,5 +333,62 @@ test('Nachkalkulation nach Positionen', async (t) => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+test('10c/10d: Herkunft, Abgaben mit Maut, Anpassung bestehender Kataloge (einmalig, Baustellen unverändert)', async (t) => {
+  const s = await starte();
+  t.after(() => s.stop());
+  const buero = await s.login(U.buero);
+  const P = require('../../server/positionen');
+
+  await t.test('herkunft in Katalog und Projektpositionen; eigene Positionen = eigen', async () => {
+    const kat = (await buero.get('/positionen/katalog')).daten.gruppen.flatMap((g) => g.positionen);
+    assert.equal(kat.length, 119);
+    assert.equal(kat.find((p) => p.bezeichnung === 'Sortierkostenpauschale').herkunft, 'preisliste_2026');
+    assert.equal(kat.find((p) => p.bezeichnung === 'Facharbeiter').herkunft, 'vorlage_excel');
+    assert.equal(kat.find((p) => p.bezeichnung === 'Rollschotter RK 16/63').ep, 12.5);
+    const d = (await buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
+    assert.equal(finde(d, 'Wandschotter KK ungewaschen').herkunft, 'preisliste_2026');
+    assert.equal(finde(d, 'Wandschotter KK ungewaschen').naturmaterial, true);
+    assert.equal(finde(d, 'Fehlende grundlegende Charakterisierung').ep, 2500);
+    assert.equal(finde(d, 'Mobilbagger 7-11 t').quelle.ref[0], 'b9'); // Zuordnung unter neuem Namen
+    assert.ok(finde(d, 'Mobilbagger 7-11 t').mengeAuto > 0);
+    const eigen = await buero.post(`/baustellen/${BS.pitten}/positionen`, { gruppe: 'abgaben', bezeichnung: 'Baustellenschild', einheit: 'Stk', ep: 120 });
+    assert.equal(eigen.daten.herkunft, 'eigen');
+    const k = await buero.post('/positionen/katalog', { gruppe: 'abgaben', bezeichnung: 'Kopierpauschale', einheit: 'PA', ep: 1 });
+    assert.equal(k.daten.herkunft, 'eigen');
+  });
+
+  await t.test('10c: Maut und Landschaftsabgabe zählen beide in „Summe Abgaben“', async () => {
+    const vorher = (await buero.get(`/baustellen/${BS.kogler}/positionen`)).daten;
+    const maut = finde(vorher, 'Maut');
+    await buero.post(`/baustellen/${BS.kogler}/positionen/${maut.id}/mengen`, { datum: '2026-11-12', menge: 100 });
+    const nach = (await buero.get(`/baustellen/${BS.kogler}/positionen`)).daten;
+    const abg = nach.gruppen.find((g) => g.schluessel === 'abgaben');
+    assert.equal(abg.summe, r2(vorher.gruppen.find((g) => g.schluessel === 'abgaben').summe + 105));
+    assert.equal(abg.summe, r2(abg.positionen.filter((p) => p.aktiv).reduce((a, p) => a + p.summe, 0)));
+    assert.ok(abg.positionen.some((p) => p.bezeichnung === 'Landschaftsabgabe' && p.summe > 0));
+  });
+
+  await t.test('10d auf einen alten Katalog: einmalig, protokolliert, bestehende Baustellen unverändert', async () => {
+    const db = s.db;
+    // alten Stand (vor 10d) nachstellen
+    db.lauf("UPDATE katalog SET bezeichnung = 'Mobilbagger 9-11 to' WHERE bezeichnung = 'Mobilbagger 7-11 t'");
+    db.lauf("UPDATE katalog SET ep = 14.5 WHERE bezeichnung = 'Rollschotter RK 16/63'");
+    db.lauf("UPDATE katalog SET aktiv = 0, bezeichnung = 'x-alt' WHERE bezeichnung = 'Sortierkostenpauschale'");
+    db.setzeEinstellung('katalog_anpassungen', []);
+    const projektVorher = (await buero.get(`/baustellen/${BS.ternitz}/positionen`)).daten;
+    assert.deepEqual(P.katalogAnpassungenAnwenden(db, s.uhr()), ['10d-2026-11-13']);
+    const kat = (await buero.get('/positionen/katalog')).daten.gruppen.flatMap((g) => g.positionen);
+    assert.ok(kat.some((p) => p.bezeichnung === 'Mobilbagger 7-11 t'));
+    assert.ok(!kat.some((p) => p.bezeichnung === 'Mobilbagger 9-11 to'));
+    assert.equal(kat.find((p) => p.bezeichnung === 'Rollschotter RK 16/63').ep, 12.5);
+    const sp = kat.find((p) => p.bezeichnung === 'Sortierkostenpauschale');
+    assert.deepEqual([sp.ep, sp.herkunft, sp.aktiv], [20, 'preisliste_2026', true]);
+    assert.deepEqual(P.katalogAnpassungenAnwenden(db, s.uhr()), []); // einmalig
+    assert.ok(db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'katalog' AND text LIKE 'Katalog-Anpassung 10d-2026-11-13%'").n === 1);
+    const projektNach = (await buero.get(`/baustellen/${BS.ternitz}/positionen`)).daten;
+    assert.deepEqual(alle(projektNach).map((p) => [p.bezeichnung, p.ep]), alle(projektVorher).map((p) => [p.bezeichnung, p.ep]));
   });
 });

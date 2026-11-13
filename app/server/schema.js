@@ -467,6 +467,16 @@ UPDATE projektposition SET naturmaterial = 1 WHERE gruppe = 'eigenmaterial' AND 
 UPDATE katalog SET quelle = '{"art":"naturmaterial"}', zuordnung_pruefen = 1 WHERE bezeichnung = 'Landschaftsabgabe' AND quelle IS NULL;
 UPDATE projektposition SET quelle = '{"art":"naturmaterial"}', zuordnung_pruefen = 1 WHERE bezeichnung = 'Landschaftsabgabe' AND quelle IS NULL;
 `
+  },
+  {
+    version: 8,
+    name: 'Herkunft der Positionen (vorlage_excel | preisliste_2026 | eigen), API.md 10d',
+    sql: `
+ALTER TABLE katalog ADD COLUMN herkunft TEXT NOT NULL DEFAULT 'eigen' CHECK (herkunft IN ('vorlage_excel','preisliste_2026','eigen'));
+ALTER TABLE projektposition ADD COLUMN herkunft TEXT NOT NULL DEFAULT 'eigen' CHECK (herkunft IN ('vorlage_excel','preisliste_2026','eigen'));
+UPDATE katalog SET herkunft = 'vorlage_excel';
+UPDATE projektposition SET herkunft = 'vorlage_excel' WHERE katalog_id IS NOT NULL;
+`
   }
 ];
 

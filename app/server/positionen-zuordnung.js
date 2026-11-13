@@ -1,6 +1,7 @@
 'use strict';
 /**
  * Startzuordnung Bautagesbericht → Positionen der Excel-Vorlage (alle als „Zuordnung prüfen“ markiert).
+ * Gerätenamen nach den Anpassungen 10d (Gerätepreisliste 2026).
  * Schlüssel: Bezeichnung + Einheit der Vorlage. quelle = {art, ref:[…], faktor?}
  *  - personal: Lohngruppen (Stunden); LKW-Fahrer und Maschinisten stecken in den Geräte-/Transportsätzen
  *  - geraet:   Geräte-Codes des Berichts (Stunden)
@@ -15,12 +16,12 @@ const ZUORDNUNG = [
   ['LKW 4A Mulde und Kran', 'Std.', { art: 'geraet', ref: ['kran4'] }],
   ['LKW Sattel', 'Std.', { art: 'geraet', ref: ['sattel'] }],
   ['LKW Tieflader', 'Std.', { art: 'geraet', ref: ['tieflader'] }],
-  ['Bagger 1,8 to.', 'Std.', { art: 'geraet', ref: ['b15'] }],
-  ['Komatsu PC27 3 to', 'Std.', { art: 'geraet', ref: ['b27'] }],
-  ['Mobilbagger 9-11 to', 'Std.', { art: 'geraet', ref: ['b9'] }],
-  ['Kettenbagger 23 to', 'Std.', { art: 'geraet', ref: ['b23'] }],
-  ['Minilader Bobcat  3,3 to', 'Std.', { art: 'geraet', ref: ['bobcat'] }],
-  ['Radlader Case 2,5 m3', 'Std.', { art: 'geraet', ref: ['radlader'] }],
+  ['Minibagger Cat 1,8 t', 'Std.', { art: 'geraet', ref: ['b15'] }],
+  ['Minibagger Takeuchi 3,0 t', 'Std.', { art: 'geraet', ref: ['b27'] }],
+  ['Mobilbagger 7-11 t', 'Std.', { art: 'geraet', ref: ['b9'] }],
+  ['Kettenbagger CAT 320 23,0 t', 'Std.', { art: 'geraet', ref: ['b23'] }],
+  ['Minilader CASE 3,5 t', 'Std.', { art: 'geraet', ref: ['bobcat'] }],
+  ['Radlader CASE 721 2,5 m3', 'Std.', { art: 'geraet', ref: ['radlader'] }],
   ['Walze Hamm 3,0 to', 'Std.', { art: 'geraet', ref: ['hamm'] }],
   ['Walze Bomag 7,0 to', 'Std.', { art: 'geraet', ref: ['bomag'] }],
   ['Grabenwalze', 'Std.', { art: 'geraet', ref: ['grabenwalze'] }],

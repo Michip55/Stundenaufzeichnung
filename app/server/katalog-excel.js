@@ -150,6 +150,44 @@ async function schreibeExport(daten) {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/**
+ * Wendet die versionierten Katalog-Anpassungen (daten/katalog_anpassungen.js, API.md 10d) auf die
+ * aus der Excel-Vorlage gelesenen Positionen an. Ergebnis mit herkunft und naturmaterial je Position.
+ */
+function wendeAnpassungenAn(basis, anpassungen) {
+  const { istNaturmaterial } = require('./positionen-zuordnung');
+  let liste = basis.map((p) => ({
+    gruppe: p.gruppe, bezeichnung: p.bezeichnung.trim(), einheit: p.einheit, ep: p.ep, herkunft: 'vorlage_excel',
+    naturmaterial: istNaturmaterial(p.bezeichnung, p.einheit, p.gruppe), ...(p.zeile ? { zeile: p.zeile } : {})
+  }));
+  for (const a of anpassungen) {
+    for (const u of a.umbenennungen || []) {
+      const p = liste.find((x) => x.bezeichnung === u.alt.trim() && x.einheit === u.einheit);
+      if (!p) throw new Error(`Anpassung ${a.version}: „${u.alt}“ nicht gefunden.`);
+      p.bezeichnung = u.neu;
+    }
+    for (const pr of a.preise || []) {
+      const p = liste.find((x) => x.bezeichnung === pr.bezeichnung && x.einheit === pr.einheit);
+      if (!p) throw new Error(`Anpassung ${a.version}: Preis für „${pr.bezeichnung}“ – Position nicht gefunden.`);
+      p.ep = pr.ep;
+    }
+    for (const n of a.neu || []) {
+      const neu = { gruppe: n.gruppe, bezeichnung: n.bezeichnung, einheit: n.einheit, ep: n.ep, herkunft: 'preisliste_2026', naturmaterial: Boolean(n.naturmaterial) };
+      let i = n.nach ? liste.findIndex((x) => x.bezeichnung === n.nach && x.gruppe === n.gruppe) : -1;
+      if (n.nach && i < 0) throw new Error(`Anpassung ${a.version}: „${n.nach}“ (nach) nicht gefunden.`);
+      if (i < 0) i = liste.map((x) => x.gruppe).lastIndexOf(n.gruppe);
+      // hinter bereits eingefügte Positionen derselben Stelle
+      while (i + 1 < liste.length && liste[i + 1].herkunft === 'preisliste_2026' && liste[i + 1].gruppe === n.gruppe && n.nach) i++;
+      liste = [...liste.slice(0, i + 1), neu, ...liste.slice(i + 1)];
+    }
+  }
+  return liste;
+}
+
+function ladeAnpassungen() {
+  return require('./daten/katalog_anpassungen');
+}
+
 function ladeKatalogVorlage() {
   return JSON.parse(fs.readFileSync(KATALOG_JSON, 'utf8'));
 }
@@ -159,10 +197,15 @@ if (require.main === module) {
     const r = await leseVorlage(fs.readFileSync(VORLAGE));
     if (r.offen.length) throw new Error(`Positionen ohne Summenzeile: ${r.offen.map((p) => p.bezeichnung).join(', ')}`);
     fs.mkdirSync(path.dirname(KATALOG_JSON), { recursive: true });
-    const daten = { stand: '2026-04-01', quelle: path.basename(VORLAGE), positionen: r.positionen.map(({ zeile, ...p }) => ({ ...p, zeile })) };
+    const anp = ladeAnpassungen();
+    const daten = {
+      stand: '2026-04-01', quelle: path.basename(VORLAGE),
+      anpassungen: anp.map((a) => ({ version: a.version, beschreibung: a.beschreibung })),
+      positionen: wendeAnpassungenAn(r.positionen, anp)
+    };
     fs.writeFileSync(KATALOG_JSON, JSON.stringify(daten, null, 1) + '\n');
     console.log(`${daten.positionen.length} Positionen nach ${KATALOG_JSON} geschrieben.`);
   })().catch((e) => { console.error(e.message); process.exit(1); });
 }
 
-module.exports = { GRUPPEN, GRUPPEN_SCHLUESSEL, VORLAGE, KATALOG_JSON, leseVorlage, schreibeExport, ladeKatalogVorlage, zahlAusZelle };
+module.exports = { GRUPPEN, GRUPPEN_SCHLUESSEL, VORLAGE, KATALOG_JSON, leseVorlage, schreibeExport, ladeKatalogVorlage, ladeAnpassungen, wendeAnpassungenAn, zahlAusZelle };

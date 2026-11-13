@@ -104,7 +104,7 @@ module.exports = function positionenRouten(api, bt) {
         positionen: alle.filter((k) => k.gruppe === g.schluessel).map((k) => ({
           id: k.id, gruppe: k.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, ep: k.ep, sortierung: k.sortierung,
           quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1,
-          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, aktiv: k.aktiv === 1, version: k.version
+          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
         }))
       }))
     };
@@ -170,7 +170,7 @@ module.exports = function positionenRouten(api, bt) {
       db.transaktion(() => {
         for (const p of neu) {
           const sort = (db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', p.gruppe).m || 0) + 10;
-          db.lauf('INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, aktiv, version, geaendert) VALUES (?, ?, ?, ?, ?, 1, 1, ?)', p.gruppe, p.bezeichnung, p.einheit, p.ep, sort, jetzt());
+          db.lauf("INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, aktiv, version, geaendert, herkunft) VALUES (?, ?, ?, ?, ?, 1, 1, ?, 'vorlage_excel')", p.gruppe, p.bezeichnung, p.einheit, p.ep, sort, jetzt());
         }
         for (const g of geaendert) db.lauf('UPDATE katalog SET ep = ?, aktiv = 1, version = version + 1, geaendert = ? WHERE id = ?', g.epNeu, jetzt(), g.id);
         db.setzeEinstellung('katalog_stand', wienDatum(bt.uhr()));

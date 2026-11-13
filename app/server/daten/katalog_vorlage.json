@@ -1,727 +1,1067 @@
 {
  "stand": "2026-04-01",
  "quelle": "Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx",
+ "anpassungen": [
+  {
+   "version": "10d-2026-11-13",
+   "beschreibung": "Abgleich mit den Preislisten 2026 (vom Kunden freigegeben am 13.11.2026)"
+  }
+ ],
  "positionen": [
   {
+   "gruppe": "arbeit",
    "bezeichnung": "Facharbeiter",
    "einheit": "Std.",
    "ep": 72.5,
-   "gruppe": "arbeit",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 2
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW 2A",
    "einheit": "Std.",
    "ep": 75,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 5
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW 3A",
    "einheit": "Std.",
    "ep": 77.3,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 6
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW 4A",
    "einheit": "Std.",
    "ep": 87.6,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 7
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "3A-Kran",
    "einheit": "Std.",
    "ep": 102.2,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 8
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW 4A Mulde und Kran",
    "einheit": "Std.",
    "ep": 117,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 9
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW Zug",
    "einheit": "Std.",
    "ep": 94.4,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 10
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW Sattel",
    "einheit": "Std.",
    "ep": 94.4,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 11
   },
   {
+   "gruppe": "transport",
    "bezeichnung": "LKW Tieflader",
    "einheit": "Std.",
    "ep": 120.4,
-   "gruppe": "transport",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 12
   },
   {
-   "bezeichnung": "Bagger 1,8 to.",
+   "gruppe": "geraete",
+   "bezeichnung": "Minibagger Cat 1,8 t",
    "einheit": "Std.",
    "ep": 74,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 15
   },
   {
-   "bezeichnung": "Komatsu PC27 3 to",
+   "gruppe": "geraete",
+   "bezeichnung": "Minibagger Takeuchi 3,0 t",
    "einheit": "Std.",
    "ep": 78.4,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 16
   },
   {
-   "bezeichnung": "Mobilbagger 9-11 to",
+   "gruppe": "geraete",
+   "bezeichnung": "Aufzahlung Meißel/Abbruchzange Minibagger Takeuchi 3,0 t (50 % vom Regiepreis)",
+   "einheit": "Std.",
+   "ep": 39.2,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "geraete",
+   "bezeichnung": "Mobilbagger 7-11 t",
    "einheit": "Std.",
    "ep": 94.4,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 17
   },
   {
-   "bezeichnung": "Kettenbagger 23 to",
+   "gruppe": "geraete",
+   "bezeichnung": "Aufzahlung Meißel/Abbruchzange Mobilbagger 7-11 t (50 % vom Regiepreis)",
+   "einheit": "Std.",
+   "ep": 47.2,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "geraete",
+   "bezeichnung": "Kettenbagger CAT 320 23,0 t",
    "einheit": "Std.",
    "ep": 103.4,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 18
   },
   {
-   "bezeichnung": "Minilader Bobcat  3,3 to",
+   "gruppe": "geraete",
+   "bezeichnung": "Aufzahlung Meißel/Abbruchzange Kettenbagger CAT 320 23,0 t (50 % vom Regiepreis)",
+   "einheit": "Std.",
+   "ep": 51.7,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "geraete",
+   "bezeichnung": "Minilader CASE 3,5 t",
    "einheit": "Std.",
    "ep": 77.3,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 19
   },
   {
-   "bezeichnung": "Radlader Case 2,5 m3",
+   "gruppe": "geraete",
+   "bezeichnung": "Radlader CASE 721 2,5 m3",
    "einheit": "Std.",
    "ep": 102.2,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 20
   },
   {
-   "bezeichnung": "Radlader Cat 3,5 m3",
+   "gruppe": "geraete",
+   "bezeichnung": "Radlader CAT 950 M 3,5 m3",
    "einheit": "Std.",
    "ep": 112.5,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 21
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Walze Hamm 3,0 to",
    "einheit": "Std.",
    "ep": 71.6,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 22
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Walze Bomag 7,0 to",
    "einheit": "Std.",
    "ep": 81.8,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 23
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Mobilbrecher RM 100",
    "einheit": "Std.",
    "ep": 290,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 24
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Grabenwalze",
    "einheit": "Std.",
    "ep": 45,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 25
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Dumper",
    "einheit": "Std.",
    "ep": 45,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 26
   },
   {
+   "gruppe": "geraete",
    "bezeichnung": "Kleingeräte",
    "einheit": "Std.",
    "ep": 45,
-   "gruppe": "geraete",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 27
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Sand RK 0/4 Estrichsand",
    "einheit": "t",
    "ep": 17.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 30
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Sand RK 0/8 gewaschen",
    "einheit": "t",
    "ep": 17.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 31
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Sand RK 0/16 gewaschen",
    "einheit": "t",
    "ep": 17.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 32
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Sand RK 0/16 od. 0/32",
    "einheit": "t",
    "ep": 10.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 33
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Kies RK 4/8",
    "einheit": "t",
    "ep": 17.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 34
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Kies RK 8/16",
    "einheit": "t",
    "ep": 17.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 35
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Rollschotter RK 16/32",
    "einheit": "t",
    "ep": 15.8,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 36
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Rollschotter RK 32/63",
    "einheit": "t",
    "ep": 14.5,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 37
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Rollschotter RK 16/63",
    "einheit": "t",
-   "ep": 14.5,
-   "gruppe": "eigenmaterial",
+   "ep": 12.5,
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 38
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bruchsand KK 0/2",
    "einheit": "t",
    "ep": 19.1,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 39
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bruchsand KK 0/4",
    "einheit": "t",
    "ep": 19.1,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 40
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Splitt KK 2/4 oder KK 4/8",
    "einheit": "t",
    "ep": 21.2,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 41
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Wandschotter FSM 0/63",
    "einheit": "t",
    "ep": 6.8,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 42
   },
   {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Wandschotter KK ungewaschen",
+   "einheit": "t",
+   "ep": 8.3,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": true
+  },
+  {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Grädermaterial KK 0/32",
    "einheit": "t",
    "ep": 13.4,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": true,
    "zeile": 43
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RB 0/32, U-A",
    "einheit": "t",
    "ep": 10.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 44
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RB 0/63, U-A",
    "einheit": "t",
    "ep": 10.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 45
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RB 32/63, U-A",
    "einheit": "t",
    "ep": 10.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 46
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RA 0/32, U-A",
    "einheit": "t",
    "ep": 10.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 47
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RG 0/63",
    "einheit": "t",
    "ep": 5.4,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 48
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RMH 0/8, U-A",
    "einheit": "t",
    "ep": 1.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 49
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RMH 8/16, U-A",
    "einheit": "t",
    "ep": 1.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 50
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RMH 16/63, U-A",
    "einheit": "t",
    "ep": 1.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 51
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "RMH 0/63, U-A",
    "einheit": "t",
    "ep": 1.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 52
   },
   {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "RMH III 0/32, U-A",
+   "einheit": "t",
+   "ep": 1.7,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Erde ungesiebt",
    "einheit": "t",
    "ep": 8.3,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 53
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Erde gesiebt",
    "einheit": "t",
    "ep": 20.1,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 54
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bodenaushub, Kleinmenge bis 2000 to",
    "einheit": "m³",
    "ep": 14.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 55
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bodenaushub mit BN",
    "einheit": "m³",
    "ep": 12.8,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 56
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bodenaushub, Kleinmenge bis 2000 to",
    "einheit": "t",
    "ep": 8.1,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 57
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bodenaushub mit BN",
    "einheit": "t",
    "ep": 7.1,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 58
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Betonbruch bis 80cm",
    "einheit": "t",
    "ep": 12.6,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 59
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Betonbruch großformatig",
    "einheit": "t",
    "ep": 23.7,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 60
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Bauschutt",
    "einheit": "t",
    "ep": 49.5,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 61
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Asphaltbruch rein",
    "einheit": "t",
    "ep": 19.3,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 62
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Holz, Baum- und Strauchschnitt",
    "einheit": "t",
    "ep": 86.3,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 63
   },
   {
+   "gruppe": "eigenmaterial",
    "bezeichnung": "Wurzelstöcke",
    "einheit": "t",
    "ep": 168.2,
-   "gruppe": "eigenmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 64
   },
   {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Aushubmaterial Inertabfallqualität < 30 % b.f. Bestandteile",
+   "einheit": "t",
+   "ep": 38.6,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Aushubmaterial Inertabfallqualität > 30 % b.f. Bestandteile",
+   "einheit": "t",
+   "ep": 49.5,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Aushubmaterial techn. Schüttmaterial < 5 Vol%",
+   "einheit": "t",
+   "ep": 38.6,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Aushubmaterial techn. Schüttmaterial > 5 Vol%",
+   "einheit": "t",
+   "ep": 49.5,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "verunreinigtes Aushubmaterial BRM-Deponiequalität < 30 %",
+   "einheit": "t",
+   "ep": 38.6,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "verunreinigtes Aushubmaterial BRM-Deponiequalität > 30 %",
+   "einheit": "t",
+   "ep": 49.5,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Gleisschottermaterial o. ALSAG",
+   "einheit": "t",
+   "ep": 38.6,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "eigenmaterial",
+   "bezeichnung": "Sortierkostenpauschale",
+   "einheit": "t",
+   "ep": 20,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Beton C 16/20",
    "einheit": "m3",
    "ep": 100,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 67
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Trockenbeton",
    "einheit": "Stk",
    "ep": 9,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 68
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Zement",
    "einheit": "Stk",
    "ep": 9.2,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 69
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Trass Zement",
    "einheit": "Stk",
    "ep": 13.2,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 70
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Steinkleber",
    "einheit": "Stk",
    "ep": 40.5,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 71
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Fugensand",
    "einheit": "Stk",
    "ep": 4.6,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 72
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Pflasterfuge Murexin",
    "einheit": "Stk",
    "ep": 55.05,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 73
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Pflaster",
    "einheit": "m2",
    "ep": 35,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 74
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Vlies",
    "einheit": "m2",
    "ep": 1.6,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 75
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Schachtdeckel DN60,400 KN",
    "einheit": "Stk",
    "ep": 370,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 76
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Ausgleichsring 5 cm",
    "einheit": "Stk",
    "ep": 35,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 77
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Ausgleichsring 10 cm",
    "einheit": "Stk",
    "ep": 40,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 78
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "MatecII V200-Rinne +Stirnwand",
    "einheit": "lfm",
    "ep": 75.2,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 79
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Drainageschlauch",
    "einheit": "lfm",
    "ep": 3.2,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 80
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "PVC DN150",
    "einheit": "lfm",
    "ep": 38.5,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 81
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Abzweiger 150/150",
    "einheit": "Stk",
    "ep": 36.3,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 82
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Abzweiger 150/100",
    "einheit": "Stk",
    "ep": 31.3,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 83
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Putzstück DN 150",
    "einheit": "Stk",
    "ep": 191.4,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 84
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Doppelrückstauklappe ACO DN 150",
    "einheit": "Stk",
    "ep": 407,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 85
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Reduktion 150/100",
    "einheit": "Stk",
    "ep": 14.8,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 86
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Bögen DN150",
    "einheit": "Stk",
    "ep": 16.7,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 87
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Muffe DN 150",
    "einheit": "Stk",
    "ep": 14.8,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 88
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "PVC DN100",
    "einheit": "lfm",
    "ep": 21.6,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 89
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Abzweiger 100/100",
    "einheit": "Stk",
    "ep": 15.6,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 90
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Bögen DN100",
    "einheit": "Stk",
    "ep": 7.3,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 91
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Muffe DN100",
    "einheit": "Stk",
    "ep": 9.2,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 92
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Regensinkkasten HL600",
    "einheit": "Stk",
    "ep": 54.5,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 93
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Schachtring 100/25",
    "einheit": "Stk",
    "ep": 74,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 94
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Schachtring 100/50",
    "einheit": "Stk",
    "ep": 84,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 95
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Konus 100/60/60",
    "einheit": "Stk",
    "ep": 123,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 96
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Auflagerahmen+Deckel",
    "einheit": "Stk",
    "ep": 120,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 97
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Einlaufgitter 45/45, 400 KN",
    "einheit": "Stk",
    "ep": 165,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 98
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Classic Bodenplatten 50/50/4",
    "einheit": "m2",
    "ep": 9.6,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 99
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Raseneinfassung 5/20/100",
    "einheit": "Stk",
    "ep": 2.5,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 100
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Raseneinfassung 5/30/100",
    "einheit": "Stk",
    "ep": 2.4,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 101
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Hochbordstein 100/18/20",
    "einheit": "Stk",
    "ep": 6.9,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 102
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Leistenstein 100/10/20",
    "einheit": "Stk",
    "ep": 3.3,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 103
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Maleiner",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 104
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Pehofer",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 105
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Quester",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 106
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Wallner & Neubert",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 107
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Schily",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 108
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Lagerhaus",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 109
   },
   {
+   "gruppe": "fremdmaterial",
    "bezeichnung": "Asphalt",
    "einheit": "PA",
    "ep": 1.15,
-   "gruppe": "fremdmaterial",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 110
   },
   {
+   "gruppe": "abgaben",
    "bezeichnung": "Landschaftsabgabe",
    "einheit": "PA",
    "ep": 0.25,
-   "gruppe": "abgaben",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 113
   },
   {
+   "gruppe": "abgaben",
    "bezeichnung": "Maut",
    "einheit": "VE",
    "ep": 1.05,
-   "gruppe": "abgaben",
+   "herkunft": "vorlage_excel",
+   "naturmaterial": false,
    "zeile": 114
+  },
+  {
+   "gruppe": "abgaben",
+   "bezeichnung": "Gefälligkeitswiegung",
+   "einheit": "Stk",
+   "ep": 15,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "abgaben",
+   "bezeichnung": "Abfallinformation",
+   "einheit": "Stk",
+   "ep": 35,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
+  },
+  {
+   "gruppe": "abgaben",
+   "bezeichnung": "Fehlende grundlegende Charakterisierung",
+   "einheit": "Stk",
+   "ep": 2500,
+   "herkunft": "preisliste_2026",
+   "naturmaterial": false
   }
  ]
 }

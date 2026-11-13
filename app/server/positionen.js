@@ -53,7 +53,7 @@ function berechnePositionen(positionen, auftragGesamt) {
 
 /* ---------------- Datenbank ---------------- */
 
-/** Katalog aus der Firmenvorlage anlegen (nur wenn leer) */
+/** Katalog aus der Firmenvorlage (Excel + Anpassungen 10d) anlegen (nur wenn leer) */
 function katalogAnlegen(db, jetzt = new Date()) {
   if (db.eins('SELECT COUNT(*) AS n FROM katalog').n > 0) return 0;
   const v = ladeKatalogVorlage();
@@ -61,13 +61,49 @@ function katalogAnlegen(db, jetzt = new Date()) {
   db.transaktion(() => {
     v.positionen.forEach((p, i) => {
       const q = zuordnungFuer(p.bezeichnung, p.einheit);
-      db.lauf(`INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert, naturmaterial, naturmaterial_pruefen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`, p.gruppe, p.bezeichnung.trim(), p.einheit, p.ep, (i + 1) * 10, q ? JSON.stringify(q) : null, q ? 1 : 0, t,
-      istNaturmaterial(p.bezeichnung, p.einheit, p.gruppe) ? 1 : 0, p.gruppe === 'eigenmaterial' ? 1 : 0);
+      const natur = p.naturmaterial !== undefined ? Boolean(p.naturmaterial) : istNaturmaterial(p.bezeichnung, p.einheit, p.gruppe);
+      db.lauf(`INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert, naturmaterial, naturmaterial_pruefen, herkunft)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`, p.gruppe, p.bezeichnung.trim(), p.einheit, p.ep, (i + 1) * 10, q ? JSON.stringify(q) : null, q ? 1 : 0, t,
+      natur ? 1 : 0, p.gruppe === 'eigenmaterial' ? 1 : 0, p.herkunft || 'vorlage_excel');
     });
     db.setzeEinstellung('katalog_stand', v.stand);
+    db.setzeEinstellung('katalog_anpassungen', (v.anpassungen || []).map((a) => a.version));
   });
   return v.positionen.length;
+}
+
+/**
+ * Versionierte Anpassungen (API.md 10d) einmalig auf einen bestehenden Firmenkatalog anwenden.
+ * Bestehende Baustellen bleiben unverändert („Aus Vorlage übernehmen“ je Baustelle).
+ */
+function katalogAnpassungenAnwenden(db, jetzt = new Date()) {
+  const { ladeAnpassungen } = require('./katalog-excel');
+  const erledigt = new Set(db.einstellung('katalog_anpassungen', []));
+  const t = jetzt.toISOString();
+  const neuAngewendet = [];
+  for (const a of ladeAnpassungen()) {
+    if (erledigt.has(a.version)) continue;
+    db.transaktion(() => {
+      for (const u of a.umbenennungen || []) {
+        db.lauf('UPDATE katalog SET bezeichnung = ?, version = version + 1, geaendert = ? WHERE bezeichnung = ? AND einheit = ?', u.neu, t, u.alt.trim(), u.einheit);
+        const q = zuordnungFuer(u.neu, u.einheit);
+        if (q) db.lauf('UPDATE katalog SET quelle = ?, zuordnung_pruefen = 1 WHERE bezeichnung = ? AND einheit = ? AND quelle IS NULL', JSON.stringify(q), u.neu, u.einheit);
+      }
+      for (const p of a.preise || []) db.lauf('UPDATE katalog SET ep = ?, version = version + 1, geaendert = ? WHERE bezeichnung = ? AND einheit = ?', p.ep, t, p.bezeichnung, p.einheit);
+      for (const n of a.neu || []) {
+        if (db.eins('SELECT id FROM katalog WHERE gruppe = ? AND bezeichnung = ? AND einheit = ?', n.gruppe, n.bezeichnung, n.einheit)) continue;
+        const nach = n.nach ? db.eins('SELECT sortierung FROM katalog WHERE gruppe = ? AND bezeichnung = ?', n.gruppe, n.nach) : null;
+        const sort = nach ? nach.sortierung + 1 + db.eins('SELECT COUNT(*) AS c FROM katalog WHERE gruppe = ? AND sortierung > ? AND sortierung < ?', n.gruppe, nach.sortierung, nach.sortierung + 10).c
+          : (db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', n.gruppe).m || 0) + 10;
+        db.lauf(`INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, aktiv, version, geaendert, naturmaterial, naturmaterial_pruefen, herkunft)
+          VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, 'preisliste_2026')`, n.gruppe, n.bezeichnung, n.einheit, n.ep, sort, t, n.naturmaterial ? 1 : 0, n.gruppe === 'eigenmaterial' ? 1 : 0);
+      }
+      db.protokolliere({ zeit: t, benutzerId: null, art: 'katalog', objekt: 'katalog', neu: { version: a.version }, text: `Katalog-Anpassung ${a.version} angewendet: ${a.beschreibung}` });
+      db.setzeEinstellung('katalog_anpassungen', [...erledigt, ...neuAngewendet, a.version]);
+    });
+    neuAngewendet.push(a.version);
+  }
+  return neuAngewendet;
 }
 
 /** Katalog (aktive Positionen) in eine Baustelle kopieren; nur fehlende (nach katalog_id) */
@@ -77,8 +113,8 @@ function katalogKopieren(db, baustelleId, jetzt = new Date()) {
   let n = 0;
   for (const k of db.alle('SELECT * FROM katalog WHERE aktiv = 1 ORDER BY sortierung, id')) {
     if (vorhanden.has(k.id)) continue;
-    db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial, naturmaterial_pruefen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`, baustelleId, k.id, k.gruppe, k.bezeichnung, k.einheit, k.ep, k.sortierung, k.quelle, k.zuordnung_pruefen, t, t, k.naturmaterial, k.naturmaterial_pruefen);
+    db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial, naturmaterial_pruefen, herkunft)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)`, baustelleId, k.id, k.gruppe, k.bezeichnung, k.einheit, k.ep, k.sortierung, k.quelle, k.zuordnung_pruefen, t, t, k.naturmaterial, k.naturmaterial_pruefen, k.herkunft);
     n++;
   }
   return n;
@@ -137,7 +173,7 @@ function positionJson(p) {
   return {
     id: p.id, katalogId: p.katalog_id, gruppe: p.gruppe, bezeichnung: p.bezeichnung, einheit: p.einheit, ep: p.ep,
     sortierung: p.sortierung, quelle: parseJson(p.quelle, null), zuordnungPruefen: p.zuordnung_pruefen === 1,
-    naturmaterial: p.naturmaterial === 1, naturmaterialPruefen: p.naturmaterial_pruefen === 1,
+    naturmaterial: p.naturmaterial === 1, naturmaterialPruefen: p.naturmaterial_pruefen === 1, herkunft: p.herkunft,
     aktiv: p.aktiv === 1, version: p.version
   };
 }
@@ -158,4 +194,4 @@ function projektPositionen(db, bs, auftragGesamt) {
   return { baustelleId: bs.id, auftragGesamt: auftragGesamt == null ? null : auftragGesamt, ...r, hinweise: [...auto.hinweise, ...r.hinweise] };
 }
 
-module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogKopieren, autoMengen, projektPositionen, positionJson };
+module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogAnpassungenAnwenden, katalogKopieren, autoMengen, projektPositionen, positionJson };
