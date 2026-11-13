@@ -479,7 +479,7 @@ module.exports = function planerRouten(api, bt) {
       baustellenFilter: (bsId) => planer || eigeneBs(req.ctx, bsId),
       fuhreFilter: (f) => planer || [JSON.parse(f.von), JSON.parse(f.nach)].some((h) => h.baustelleId && eigeneBs(req.ctx, h.baustelleId))
     });
-    if (trocken) return res.json({ empfaenger: r.empfaenger.map((e) => ({ benutzerId: e.benutzerId, name: e.name, art: e.art, datum: e.datum })), anzahl: r.anzahl });
+    if (trocken) return res.json({ empfaenger: r.empfaenger.map((e) => ({ benutzerId: e.benutzerId, name: e.name, art: e.art, datum: e.datum, ...(e.baustelleId ? { baustelleId: e.baustelleId } : {}), titel: e.titel, text: e.text })), anzahl: r.anzahl });
     res.json({ benachrichtigt: r.anzahl, einsaetze: r.einsaetze, empfaenger: r.empfaenger });
   });
 

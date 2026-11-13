@@ -58,11 +58,19 @@ test('G-01/G-14: einen von mehreren Einsätzen bzw. eine Fuhre löschen → nur 
   assert.equal((await gf.get(`/plan/woche?von=${FR}`)).daten.unveroeffentlicht, 1);
   let dry = (await gf.post('/plan/veroeffentlichen', { von: FR, vorschau: true })).daten;
   assert.deepEqual(dry.empfaenger.map((e) => [e.benutzerId, e.art]), [[9, 'geaendert']]); // Fahrer: Fuhre weg, Einsatz bleibt
+  assert.match(dry.empfaenger[0].text, /^Fuhre .+, Grube Breitenau → .*Kogler.* entfällt · /, dry.empfaenger[0].text);
+  {
+    // Vorschau = Versand (Titel und Text), danach wieder veröffentlicht
+    const v0 = letzteId(s);
+    await gf.post('/plan/veroeffentlichen', { von: FR });
+    const m = planMeldungen(s, v0);
+    assert.deepEqual(m.map((x) => [x.benutzer_id, x.titel, x.text]), dry.empfaenger.map((e) => [e.benutzerId, e.titel, e.text]));
+  }
   // Einsatz Kogler löschen → Person 9 entfällt; Pitten-Personen bleiben unberührt
   assert.equal((await gf.del(`/plan/einsaetze/${k.daten.id}`)).status, 200);
   const w = (await gf.get(`/plan/woche?von=${FR}`)).daten;
   assert.equal(tagVon(w, FR).vorschau, false);
-  assert.equal(w.unveroeffentlicht, 2);
+  assert.equal(w.unveroeffentlicht, 1);
   dry = (await gf.post('/plan/veroeffentlichen', { von: FR, vorschau: true })).daten;
   assert.deepEqual(dry.empfaenger.map((e) => [e.benutzerId, e.art]), [[9, 'entfaellt']]);
   vor = letzteId(s);
@@ -147,4 +155,20 @@ test('G-05: Freitag und vor Feiertagen ist „morgen“ der nächste Arbeitstag'
   const v3 = letzteId(s);
   await gf.post('/plan/veroeffentlichen', { von: '2026-12-10' });
   assert.ok(planMeldungen(s, v3).some((x) => x.benutzer_id === 9 && /^Einsatz morgen: /.test(x.titel)), JSON.stringify(planMeldungen(s, v3).map((x) => x.titel)));
+});
+
+test('G-14: einzige Fuhre eines Fahrers gelöscht → „Fuhre entfällt am …“ (Vorschau = Versand)', async (t) => {
+  const s = await starte({ test: true, sitzung: LANG });
+  t.after(() => s.stop());
+  const gf = await s.login(U.gf);
+  const f = await gf.post('/plan/fuhren', { datum: FR, anlageId: 4, fahrerId: 9, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.kogler } });
+  assert.equal(f.status, 201);
+  await gf.post('/plan/veroeffentlichen', { von: FR });
+  assert.equal((await gf.del(`/plan/fuhren/${f.daten.id}`)).status, 200);
+  const dry = (await gf.post('/plan/veroeffentlichen', { von: FR, vorschau: true })).daten;
+  assert.deepEqual(dry.empfaenger.map((e) => [e.benutzerId, e.art, e.titel]), [[9, 'entfaellt', 'Fuhre entfällt am Fr 13.11.']]);
+  assert.match(dry.empfaenger[0].text, /^Fuhre entfällt am Fr 13\.11\. \(.+, Grube Breitenau → .+\)$/);
+  const vor = letzteId(s);
+  await gf.post('/plan/veroeffentlichen', { von: FR });
+  assert.deepEqual(planMeldungen(s, vor).map((x) => [x.benutzer_id, x.titel, x.text]), dry.empfaenger.map((e) => [e.benutzerId, e.titel, e.text]));
 });

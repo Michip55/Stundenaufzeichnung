@@ -253,6 +253,12 @@ function personInhalt(benutzerId, datum, staende, fuhrStaende) {
   return { datum, einsatz, fuhren: fuhren.map((f) => require('./fuhren').fuhreFuerFahrer(f)) };
 }
 
+/** Kurzbeschreibung einer (veröffentlichten) Fuhre: „Frostschutz 0/63, Grube Breitenau → WHA Pitten“ (G-14) */
+function fuhreKurz(f) {
+  const mat = (f.material && f.material.name) || f.materialText || 'Fuhre';
+  return `${mat}, ${(f.von && f.von.text) || '?'} → ${(f.nach && f.nach.text) || '?'}`;
+}
+
 /** Relative Beschriftung (G-05): „heute“, „morgen“ (nur Kalender-Morgen), sonst „am Mo 16.11.“ */
 function tagLabel(datum, heute) {
   return datum === heute ? 'heute' : datum === plusTage(heute, 1) ? 'morgen' : `am ${deKurz(datum)}`;
@@ -318,6 +324,8 @@ function veroeffentlichen(bt, o) {
     for (const f of fuhrenRoh) {
       if (o.fuhreFilter(f)) { const st = F.fuhreJson(db, f, K); if (f.status !== 'storniert') fuhrStaende.push(st); neueFuhren.push({ f, st }); } else if (f.veroeffentlicht_stand) fuhrStaende.push(JSON.parse(f.veroeffentlicht_stand));
     }
+    // G-14: veröffentlichte Fuhren, die inzwischen storniert (gelöscht) sind
+    const stornoFuhren = neueFuhren.filter(({ f }) => f.status === 'storniert' && f.veroeffentlicht_stand).map(({ f }) => JSON.parse(f.veroeffentlicht_stand));
     // betroffene Personen
     const pids = new Set();
     for (const s of staende) for (const p of s.personen) pids.add(p.benutzerId);
@@ -332,8 +340,26 @@ function veroeffentlichen(bt, o) {
       if (!alt && !neu) continue;
       const art = !alt || !alt.inhalt ? 'neu' : neu ? 'geaendert' : 'entfaellt';
       if (!neu && art === 'neu') continue;
-      meldungen.push({ pid, neu, h, art, alt });
-      empfaenger.push({ benutzerId: pid, name: (K.personen.get(pid) || {}).name, art, datum: d });
+      // G-14: stornierte, schon veröffentlichte Fuhren dieser Person ausdrücklich nennen
+      const weg = stornoFuhren.filter((f) => f.fahrer && f.fahrer.benutzerId === pid).map(fuhreKurz);
+      const altInhalt = alt && alt.inhalt ? JSON.parse(alt.inhalt) : null;
+      let titel, text;
+      if (art === 'entfaellt') {
+        if (weg.length && !(altInhalt && altInhalt.einsatz)) {
+          titel = `Fuhre entfällt am ${deKurz(d)}`;
+          text = weg.map((x) => `Fuhre entfällt am ${deKurz(d)} (${x})`).join(' · ');
+        } else {
+          titel = `Einsatz entfällt am ${deKurz(d)}`;
+          text = `Ihr Einsatz am ${deKurz(d)} entfällt – bitte die neue Einteilung abwarten bzw. in BauTag nachsehen.${weg.length ? ` ${weg.map((x) => `Fuhre entfällt (${x}).`).join(' ')}` : ''}`;
+        }
+      } else {
+        const k = kurzText(neu, d, heute);
+        const ziel = neu.einsatz ? neu.einsatz.baustelle.name : `${neu.fuhren.length} Fuhre${neu.fuhren.length === 1 ? '' : 'n'}`;
+        titel = `${art === 'geaendert' ? 'Geändert: ' : ''}Einsatz ${tagLabel(d, heute)}: ${ziel}`;
+        text = `${weg.map((x) => `Fuhre ${x} entfällt`).join(' · ')}${weg.length ? ' · ' : ''}${k.text}`;
+      }
+      meldungen.push({ pid, neu, h, art, alt, titel, text });
+      empfaenger.push({ benutzerId: pid, name: (K.personen.get(pid) || {}).name, art, datum: d, titel, text });
     }
     // Poliere: je Einsatz nur bei für die Partie relevanten Änderungen (G-12: reine Personen-Notizen nicht –
     // die betroffene Person bekommt ihre eigene Meldung); erscheinen auch in der Vorschau (art "partie")
@@ -344,9 +370,11 @@ function veroeffentlichen(bt, o) {
       if (alt && partieHash(alt) === h) continue;
       const bs = K.baustellen.get(e.baustelle_id) || {};
       const poliere = new Set([...(bs.polier_id ? [bs.polier_id] : []), ...e.personen.filter((p) => p.kolonne_polier_id).map((p) => p.kolonne_polier_id)]);
+      const titel = `Ihre Partie ${tagLabel(d, heute)}: ${st.baustelle.kurz || st.baustelle.name}`;
+      const text = `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`;
       for (const pol of poliere) {
-        polierMeldungen.push({ pol, e, st, h });
-        empfaenger.push({ benutzerId: pol, name: (K.personen.get(pol) || {}).name, art: 'partie', datum: d, baustelleId: e.baustelle_id });
+        polierMeldungen.push({ pol, e, st, h, titel, text });
+        empfaenger.push({ benutzerId: pol, name: (K.personen.get(pol) || {}).name, art: 'partie', datum: d, baustelleId: e.baustelle_id, titel, text });
       }
     }
     if (o.trocken) continue;
@@ -358,17 +386,12 @@ function veroeffentlichen(bt, o) {
       for (const m of meldungen) {
         db.lauf(`INSERT INTO plan_mitteilung (benutzer_id, datum, inhalt, hash, zeit, gelesen, bestaetigt) VALUES (?, ?, ?, ?, ?, NULL, NULL)
           ON CONFLICT(benutzer_id, datum) DO UPDATE SET inhalt = excluded.inhalt, hash = excluded.hash, zeit = excluded.zeit, gelesen = NULL, bestaetigt = NULL`, m.pid, d, m.neu ? JSON.stringify(m.neu) : null, m.h, zeit);
-        if (m.art === 'entfaellt') {
-          benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: `Einsatz entfällt am ${deKurz(d)}`, text: `Ihr Einsatz am ${deKurz(d)} entfällt – bitte die neue Einteilung abwarten bzw. in BauTag nachsehen.`, zeit, schluessel: `plan:${d}:weg:${zeit}` });
-        } else {
-          const k = kurzText(m.neu, d, heute);
-          const ziel = m.neu.einsatz ? m.neu.einsatz.baustelle.name : `${m.neu.fuhren.length} Fuhren`;
-          benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: `${m.art === 'geaendert' ? 'Geändert: ' : ''}Einsatz ${tagLabel(d, heute)}: ${ziel}`, text: k.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}` });
-        }
+        // Titel/Text wie in der Vorschau (G-12/G-14: Vorschau = Versand)
+        if (m.art === 'entfaellt') benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, schluessel: `plan:${d}:weg:${zeit}` });
+        else benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}` });
       }
-      for (const { pol, e, st, h } of polierMeldungen) {
-        const tag = tagLabel(d, heute);
-        benachrichtige(db, { benutzerId: pol, typ: 'plan', titel: `Ihre Partie ${tag}: ${st.baustelle.kurz || st.baustelle.name}`, text: `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`, zeit, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}` });
+      for (const { pol, e, h, titel, text } of polierMeldungen) {
+        benachrichtige(db, { benutzerId: pol, typ: 'plan', titel, text, zeit, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}` });
       }
       db.protokolliere({ zeit, benutzerId: o.ctx.benutzer.id, art: 'plan', objekt: `plan:${d}`, neu: { einsaetze: neueStaende.length, fuhren: neueFuhren.length, meldungen: meldungen.length }, text: `Einteilung ${de(d)} veröffentlicht (${meldungen.length} Personen benachrichtigt)` });
     });
