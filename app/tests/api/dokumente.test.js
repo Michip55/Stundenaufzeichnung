@@ -69,12 +69,12 @@ test('Projektdokumente', async (t) => {
     assert.equal((await c.polier.post(url, { kategorie: 'plaene', titel: 'X', dateiBase64: b64(pdf()) })).status, 403);
     // Polier fremder Baustelle
     assert.equal((await c.polier.get(`/baustellen/${BS.reisinger}/dokumente`)).status, 403);
-    // Bauleiter eigene Baustelle: alles sichtbar (preise_sehen), Angebot nur lesen
+    // Bauleiter wie Büro (13.11.2026): alle Baustellen, auch finanzielle Kategorien schreiben
     const bl = (await c.bauleiter.get(url)).daten;
     assert.ok(bl.some((d) => d.kategorie === 'angebot'));
-    assert.equal((await c.bauleiter.post(url, { kategorie: 'angebot', titel: 'X', dateiBase64: b64(pdf()) })).status, 403);
+    assert.equal((await c.bauleiter.post(url, { kategorie: 'angebot', titel: 'X', dateiBase64: b64(pdf()) })).status, 201);
     assert.equal((await c.bauleiter.post(url, { kategorie: 'schriftverkehr', titel: 'Brief', dateiBase64: b64(pdf()) })).status, 201);
-    assert.equal((await c.bauleiter.get(`/baustellen/${BS.reisinger}/dokumente`)).status, 403);
+    assert.equal((await c.bauleiter.get(`/baustellen/${BS.reisinger}/dokumente`)).status, 200);
     // ohne preise_sehen keine finanziellen Kategorien
     s.db.lauf("UPDATE rolle_recht SET wert = 0 WHERE rolle = 'bauleiter' AND recht = 'preise_sehen'");
     try { assert.ok(!(await c.bauleiter.get(url)).daten.some((d) => d.kategorie === 'angebot')); } finally { s.db.lauf("UPDATE rolle_recht SET wert = 1 WHERE rolle = 'bauleiter' AND recht = 'preise_sehen'"); }
@@ -104,8 +104,8 @@ test('Projektdokumente', async (t) => {
     assert.equal((await c.buero.del(`${url}/${plan.id}`, { grund: 'falscher Plan' })).status, 200);
     assert.ok(!(await c.polier.get(url)).daten.some((d) => d.id === plan.id));
     assert.ok((await c.buero.get(`${url}?geloescht=1`)).daten.some((d) => d.id === plan.id && d.geloescht));
-    assert.equal((await c.bauleiter.post(`${url}/${plan.id}/wiederherstellen`, {})).status, 403);
-    assert.equal((await c.buero.post(`${url}/${plan.id}/wiederherstellen`, {})).status, 200);
+    assert.equal((await c.polier.post(`${url}/${plan.id}/wiederherstellen`, {})).status, 403);
+    assert.equal((await c.bauleiter.post(`${url}/${plan.id}/wiederherstellen`, {})).status, 200); // wie Büro
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'dokument'").n >= 5);
   });
 });

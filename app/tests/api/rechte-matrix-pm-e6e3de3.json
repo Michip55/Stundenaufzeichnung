@@ -1,0 +1,2359 @@
+{
+ "_info": [
+  "Schnappschuss der Spalten Mitarbeiter und Polier aus der Rechte-Matrix von Commit e6e3de3 (Prüfbericht 7).",
+  "Ein Test vergleicht die aktuelle Matrix damit: diese Erwartungen dürfen nur strenger, nie lockerer werden."
+ ],
+ "routen": {
+  "GET /api/test/ausgang": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {}
+  },
+  "POST /api/test/zuruecksetzen": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "POST /api/test/wetter": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {
+     "verfuegbar": false
+    }
+   }
+  },
+  "POST /api/test/email": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {
+     "fehler": "x"
+    }
+   }
+  },
+  "POST /api/test/ocr": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {
+     "text": "x"
+    }
+   }
+  },
+  "POST /api/test/ki": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "POST /api/test/stuendlich": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "POST /api/test/uhr": {
+   "mitarbeiter": "T",
+   "polier": "T",
+   "eintrag": {
+    "body": {
+     "iso": "2026-11-12T10:00:00Z"
+    }
+   }
+  },
+  "GET /api/gesundheit": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {}
+  },
+  "GET /api/auth/benutzerliste": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {}
+  },
+  "POST /api/auth/login": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {}
+  },
+  "GET /api/auth/2fa": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/auth/2fa/einrichten": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "pin": "1234"
+    }
+   }
+  },
+  "POST /api/auth/2fa/bestaetigen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "code": "000000"
+    }
+   }
+  },
+  "POST /api/auth/2fa/codes": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "code": "000000"
+    }
+   }
+  },
+  "POST /api/auth/2fa/aus": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "pin": "1234",
+     "code": "000000"
+    }
+   }
+  },
+  "POST /api/auth/login/2fa": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {}
+  },
+  "GET /api/einstellungen/sicherheit": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/einstellungen/sicherheit": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "zweiFaktorPflicht": {
+      "bauleiter": false
+     }
+    }
+   }
+  },
+  "DELETE /api/benutzer/:id/2fa": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/benutzer/{dummy}/2fa"
+   }
+  },
+  "POST /api/auth/logout": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "GET /api/auth/ich": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "PUT /api/auth/telefon": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "telefon": "+43 660 1234567"
+    }
+   }
+  },
+  "POST /api/auth/pin": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "alt": "1234",
+     "neu": "583920"
+    }
+   }
+  },
+  "GET /api/fern/:token": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {
+    "pfad": "/api/fern/{token}"
+   }
+  },
+  "GET /api/fern/:token/pdf": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {
+    "pfad": "/api/fern/{token}/pdf"
+   }
+  },
+  "POST /api/fern/:token": {
+   "mitarbeiter": "O",
+   "polier": "O",
+   "eintrag": {
+    "pfad": "/api/fern/{token}"
+   }
+  },
+  "GET /api/baustellen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/baustellen/:id": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}"
+   }
+  },
+  "POST /api/baustellen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "kst": "26-099",
+     "name": "Rechte-Test"
+    }
+   }
+  },
+  "PUT /api/baustellen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}",
+    "body": {
+     "name": "Umbenannt",
+     "version": 1
+    }
+   }
+  },
+  "POST /api/baustellen/:id/phase": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/phase",
+    "body": {
+     "phase": "pausiert",
+     "version": "{bsVersion}"
+    }
+   }
+  },
+  "POST /api/baustellen/:id/fertigmeldung": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/fertigmeldung",
+    "body": {
+     "notiz": "fertig"
+    }
+   }
+  },
+  "POST /api/baustellen/:id/archiv-aufheben": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/archiv-aufheben",
+    "body": {
+     "grund": "Test"
+    }
+   }
+  },
+  "GET /api/baustellen/:id/phasen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/phasen"
+   }
+  },
+  "PUT /api/baustellen/:id/abschluss": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/abschluss",
+    "body": {
+     "version": 1,
+     "gewaehrleistungBis": "2030-01-01"
+    }
+   }
+  },
+  "GET /api/baustellen-kennzahlen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/baustellen/:id/auftrag": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/auftrag",
+    "body": {
+     "auftragssumme": 1000,
+     "version": 1
+    }
+   }
+  },
+  "POST /api/baustellen/:id/nachtraege": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/nachtraege",
+    "body": {
+     "text": "Probe",
+     "betrag": 10
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/nachtraege/:nid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/nachtraege/{nachtrag}"
+   }
+  },
+  "GET /api/baustellen/:id/leistungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/leistungen"
+   }
+  },
+  "POST /api/baustellen/:id/leistungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/leistungen",
+    "body": {
+     "leistungId": 3,
+     "menge": 1,
+     "datum": "2026-11-11"
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/leistungen/:lid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/leistungen/{leistung}"
+   }
+  },
+  "GET /api/baustellen/:id/fremdleistungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/fremdleistungen"
+   }
+  },
+  "POST /api/baustellen/:id/fremdleistungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/fremdleistungen",
+    "body": {
+     "text": "Probe",
+     "betrag": 5,
+     "datum": "2026-11-11"
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/fremdleistungen/:fid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/fremdleistungen/{fremd}"
+   }
+  },
+  "GET /api/mitarbeiter": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/geraete": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/materialien": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/leistungen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/preise": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/preise/:art/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/preise/leistungen/3",
+    "body": {
+     "feld": "ep",
+     "wert": 15.5
+    }
+   }
+  },
+  "GET /api/preise/:art/:id/verlauf": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/preise/leistungen/2/verlauf"
+   }
+  },
+  "DELETE /api/preise/:art/:id/verlauf/:vid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/preise/leistungen/2/verlauf/{preisStand}"
+   }
+  },
+  "GET /api/zeit/status": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/zeit/stempeln": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "typ": "kommen",
+     "baustelleId": 1
+    }
+   }
+  },
+  "GET /api/zeit/anwesend": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/zeit/kolonne": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "query": "?baustelleId={bs}"
+   }
+  },
+  "POST /api/zeit/kolonne": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "body": {
+     "baustelleId": "{bs}",
+     "benutzerIds": [
+      5
+     ],
+     "typ": "pause_start"
+    }
+   }
+  },
+  "GET /api/zeit/woche": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/zeit/buchungen": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "query": "?benutzerId={ichOderAnderer}"
+   }
+  },
+  "POST /api/zeit/buchungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "benutzerId": 3,
+     "typ": "kommen",
+     "zeit": "2026-11-02T06:00:00+01:00",
+     "baustelleId": 1,
+     "grund": "Probe"
+    }
+   }
+  },
+  "PUT /api/zeit/buchungen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/zeit/buchungen/{buchungAnderer}",
+    "body": {
+     "grund": "Probe",
+     "baustelleId": 1
+    }
+   }
+  },
+  "DELETE /api/zeit/buchungen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/zeit/buchungen/{buchungAnderer}",
+    "body": {
+     "grund": "Probe"
+    }
+   }
+  },
+  "GET /api/zeit/schichten": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "query": "?benutzerId={ichOderAnderer}"
+   }
+  },
+  "POST /api/zeit/schichten": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "benutzerId": 3,
+     "baustelleId": 1,
+     "datum": "2026-11-07",
+     "von": "07:00",
+     "bis": "12:00",
+     "pauseMin": 0,
+     "grund": "Probe"
+    }
+   }
+  },
+  "DELETE /api/zeit/schichten/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/zeit/schichten/{schichtAnderer}",
+    "body": {
+     "grund": "Probe"
+    }
+   }
+  },
+  "GET /api/abwesenheiten": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/abwesenheiten": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "body": {
+     "benutzerId": "{ichOderAnderer}",
+     "datum": "2026-12-21",
+     "code": "U"
+    }
+   }
+  },
+  "PUT /api/abwesenheiten/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/abwesenheiten/{abwAnderer}",
+    "body": {
+     "status": "genehmigt"
+    }
+   }
+  },
+  "DELETE /api/abwesenheiten/:id": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/abwesenheiten/{abwEigen}"
+   }
+  },
+  "POST /api/abwesenheiten/zeitraum": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "body": {
+     "benutzerId": "{ichOderAnderer}",
+     "von": "2026-12-22",
+     "bis": "2026-12-23",
+     "code": "U"
+    }
+   }
+  },
+  "GET /api/abwesenheiten/antraege": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "PUT /api/abwesenheiten/antraege/:antragId": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/abwesenheiten/antraege/{antragAnderer}",
+    "body": {
+     "status": "genehmigt"
+    }
+   }
+  },
+  "DELETE /api/abwesenheiten/antraege/:antragId": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/abwesenheiten/antraege/{antragEigen}"
+   }
+  },
+  "GET /api/berichte": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/berichte": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "body": {
+     "baustelleId": "{bs}",
+     "datum": "2026-11-11"
+    }
+   }
+  },
+  "GET /api/berichte/:id": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}"
+   }
+  },
+  "PUT /api/berichte/:id": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}",
+    "body": {
+     "version": 999,
+     "arbeitsleistung": "Probe"
+    }
+   }
+  },
+  "POST /api/berichte/:id/personal-aktualisieren": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/personal-aktualisieren",
+    "body": {
+     "version": 999
+    }
+   }
+  },
+  "POST /api/berichte/:id/unterschrift": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/unterschrift",
+    "body": {
+     "rolle": "an",
+     "name": "Probe",
+     "bildPng": "data:image/png;base64,AAAA",
+     "version": 999
+    }
+   }
+  },
+  "DELETE /api/berichte/:id/unterschrift/:rolle": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/unterschrift/an"
+   }
+  },
+  "POST /api/berichte/:id/freigeben": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/freigeben",
+    "body": {}
+   }
+  },
+  "GET /api/berichte/:id/pdf": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{berichtAlt}/pdf"
+   }
+  },
+  "GET /api/kalkulation": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/kalkulation/:baustelleId": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/kalkulation/{bs}"
+   }
+  },
+  "GET /api/positionen/katalog": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "POST /api/positionen/katalog": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "gruppe": "arbeit",
+     "bezeichnung": "Probe",
+     "einheit": "Std.",
+     "ep": 1
+    }
+   }
+  },
+  "PUT /api/positionen/katalog/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/positionen/katalog/{katalogPos}",
+    "body": {
+     "bezeichnung": "Probe"
+    }
+   }
+  },
+  "DELETE /api/positionen/katalog/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/positionen/katalog/{katalogPos}"
+   }
+  },
+  "POST /api/positionen/katalog/import": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "dateiBase64": "UEsDBA=="
+    }
+   }
+  },
+  "GET /api/baustellen/:id/positionen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen"
+   }
+  },
+  "POST /api/baustellen/:id/positionen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen",
+    "body": {
+     "gruppe": "arbeit",
+     "bezeichnung": "Probe",
+     "einheit": "Std.",
+     "ep": 1
+    }
+   }
+  },
+  "PUT /api/baustellen/:id/positionen/:pid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}",
+    "body": {
+     "version": 999,
+     "bezeichnung": "Probe"
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/positionen/:pid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}"
+   }
+  },
+  "POST /api/baustellen/:id/positionen/aus-vorlage": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/aus-vorlage",
+    "body": {
+     "modus": "fehlende",
+     "vorschau": true
+    }
+   }
+  },
+  "POST /api/baustellen/:id/positionen/:pid/mengen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}/mengen",
+    "body": {
+     "datum": "2026-11-11",
+     "menge": 1
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/positionen/:pid/mengen/:mid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}/mengen/{posMenge}"
+   }
+  },
+  "GET /api/positionen/katalog/:id/verlauf": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/positionen/katalog/{katalogPos}/verlauf"
+   }
+  },
+  "DELETE /api/positionen/katalog/:id/verlauf/:vid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/positionen/katalog/{katalogPos}/verlauf/{katalogStand}"
+   }
+  },
+  "GET /api/baustellen/:id/positionen/:pid/verlauf": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}/verlauf"
+   }
+  },
+  "DELETE /api/baustellen/:id/positionen/:pid/verlauf/:vid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/{pos}/verlauf/{posStand}"
+   }
+  },
+  "GET /api/baustellen/:id/positionen/export.xlsx": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/positionen/export.xlsx"
+   }
+  },
+  "GET /api/benachrichtigungen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/benachrichtigungen/alle-gelesen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "POST /api/benachrichtigungen/:id/gelesen": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/benachrichtigungen/{benachrichtigung}/gelesen",
+    "body": {}
+   }
+  },
+  "GET /api/monat": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/monat/export.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/monat/buak.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/rechte": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/rechte/matrix": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "rolle": "buero",
+     "recht": "kolonne",
+     "wert": false
+    }
+   }
+  },
+  "PUT /api/rechte/ausnahme": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "benutzerId": "{dummy}",
+     "recht": "kolonne",
+     "wert": true
+    }
+   }
+  },
+  "GET /api/benutzer": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "POST /api/benutzer": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "name": "Neu Probe",
+     "rolle": "mitarbeiter",
+     "pin": "482915"
+    }
+   }
+  },
+  "PUT /api/benutzer/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/benutzer/{dummy}",
+    "body": {
+     "name": "Dummy Umbenannt"
+    }
+   }
+  },
+  "GET /api/benutzer/:id/lohngruppen-verlauf": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/benutzer/{person}/lohngruppen-verlauf"
+   }
+  },
+  "DELETE /api/benutzer/:id/lohngruppen-verlauf/:vid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/benutzer/3/lohngruppen-verlauf/{lohngruppeVerlauf}"
+   }
+  },
+  "POST /api/benutzer/:id/entsperren": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/benutzer/{dummy}/entsperren",
+    "body": {}
+   }
+  },
+  "GET /api/integrationen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/integrationen/:schluessel": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/integrationen/sms",
+    "body": {}
+   }
+  },
+  "POST /api/integrationen/:schluessel/*rest": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/integrationen/sms/senden",
+    "body": {}
+   }
+  },
+  "GET /api/fuhrpark/anlagen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/anlagen/:id": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}"
+   }
+  },
+  "POST /api/fuhrpark/anlagen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "nummer": "T-99",
+     "bezeichnung": "Probe",
+     "klasse": "geraet",
+     "vorlagen": []
+    }
+   }
+  },
+  "GET /api/fuhrpark/anlagen/:id/vorlagen-vorschlag": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/vorlagen-vorschlag"
+   }
+  },
+  "PUT /api/fuhrpark/anlagen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}",
+    "body": {
+     "version": 999,
+     "notiz": "Probe"
+    }
+   }
+  },
+  "POST /api/fuhrpark/anlagen/:id/sperre": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/sperre",
+    "body": {
+     "gesperrt": true,
+     "grund": "Probe Sperre"
+    }
+   }
+  },
+  "POST /api/fuhrpark/anlagen/:id/ausscheiden": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/ausscheiden",
+    "body": {
+     "datum": "2026-11-12",
+     "grund": "Probe"
+    }
+   }
+  },
+  "POST /api/fuhrpark/anlagen/:id/zaehler": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/zaehler",
+    "body": {
+     "art": "km",
+     "startstand": 0
+    }
+   }
+  },
+  "PUT /api/fuhrpark/zaehler/:zid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/zaehler/{zaehler}",
+    "body": {
+     "aktiv": true
+    }
+   }
+  },
+  "GET /api/fuhrpark/zaehler/:zid/verlauf": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/zaehler/{zaehler}/verlauf"
+   }
+  },
+  "POST /api/fuhrpark/zaehlerstaende": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "anlageId": 4,
+     "art": "km",
+     "anzeige": 999999
+    }
+   }
+  },
+  "PUT /api/fuhrpark/zaehlerstaende/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/zaehlerstaende/{zaehlerstand}",
+    "body": {
+     "status": "ungueltig",
+     "grund": "Probe"
+    }
+   }
+  },
+  "POST /api/fuhrpark/zaehler/:zid/tausch": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/zaehler/{zaehler}/tausch",
+    "body": {
+     "datum": "2026-11-12",
+     "altEnde": 1,
+     "neuStart": 0,
+     "grund": "Probe"
+    }
+   }
+  },
+  "GET /api/fuhrpark/zaehlerabfrage": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/vorlagen": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/fuhrpark/vorlagen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "schluessel": "probe_x",
+     "titel": "Probe",
+     "art": "intern",
+     "klassen": [
+      "alle"
+     ],
+     "regel": {
+      "intervallMonate": 12
+     }
+    }
+   }
+  },
+  "PUT /api/fuhrpark/vorlagen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/vorlagen/{vorlage}",
+    "body": {
+     "version": 999,
+     "titel": "Probe"
+    }
+   }
+  },
+  "POST /api/fuhrpark/vorlagen/:id/anwenden": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/vorlagen/{vorlage}/anwenden",
+    "body": {
+     "vorschau": true
+    }
+   }
+  },
+  "GET /api/fuhrpark/anlagen/:id/plan": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/plan"
+   }
+  },
+  "POST /api/fuhrpark/anlagen/:id/plan": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/plan",
+    "body": {
+     "vorlageSchluessel": "uvv_jaehrlich"
+    }
+   }
+  },
+  "PUT /api/fuhrpark/anlagen/:id/plan/:pid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/plan/{planposition}",
+    "body": {
+     "version": 999,
+     "titel": "Probe"
+    }
+   }
+  },
+  "DELETE /api/fuhrpark/anlagen/:id/plan/:pid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/{anlage}/plan/{planposition}",
+    "body": {
+     "grund": "Probe"
+    }
+   }
+  },
+  "GET /api/fuhrpark/eintraege": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/eintraege/:id": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/eintraege/{eintrag}"
+   }
+  },
+  "POST /api/fuhrpark/eintraege": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "anlageId": 4,
+     "art": "service",
+     "datum": "2026-11-12",
+     "werkstatt": "eigen",
+     "titel": "Probe"
+    }
+   }
+  },
+  "PUT /api/fuhrpark/eintraege/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/eintraege/{eintrag}",
+    "body": {
+     "version": 999,
+     "titel": "Probe"
+    }
+   }
+  },
+  "POST /api/fuhrpark/eintraege/:id/storno": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/eintraege/{eintrag}/storno",
+    "body": {
+     "grund": "Probe Storno"
+    }
+   }
+  },
+  "GET /api/fuhrpark/maengel": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/fuhrpark/maengel": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "anlageId": 4,
+     "text": "Probe Mangel",
+     "dringlichkeit": "hinweis"
+    }
+   }
+  },
+  "PUT /api/fuhrpark/maengel/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/maengel/{mangel}",
+    "body": {
+     "status": "in_arbeit"
+    }
+   }
+  },
+  "GET /api/fuhrpark/schaeden": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/schaeden/:id": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/schaeden/{schaden}"
+   }
+  },
+  "POST /api/fuhrpark/schaeden": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "anlageId": 4,
+     "art": "defekt",
+     "ursache": "Probe Schaden lang genug",
+     "einsatzfaehig": "ja"
+    }
+   }
+  },
+  "PUT /api/fuhrpark/schaeden/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/schaeden/{schaden}",
+    "body": {
+     "version": 999,
+     "status": "in_bearbeitung"
+    }
+   }
+  },
+  "POST /api/fuhrpark/schaeden/:id/fotos": {
+   "mitarbeiter": "E",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/schaeden/{schaden}/fotos",
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "x.jpg"
+    }
+   }
+  },
+  "GET /api/fuhrpark/schaeden/:id/fotos/:fid": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/schaeden/{schaden}/fotos/{schadenFoto}"
+   }
+  },
+  "DELETE /api/fuhrpark/schaeden/:id/fotos/:fid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/schaeden/{schaden}/fotos/{schadenFoto}"
+   }
+  },
+  "GET /api/fuhrpark/fristen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/uebersicht": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/fuhrpark/export.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "query": "?art=eintraege"
+   }
+  },
+  "GET /api/fuhrpark/anlagen/:id/servicebuch.pdf": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/fuhrpark/anlagen/30/servicebuch.pdf"
+   }
+  },
+  "GET /api/system/sicherung": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/push/schluessel": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/push/abo": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "endpoint": "https://push.example.invalid/neu",
+     "keys": {
+      "p256dh": "BPx1-abc_DEF",
+      "auth": "aBc-12_x"
+     }
+    }
+   }
+  },
+  "DELETE /api/push/abo": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "endpoint": "https://push.example.invalid/abo/gf"
+    }
+   }
+  },
+  "GET /api/push/abos": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "DELETE /api/push/abos/:aid": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/push/abos/{pushAbo}"
+   }
+  },
+  "GET /api/push/einstellungen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "PUT /api/push/einstellungen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "typen": {
+      "plan": true
+     }
+    }
+   }
+  },
+  "POST /api/push/test": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {}
+   }
+  },
+  "GET /api/baustellen/:id/wetter": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/wetter"
+   }
+  },
+  "POST /api/berichte/:id/wetter": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/wetter",
+    "body": {}
+   }
+  },
+  "GET /api/einstellungen/email": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/einstellungen/email": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "host": "smtp.example.test",
+     "port": 25,
+     "sicher": false,
+     "absender": "a@example.test",
+     "aktiv": false
+    }
+   }
+  },
+  "POST /api/einstellungen/email/test": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "an": "x@example.test"
+    }
+   }
+  },
+  "POST /api/berichte/:id/email": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/berichte/{berichtAlt}/email",
+    "body": {}
+   }
+  },
+  "POST /api/berichte/:id/fotos": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/fotos",
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "x.jpg"
+    }
+   }
+  },
+  "PUT /api/berichte/:id/fotos/:fid": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/fotos/{berichtFoto}",
+    "body": {
+     "beschreibung": "Probe"
+    }
+   }
+  },
+  "DELETE /api/berichte/:id/fotos/:fid": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/fotos/{berichtFoto}"
+   }
+  },
+  "GET /api/berichte/:id/fotos/:fid": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/fotos/{berichtFoto}"
+   }
+  },
+  "GET /api/stammdaten/:art": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete"
+   }
+  },
+  "POST /api/stammdaten/:art": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete",
+    "body": {
+     "code": "probe1",
+     "name": "Probe"
+    }
+   }
+  },
+  "PUT /api/stammdaten/:art/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete/2",
+    "body": {
+     "version": 999,
+     "name": "Probe"
+    }
+   }
+  },
+  "DELETE /api/stammdaten/:art/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete/2"
+   }
+  },
+  "GET /api/stammdaten/:art/export.xlsx": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete/export.xlsx"
+   }
+  },
+  "POST /api/stammdaten/:art/import": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/stammdaten/geraete/import",
+    "body": {
+     "dateiBase64": "UEsDBA==",
+     "vorschau": true
+    }
+   }
+  },
+  "GET /api/einstellungen/plan": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/einstellungen/plan": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "planErinnerung": "17:00"
+    }
+   }
+  },
+  "GET /api/plan/woche": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "POST /api/plan/einsaetze": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-17",
+     "baustelleId": "{bs}"
+    }
+   }
+  },
+  "PUT /api/plan/einsaetze/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}",
+    "body": {
+     "version": 999,
+     "arbeit": "Probe"
+    }
+   }
+  },
+  "DELETE /api/plan/einsaetze/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}"
+   }
+  },
+  "POST /api/plan/einsaetze/:id/personen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/personen",
+    "body": {
+     "benutzerIds": [
+      6
+     ]
+    }
+   }
+  },
+  "PUT /api/plan/einsaetze/:id/personen/:bid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/personen/{einsatzPerson}",
+    "body": {
+     "notiz": "Probe"
+    }
+   }
+  },
+  "DELETE /api/plan/einsaetze/:id/personen/:bid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/personen/{einsatzPerson}"
+   }
+  },
+  "POST /api/plan/einsaetze/:id/anlagen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/anlagen",
+    "body": {
+     "anlageIds": [
+      7
+     ]
+    }
+   }
+  },
+  "PUT /api/plan/einsaetze/:id/anlagen/:aid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/anlagen/{einsatzAnlage}",
+    "body": {
+     "notiz": "Probe"
+    }
+   }
+  },
+  "DELETE /api/plan/einsaetze/:id/anlagen/:aid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/einsaetze/{einsatz}/anlagen/{einsatzAnlage}"
+   }
+  },
+  "POST /api/plan/tag/uebernehmen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-16"
+    }
+   }
+  },
+  "POST /api/plan/vorwoche-uebernehmen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "von": "2026-11-16"
+    }
+   }
+  },
+  "POST /api/plan/veroeffentlichen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "von": "2026-11-13",
+     "vorschau": true
+    }
+   }
+  },
+  "GET /api/plan/ich": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/plan/ich/bestaetigen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-13"
+    }
+   }
+  },
+  "GET /api/plan/partie": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "query": "?datum=2026-11-13"
+   }
+  },
+  "POST /api/plan/anfragen": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-13",
+     "text": "Probe Anfrage"
+    }
+   }
+  },
+  "GET /api/plan/anfragen": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "PUT /api/plan/anfragen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/anfragen/{anfrage}",
+    "body": {
+     "status": "erledigt",
+     "antwort": "ok"
+    }
+   }
+  },
+  "GET /api/plan/zeitplan": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/baustellen/:id/abschnitte": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/abschnitte",
+    "body": {
+     "art": "kanal",
+     "von": "2026-11-23",
+     "bis": "2026-11-27"
+    }
+   }
+  },
+  "PUT /api/baustellen/:id/abschnitte/:aid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/abschnitte/{abschnitt}",
+    "body": {
+     "version": 999,
+     "name": "Probe"
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/abschnitte/:aid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/abschnitte/{abschnitt}"
+   }
+  },
+  "GET /api/plan/fuhren": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "query": "?von=2026-11-13"
+   }
+  },
+  "POST /api/plan/fuhren": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-16",
+     "anlageId": 4,
+     "materialId": 4,
+     "menge": 5,
+     "einheit": "t",
+     "nach": {
+      "art": "baustelle",
+      "baustelleId": "{bs}"
+     }
+    }
+   }
+  },
+  "PUT /api/plan/fuhren/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/fuhren/{fuhre}",
+    "body": {
+     "version": 999,
+     "notiz": "Probe"
+    }
+   }
+  },
+  "DELETE /api/plan/fuhren/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/fuhren/{fuhre}"
+   }
+  },
+  "POST /api/plan/fuhren/kopieren": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "id": "{fuhre}",
+     "tage": [
+      "2026-11-18"
+     ]
+    }
+   }
+  },
+  "POST /api/plan/fuhren/wie-vortag": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "datum": "2026-11-16"
+    }
+   }
+  },
+  "POST /api/plan/fuhren/:id/status": {
+   "mitarbeiter": "E",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/fuhren/{fuhre}/status",
+    "body": {
+     "status": "unterwegs"
+    }
+   }
+  },
+  "POST /api/plan/fuhren/:id/foto": {
+   "mitarbeiter": "E",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/plan/fuhren/{fuhre}/foto",
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "x.jpg"
+    }
+   }
+  },
+  "GET /api/plan/fuhren/:id/foto/:fid": {
+   "mitarbeiter": "E",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/plan/fuhren/{fuhre}/foto/{fuhreFoto}"
+   }
+  },
+  "POST /api/berichte/:id/fuhren-uebernehmen": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/fuhren-uebernehmen",
+    "body": {
+     "fuhreIds": []
+    }
+   }
+  },
+  "PUT /api/materialien/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/materialien/4",
+    "body": {
+     "dichte": 1.8
+    }
+   }
+  },
+  "GET /api/plan/tag.pdf": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "query": "?datum=2026-11-13"
+   }
+  },
+  "GET /api/plan/woche.pdf": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "query": "?von=2026-11-09"
+   }
+  },
+  "GET /api/dokument-kategorien": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "POST /api/dokument-kategorien": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "name": "Probe-Kat",
+     "finanziell": false,
+     "polier": true
+    }
+   }
+  },
+  "PUT /api/dokument-kategorien/:schluessel": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/dokument-kategorien/{kategorie}",
+    "body": {
+     "polier": true
+    }
+   }
+  },
+  "DELETE /api/dokument-kategorien/:schluessel": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/dokument-kategorien/{kategorie}"
+   }
+  },
+  "GET /api/baustellen/:id/dokumente": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente"
+   }
+  },
+  "GET /api/dokumente/suche": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "query": "?q=KANARIE"
+   }
+  },
+  "GET /api/baustellen/:id/dokumente/:did": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}"
+   }
+  },
+  "POST /api/baustellen/:id/dokumente": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente",
+    "body": {
+     "kategorie": "plaene",
+     "titel": "Probe",
+     "dateiBase64": "{pdf}",
+     "dateiname": "p.pdf"
+    }
+   }
+  },
+  "POST /api/baustellen/:id/dokumente/:did/versionen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}/versionen",
+    "body": {
+     "dateiBase64": "{pdf}",
+     "dateiname": "p2.pdf"
+    }
+   }
+  },
+  "PUT /api/baustellen/:id/dokumente/:did": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}",
+    "body": {
+     "titel": "Probe"
+    }
+   }
+  },
+  "DELETE /api/baustellen/:id/dokumente/:did": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}",
+    "body": {
+     "grund": "Probe"
+    }
+   }
+  },
+  "POST /api/baustellen/:id/dokumente/:did/wiederherstellen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}/wiederherstellen",
+    "body": {}
+   }
+  },
+  "GET /api/baustellen/:id/dokumente/:did/datei": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/dokumente/{dok}/datei"
+   }
+  },
+  "GET /api/rechnungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/rechnungen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}"
+   }
+  },
+  "POST /api/baustellen/:id/rechnungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/rechnungen",
+    "body": {
+     "nr": "PROBE-1",
+     "typ": "teil",
+     "datum": "2026-11-01",
+     "netto": 1
+    }
+   }
+  },
+  "PUT /api/rechnungen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}",
+    "body": {
+     "version": 999,
+     "notiz": "Probe"
+    }
+   }
+  },
+  "POST /api/rechnungen/:id/storno": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}/storno",
+    "body": {
+     "grund": "Probe"
+    }
+   }
+  },
+  "POST /api/rechnungen/:id/zahlungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}/zahlungen",
+    "body": {
+     "datum": "2026-11-10",
+     "betrag": 1
+    }
+   }
+  },
+  "DELETE /api/rechnungen/:id/zahlungen/:zid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}/zahlungen/{zahlung}"
+   }
+  },
+  "POST /api/rechnungen/:id/mahnungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/rechnungen/{rechnung}/mahnungen",
+    "body": {
+     "stufe": 2
+    }
+   }
+  },
+  "GET /api/offene-posten": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/offene-posten.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/zahlungseingaenge.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "query": "?von=2026-09-01&bis=2026-11-12"
+   }
+  },
+  "GET /api/urlaub/feiertage": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "GET /api/urlaub/kalender": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {
+    "query": "?von=2026-11-09&bis=2026-12-20"
+   }
+  },
+  "GET /api/urlaub/konto": {
+   "mitarbeiter": "J",
+   "polier": "J",
+   "eintrag": {}
+  },
+  "PUT /api/urlaub/konto/:benutzerId/:jahr": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/urlaub/konto/{person}/2026",
+    "body": {
+     "anspruch": 25
+    }
+   }
+  },
+  "POST /api/urlaub/betriebsurlaub": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "von": "2026-12-28",
+     "bis": "2026-12-30",
+     "alle": true,
+     "vorschau": false
+    }
+   }
+  },
+  "GET /api/urlaub/warnungen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/einstellungen/urlaub": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/einstellungen/urlaub": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "partieGrenze": 3
+    }
+   }
+  },
+  "GET /api/urlaub/export.csv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "GET /api/import/bmd-op/zuordnung": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/import/bmd-op/zuordnung": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "spalten": {
+      "belegnr": "Belegnr",
+      "offen": "Offen"
+     }
+    }
+   }
+  },
+  "POST /api/import/bmd-op": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "dateiBase64": "QmVsZWducjtPZmZlbg0KUi1LQU5BUklFLUJTMTsxLDAw",
+     "dateiname": "op.csv",
+     "vorschau": true
+    }
+   }
+  },
+  "GET /api/import/lv/zuordnung": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/import/lv/zuordnung": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "spalten": {
+      "oz": "OZ"
+     }
+    }
+   }
+  },
+  "POST /api/baustellen/:id/lv-import": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/lv-import",
+    "body": {
+     "dateiBase64": "PG9ubHY+PC9vbmx2Pg==",
+     "dateiname": "lv.onlv",
+     "vorschau": true
+    }
+   }
+  },
+  "GET /api/baustellen/:id/lv": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/lv"
+   }
+  },
+  "PUT /api/baustellen/:id/lv/:lid": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/baustellen/{bs}/lv/{lv}",
+    "body": {
+     "projektpositionId": null
+    }
+   }
+  },
+  "GET /api/lohn-vorlagen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "POST /api/lohn-vorlagen": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "name": "Probe",
+     "spalten": [
+      {
+       "feld": "pnr"
+      }
+     ]
+    }
+   }
+  },
+  "PUT /api/lohn-vorlagen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/lohn-vorlagen/{lohnVorlage}",
+    "body": {
+     "name": "Probe",
+     "spalten": [
+      {
+       "feld": "pnr"
+      }
+     ]
+    }
+   }
+  },
+  "DELETE /api/lohn-vorlagen/:id": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "pfad": "/api/lohn-vorlagen/{lohnVorlage}"
+   }
+  },
+  "POST /api/berichte/:id/unterschrift-link": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/unterschrift-link",
+    "body": {
+     "rolle": "bh"
+    }
+   }
+  },
+  "GET /api/berichte/:id/unterschrift-links": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/unterschrift-links"
+   }
+  },
+  "DELETE /api/berichte/:id/unterschrift-links/:lid": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/unterschrift-links/{berichtLink}"
+   }
+  },
+  "POST /api/bericht-assistent/text": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "body": {
+     "berichtId": "{bericht}",
+     "text": "zwei Stunden Bagger"
+    }
+   }
+  },
+  "POST /api/berichte/:id/lieferschein": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/lieferschein",
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "ls.jpg"
+    }
+   }
+  },
+  "POST /api/berichte/:id/papier": {
+   "mitarbeiter": "N",
+   "polier": "E",
+   "eintrag": {
+    "pfad": "/api/berichte/{bericht}/papier",
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "pa.jpg"
+    }
+   }
+  },
+  "POST /api/berichte/papier": {
+   "mitarbeiter": "N",
+   "polier": "J",
+   "eintrag": {
+    "body": {
+     "bildBase64": "{jpeg}",
+     "dateiname": "pa.jpg"
+    }
+   }
+  },
+  "GET /api/einstellungen/ki": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {}
+  },
+  "PUT /api/einstellungen/ki": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {
+     "tagesLimit": 100
+    }
+   }
+  },
+  "POST /api/einstellungen/ki/test": {
+   "mitarbeiter": "N",
+   "polier": "N",
+   "eintrag": {
+    "body": {}
+   }
+  }
+ }
+}

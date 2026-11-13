@@ -100,7 +100,11 @@ test('Zeiterfassung', async (t) => {
     assert.equal(st[4], 'arbeit');
     assert.equal(st[2], 'aus');
     assert.deepEqual(euroFelder(k.daten), []);
-    assert.ok(k.daten.find((x) => x.benutzerId === 3).code === 'U'); // heute Urlaub
+    // heute Urlaub – Owner-Regel: Polier erfährt den Grund nicht, nur „nicht über die Kolonne“
+    const urlauber = k.daten.find((x) => x.benutzerId === 3);
+    assert.equal(urlauber.code, null);
+    assert.equal(urlauber.kolonneMoeglich, false);
+    assert.equal((await buero.get(`/abwesenheiten?benutzerId=3&von=2026-11-12&bis=2026-11-12`)).daten[0].code, 'U');
     // Eingabefehler
     assert.equal((await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [], typ: 'kommen' })).status, 400);
     assert.equal((await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [4, 4], typ: 'gehen' })).status, 400);
@@ -166,7 +170,9 @@ test('Zeiterfassung', async (t) => {
     assert.equal((await ma.post('/abwesenheiten', { benutzerId: 3, datum: '2026-12-01', code: 'U' })).status, 403);
     r = await pol.post('/abwesenheiten', { benutzerId: 5, datum: '2026-11-13', code: 'SW' });
     assert.equal(r.status, 201);
-    assert.equal(r.daten.status, 'beantragt'); // C-13: Büro bestätigt
+    assert.equal(r.daten.status, 'gemeldet'); // C-13: Büro bestätigt; Owner-Regel: keine Auskunft über andere
+    assert.equal(r.daten.text, 'Schlechtwetter gemeldet – das Büro bestätigt.');
+    assert.equal(s.db.eins("SELECT status FROM abwesenheit WHERE benutzer_id = 5 AND datum = '2026-11-13'").status, 'beantragt');
     assert.equal((await pol.post('/abwesenheiten', { benutzerId: 9, datum: '2026-11-13', code: 'SW' })).status, 403);
     assert.equal((await pol.post('/abwesenheiten', { benutzerId: 5, datum: '2026-11-16', code: 'K' })).status, 403);
     r = await buero.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2026-11-30', code: 'U' });

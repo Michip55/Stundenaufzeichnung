@@ -13,9 +13,9 @@ const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf', 'polierFP',
 const ID = { mitarbeiter: U.mitarbeiter, polier: U.polier, bauleiter: U.bauleiter, buero: U.buero, gf: U.gf, polierFP: 25, mitarbeiterFP: 3 };
 const ALLE = [OK, OK, OK, OK, OK, OK, OK];
 const LESE = [N, OK, OK, OK, OK, OK, OK];
-const PFLEGE = [N, N, N, OK, OK, OK, OK];
+const PFLEGE = [N, N, OK, OK, OK, OK, OK]; // Bauleiter wie Büro (13.11.2026)
 const KOSTEN_LESE = [N, N, OK, OK, OK, N, N]; // Leserecht + preise_sehen
-const KOSTEN_PFLEGE = [N, N, N, OK, OK, N, N]; // fuhrpark + preise_sehen
+const KOSTEN_PFLEGE = [N, N, OK, OK, OK, N, N]; // fuhrpark + preise_sehen (Bauleiter wie Büro)
 
 function pdfText(buf) {
   const s = buf.toString('latin1');
@@ -98,11 +98,11 @@ test('Servicebuch: Rechte je Rolle und Route, nie € für Mitarbeiter/Polier', 
     ['POST', '/fuhrpark/schaeden', {}, ALLE],
     ['GET', `/fuhrpark/schaeden/${SCH}`, null, ALLE],
     ['GET', `/fuhrpark/schaeden/${SCH}/fotos/${FOTO}`, null, ALLE],
-    ['GET', `/fuhrpark/schaeden/${SCH2}`, null, [N, N, N, OK, OK, OK, OK]],
-    ['GET', `/fuhrpark/schaeden/${SCH2}/fotos/1`, null, [N, N, N, OK, OK, OK, OK]],
+    ['GET', `/fuhrpark/schaeden/${SCH2}`, null, [N, N, OK, OK, OK, OK, OK]],
+    ['GET', `/fuhrpark/schaeden/${SCH2}/fotos/1`, null, [N, N, OK, OK, OK, OK, OK]],
     ['PUT', `/fuhrpark/schaeden/${SCH}`, {}, PFLEGE],
-    ['POST', `/fuhrpark/schaeden/${SCH}/fotos`, {}, [OK, N, N, OK, OK, OK, OK]],
-    ['POST', `/fuhrpark/schaeden/${SCH2}/fotos`, {}, [N, N, N, OK, OK, OK, OK]],
+    ['POST', `/fuhrpark/schaeden/${SCH}/fotos`, {}, [OK, N, OK, OK, OK, OK, OK]],
+    ['POST', `/fuhrpark/schaeden/${SCH2}/fotos`, {}, [N, N, OK, OK, OK, OK, OK]],
     ['DELETE', `/fuhrpark/schaeden/${SCH}/fotos/999999`, undefined, PFLEGE]
   ];
 

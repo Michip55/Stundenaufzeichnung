@@ -73,13 +73,13 @@ test('D-01: befristete Kontosperre, Büro entsperrt GF, Notfall-Befehl, Warnung'
   });
 
   await t.test('D-01: Warnung bei weniger als zwei Verwaltungs-Konten', () => {
-    assert.equal(R.entsperrKonten(s.db).length, 2);
+    assert.equal(R.entsperrKonten(s.db).length, 3); // Büro, Bauleiter (wie Büro, 13.11.2026), GF
     assert.deepEqual(s.app.bt.warnungen, []);
-    s.db.lauf('UPDATE benutzer SET aktiv = 0 WHERE id = ?', U.buero);
+    s.db.lauf('UPDATE benutzer SET aktiv = 0 WHERE id IN (?, ?)', U.buero, U.bauleiter);
     const app2 = require('../../server/index').createApp({ db: s.db, uhr: s.uhr });
     assert.equal(app2.bt.warnungen.length, 1);
     assert.match(app2.bt.warnungen[0], /mindestens zwei/);
-    s.db.lauf('UPDATE benutzer SET aktiv = 1 WHERE id = ?', U.buero);
+    s.db.lauf('UPDATE benutzer SET aktiv = 1 WHERE id IN (?, ?)', U.buero, U.bauleiter);
   });
 });
 

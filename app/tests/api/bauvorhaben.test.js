@@ -31,9 +31,13 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal((await phase('buero', { phase: 'bezahlt' })).status, 409); // kein erlaubter Übergang
     assert.equal((await phase('buero', { phase: 'gibtsnicht' })).status, 400);
     assert.equal((await c.buero.post(`/baustellen/${BS.pitten}/phase`, { phase: 'pausiert', version: 99999 })).status, 409); // Version
-    // Bauleiter einer fremden Baustelle
+    // Bauleiter wie Büro (13.11.2026): auch Baustellen anderer Bauleiter
     const fremd = s.db.eins("SELECT id FROM baustelle WHERE (bauleiter_id IS NULL OR bauleiter_id <> ?) AND phase = 'in_arbeit' AND intern = 0 LIMIT 1", U.bauleiter).id;
-    assert.equal((await phase('bauleiter', { phase: 'pausiert' }, fremd)).status, 403);
+    assert.equal((await phase('bauleiter', { phase: 'pausiert' }, fremd)).status, 200);
+    assert.equal((await phase('bauleiter', { phase: 'in_arbeit' }, fremd)).status, 200);
+    // interne Kostenstelle: keine Phasen (12.25)
+    const buero = s.db.eins("SELECT id FROM baustelle WHERE kst = '9000'").id;
+    assert.equal((await phase('buero', { phase: 'pausiert' }, buero)).status, 422);
   });
 
   await t.test('Polier meldet Fertigstellung → Büro und Bauleiter benachrichtigt', async () => {
@@ -60,14 +64,13 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal(r.status, 200);
     assert.equal(r.daten.abnahmeDatum, heute);
     assert.equal(r.daten.gewaehrleistungBis, `${Number(heute.slice(0, 4)) + 3}${heute.slice(4)}`);
-    assert.equal((await phase('bauleiter', { phase: 'schlussrechnung' })).status, 403);
     const p = (await c.polier.get(`/baustellen/${BS.pitten}/phasen`)).daten;
     assert.deepEqual(p.slice(-2).map((x) => x.phase), ['fertiggestellt', 'abgenommen']);
     assert.equal(p[p.length - 2].notiz, 'bestätigt');
   });
 
   await t.test('Schlussrechnung (Betrag nur mit preise_bearbeiten), €-Schutz', async () => {
-    const r = await phase('buero', { phase: 'schlussrechnung', schlussrechnung: { nr: 'AR-2026-117', betrag: 123456.785 } });
+    const r = await phase('bauleiter', { phase: 'schlussrechnung', schlussrechnung: { nr: 'AR-2026-117', betrag: 123456.785 } }); // Bauleiter wie Büro
     assert.equal(r.status, 200);
     assert.deepEqual(r.daten.schlussrechnung, { nr: 'AR-2026-117', datum: heute, betrag: 123456.79 });
     for (const rolle of ['polier', 'mitarbeiter']) {
@@ -84,7 +87,8 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
   });
 
   await t.test('Abschluss: Gewährleistung, Haftrücklass (nur mit Preisrecht)', async () => {
-    assert.equal((await c.bauleiter.put(`/baustellen/${BS.pitten}/abschluss`, { version: bs().version, gewaehrleistungBis: '2030-01-01' })).status, 403);
+    assert.equal((await c.polier.put(`/baustellen/${BS.pitten}/abschluss`, { version: bs().version, gewaehrleistungBis: '2030-01-01' })).status, 403);
+    assert.equal((await c.bauleiter.put(`/baustellen/${BS.pitten}/abschluss`, { version: bs().version, gewaehrleistungBis: '2030-01-01' })).status, 200); // wie Büro
     const r = await c.buero.put(`/baustellen/${BS.pitten}/abschluss`, { version: bs().version, haftruecklass: { prozent: 3, betrag: 3703.7, bankgarantieBis: plusTage(heute, 20), freigabeAm: plusTage(heute, 40) } });
     assert.equal(r.status, 200);
     assert.equal(r.daten.haftruecklass.prozent, 3);
@@ -113,8 +117,8 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
 
   await t.test('Archiv: nicht in Listen/Stempeln, lesbar; aufheben nur GF', async () => {
     assert.equal((await phase('buero', { phase: 'bezahlt' })).status, 200);
-    assert.equal((await phase('bauleiter', { phase: 'archiviert' })).status, 403);
-    const r = await phase('buero', { phase: 'archiviert', notiz: 'abgeschlossen' });
+    assert.equal((await phase('polier', { phase: 'archiviert' })).status, 403);
+    const r = await phase('bauleiter', { phase: 'archiviert', notiz: 'abgeschlossen' }); // Bauleiter wie Büro
     assert.equal(r.status, 200);
     assert.equal(r.daten.archiviert, true);
     assert.ok(!(await c.buero.get('/baustellen')).daten.some((b) => b.id === BS.pitten));

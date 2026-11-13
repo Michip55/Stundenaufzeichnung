@@ -144,7 +144,7 @@ function pruefeBauvorhaben(bt) {
     for (const e of empf) benachrichtige(db, { benutzerId: e.id, typ: 'baustelle', titel, text, zeit, baustelleId: bs.id, schluessel });
   };
   const de = (d) => d.split('-').reverse().join('.');
-  for (const bs of db.alle("SELECT * FROM baustelle WHERE phase NOT IN ('archiviert','storniert')")) {
+  for (const bs of db.alle("SELECT * FROM baustelle WHERE phase NOT IN ('archiviert','storniert') AND intern = 0")) { // 12.25: ohne interne Kostenstellen
     const name = `${bs.kst} ${bs.kurz || bs.name}`;
     if (bs.phase === 'abgenommen' && bs.abnahme_datum && plusTage(bs.abnahme_datum, 14) < heute) {
       const sr = db.eins("SELECT name FROM sqlite_master WHERE name = 'rechnung'") ? db.eins("SELECT 1 AS x FROM rechnung WHERE baustelle_id = ? AND typ = 'schluss' AND storniert IS NULL", bs.id) : null;

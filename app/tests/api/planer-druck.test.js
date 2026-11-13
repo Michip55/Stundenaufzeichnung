@@ -59,7 +59,7 @@ test('Druckbarer Tagesplan', async (t) => {
     }
   });
 
-  await t.test('Unveröffentlicht: Wasserzeichen; Planer sieht alles, Bauleiter nur eigene Baustellen', async () => {
+  await t.test('Unveröffentlicht: Wasserzeichen; Planer und Bauleiter (wie Büro) sehen alles', async () => {
     const b = (await pdf('buero', `/plan/tag.pdf?datum=${FR}`)).daten;
     const tx = text(b);
     assert.match(tx, /ENTWURF . nicht ver.ffentlicht/);
@@ -69,8 +69,7 @@ test('Druckbarer Tagesplan', async (t) => {
     assert.match(tx, /Seite 1 von \d/);
     keinEuro(b);
     const bl = text((await pdf('bauleiter', `/plan/tag.pdf?datum=${FR}`)).daten);
-    assert.ok(bl.includes('26-041') && bl.includes('26-038'));
-    assert.ok(!bl.includes('26-044') && !bl.includes('NOTIZ-REISINGER'));
+    assert.ok(bl.includes('26-041') && bl.includes('26-038') && bl.includes('26-044')); // Bauleiter wie Büro (13.11.2026)
     // Filter grenzt nur ein
     const f = text((await pdf('buero', `/plan/tag.pdf?datum=${FR}&baustelleIds=${BS.kogler}`)).daten);
     assert.ok(f.includes('26-038') && !f.includes('26-041') && !f.includes('Hof hinten'));

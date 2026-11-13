@@ -41,7 +41,10 @@ test('Baustellenplaner', async (t) => {
       assert.equal((await c[r].post('/plan/veroeffentlichen', { von: FR })).status, 403, r);
       assert.equal((await c[r].get('/plan/fuhren')).status, 403, r);
     }
-    assert.equal((await c.bauleiter.post('/plan/einsaetze', { datum: FR, baustelleId: BS.reisinger })).status, 403); // fremde Baustelle
+    // Bauleiter wie Büro (13.11.2026): auch fremde Baustellen planbar
+    const fremd = await c.bauleiter.post('/plan/einsaetze', { datum: FR, baustelleId: BS.reisinger });
+    assert.equal(fremd.status, 201);
+    s.db.lauf('DELETE FROM plan_einsatz WHERE id = ?', fremd.daten.id);
   });
 
   await t.test('Einsatz anlegen: Kolonne, Gerät, Notizen, Fahrer (422 wenn nicht eingeteilt)', async () => {
@@ -69,12 +72,13 @@ test('Baustellenplaner', async (t) => {
     for (const tp of ['person_doppelt', 'anlage_doppelt', 'anlage_gesperrt']) assert.ok(typen.includes(tp), tp);
     const abw = r.daten.konflikteTag.find((k) => k.typ === 'abwesenheit');
     if (s.db.eins('SELECT 1 AS x FROM plan_person WHERE benutzer_id = 3')) assert.match(abw.text, /Krank/);
+    // Bauleiter wie Büro (13.11.2026): sieht den Grund und alle Zeilen
     const w = (await c.bauleiter.get(`/plan/woche?von=${FR}`)).daten;
     const k = w.konflikte.find((x) => x.typ === 'abwesenheit');
-    if (k) assert.match(k.text, /abwesend/);
-    assert.ok(!JSON.stringify(w).includes('Krank'));
-    // Bauleiter sieht nur seine Zeilen
-    assert.ok(w.einsaetze.every((e) => [BS.pitten, BS.kogler, 5, 7].includes(e.baustelleId)));
+    if (k) assert.match(k.text, /Krank/);
+    assert.ok(w.einsaetze.some((e) => e.baustelleId === BS.kogler));
+    // Polier/Mitarbeiter: Planer-Woche gesperrt (keine fremden Abwesenheiten)
+    for (const rr of ['polier', 'mitarbeiter']) assert.equal((await c[rr].get(`/plan/woche?von=${FR}`)).status, 403);
     // aufräumen
     await c.buero.del(`/plan/einsaetze/${r.daten.id}`);
   });
@@ -214,7 +218,7 @@ test('Baustellenplaner', async (t) => {
   });
 
   await t.test('Fuhren: Rechte, Links, kein Doppelt-Konflikt, Veröffentlichen, Bericht-Zeile genau einmal, Landschaftsabgabe', async () => {
-    assert.equal((await c.bauleiter.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } })).status, 403);
+    assert.equal((await c.polier.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } })).status, 403); // Bauleiter wie Büro (13.11.2026)
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: 27, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } })).status, 400); // Walze ist kein Fahrzeug
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'adresse', text: 'X', link: 'https://maps.google.com/@95.1,16' } })).status, 400);
     // Bericht (Entwurf) für heute auf Pitten

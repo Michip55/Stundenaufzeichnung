@@ -35,9 +35,11 @@ module.exports = function abwesenheitsRouten(api, bt) {
 
   /** Personen, deren Abwesenheiten der Benutzer sehen darf (null = alle) */
   function sichtbareIds(ctx) {
-    if (darfEntscheiden(ctx)) return null;
+    if (DS.stufe(ctx) === 'voll') return null; // Büro/Lohn/GF und Bauleiter: alle Personen (nur lesen)
     const ich = ctx.benutzer;
     const ids = new Set([ich.id]);
+    // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht – nur die eigenen
+    if (DS.stufe(ctx) === 'keine') return ids;
     const ber = bereich(ich);
     if (ber === 'bauleiter' || ich.rolle === 'polier') {
       const bs = db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').filter((b) => baustelleImBereich(ich, b)).map((b) => b.id);
@@ -95,6 +97,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const { status, rueck } = antragsRegel(ctx, benutzerId, ziel, code);
     if (datum < plusTage(heute, -rueck)) throw ungueltig(`Das Datum darf höchstens ${rueck} Tage zurückliegen.`);
     if (datum > plusTage(heute, 366)) throw ungueltig('Das Datum liegt zu weit in der Zukunft.');
+    if (swMeldung(ctx, benutzerId, code)) return swMelden(req, res, { ziel, von: datum, bis: datum, notiz: null, vorschau: false });
     const vorhanden = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, datum);
     if (vorhanden && vorhanden.status !== 'abgelehnt' && (!ctx.hat('stammdaten') || benutzerId === ich.id)) throw konflikt(`Für ${deDatum(datum)} ist ${DS.bereits(ctx, benutzerId, vorhanden.code)}.`);
     const zeit = bt.uhr().toISOString();
@@ -137,6 +140,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${a.benutzer_id}`, alt: { datum: a.datum, code: a.code, status: a.status }, neu: { status }, text: `${CODE_TEXT[a.code]} ${a.name} ${deDatum(a.datum)} ${status}` });
       benachrichtige(db, { benutzerId: a.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a.code]} ${status}`, text: `Ihr Antrag (${CODE_TEXT[a.code]} am ${deDatum(a.datum)}) wurde ${status}.`, zeit, schluessel: `abw:${id}:${status}:${zeit}` });
     });
+    if (a.antrag_id) swAbgleich(a.antrag_id, ctx.benutzer.id);
     res.json(DS.abwesenheitFuer(ctx, json(db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id))));
   });
 
@@ -144,7 +148,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const ctx = req.ctx;
     const id = v.pfadId(req.params.id, 'ID');
     const a = db.eins('SELECT * FROM abwesenheit WHERE id = ?', id);
-    if (!a) throw nichtGefunden('Abwesenheit nicht gefunden.');
+    if (!a || !DS.siehtAbwesenheit(ctx, a.benutzer_id)) throw nichtGefunden('Abwesenheit nicht gefunden.'); // nie Auskunft über fremde Einträge
     const eigenerAntrag = a.benutzer_id === ctx.benutzer.id && a.status === 'beantragt';
     if (!eigenerAntrag && !darfEntscheiden(ctx)) throw keinZugriff('Löschen können Sie nur eigene, noch nicht entschiedene Anträge.');
     const korrektur = a.benutzer_id !== ctx.benutzer.id;
@@ -183,6 +187,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const heute = wienDatum(bt.uhr());
     if (von < plusTage(heute, -rueck)) throw ungueltig(`Das Datum darf höchstens ${rueck} Tage zurückliegen (${deDatum(von)}).`);
     if (bis > plusTage(heute, 366)) throw ungueltig('Das Datum liegt zu weit in der Zukunft.');
+    if (swMeldung(ctx, benutzerId, code)) return swMelden(req, res, { ziel, von, bis, notiz, vorschau });
     const ersetzenErlaubt = ctx.hat('stammdaten') && benutzerId !== ich.id;
     const tage = [], uebersprungen = [], ersetzen = [], konflikte = [];
     for (let d = von; d <= bis; d = plusTage(d, 1)) {
@@ -273,6 +278,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const body = v.objekt(req.body);
     const status = v.auswahl(body.status, 'status', ['genehmigt', 'abgelehnt']);
     const antwortText = body.antwort == null || body.antwort === '' ? null : v.text(body.antwort, 'antwort', { max: 300 });
+    if (!darfEntscheiden(ctx) && ctx.benutzer.rolle !== 'bauleiter') throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung (Schlechtwetter auch der Bauleiter der Baustelle).');
     const zeilen = db.alle(`SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE ${ANTRAG_SQL} = ? ORDER BY a.datum`, aid);
     if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
     const a0 = zeilen[0];
@@ -289,6 +295,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${a0.benutzer_id}`, alt: { antragId: aid, status: 'beantragt', tage: offen.length }, neu: { status, antwort: antwortText }, text: `${CODE_TEXT[a0.code]} ${a0.name} ${z} (${offen.length} Tage) ${status}` });
       benachrichtige(db, { benutzerId: a0.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a0.code]} ${status}`, text: `Ihr Antrag (${CODE_TEXT[a0.code]} ${z}, ${offen.length} ${offen.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}) wurde ${status}.${antwortText ? ` ${antwortText}` : ''}`, zeit, schluessel: `abw:antrag:${aid}:${status}:${zeit}` });
     });
+    swAbgleich(aid, ctx.benutzer.id);
     res.json(antraegeLaden(ctx, { antragId: aid })[0]);
   });
 
@@ -296,7 +303,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const ctx = req.ctx;
     const aid = antragPfad(req.params.antragId);
     const zeilen = db.alle(`SELECT a.* FROM abwesenheit a WHERE ${ANTRAG_SQL} = ?`, aid);
-    if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
+    if (!zeilen.length || !DS.siehtAbwesenheit(ctx, zeilen[0].benutzer_id)) throw nichtGefunden('Antrag nicht gefunden.');
     let weg;
     const eigen = zeilen[0].benutzer_id === ctx.benutzer.id;
     if (darfEntscheiden(ctx) && !(eigen && zeilen.every((a) => a.status === 'beantragt'))) weg = zeilen;
@@ -312,5 +319,81 @@ module.exports = function abwesenheitsRouten(api, bt) {
       if (!eigen) benachrichtige(db, { benutzerId: zeilen[0].benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[zeilen[0].code]} gelöscht`, text: `Ihr Antrag (${CODE_TEXT[zeilen[0].code]} ${z}, ${weg.length} ${weg.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}) wurde gelöscht (${korrektur ? 'Korrektur durch das Büro' : 'durch das Büro'}).`, zeit: bt.uhr().toISOString(), schluessel: `abw:antrag:${aid}:weg:${bt.uhr().toISOString()}` });
     });
     res.json({ ok: true, geloescht: weg.length });
+  });
+
+  /* ---------- Schlechtwetter-Meldung des Poliers (Inhaber 13.11.2026) ----------
+   * Der Polier meldet SW für seine Partie, erfährt dabei aber nie, ob jemand schon abwesend ist: jede Meldung wird
+   * angenommen („gemeldet“); Tage mit bestehender Abwesenheit werden still übergangen (das Büro sieht alles).
+   */
+  function swMeldung(ctx, benutzerId, code) {
+    return code === 'SW' && benutzerId !== ctx.benutzer.id && DS.stufe(ctx) === 'keine';
+  }
+  function swMelden(req, res, { ziel, von, bis, notiz, vorschau }) {
+    const ich = req.ctx.benutzer;
+    const tage = [];
+    for (let d = von; d <= bis; d = plusTage(d, 1)) if (istArbeitstag(d)) tage.push(d); // nur Kalender – keine Auskunft aus der DB
+    const basis = { benutzerId: ziel.id, von, bis, code: 'SW', arbeitstage: tage.length, text: DS.SW_GEMELDET };
+    if (vorschau) return res.json({ vorschau: true, ...basis });
+    if (!tage.length) throw ungueltig('Im Zeitraum liegt kein Arbeitstag.');
+    const zeit = bt.uhr().toISOString();
+    const aid = neueAntragId();
+    let meldungId;
+    db.transaktion(() => {
+      for (const d of tage) {
+        const a = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', ziel.id, d);
+        if (a && a.status !== 'abgelehnt') continue; // still übergehen – das Büro klärt beim Bestätigen
+        db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, antrag_id, notiz) VALUES (?, ?, 'SW', 'beantragt', ?, ?, ?, ?)
+          ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = 'SW', status = 'beantragt', erfasst_von = excluded.erfasst_von, erfasst = excluded.erfasst,
+            entschieden = NULL, entschieden_von = NULL, betriebsurlaub = 0, antwort = NULL, antrag_id = excluded.antrag_id, notiz = excluded.notiz`, ziel.id, d, ich.id, zeit, aid, notiz);
+      }
+      meldungId = db.lauf('INSERT INTO sw_meldung (polier_id, benutzer_id, von, bis, antrag_id, notiz, erstellt) VALUES (?, ?, ?, ?, ?, ?, ?)', ich.id, ziel.id, von, bis, aid, notiz, zeit).id;
+      db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${ziel.id}`, neu: { swMeldung: meldungId, antragId: aid, von, bis }, text: `Schlechtwetter gemeldet von ${ich.name} für ${ziel.name}: ${zeitText(von, bis)}` });
+      for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", ziel.id)) {
+        benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Schlechtwetter gemeldet: ${ziel.name}`, text: `${ich.name} meldet Schlechtwetter für ${ziel.name}: ${zeitText(von, bis)}. Bitte bestätigen.`, zeit, schluessel: `sw:${meldungId}` });
+      }
+    });
+    swAbgleich(aid, null); // keine offenen Tage (alle übergangen) → bleibt „gemeldet“ bis das Büro bestätigt
+    res.status(201).json({ meldungId, ...basis, status: 'gemeldet' });
+  }
+  /** Status einer SW-Meldung: „bestaetigt“, sobald das Büro alle ihre offenen Tage entschieden hat */
+  function swAbgleich(aid, vonId) {
+    const m = db.eins("SELECT * FROM sw_meldung WHERE antrag_id = ? AND status = 'gemeldet'", aid);
+    if (!m || vonId == null) return;
+    if (db.eins("SELECT 1 AS x FROM abwesenheit WHERE antrag_id = ? AND status = 'beantragt' LIMIT 1", aid)) return;
+    swBestaetigen(m, vonId);
+  }
+  function swBestaetigen(m, vonId) {
+    const zeit = bt.uhr().toISOString();
+    db.lauf("UPDATE sw_meldung SET status = 'bestaetigt', bestaetigt = ?, bestaetigt_von = ? WHERE id = ?", zeit, vonId, m.id);
+    const ziel = db.eins('SELECT name FROM benutzer WHERE id = ?', m.benutzer_id) || {};
+    benachrichtige(db, { benutzerId: m.polier_id, typ: 'abwesenheit', titel: 'Schlechtwetter-Meldung bestätigt', text: `Ihre Schlechtwetter-Meldung für ${ziel.name || '?'} (${zeitText(m.von, m.bis)}) wurde vom Büro bestätigt.`, zeit, schluessel: `sw:${m.id}:bestaetigt` });
+  }
+  const swJson = (m, namen) => ({ id: m.id, benutzerId: m.benutzer_id, name: namen.get(m.benutzer_id) || '?', von: m.von, bis: m.bis, status: m.status, erstellt: m.erstellt, polier: { id: m.polier_id, name: namen.get(m.polier_id) || '?' }, ...(m.bestaetigt ? { bestaetigt: m.bestaetigt } : {}) });
+  api.get('/abwesenheiten/sw-meldungen', (req, res) => {
+    const ctx = req.ctx;
+    const namen = new Map(db.alle('SELECT id, name FROM benutzer').map((b) => [b.id, b.name]));
+    let liste;
+    if (darfEntscheiden(ctx)) liste = db.alle('SELECT * FROM sw_meldung ORDER BY erstellt DESC LIMIT 500');
+    else if (ctx.benutzer.rolle === 'polier') liste = db.alle('SELECT * FROM sw_meldung WHERE polier_id = ? ORDER BY erstellt DESC LIMIT 500', ctx.benutzer.id);
+    else if (ctx.benutzer.rolle === 'bauleiter') { const ids = sichtbareIds(ctx); liste = db.alle('SELECT * FROM sw_meldung ORDER BY erstellt DESC LIMIT 500').filter((m) => ids.has(m.benutzer_id)); } else throw keinZugriff();
+    res.json(liste.map((m) => swJson(m, namen)));
+  });
+  api.post('/abwesenheiten/sw-meldungen/:id/bestaetigen', (req, res) => {
+    const ctx = req.ctx;
+    if (!darfEntscheiden(ctx)) throw keinZugriff('Schlechtwetter-Meldungen bestätigt das Büro.');
+    const m = db.eins('SELECT * FROM sw_meldung WHERE id = ?', v.pfadId(req.params.id, 'ID'));
+    if (!m) throw nichtGefunden('Meldung nicht gefunden.');
+    if (m.status === 'bestaetigt') throw konflikt('Die Meldung ist schon bestätigt.');
+    if (m.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Meldungen bestätigt eine andere Person (Vier-Augen-Prinzip).');
+    const zeit = bt.uhr().toISOString();
+    db.transaktion(() => {
+      const offen = db.alle("SELECT * FROM abwesenheit WHERE antrag_id = ? AND status = 'beantragt'", m.antrag_id);
+      for (const a of offen) db.lauf("UPDATE abwesenheit SET status = 'genehmigt', entschieden = ?, entschieden_von = ? WHERE id = ?", zeit, ctx.benutzer.id, a.id);
+      if (offen.length) benachrichtige(db, { benutzerId: m.benutzer_id, typ: 'abwesenheit', titel: 'Schlechtwetter genehmigt', text: `Schlechtwetter ${zeitText(offen[0].datum, offen[offen.length - 1].datum)} wurde genehmigt.`, zeit, schluessel: `sw:${m.id}:person` });
+      swBestaetigen(m, ctx.benutzer.id);
+      db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${m.benutzer_id}`, neu: { swMeldung: m.id, genehmigt: offen.length }, text: `Schlechtwetter-Meldung ${m.id} bestätigt (${offen.length} Tage genehmigt)` });
+    });
+    const namen = new Map(db.alle('SELECT id, name FROM benutzer').map((b) => [b.id, b.name]));
+    res.json(swJson(db.eins('SELECT * FROM sw_meldung WHERE id = ?', m.id), namen));
   });
 };

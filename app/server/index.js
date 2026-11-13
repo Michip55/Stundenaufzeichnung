@@ -83,6 +83,7 @@ function createApp(opt = {}) {
   bt.bestand = bestand;
   if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
+  require('./kostenstellen').bueroSicherstellen(db, uhr().toISOString()); // 12.25: interne Kostenstelle „Büro“ (KST 9000)
   // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
   bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
   bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS
@@ -235,6 +236,22 @@ function createApp(opt = {}) {
   // Ab hier nur angemeldet – und erst nach Änderung einer vorgegebenen PIN
   api.use(angemeldet);
   api.use(sperren);
+  // Inhaber 13.11.2026: Sicherheitsnetz – Polier/Mitarbeiter erhalten nie Aggregate über fremde Abwesenheiten
+  api.use((req, res, next) => {
+    const DS = require('./datenschutz');
+    if (!req.ctx || DS.aggregateErlaubt(req.ctx)) return next();
+    const json = res.json.bind(res);
+    res.json = (wert) => json(DS.ohneFremdeAggregate(req.ctx, wert));
+    next();
+  });
+  // 12.25: interne Kostenstellen (Büro, Werkstatt, Grube) haben keine Baustellen-Fachfunktionen
+  api.use((req, res, next) => {
+    const m = /^\/(?:baustellen\/(\d+)\/(?:positionen|auftrag|rechnungen|phase|phasen|fertigmeldung|abschluss|dokumente|nachtraege|leistungen|fremdleistungen|lv|lv-import|abschnitte)\b|kalkulation\/(\d+)$)/i.exec(req.path);
+    if (!m) return next();
+    const bs = db.eins('SELECT id, kst, name, intern FROM baustelle WHERE id = ?', Number(m[1] || m[2]));
+    try { if (bs) require('./kostenstellen').nurBaustelle(bs, 'diese Funktion'); } catch (e) { return next(e); }
+    next();
+  });
   require('./routes/stammdaten')(api, bt);
   require('./routes/preise')(api, bt);
   require('./routes/zeit')(api, bt);

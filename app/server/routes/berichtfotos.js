@@ -113,7 +113,7 @@ module.exports = function berichtFotoRouten(api, bt) {
     // Papierbericht-Seiten löschen nur Büro/GF (Archiv, 12.12)
     let b, f;
     if (f0 && f0.art === 'papier') {
-      if (!['buero', 'gf'].includes(req.ctx.benutzer.rolle)) throw require('../fehler').keinZugriff('Archivierte Papierberichte löschen nur Büro bzw. GF.');
+      if (!require('../rechte').BUERO_ROLLEN.includes(req.ctx.benutzer.rolle)) throw require('../fehler').keinZugriff('Archivierte Papierberichte löschen nur Büro bzw. GF.');
       b = b0; f = f0;
     } else { b = bericht(req, true); f = foto(req, b); }
     db.transaktion(() => {

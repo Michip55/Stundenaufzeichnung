@@ -4,40 +4,29 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { starte, U, BS } = require('./hilfe');
 
-test('C-05: Bauleiter kann sich nicht zum Bauleiter fremder Baustellen machen', async (t) => {
+test('C-05 (Owner-Entscheidung 13.11.2026: Bauleiter = Büro): Stammdaten und Zuordnung wie Büro', async (t) => {
   const s = await starte();
   t.after(() => s.stop());
   const gf = await s.login(U.gf);
   const bl = await s.login(U.bauleiter);
 
-  await t.test('C-05: Original-Reproduktion', async () => {
-    // 1. stammdaten ist für Bauleiter nicht mehr vergebbar
-    assert.equal((await gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'stammdaten', wert: true })).status, 400);
-    assert.equal((await gf.put('/rechte/matrix', { rolle: 'bauleiter', recht: 'stammdaten', wert: true })).status, 400);
-    // 2./3./4.
-    assert.equal((await bl.get(`/kalkulation/${BS.reisinger}`)).status, 403);
-    assert.equal((await bl.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.bauleiter })).status, 403);
-    assert.equal((await bl.get(`/kalkulation/${BS.reisinger}`)).status, 403);
-    assert.equal(s.db.eins('SELECT bauleiter_id FROM baustelle WHERE id = ?', BS.reisinger).bauleiter_id, U.gf);
-  });
-
-  await t.test('C-05: auch eine direkt in der DB gesetzte Ausnahme wirkt nicht; keine Zeit-/Lohndaten', async () => {
-    s.db.lauf("INSERT INTO benutzer_recht (benutzer_id, recht, erteilt) VALUES (?, 'stammdaten', '2026-11-12')", U.bauleiter);
-    const bl2 = await s.login(U.bauleiter);
-    assert.ok(!(await bl2.get('/auth/ich')).daten.rechte.includes('stammdaten'));
-    assert.equal((await bl2.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.bauleiter })).status, 403);
-    assert.equal((await bl2.post('/zeit/buchungen', { benutzerId: 2, typ: 'gehen', zeit: '2026-11-12T09:00:00Z', grund: 'test' })).status, 403);
-    assert.ok((await bl2.get('/mitarbeiter')).daten.every((m) => !('lohngruppe' in m) && !('pnr' in m)));
-    s.db.lauf("DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = 'stammdaten'", U.bauleiter);
-  });
-
-  await t.test('C-05: Zuordnung nur durch Büro/GF; Entzug wirkt sofort', async () => {
-    const buero = await s.login(U.buero);
-    assert.equal((await buero.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.bauleiter })).status, 200);
+  await t.test('C-05: Bauleiter hat stammdaten und sieht alle Baustellen wie das Büro', async () => {
+    assert.ok((await bl.get('/auth/ich')).daten.rechte.includes('stammdaten'));
     assert.equal((await bl.get(`/kalkulation/${BS.reisinger}`)).status, 200);
-    assert.equal((await buero.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.gf })).status, 200);
-    assert.equal((await bl.get(`/kalkulation/${BS.reisinger}`)).status, 403);
-    // Büro verliert stammdaten → sofort 403
+    assert.equal((await bl.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.bauleiter })).status, 200);
+    assert.equal(s.db.eins('SELECT bauleiter_id FROM baustelle WHERE id = ?', BS.reisinger).bauleiter_id, U.bauleiter);
+    assert.equal((await bl.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.gf })).status, 200);
+    // Zuordnung ändert die Sicht nicht mehr (kein Baustellen-Scoping)
+    assert.equal((await bl.get(`/kalkulation/${BS.reisinger}`)).status, 200);
+    // benutzer bleibt für den Bauleiter wie für das Büro gesperrt
+    assert.equal((await gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'benutzer', wert: true })).status, 400);
+  });
+
+  await t.test('C-05: Polier kann sich nicht zum Bauleiter machen; Entzug beim Büro wirkt sofort', async () => {
+    const pol = await s.login(U.polier);
+    assert.equal((await pol.putV(`/baustellen/${BS.reisinger}`, { bauleiterId: U.polier })).status, 403);
+    assert.equal((await pol.post('/zeit/buchungen', { benutzerId: 2, typ: 'gehen', zeit: '2026-11-12T09:00:00Z', grund: 'test' })).status, 403);
+    const buero = await s.login(U.buero);
     await gf.put('/rechte/matrix', { rolle: 'buero', recht: 'stammdaten', wert: false });
     assert.equal((await buero.putV(`/baustellen/${BS.reisinger}`, { name: 'x' })).status, 403);
     await gf.put('/rechte/matrix', { rolle: 'buero', recht: 'stammdaten', wert: true });
@@ -107,12 +96,14 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal((await buero2.post('/zeit/schichten', { benutzerId: U.buero, baustelleId: 1, datum: '2026-11-10', von: '07:00', bis: '15:00', pauseMin: 30, grund: 'eigene' })).status, 403);
   });
 
-  await t.test('C-13: Schlechtwetter vom Polier ist beantragt, Büro bestätigt', async () => {
+  await t.test('C-13: Schlechtwetter vom Polier ist gemeldet (beantragt), Büro bestätigt', async () => {
     const pol = await s.login(U.polier, '1234', '10.1.0.6');
     const r = await pol.post('/abwesenheiten', { benutzerId: 4, datum: '2026-11-12', code: 'SW' });
-    assert.equal(r.daten.status, 'beantragt');
+    assert.equal(r.status, 201);
+    assert.equal(r.daten.status, 'gemeldet'); // Owner-Regel: keine Auskunft über fremde Abwesenheiten
+    assert.equal(s.db.eins("SELECT status FROM abwesenheit WHERE benutzer_id = 4 AND datum = '2026-11-12'").status, 'beantragt');
     const vorher = (await buero2.get('/monat?monat=2026-11')).daten.mitarbeiter.find((m) => m.id === 4).sw;
-    assert.equal((await buero2.put(`/abwesenheiten/${r.daten.id}`, { status: 'genehmigt' })).status, 200);
+    assert.equal((await buero2.post(`/abwesenheiten/sw-meldungen/${r.daten.meldungId}/bestaetigen`, {})).status, 200);
     assert.equal((await buero2.get('/monat?monat=2026-11')).daten.mitarbeiter.find((m) => m.id === 4).sw, vorher + 1);
   });
 

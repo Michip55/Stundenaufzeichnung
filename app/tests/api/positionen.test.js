@@ -25,23 +25,24 @@ test('Nachkalkulation nach Positionen', async (t) => {
 
   await t.test('Rechte: jede Rolle gegen jede neue Route', async () => {
     const p1 = pid(BS.pitten, 'Maut'), p3 = pid(BS.reisinger, 'Maut');
+    // Bauleiter wie Büro (13.11.2026)
     const MATRIX = [
       ['GET', '/positionen/katalog', null, [NEIN, NEIN, OK, OK, OK]],
-      ['POST', '/positionen/katalog', {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['PUT', '/positionen/katalog/1', {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['DELETE', '/positionen/katalog/999999', undefined, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', '/positionen/katalog/import', {}, [NEIN, NEIN, NEIN, OK, OK]],
+      ['POST', '/positionen/katalog', {}, [NEIN, NEIN, OK, OK, OK]],
+      ['PUT', '/positionen/katalog/1', {}, [NEIN, NEIN, OK, OK, OK]],
+      ['DELETE', '/positionen/katalog/999999', undefined, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', '/positionen/katalog/import', {}, [NEIN, NEIN, OK, OK, OK]],
       ['GET', `/baustellen/${BS.pitten}/positionen`, null, [NEIN, NEIN, OK, OK, OK]],
-      ['GET', `/baustellen/${BS.reisinger}/positionen`, null, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', `/baustellen/${BS.pitten}/positionen`, {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['PUT', `/baustellen/${BS.pitten}/positionen/${p1}`, {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['DELETE', `/baustellen/${BS.pitten}/positionen/999999`, undefined, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', `/baustellen/${BS.pitten}/positionen/aus-vorlage`, { vorschau: true }, [NEIN, NEIN, NEIN, OK, OK]],
+      ['GET', `/baustellen/${BS.reisinger}/positionen`, null, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', `/baustellen/${BS.pitten}/positionen`, {}, [NEIN, NEIN, OK, OK, OK]],
+      ['PUT', `/baustellen/${BS.pitten}/positionen/${p1}`, {}, [NEIN, NEIN, OK, OK, OK]],
+      ['DELETE', `/baustellen/${BS.pitten}/positionen/999999`, undefined, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', `/baustellen/${BS.pitten}/positionen/aus-vorlage`, { vorschau: true }, [NEIN, NEIN, OK, OK, OK]],
       ['POST', `/baustellen/${BS.pitten}/positionen/${p1}/mengen`, {}, [NEIN, NEIN, OK, OK, OK]],
-      ['POST', `/baustellen/${BS.reisinger}/positionen/${p3}/mengen`, {}, [NEIN, NEIN, NEIN, OK, OK]],
+      ['POST', `/baustellen/${BS.reisinger}/positionen/${p3}/mengen`, {}, [NEIN, NEIN, OK, OK, OK]],
       ['DELETE', `/baustellen/${BS.pitten}/positionen/${p1}/mengen/999999`, undefined, [NEIN, NEIN, OK, OK, OK]],
       ['GET', `/baustellen/${BS.pitten}/positionen/export.xlsx`, null, [NEIN, NEIN, OK, OK, OK]],
-      ['GET', `/baustellen/${BS.reisinger}/positionen/export.xlsx`, null, [NEIN, NEIN, NEIN, OK, OK]]
+      ['GET', `/baustellen/${BS.reisinger}/positionen/export.xlsx`, null, [NEIN, NEIN, OK, OK, OK]]
     ];
     for (const [m, p, body, erw] of MATRIX) {
       for (let i = 0; i < ROLLEN.length; i++) {

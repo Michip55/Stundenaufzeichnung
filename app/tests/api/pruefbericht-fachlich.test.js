@@ -90,7 +90,7 @@ test('B-02, M-03, N-01, N-02, N-04, N-06', async (t) => {
     assert.equal(e.menge, 500);
     assert.equal(e.betrag, 500 * 31.5);
     assert.equal((await pol.get(pfad)).status, 403);
-    assert.equal((await bl.get(`/baustellen/${BS.reisinger}/leistungen`)).status, 403);
+    assert.equal((await bl.get(`/baustellen/${BS.reisinger}/leistungen`)).status, 200); // Bauleiter wie Büro (13.11.2026)
     assert.ok((await bl.get(`/kalkulation/${BS.kogler}`)).daten.leistungsstandProzent > vorher);
     assert.equal((await bl.del(`${pfad}/${r.daten.id}`)).status, 200);
     assert.equal((await bl.get(`/kalkulation/${BS.kogler}`)).daten.leistungsstandProzent, vorher);
@@ -108,11 +108,12 @@ test('B-02, M-03, N-01, N-02, N-04, N-06', async (t) => {
     const r = await buero.post(pfad, { text: 'Tippfehler', betrag: 99999, datum: '2026-11-12' });
     assert.equal(r.status, 201);
     assert.ok((await buero.get(pfad)).daten.some((f) => f.id === r.daten.id && f.betrag === 99999));
-    assert.equal((await bl.get(pfad)).status, 200); // Bauleiter eigene Baustelle: lesen
-    assert.equal((await bl.del(`${pfad}/${r.daten.id}`)).status, 403); // aber nicht stornieren
-    assert.equal((await bl.get(`/baustellen/${BS.reisinger}/fremdleistungen`)).status, 403);
+    assert.equal((await bl.get(pfad)).status, 200);
+    assert.equal((await bl.get(`/baustellen/${BS.reisinger}/fremdleistungen`)).status, 200); // Bauleiter wie Büro (13.11.2026)
     assert.equal((await pol.get(pfad)).status, 403);
-    assert.equal((await buero.del(`${pfad}/${r.daten.id}`)).status, 200);
+    assert.equal((await pol.del(`${pfad}/${r.daten.id}`)).status, 403);
+    assert.equal((await bl.del(`${pfad}/${r.daten.id}`)).status, 200); // Bauleiter wie Büro: darf stornieren
+    assert.equal((await buero.del(`${pfad}/${r.daten.id}`)).status, 404);
     assert.equal((await buero.get(`/kalkulation/${BS.pitten}`)).daten.kosten.fremd, vorher);
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'fremdleistung' AND text LIKE '%storniert%'").n === 1);
   });
@@ -283,11 +284,12 @@ test('B-07: Abwesenheiten – nur genehmigte zählen; Genehmigen, Ablehnen, Lös
 
   await t.test('B-07: GET /abwesenheiten mit Bereich', async () => {
     assert.ok((await ma.get('/abwesenheiten')).daten.every((a) => a.benutzerId === 2));
+    // Owner-Regel: Polier sieht keine fremden Abwesenheiten
     const p = (await pol.get('/abwesenheiten')).daten;
-    assert.ok(p.some((a) => a.benutzerId === 2));
-    assert.ok(p.every((a) => [1, 2, 3, 4, 5, 6, 7].includes(a.benutzerId)));
+    assert.ok(p.every((a) => a.benutzerId === U.polier));
+    // Bauleiter wie Büro (13.11.2026): alle
     const b = (await bl.get('/abwesenheiten')).daten;
-    assert.ok(b.some((a) => a.benutzerId === 2) && !b.some((a) => a.benutzerId === 24)); // 26-035 nicht seine Baustelle
+    assert.ok(b.some((a) => a.benutzerId === 2) && b.some((a) => a.benutzerId === 24));
     const alle = (await buero.get('/abwesenheiten?status=beantragt')).daten;
     assert.ok(alle.length >= 3 && alle.every((a) => a.status === 'beantragt'));
     assert.equal((await buero.get('/abwesenheiten?status=offen')).status, 400);
@@ -296,7 +298,7 @@ test('B-07: Abwesenheiten – nur genehmigte zählen; Genehmigen, Ablehnen, Lös
   await t.test('B-07: Genehmigen/Ablehnen nur Büro/Lohn; zählt danach', async () => {
     assert.equal((await ma.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'genehmigt' })).status, 403);
     assert.equal((await pol.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'genehmigt' })).status, 403);
-    assert.equal((await bl.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'genehmigt' })).status, 403);
+    assert.equal((await bl.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'vielleicht' })).status, 400); // Bauleiter wie Büro: darf entscheiden
     assert.equal((await buero.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'vielleicht' })).status, 400);
     const u0 = (await buero.get('/monat?monat=2026-11')).daten.mitarbeiter.find((x) => x.id === 2).u;
     const r = await buero.put(`/abwesenheiten/${ids['2026-11-16']}`, { status: 'genehmigt' });
@@ -319,7 +321,7 @@ test('B-07: Abwesenheiten – nur genehmigte zählen; Genehmigen, Ablehnen, Lös
   await t.test('B-07: Löschen – eigener offener Antrag ja, genehmigter nur Büro', async () => {
     assert.equal((await ma.del(`/abwesenheiten/${ids['2026-11-18']}`)).status, 200);
     assert.equal((await ma.del(`/abwesenheiten/${ids['2026-11-16']}`)).status, 403);
-    assert.equal((await pol.del(`/abwesenheiten/${ids['2026-11-17']}`)).status, 403);
+    assert.equal((await pol.del(`/abwesenheiten/${ids['2026-11-17']}`)).status, 404); // fremde Abwesenheit für Polier unsichtbar
     assert.equal((await buero.del(`/abwesenheiten/${ids['2026-11-16']}`)).status, 200);
     assert.equal((await buero.del(`/abwesenheiten/${ids['2026-11-16']}`)).status, 404);
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'abwesenheit' AND text = 'Abwesenheit gelöscht'").n === 2);
@@ -337,6 +339,8 @@ test('B-07: Abwesenheiten – nur genehmigte zählen; Genehmigen, Ablehnen, Lös
     await ma.post('/abwesenheiten', { benutzerId: 2, datum: '2026-11-12', code: 'ZA' });
     const b = await pol.post('/berichte', { baustelleId: BS.pitten, datum: '2026-11-12' });
     assert.ok(!b.daten.personal.some((p) => p.benutzerId === 2 && p.code === 'ZA'));
-    assert.ok(b.daten.personal.some((p) => p.benutzerId === 3 && p.code === 'U')); // genehmigter Urlaub aus den Testdaten
+    // Owner-Regel: Polier sieht den Urlaub nicht; das Büro sieht ihn
+    assert.ok(!b.daten.personal.some((p) => p.benutzerId === 3));
+    assert.ok((await buero.get(`/berichte/${b.daten.id}`)).daten.personal.some((p) => p.benutzerId === 3 && p.code === 'U')); // genehmigter Urlaub aus den Testdaten
   });
 });

@@ -84,14 +84,15 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
         }
       }
     }
-    // Bauleiter: fremde Baustelle 3 in allen Schreibweisen der ID
+    // Fremde Baustelle 3 in allen Schreibweisen der ID – Polier (Baustellen-Scoping). Der Bauleiter sieht seit der
+    // Inhaber-Entscheidung 13.11.2026 wie das Büro alle Baustellen; für ihn gibt es keine „fremde“ Baustelle mehr.
     for (const id of ['3', '03', '003', '3.0', '+3', '3%20', '%33', '3,1', '1,3', '3;1', '0x3', '3e0', '-3', '9999999999999', '3?baustelleId=1', '3%3Fx', '3/']) {
       for (const p of [`/api/kalkulation/${id}`, `/api/baustellen/${id}/positionen`, `/api/baustellen/${id}/fremdleistungen`, `/api/baustellen/${id}/lv`, `/api/baustellen/${id}/positionen/export.xlsx`, `/api/baustellen/${id}/dokumente`]) {
-        const r = await roh(s.basis, 'GET', p, { cookie: c.bauleiter.cookie });
-        v.push(...(await H.scanne('bauleiter', r, { route: 'UMGEHUNG', variante: 'fremd', url: p })));
-        if (r.status === 200 && id !== '3/' && !/^3$/.test(id)) {
+        const r = await roh(s.basis, 'GET', p, { cookie: c.polier.cookie });
+        v.push(...(await H.scanne('polier', r, { route: 'UMGEHUNG', variante: 'fremd', url: p })));
+        if (r.status === 200) {
           const daten = typeof r.daten === 'object' ? r.daten : {};
-          if ((daten.baustelleId || (daten.baustelle && daten.baustelle.id)) === 3) v.push(`bauleiter GET ${p}: Daten der fremden Baustelle 3`);
+          if ((daten.baustelleId || (daten.baustelle && daten.baustelle.id)) === 3) v.push(`polier GET ${p}: Daten der fremden Baustelle 3`);
         }
       }
     }
@@ -138,14 +139,18 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
       v.push(...await H.scanne(wer, r, { route: 'IDOR', variante: 'fremd', url: p }));
       return r;
     };
-    await fall('bauleiter', 'GET', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/verlauf`);
-    await fall('bauleiter', 'POST', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/mengen`, { datum: '2026-11-11', menge: 1 });
-    await fall('bauleiter', 'DELETE', `/baustellen/${BS.pitten}/positionen/${F.pos.bs1}/mengen/${F.pos.bs3MengePos}`);
-    await fall('bauleiter', 'DELETE', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/mengen/${F.pos.bs3MengePos}`);
-    await fall('bauleiter', 'DELETE', `/baustellen/${BS.pitten}/leistungen/${F.leistung.bs3}`);
-    await fall('bauleiter', 'PUT', `/baustellen/${BS.pitten}/abschnitte/${F.abschnitt.bs3}`, { version: 1, name: 'X' });
-    await fall('bauleiter', 'DELETE', `/baustellen/${BS.pitten}/abschnitte/${F.abschnitt.bs3}`);
-    for (const wer of ['bauleiter', 'polier']) {
+    // Kind-ID einer anderen Baustelle unter der eigenen Baustelle: Pfad-Konsistenz gilt für jede Rolle, auch Büro-Rollen
+    for (const wer of ['polier', 'bauleiter']) {
+      const ok = wer === 'bauleiter' ? [400, 404, 409, 422] : [400, 403, 404, 409, 422];
+      await fall(wer, 'GET', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/verlauf`, undefined, ok);
+      await fall(wer, 'POST', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/mengen`, { datum: '2026-11-11', menge: 1 }, ok);
+      await fall(wer, 'DELETE', `/baustellen/${BS.pitten}/positionen/${F.pos.bs1}/mengen/${F.pos.bs3MengePos}`, undefined, ok);
+      await fall(wer, 'DELETE', `/baustellen/${BS.pitten}/positionen/${F.pos.bs3}/mengen/${F.pos.bs3MengePos}`, undefined, ok);
+      await fall(wer, 'DELETE', `/baustellen/${BS.pitten}/leistungen/${F.leistung.bs3}`, undefined, ok);
+      await fall(wer, 'PUT', `/baustellen/${BS.pitten}/abschnitte/${F.abschnitt.bs3}`, { version: 1, name: 'X' }, ok);
+      await fall(wer, 'DELETE', `/baustellen/${BS.pitten}/abschnitte/${F.abschnitt.bs3}`, undefined, ok);
+    }
+    for (const wer of ['polier']) { // Bauleiter = Büro (13.11.2026): Dokumente/Berichte aller Baustellen erlaubt
       await fall(wer, 'GET', `/baustellen/${BS.pitten}/dokumente/${F.dok.planBs3}`);
       await fall(wer, 'GET', `/baustellen/${BS.pitten}/dokumente/${F.dok.planBs3}/datei`);
       await fall(wer, 'GET', `/baustellen/${BS.pitten}/dokumente/${F.dok.finBs3}`);
@@ -166,18 +171,19 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
         if (r2.status === 200 && r2.daten.length) v.push(`polier /dokumente/suche?kategorie=${kat}: ${r2.daten.length} Treffer`);
       }
     }
-    // Planer: Verschieben aus einem fremden Einsatz, Fuhre auf fremde Baustelle umbiegen, fremde Fuhre kopieren
-    await fall('bauleiter', 'POST', `/plan/einsaetze/${F.einsatz.bs1}/personen`, { benutzerIds: [FREMDER_MA], verschiebenVon: F.einsatz.bs3 }, [200, 201, 400, 403, 404, 409, 422]);
-    if (!s.db.eins('SELECT 1 AS x FROM plan_person WHERE einsatz_id = ? AND benutzer_id = ?', F.einsatz.bs3, FREMDER_MA)) v.push('Bauleiter entfernt per verschiebenVon eine Person aus dem Einsatz einer fremden Baustelle');
-    await fall('bauleiter', 'POST', `/plan/einsaetze/${F.einsatz.bs1}/anlagen`, { anlageIds: [5], verschiebenVon: F.einsatz.bs3 }, [200, 201, 400, 403, 404, 409, 422]);
-    if (!s.db.eins('SELECT 1 AS x FROM plan_anlage WHERE einsatz_id = ? AND anlage_id = 5', F.einsatz.bs3)) v.push('Bauleiter entfernt per verschiebenVon eine Anlage aus dem Einsatz einer fremden Baustelle');
+    // Planer: Verschieben aus einem fremden Einsatz, Fuhre auf fremde Baustelle umbiegen, fremde Fuhre kopieren –
+    // nur Planer (Büro, Bauleiter, GF) planen; der Polier wird abgewiesen und ändert nichts
+    await fall('polier', 'POST', `/plan/einsaetze/${F.einsatz.bs1}/personen`, { benutzerIds: [FREMDER_MA], verschiebenVon: F.einsatz.bs3 });
+    if (!s.db.eins('SELECT 1 AS x FROM plan_person WHERE einsatz_id = ? AND benutzer_id = ?', F.einsatz.bs3, FREMDER_MA)) v.push('Polier entfernt per verschiebenVon eine Person aus dem Einsatz einer fremden Baustelle');
+    await fall('polier', 'POST', `/plan/einsaetze/${F.einsatz.bs1}/anlagen`, { anlageIds: [5], verschiebenVon: F.einsatz.bs3 });
+    if (!s.db.eins('SELECT 1 AS x FROM plan_anlage WHERE einsatz_id = ? AND anlage_id = 5', F.einsatz.bs3)) v.push('Polier entfernt per verschiebenVon eine Anlage aus dem Einsatz einer fremden Baustelle');
     const fu = (await bl.get(`/plan/fuhren?von=${F.datumMorgen}`)).daten.find((x) => x.id === F.fuhre.bs1);
-    await fall('bauleiter', 'PUT', `/plan/fuhren/${F.fuhre.bs1}`, { version: fu.version, nach: { art: 'baustelle', baustelleId: BS.reisinger } });
-    await fall('bauleiter', 'POST', '/plan/fuhren/kopieren', { id: F.fuhre.bs3, tage: ['2026-11-18'] });
-    await fall('bauleiter', 'POST', '/plan/fuhren', { datum: '2026-11-16', anlageId: 4, materialId: 4, menge: 5, einheit: 't', von: { art: 'baustelle', baustelleId: BS.reisinger }, nach: { art: 'baustelle', baustelleId: BS.reisinger } });
+    await fall('polier', 'PUT', `/plan/fuhren/${F.fuhre.bs1}`, { version: fu.version, nach: { art: 'baustelle', baustelleId: BS.reisinger } });
+    await fall('polier', 'POST', '/plan/fuhren/kopieren', { id: F.fuhre.bs3, tage: ['2026-11-18'] });
+    await fall('polier', 'POST', '/plan/fuhren', { datum: '2026-11-16', anlageId: 4, materialId: 4, menge: 5, einheit: 't', von: { art: 'baustelle', baustelleId: BS.reisinger }, nach: { art: 'baustelle', baustelleId: BS.reisinger } });
     const e1 = (await bl.get(`/plan/woche?von=${F.datumMorgen}`)).daten.einsaetze.find((x) => x.id === F.einsatz.bs1);
-    const r = await bl.put(`/plan/einsaetze/${F.einsatz.bs1}`, { version: e1.version, baustelleId: BS.reisinger, datum: '2026-11-16' });
-    if (s.db.eins('SELECT baustelle_id FROM plan_einsatz WHERE id = ?', F.einsatz.bs1).baustelle_id !== BS.pitten) v.push(`Bauleiter verschiebt eigenen Einsatz per PUT auf fremde Baustelle (${r.status})`);
+    const r = await pol.put(`/plan/einsaetze/${F.einsatz.bs1}`, { version: e1.version, baustelleId: BS.reisinger, datum: '2026-11-16' });
+    if (s.db.eins('SELECT baustelle_id FROM plan_einsatz WHERE id = ?', F.einsatz.bs1).baustelle_id !== BS.pitten) v.push(`Polier verschiebt einen Einsatz per PUT auf fremde Baustelle (${r.status})`);
     // Bericht: fremde Fuhre übernehmen
     const fr = await pol.post(`/berichte/${F.bericht.bs1}/fuhren-uebernehmen`, { fuhreIds: [F.fuhre.bs3] });
     if (fr.status === 200 && fr.daten.uebernommen) v.push('Polier übernimmt eine Fuhre einer fremden Baustelle in seinen Bericht');
@@ -250,7 +256,7 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     }
     const leer = {};
     for (const k of ['rolle', 'rechte', 'preise_sehen', 'isAdmin']) if (leer[k] !== undefined) v.push(`Object.prototype verseucht: ${k}=${JSON.stringify(leer[k])}`);
-    for (const [rolle, p] of [['mitarbeiter', '/preise'], ['mitarbeiter', '/rechte'], ['polier', '/kalkulation'], ['bauleiter', '/rechte'], ['bauleiter', `/kalkulation/${BS.reisinger}`]]) {
+    for (const [rolle, p] of [['mitarbeiter', '/preise'], ['mitarbeiter', '/rechte'], ['polier', '/kalkulation'], ['bauleiter', '/rechte'], ['polier', `/kalkulation/${BS.reisinger}`], ['bauleiter', '/einstellungen/sicherheit']]) {
       const r = await c[rolle].get(p);
       if (r.status !== 403) v.push(`${rolle} GET ${p} nach __proto__-Anfragen → ${r.status}`);
     }
@@ -477,8 +483,16 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     const r3 = await c.mitarbeiter.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-16', code: 'U' });
     if (r3.status !== 403 || /„K“/.test(JSON.stringify(r3.daten))) v.push(`mitarbeiter POST /abwesenheiten für Person ${ANDERER_MA} → ${r3.status} ${JSON.stringify(r3.daten)}`);
     // Planer-Konflikttexte: „Krank“ nur mit stammdaten/lohn
-    const w = await c.bauleiter.get('/plan/woche?von=2026-11-16');
-    v.push(...await H.scanne('bauleiter', w, { route: 'GET /api/plan/woche', url: '/plan/woche?von=2026-11-16' }));
+    // Inhaber 13.11.2026: die SW-Meldung des Poliers ist immer gleich aufgebaut – 201 „gemeldet“, nichts über bestehende Abwesenheiten
+    const NEUTRAL = ['arbeitstage', 'benutzerId', 'bis', 'code', 'meldungId', 'status', 'text', 'von'];
+    if (r1.status !== 201 || r1.daten.status !== 'gemeldet' || JSON.stringify(Object.keys(r1.daten).sort()) !== JSON.stringify(NEUTRAL)) v.push(`polier SW an Krankentag → ${r1.status} ${JSON.stringify(r1.daten)} (erwartet neutrale Meldung)`);
+    const r1b = await pol.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-13', code: 'SW' }); // Tag ohne Abwesenheit
+    if (JSON.stringify(Object.keys(r1b.daten).sort()) !== JSON.stringify(NEUTRAL) || r1b.daten.text !== r1.daten.text || r1b.status !== r1.status) v.push('polier: SW-Antwort an einem freien Tag unterscheidet sich von der am Krankentag');
+    if (r2.status !== 200 || 'uebersprungen' in r2.daten || JSON.stringify(Object.keys(r2.daten).sort()) !== JSON.stringify(['arbeitstage', 'benutzerId', 'bis', 'code', 'text', 'von', 'vorschau'])) v.push(`polier SW-Vorschau → ${r2.status} ${JSON.stringify(r2.daten)} (erwartet neutrale Vorschau)`);
+    // Planer-Konflikttexte: „Krank“ nur mit stammdaten/lohn (Bauleiter = Büro); Polier: Meine Partie ohne Abwesenheiten
+    const w = await c.polier.get('/plan/partie?datum=2026-11-16');
+    v.push(...await H.scanne('polier', w, { route: 'GET /api/plan/partie', url: '/plan/partie?datum=2026-11-16' }));
+    if (/abwesend|Krank|Urlaub/.test(JSON.stringify(w.daten))) v.push('polier /plan/partie nennt Abwesenheiten');
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 

@@ -116,7 +116,8 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   ['von', 'bis', 'von', 'bis', 'Pause', 'Arbstd.'].forEach((h, i) => { box(sx[i + 1], yl, sp[i + 1], ZEILE + 1); t(h, sx[i + 1], yl + 3.5, { b: sp[i + 1], align: 'center', gr: 8 }); });
   yl += ZEILE + 1;
   // R-01: Krankenstand nie im PDF – berichtJson liefert ihn maskiert als „abwesend“ → „abw.“ (AG-Fassung ganz ohne)
-  const versteckt = (c) => fassung === 'ag' && (c === 'K' || c === 'U' || c === 'abwesend');
+  // AG-Fassung: keine persönlichen Abwesenheiten (K, U, ZA) – auch der Polier lädt sie (Inhaber 13.11.2026)
+  const versteckt = (c) => fassung === 'ag' && ['K', 'U', 'ZA', 'abwesend'].includes(c);
   const personal = bericht.personal.filter((p) => !(versteckt(p.code) && !p.stunden));
   const zeilen = Math.max(6, personal.length);
   let gesamt = 0;

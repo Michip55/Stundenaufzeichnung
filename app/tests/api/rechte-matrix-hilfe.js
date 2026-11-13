@@ -94,10 +94,8 @@ function verboteneKanarien(rolle) {
     for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
     ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext'].forEach(text);
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
-  } else if (rolle === 'bauleiter') {
-    for (const s of Object.keys(GELD.bs3)) geld('bs3', s);
-    ['rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'dokFinBs3', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd'].forEach(text);
-  } else if (rolle === 'buero') {
+    if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
+  } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
     ['smtp', 'alarmAn'].forEach(text); // SMTP-Einstellungen: nur Recht `benutzer` (GF)
   }
   return k;
@@ -184,6 +182,8 @@ const GELD_TEXT = /\d[\d.,   ]*\s?(€|EUR\b)|(€|\bEUR)\s?-?\d/;
  * route: exakter Routen-Schlüssel oder '*'
  */
 const SCHLUESSEL_AUSNAHMEN = [
+  // 12.25: Kennung der vorgeschlagenen Kostenstelle beim Einstempeln (eine Baustellen-ID, kein €) – nur dieser Pfad, nur ganze Zahl/null
+  ...['GET /api/zeit/status', 'POST /api/zeit/stempeln'].map((route) => ({ schluessel: 'standardKostenstelleId', route, pfad: /^\$\.standardKostenstelleId$/, nurWennWert: (v) => v === null || Number.isInteger(v), grund: '12.25: ID der Standard-Kostenstelle (Baustelle), kein Betrag' })),
   { schluessel: 'summe', route: 'GET /api/zeit/woche', grund: 'Stundensumme der eigenen Woche (Stunden, kein €)' },
   { schluessel: 'satz', route: '*', nurWennWert: (v) => v === null, grund: 'nie belegt' },
   { schluessel: 'lohngruppe', route: 'GET /api/auth/ich', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe im Anmelde-Objekt ist laut API.md 12.22 erlaubt' },
@@ -209,12 +209,11 @@ function schluesselErlaubt(route, pfad, k, wert) {
 const EIGENE_ROUTEN = ['GET /api/zeit/woche', 'GET /api/zeit/status', 'GET /api/plan/ich', 'GET /api/auth/ich'];
 
 /** Darf diese Rolle (in dieser Variante) €-Schlüssel sehen? */
-function geldErlaubt(rolle, variante) {
-  if (rolle === 'buero' || rolle === 'gf') return true;
-  if (rolle === 'bauleiter') return variante !== 'fremd';
-  return false;
+function geldErlaubt(rolle, variante) { // eslint-disable-line no-unused-vars
+  // Inhaber 13.11.2026: Bauleiter in allem wie Büro (alle Baustellen)
+  return rolle === 'buero' || rolle === 'gf' || rolle === 'bauleiter';
 }
-const lohnErlaubt = (rolle) => rolle === 'buero' || rolle === 'gf';
+const lohnErlaubt = (rolle) => rolle === 'buero' || rolle === 'gf' || rolle === 'bauleiter';
 
 /**
  * Prüft eine Antwort. Liefert Verstöße als Texte.
@@ -252,10 +251,30 @@ async function scanne(rolle, r, k) {
           if (x.pnr != null && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${p2}) bei ${pfad}`);
           // Mitarbeiter: Zeiten, Abwesenheiten und Urlaub nur von sich selbst (API.md 7 B-07, 12.19)
           if (rolle === 'mitarbeiter' && !k.mitAusnahmen && x.benutzerId !== undefined && x.benutzerId !== eigeneId && /(GET|POST) \/api\/(abwesenheiten|urlaub|zeit)\b/.test(k.route)) v.push(`${wo}: Daten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+          // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht (auch nicht „abwesend“)
+          // Ausnahme: die eigene SW-Meldung des Poliers (Echo seiner Eingabe, neutral, ohne Auskunft über Abwesenheiten)
+          const eigeneSwMeldung = rolle === 'polier' && x.code === 'SW' && (x.status === 'gemeldet' || x.vorschau === true) && x.text === 'Schlechtwetter gemeldet – das Büro bestätigt.' && !('uebersprungen' in x);
+          if (['polier', 'mitarbeiter'].includes(rolle) && x.benutzerId !== undefined && x.benutzerId !== eigeneId && !eigeneSwMeldung) {
+            if (/(GET|POST) \/api\/(abwesenheiten|urlaub)\b/.test(k.route) && !/sw-meldungen/.test(k.route)) v.push(`${wo}: Abwesenheits-/Urlaubsdaten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+            if (['K', 'U', 'ZA', 'abwesend', 'BU'].includes(x.code)) v.push(`${wo}: Abwesenheits-Code ${x.code} einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+            if (x.kolonneMoeglich === undefined && x.code === 'SW' && /\/api\/zeit\/kolonne/.test(k.route)) v.push(`${wo}: Code SW einer anderen Person in der Kolonne bei ${pfad}`);
+          }
           for (const [key, wert] of Object.entries(x)) kLauf(wert, `${pfad}.${key}`, p2);
         }
       };
       kLauf(r.daten, '$', undefined);
+    }
+    // Inhaber 13.11.2026: keine Aggregate über fremde Abwesenheiten (Zählungen, partie_viele, plan_konflikt, „x von y … abwesend“)
+    if (['polier', 'mitarbeiter'].includes(rolle)) {
+      const aLauf = (x, pfad) => {
+        if (typeof x === 'string') { if (/\b\d+\s+von\s+\d+\b[^"]{0,40}(abwesend|Urlaub|krank)/i.test(x)) v.push(`${wo}: Zählung von Abwesenheiten „${x.slice(0, 80)}“ bei ${pfad}`); return; }
+        if (Array.isArray(x)) return x.forEach((e, i) => aLauf(e, `${pfad}[${i}]`));
+        if (x && typeof x === 'object') {
+          if (['partie_viele', 'plan_konflikt'].includes(x.typ)) v.push(`${wo}: Abwesenheits-Warnung ${x.typ} bei ${pfad}`);
+          for (const [key, wert] of Object.entries(x)) aLauf(wert, `${pfad}.${key}`);
+        }
+      };
+      aLauf(r.daten, '$');
     }
   }
   // 2) Text: €-Beträge und Kanarienvögel (alle Formate, auch Fehlermeldungen)
@@ -268,7 +287,7 @@ async function scanne(rolle, r, k) {
     const m = GELD_TEXT.exec(text);
     if (m) v.push(`${wo}: €-Betrag im Text „${text.slice(Math.max(0, m.index - 40), m.index + 40).replace(/\s+/g, ' ')}“`);
   }
-  if (['mitarbeiter', 'polier', 'bauleiter'].includes(rolle)) {
+  if (['mitarbeiter', 'polier'].includes(rolle)) { // Bauleiter wie Büro (Inhaber 13.11.2026): sieht den Grund
     const m = /\bKrank(enstand|meldung)?\b/.exec(text);
     if (m) v.push(`${wo}: Wort „${m[0]}“ (Gesundheitsdaten) im Text „…${text.slice(Math.max(0, m.index - 60), m.index + 40).replace(/\s+/g, ' ')}…“`);
   }
@@ -413,6 +432,8 @@ async function erstelleBasis() {
     const ma3 = await s.login(ANDERER_MA);
     const u3 = await erwarte(await ma3.post('/abwesenheiten/zeitraum', { benutzerId: ANDERER_MA, von: '2026-12-01', bis: '2026-12-02', code: 'U', notiz: TEXT.urlaubAnderer }), 201, 'Urlaub anderer');
     F.urlaubAnderer = u3.antragId;
+    // Schlechtwetter-Meldung des Poliers für seine Partie (Inhaber 13.11.2026)
+    F.swMeldung = (await erwarte(await c.polier.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-12', code: 'SW' }), 201, 'SW-Meldung')).meldungId;
     F.urlaubAndererTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id", ANDERER_MA).id;
     const u2 = await erwarte(await c.mitarbeiter.post('/abwesenheiten/zeitraum', { benutzerId: U.mitarbeiter, von: '2026-12-03', bis: '2026-12-04', code: 'U', notiz: 'eigener Urlaub' }), 201, 'eigener Urlaub');
     F.urlaubEigen = u2.antragId;

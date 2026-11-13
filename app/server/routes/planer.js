@@ -13,7 +13,7 @@ const Bild = require('../fuhrpark-bild');
 
 const unprozessierbar = (text) => new ApiFehler(422, 'UNGUELTIG', text);
 const istPlaner = (ctx) => ['buero', 'gf'].includes(ctx.benutzer.rolle) || ctx.hat('stammdaten');
-const zeigtAbwesenheit = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn');
+const zeigtAbwesenheit = (ctx) => require('../datenschutz').stufe(ctx) === 'voll'; // Büro/Lohn/GF und Bauleiter: echter Grund
 
 module.exports = function planerRouten(api, bt) {
   const { db } = bt;
@@ -194,7 +194,9 @@ module.exports = function planerRouten(api, bt) {
     for (const id of ids) {
       const b = db.eins('SELECT id, rolle, aktiv, name FROM benutzer WHERE id = ?', id);
       if (!b || !b.aktiv) throw ungueltig(`${feld}: Person ${id} nicht gefunden oder inaktiv.`);
-      if (!['mitarbeiter', 'polier', 'bauleiter'].includes(b.rolle)) throw ungueltig(`${feld}: ${b.name} kann nicht eingeteilt werden (nur Mitarbeiter, Polier, Bauleiter).`);
+      // 12.25: Bauleiter sind keine eingeplanten Personen (sie arbeiten im Büro) → 422
+      if (b.rolle === 'bauleiter') throw unprozessierbar(`${feld}: ${b.name} ist Bauleiter und wird nicht im Baustellenplaner eingeteilt.`);
+      if (!['mitarbeiter', 'polier'].includes(b.rolle)) throw ungueltig(`${feld}: ${b.name} kann nicht eingeteilt werden (nur Mitarbeiter und Polier).`);
     }
     return ids;
   }
@@ -276,6 +278,7 @@ module.exports = function planerRouten(api, bt) {
     const bs = db.eins('SELECT * FROM baustelle WHERE id = ?', bsId);
     if (!bs) throw ungueltig('Baustelle nicht gefunden.');
     pruefeBearbeiten(req.ctx, bsId);
+    require('../kostenstellen').nurBaustelle(bs, 'Einsätze im Baustellenplaner'); // 12.25
     if (!P.PLANBAR.includes(bs.phase)) throw ungueltig(`Die Baustelle ${bs.kst} ist nicht planbar (${bs.phase}).`);
     const f = kopfFelder(body);
     const ids = body.benutzerIds ? personenPruefen(body.benutzerIds, 'benutzerIds') : [];
@@ -446,6 +449,7 @@ module.exports = function planerRouten(api, bt) {
             const b = K.personen.get(p.benutzer_id);
             const a = K.abw.get(`${p.benutzer_id}|${ziel}`);
             if (!b || !b.aktiv) { uebersprungen.push({ datum: ziel, typ: 'inaktiv', text: `${b ? b.name : '?'} inaktiv`, benutzerId: p.benutzer_id }); continue; }
+            if (!['mitarbeiter', 'polier'].includes(b.rolle)) { uebersprungen.push({ datum: ziel, typ: 'rolle', text: `${b.name} wird nicht eingeplant`, benutzerId: p.benutzer_id }); continue; } // 12.25
             if (a) { uebersprungen.push({ datum: ziel, typ: 'abwesenheit', text: `${b.name}: ${P.abwText(a, zeigtAbwesenheit(req.ctx))}`, benutzerId: p.benutzer_id }); continue; }
             if (schonPers.has(p.benutzer_id)) { uebersprungen.push({ datum: ziel, typ: 'person_doppelt', text: `${b.name} ist schon eingeteilt`, benutzerId: p.benutzer_id }); continue; }
             db.lauf('INSERT INTO plan_person (einsatz_id, benutzer_id, kolonne_polier_id) VALUES (?, ?, ?)', r.id, p.benutzer_id, p.kolonne_polier_id);
@@ -485,6 +489,8 @@ module.exports = function planerRouten(api, bt) {
 
   /* ---------- Mein Einsatz ---------- */
   api.get('/plan/ich', (req, res) => {
+    // 12.25: Bauleiter werden nicht eingeplant – „Mein Einsatz“ ist für sie leer
+    if (req.ctx.benutzer.rolle === 'bauleiter') return res.json({ morgen: null, tage: [] });
     const ich = req.ctx.benutzer.id;
     const h = heute();
     const von = req.query.von ? v.datum(String(req.query.von), 'von') : h;
@@ -551,7 +557,7 @@ module.exports = function planerRouten(api, bt) {
   /* ---------- Anfragen ---------- */
   api.post('/plan/anfragen', (req, res) => {
     const ich = req.ctx.benutzer;
-    if (!['polier', 'bauleiter'].includes(ich.rolle)) throw keinZugriff('Änderungen anfragen Polier und Bauleiter.');
+    if (ich.rolle !== 'polier') throw keinZugriff('Änderungen fragt der Polier an; Büro und Bauleiter ändern den Plan selbst.'); // Inhaber 13.11.2026: Bauleiter = Büro
     const body = v.objekt(req.body);
     const datum = v.datum(body.datum, 'datum');
     const text = v.text(body.text, 'text', { max: 500 });
@@ -993,7 +999,8 @@ module.exports = function planerRouten(api, bt) {
       anlagen: e.anlagen.map((a) => ({ bezeichnung: a.bezeichnung || `Gerät ${a.anlageId}`, kennzeichen: a.kennzeichen || '', fahrer: a.fahrer ? a.fahrer.name : '', notiz: a.notiz || '' })),
       benoetigt: e.benoetigt || '', notiz: e.notiz || ''
     }));
-    const kandidaten = [...K.personen.values()].filter((b) => b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle) && !eingeteilt.has(b.id) && (!partie || partie.has(b.id)));
+    // Inhaber 13.11.2026: der Polier sieht keine Abwesenheiten anderer → Abschnitt „Nicht eingeteilt“ entfällt für ihn ganz
+    const kandidaten = rolle === 'polier' ? [] : [...K.personen.values()].filter((b) => b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle) && !eingeteilt.has(b.id) && (!partie || partie.has(b.id)));
     const nichtEingeteilt = kandidaten.sort((a, b) => a.name.localeCompare(b.name)).map((b) => {
       const a = K.abw.get(`${b.id}|${d}`);
       return { name: b.name, rolle: ROLLE_KURZ[b.rolle], status: a ? P.abwText(a, voll) : 'frei' };

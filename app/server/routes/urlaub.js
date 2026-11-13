@@ -19,7 +19,9 @@ module.exports = function urlaubRouten(api, bt) {
   const einst = () => ({ partieGrenze: 2, partieGrenzeProzent: 30, urlaubsjahrBeginn: '01-01', ...(db.einstellung('urlaub', {}) || {}) });
 
   function sichtbareIds(ctx) {
-    if (verwaltung(ctx)) return null;
+    // eine Regel (server/datenschutz.js): Büro/Lohn/GF und Bauleiter alle; Polier/Mitarbeiter nur sich
+    if (DS.stufe(ctx) === 'voll') return null;
+    if (DS.stufe(ctx) === 'keine') return new Set([ctx.benutzer.id]);
     const ich = ctx.benutzer;
     const ids = new Set([ich.id]);
     if (bereich(ich) === 'bauleiter' || ich.rolle === 'polier') {
@@ -182,6 +184,7 @@ module.exports = function urlaubRouten(api, bt) {
 
   /* ---------- Warnungen ---------- */
   function warnungen(ctx, von, bis, ids) {
+    if (!DS.aggregateErlaubt(ctx)) return []; // Inhaber 13.11.2026: Polier/Mitarbeiter keine Warnungen (zählen fremde Abwesenheiten)
     const E = einst();
     const out = [];
     const personen = db.alle("SELECT id, name, rolle, baustelle_id FROM benutzer WHERE aktiv = 1");

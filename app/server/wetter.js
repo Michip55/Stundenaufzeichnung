@@ -129,6 +129,7 @@ function auswerten(stunden) {
 async function wetterFuer(bt, bs, datum) {
   const { db } = bt;
   const nicht = (grund) => ({ verfuegbar: false, hinweis: 'Wetter nicht verfügbar', grund });
+  if (bs.intern) return nicht('Interne Kostenstelle – kein Wetter.'); // 12.25
   if (!bt.wetterAn) return nicht('Wetterabruf ist abgeschaltet (BAUTAG_WETTER=0).');
   if (bs.lat == null || bs.lng == null) return nicht('Für die Baustelle sind keine Koordinaten hinterlegt.');
   const jetzt = bt.uhr();

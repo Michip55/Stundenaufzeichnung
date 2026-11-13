@@ -55,10 +55,11 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     },
     datum: b.datum,
     status: b.status,
-    personal: b.personal.map((p) => ({
+    // Datenschutz (server/datenschutz.js): Polier/Mitarbeiter sehen keine fremden Abwesenheiten, K nur mit Recht
+    personal: require('../datenschutz').berichtPersonal(ctx, b.personal.map((p) => ({
       benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2,
-      pauseMin: p.pause_min, stunden: p.stunden, code: require('../datenschutz').code(ctx, p.benutzer_id, p.code), segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {}), ...(p.gast ? { gast: true } : {})
-    })),
+      pauseMin: p.pause_min, stunden: p.stunden, code: p.code, segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {}), ...(p.gast ? { gast: true } : {})
+    }))),
     gesamtstunden: r2(b.personal.reduce((a, p) => a + p.stunden, 0)),
     seg: { taetigkeit: b.seg_taetigkeit || '', stunden: b.seg_stunden },
     geraete: b.geraete.map((g) => ({ geraetId: g.geraet_id, code: g.code, name: g.name, stunden: g.stunden, ...(g.anlage_id ? { anlageId: g.anlage_id } : {}) })),
@@ -407,6 +408,7 @@ module.exports = function berichtRouten(api, bt) {
     const bs = ladeBaustelle(db, baustelleId);
     if (!bs) throw ungueltig('Baustelle nicht gefunden.');
     pruefeSchreiben(req.ctx, bs);
+    require('../kostenstellen').nurBaustelle(bs, 'Bautagesberichte'); // 12.25
     const heute = wienDatum(bt.uhr());
     if (datum > heute) throw ungueltig('Ein Bericht kann nicht für ein zukünftiges Datum angelegt werden.');
     if (datum < plusTage(heute, -366)) throw ungueltig('Das Datum liegt mehr als ein Jahr zurück.');
@@ -439,6 +441,9 @@ module.exports = function berichtRouten(api, bt) {
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const body = v.objekt(req.body);
     pruefeBerichtVersion(body, b, true);
+    // Datenschutz: wer fremde Abwesenheiten nicht sieht (Polier), kann sie auch nicht löschen oder ändern –
+    // ausgeblendete Zeilen und ausgeblendete Codes bleiben beim Speichern erhalten
+    if (Array.isArray(body.personal) && require('../datenschutz').stufe(req.ctx) === 'keine') body.personal = abwesendeBehalten(req.ctx, b, body.personal);
     const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr() });
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
     db.transaktion(() => {
@@ -554,7 +559,7 @@ module.exports = function berichtRouten(api, bt) {
   api.delete('/berichte/:id/unterschrift/:rolle', (req, res) => {
     const b = ladeMitZugriff(req, true);
     const rolle = v.auswahl(req.params.rolle, 'rolle', ['an', 'bh']);
-    if (rolle === 'bh' && !['buero', 'gf'].includes(req.ctx.benutzer.rolle)) throw keinZugriff('Die Unterschrift des Bauherrn kann nur das Büro bzw. die Geschäftsführung zurückziehen.');
+    if (rolle === 'bh' && !require('../rechte').BUERO_ROLLEN.includes(req.ctx.benutzer.rolle)) throw keinZugriff('Die Unterschrift des Bauherrn kann nur das Büro bzw. die Geschäftsführung zurückziehen.');
     if (b.status !== 'entwurf') throw konflikt('Der Bericht ist vollständig unterschrieben – Unterschriften können nicht mehr zurückgezogen werden.');
     const alt = b.unterschriften.find((u) => u.rolle === rolle);
     if (!alt) throw nichtGefunden('Diese Unterschrift gibt es nicht.');
@@ -606,13 +611,32 @@ module.exports = function berichtRouten(api, bt) {
   });
 };
 
+/** Polier speichert Personal: verborgene Abwesenheits-Zeilen/-Codes anderer Personen unverändert übernehmen */
+function abwesendeBehalten(ctx, b, liste) {
+  const DS = require('../datenschutz');
+  const verborgen = (p) => p.benutzer_id !== ctx.benutzer.id && DS.ABWESENHEIT_CODES.includes(p.code);
+  const gespeichert = new Map(b.personal.map((p) => [p.benutzer_id, p]));
+  const out = liste.map((x) => {
+    const alt = x && gespeichert.get(Number(x.benutzerId));
+    if (alt && verborgen(alt) && (x.code === null || x.code === undefined || x.code === '')) return { ...x, code: alt.code };
+    return x;
+  });
+  const drin = new Set(out.map((x) => Number(x && x.benutzerId)));
+  for (const p of b.personal) {
+    if (verborgen(p) && !p.stunden && !p.von1 && !drin.has(p.benutzer_id)) {
+      out.push({ benutzerId: p.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, code: p.code, segStunden: 0 });
+    }
+  }
+  return out;
+}
+
 /** PDF eines Berichts (nie €): Fassung ag|intern, optional Fotoseiten (API.md 12.6) */
 async function berichtPdf(bt, b, { fassung = 'ag', benutzer = null, fotos = false } = {}) {
   const { db } = bt;
   const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
   // Bewusst ohne kostenTag: das PDF enthält nie €-Werte
   // R-01: PDFs (intern und AG) zeigen nie den Krankenstand – „abw.“ (ctx ohne Rechte und ohne Person maskiert K)
-  const daten = berichtJson(db, { benutzer: { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b);
+  const daten = berichtJson(db, { benutzer: { id: 0, rolle: 'buero' }, rechte: new Set(), hat: () => false }, b); // Stufe „maskiert“: K → abw., übrige Codes bleiben
   const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id) : null;
   return erzeugeBerichtPdf(daten, { fassung, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
 }

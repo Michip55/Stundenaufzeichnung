@@ -117,7 +117,7 @@ test('D-04, D-05, D-07, D-08, D-09, D-10', async (t) => {
     assert.match(csv, /Hinweis;Prüfen: Lukas Brandstätter 10\.11\.2026 – Genehmigte Abwesenheit „K“ und 8 Arbeitsstunden/);
   });
 
-  await t.test('D-09: Polier meldet SW für sich; Bauleiter der Stamm-Baustelle bestätigt SW', async () => {
+  await t.test('D-09: Polier meldet SW für sich; Bauleiter (wie Büro) bestätigt SW und Urlaub', async () => {
     const r = await pol.post('/abwesenheiten', { benutzerId: U.polier, datum: '2026-11-12', code: 'SW' });
     assert.equal(r.status, 201);
     assert.equal(r.daten.status, 'beantragt');
@@ -125,9 +125,11 @@ test('D-04, D-05, D-07, D-08, D-09, D-10', async (t) => {
     assert.equal((await bl.put(`/abwesenheiten/${r.daten.id}`, { status: 'genehmigt' })).status, 200);
     const fremd = await (await s.login(13)).post('/abwesenheiten', { benutzerId: 14, datum: '2026-11-12', code: 'SW' });
     assert.equal(fremd.status, 201);
-    assert.equal((await bl.put(`/abwesenheiten/${fremd.daten.id}`, { status: 'genehmigt' })).status, 403); // 26-044 gehört der GF
+    assert.equal(fremd.daten.status, 'gemeldet');
+    // Bauleiter wie Büro (13.11.2026): auch auf 26-044 (gehört der GF) und Urlaub
+    assert.equal((await bl.post(`/abwesenheiten/sw-meldungen/${fremd.daten.meldungId}/bestaetigen`, {})).status, 200);
     const u = await (await s.login(2)).post('/abwesenheiten', { benutzerId: 2, datum: '2026-11-20', code: 'U' });
-    assert.equal((await bl.put(`/abwesenheiten/${u.daten.id}`, { status: 'genehmigt' })).status, 403); // Urlaub nur Büro
+    assert.equal((await bl.put(`/abwesenheiten/${u.daten.id}`, { status: 'genehmigt' })).status, 200);
   });
 });
 
@@ -194,7 +196,8 @@ test('D-06: Testdaten nur im Demo-Modus, Einrichtung einer leeren Echt-Datenbank
     assert.equal(gf.pnr, 1);
     assert.equal(db.eins('SELECT COUNT(*) AS n FROM geraet').n, 23);
     assert.equal(db.eins('SELECT SUM(kostensatz) AS s FROM geraet').s, 0);
-    assert.equal(db.eins('SELECT COUNT(*) AS n FROM baustelle').n, 0);
+    assert.equal(db.eins('SELECT COUNT(*) AS n FROM baustelle WHERE intern = 0').n, 0);
+    assert.deepEqual(db.alle('SELECT kst, name FROM baustelle WHERE intern = 1').map((b) => [b.kst, b.name]), [['9000', 'Büro']]); // 12.25
     assert.equal(db.eins('SELECT muss_pin_aendern FROM benutzer').muss_pin_aendern, 0);
     assert.throws(() => einrichten(db, { name: 'Zweite GF', pnr: 2, pin: '582917' }), /bereits Benutzer/);
     db.schliessen();

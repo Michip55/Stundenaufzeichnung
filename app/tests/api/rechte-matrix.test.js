@@ -82,6 +82,7 @@ function platzhalter(F, rolle, variante) {
     // ohne Bereich
     anlage: F.anlage, zaehler: F.zaehler, zaehlerstand: F.zaehlerstand, planposition: F.planposition, vorlage: F.vorlage, mangel: F.mangel, eintrag: F.eintrag,
     katalogPos: F.katalogPos, katalogStand: F.katalogStand, preisStand: F.preisStand, kategorie: F.kategorie, lohnVorlage: F.lohnVorlage, lohngruppeVerlauf: F.lohngruppeVerlauf,
+    swMeldung: F.swMeldung,
     dummy: F.dummyBenutzer, buchungAnderer: F.buchung.anderer, schichtAnderer: F.schicht.anderer, token: F.bericht.bs1Token,
     jpeg: testJpeg().toString('base64'), pdf: H.kleinesPdf('Probe').toString('base64')
   };
@@ -283,7 +284,7 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
-  await t.test('Ausnahmen: gesperrte Rechte lassen sich nicht vergeben; mit allen übrigen Ausnahmen bleiben MA/Polier €-frei und der Bauleiter ohne Preis-/Lohnbearbeitung', async () => {
+  await t.test('Ausnahmen: gesperrte Rechte lassen sich nicht vergeben; mit allen übrigen Ausnahmen bleiben MA/Polier €-frei und der Bauleiter (= Büro) ohne GF-Vorbehalte', async () => {
     const v = [];
     const k = await H.starteKopie(basis);
     try {
@@ -320,8 +321,8 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
           }
         }
       }
-      // Bauleiter: preise_bearbeiten/lohn bleiben aus, auch mit allen Ausnahmen
-      for (const [m, p, b] of [['PUT', '/preise/leistungen/3', { feld: 'ep', wert: 1 }], ['GET', '/monat', undefined], ['GET', '/monat/export.csv', undefined], ['POST', `/baustellen/${BS.pitten}/nachtraege`, { text: 'x', betrag: 1 }], ['POST', `/baustellen/${BS.pitten}/rechnungen`, { nr: 'X-1', typ: 'teil', datum: '2026-11-01', netto: 1 }]]) {
+      // Bauleiter (= Büro, Owner-Entscheidung 13.11.2026): GF-Vorbehalte bleiben aus, auch mit allen Ausnahmen
+      for (const [m, p, b] of [['GET', '/rechte', undefined], ['PUT', '/rechte/matrix', { rolle: 'polier', recht: 'kolonne', wert: true }], ['PUT', '/rechte/ausnahme', { benutzerId: ID.mitarbeiter, recht: 'kolonne', wert: true }], ['PUT', `/benutzer/${ID.gf}`, { name: 'X' }], ['PUT', `/benutzer/${ID.buero}`, { name: 'X' }]]) {
         const r = await kc.bauleiter.anfrage(m, p, b);
         if (r.status !== 403) v.push(`Bauleiter mit allen Ausnahmen ${m} ${p} → ${r.status} (erwartet 403)`);
       }

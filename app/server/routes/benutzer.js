@@ -31,7 +31,7 @@ function telefonPruefen(t) {
 }
 
 function benutzerVoll(b) {
-  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null };
+  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null };
 }
 
 module.exports = function benutzerRouten(api, bt) {
@@ -108,6 +108,15 @@ module.exports = function benutzerRouten(api, bt) {
         const id = v.id(body.baustelleId, 'baustelleId');
         if (!db.eins('SELECT id FROM baustelle WHERE id = ?', id)) throw ungueltig('baustelleId: Baustelle nicht gefunden.');
         f.baustelle_id = id;
+      }
+    }
+    if (body.standardKostenstelleId !== undefined) { // 12.25: Standard beim Einstempeln (z. B. Büro, Werkstatt)
+      if (body.standardKostenstelleId === null) f.standard_kostenstelle_id = null;
+      else {
+        const id = v.id(body.standardKostenstelleId, 'standardKostenstelleId');
+        const bs = db.eins("SELECT id FROM baustelle WHERE id = ? AND status <> 'abgeschlossen'", id);
+        if (!bs) throw ungueltig('standardKostenstelleId: Kostenstelle nicht gefunden oder abgeschlossen.');
+        f.standard_kostenstelle_id = id;
       }
     }
     if (body.pnr !== undefined) f.pnr = v.zahl(body.pnr, 'pnr', { min: 1, max: 999999, ganz: true, pflicht: false });

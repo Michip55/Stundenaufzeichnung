@@ -49,7 +49,7 @@ test('Importe und Exporte BMD/Auer', async (t) => {
     assert.match(r.daten.zeilenFehler[0].text, /höher/);
     assert.equal(r.daten.zeilenFehler[0].zeile, 2);
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM rechnung_zahlung').n, vor);
-    assert.equal((await c.bauleiter.post('/import/bmd-op', { dateiBase64: b64(datei) })).status, 403);
+    assert.equal((await c.polier.post('/import/bmd-op', { dateiBase64: b64(datei), vorschau: true })).status, 403); // Bauleiter wie Büro (13.11.2026)
     // Zuordnung ändern (Spaltennummern)
     const z2 = await c.buero.put('/import/bmd-op/zuordnung', { spalten: { belegnr: 1, offen: 5 }, kodierung: 'utf-8' });
     assert.equal(z2.daten.spalten.belegnr, 1);
@@ -73,7 +73,8 @@ test('Importe und Exporte BMD/Auer', async (t) => {
   <onlv:Position><onlv:PosNr>01.02.01</onlv:PosNr><onlv:Stichwort><![CDATA[Humus abtragen & lagern]]></onlv:Stichwort><onlv:ME>m3</onlv:ME><onlv:Menge>120.5</onlv:Menge><onlv:EP>8.40</onlv:EP><onlv:GP>1012.20</onlv:GP></onlv:Position>
   <onlv:position oz="01.03.01"><onlv:kurztext>Frostschutz liefern</onlv:kurztext><onlv:einheit>t</onlv:einheit><onlv:menge>300</onlv:menge><onlv:ep>14.50</onlv:ep><onlv:gp>4400</onlv:gp></onlv:position>
 </onlv:gliederung></onlv:lv></onlv:onlv>`;
-    assert.equal((await c.bauleiter.post(`/baustellen/${BS.pitten}/lv-import`, { dateiBase64: b64(xml), dateiname: 'lv.onlv' })).status, 403);
+    assert.equal((await c.polier.post(`/baustellen/${BS.pitten}/lv-import`, { dateiBase64: b64(xml), dateiname: 'lv.onlv' })).status, 403);
+    assert.equal((await c.bauleiter.post(`/baustellen/${BS.pitten}/lv-import`, { dateiBase64: b64(xml), dateiname: 'lv.onlv', vorschau: true })).status, 200); // wie Büro
     let r = await c.buero.post(`/baustellen/${BS.pitten}/lv-import`, { dateiBase64: b64(xml), dateiname: 'lv.onlv', vorschau: true });
     assert.equal(r.status, 200);
     assert.equal(r.daten.format, 'oenorm_a2063');
@@ -107,7 +108,8 @@ test('Importe und Exporte BMD/Auer', async (t) => {
   });
 
   await t.test('Lohn-Vorlage BMD NTCS: vorinstalliert, änderbar, Export', async () => {
-    assert.equal((await c.bauleiter.get('/lohn-vorlagen')).status, 403);
+    assert.equal((await c.polier.get('/lohn-vorlagen')).status, 403);
+    assert.equal((await c.bauleiter.get('/lohn-vorlagen')).status, 200); // wie Büro
     const l = (await c.buero.get('/lohn-vorlagen')).daten;
     const bmd = l.find((x) => x.id === 'bmd-ntcs');
     assert.match(bmd.name, /mit Lohnverrechnung abstimmen/);

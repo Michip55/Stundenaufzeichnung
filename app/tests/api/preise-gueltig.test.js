@@ -22,8 +22,12 @@ test('Preise mit „gültig ab“', async (t) => {
       assert.equal((await c[r].get('/positionen/katalog/1/verlauf')).status, 403);
     }
     assert.equal((await c.bauleiter.get('/preise/lohngruppen/fa/verlauf')).status, 200);
-    assert.equal((await c.bauleiter.put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 1 })).status, 403);
-    assert.equal((await c.bauleiter.del('/preise/lohngruppen/fa/verlauf/1')).status, 403);
+    // Bauleiter wie Büro (13.11.2026): darf ändern (hier nur ungültig → 400, kein 403)
+    assert.equal((await c.bauleiter.put('/preise/lohngruppen/fa', { feld: 'quatsch', wert: 1 })).status, 400);
+    for (const r of ['mitarbeiter', 'polier']) {
+      assert.equal((await c[r].put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 1 })).status, 403);
+      assert.equal((await c[r].del('/preise/lohngruppen/fa/verlauf/1')).status, 403);
+    }
     const v = (await c.buero.get('/preise/lohngruppen/fa/verlauf')).daten;
     assert.deepEqual(v.map((x) => [x.feld, x.gueltigAb]), [['kostensatz', '2000-01-01'], ['regiesatz', '2000-01-01']]);
   });

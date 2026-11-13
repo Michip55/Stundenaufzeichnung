@@ -116,7 +116,8 @@ test('C-04, C-02, C-06, C-08, C-11', async (t) => {
     assert.match(r.daten.fehler, /Krankenstand/);
     const k = await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [6, 3], typ: 'kommen' });
     assert.ok(k.daten.ergebnisse.every((x) => !x.ok));
-    assert.match(k.daten.ergebnisse.find((x) => x.benutzerId === 3).fehler, /Urlaub/);
+    // Owner-Regel: neutraler Text, kein Grund für den Polier
+    for (const x of k.daten.ergebnisse) assert.equal(x.fehler, 'Diese Person kann heute nicht über die Kolonne gestempelt werden – bitte Büro kontaktieren.');
     const g = await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [6], typ: 'kommen', gast: true });
     assert.equal(g.daten.ergebnisse[0].ok, false);
   });

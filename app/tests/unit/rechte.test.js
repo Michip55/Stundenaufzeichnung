@@ -7,7 +7,8 @@ test('Standard-Matrix entspricht API.md', () => {
   const eff = (rolle) => R.effektiveRechte(rolle, R.STANDARD_MATRIX[rolle], []);
   assert.deepEqual([...eff('mitarbeiter')].sort(), ['zeit_eigen']);
   assert.deepEqual([...eff('polier')].sort(), ['bericht_erstellen', 'kolonne', 'zeit_eigen']);
-  assert.deepEqual([...eff('bauleiter')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'kalk_sehen', 'kolonne', 'preise_sehen', 'zeit_eigen']);
+  // Inhaber 13.11.2026: Bauleiter in allem wie Büro
+  assert.deepEqual([...eff('bauleiter')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
   assert.deepEqual([...eff('buero')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
   assert.equal(eff('gf').size, R.RECHT_SCHLUESSEL.length);
 });
@@ -28,8 +29,10 @@ test('Ausnahmen erweitern die Rolle', () => {
   assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['kolonne']).has('kolonne'), true);
 });
 
-test('Bauleiter: Preise bearbeiten, Lohn und Stammdaten gesperrt (Konzept 2.2, C-05)', () => {
-  assert.equal(R.effektiveRechte('bauleiter', {}, ['preise_bearbeiten', 'lohn', 'stammdaten']).size, 0);
+test('Bauleiter wie Büro (13.11.2026): Preise, Lohn, Stammdaten vergebbar; nur benutzer gesperrt', () => {
+  assert.deepEqual([...R.effektiveRechte('bauleiter', {}, ['preise_bearbeiten', 'lohn', 'stammdaten'])].sort(), ['lohn', 'preise_bearbeiten', 'stammdaten']);
+  assert.equal(R.effektiveRechte('bauleiter', {}, ['benutzer']).has('benutzer'), false);
+  assert.deepEqual(R.GESPERRT.bauleiter, R.GESPERRT.buero);
 });
 
 test('GF behält immer das Recht benutzer', () => {
@@ -37,10 +40,10 @@ test('GF behält immer das Recht benutzer', () => {
   assert.equal(R.istImmer('gf', 'benutzer'), true);
 });
 
-test('Bereich: Bauleiter nur eigene Baustellen, Polier Partie, Büro/GF alle', () => {
+test('Bereich: Bauleiter wie Büro alle Baustellen (13.11.2026), Polier Partie, Büro/GF alle', () => {
   const bs = { id: 5, polier_id: 1, bauleiter_id: 103 };
   assert.equal(R.baustelleImBereich({ id: 103, rolle: 'bauleiter' }, bs), true);
-  assert.equal(R.baustelleImBereich({ id: 104, rolle: 'bauleiter' }, bs), false);
+  assert.equal(R.baustelleImBereich({ id: 104, rolle: 'bauleiter' }, bs), true);
   assert.equal(R.baustelleImBereich({ id: 1, rolle: 'polier' }, bs), true);
   assert.equal(R.baustelleImBereich({ id: 8, rolle: 'polier', baustelle_id: 5 }, bs), true);
   assert.equal(R.baustelleImBereich({ id: 8, rolle: 'polier', baustelle_id: 2 }, bs), false);
@@ -49,11 +52,11 @@ test('Bereich: Bauleiter nur eigene Baustellen, Polier Partie, Büro/GF alle', (
   assert.equal(R.baustelleImBereich({ id: 102, rolle: 'gf' }, null), false);
 });
 
-test('darfPreise/darfKalk: Bauleiter nur eigene Baustellen', () => {
+test('darfPreise/darfKalk: Bauleiter wie Büro für alle Baustellen (13.11.2026)', () => {
   const ctx = { benutzer: { id: 103, rolle: 'bauleiter' }, rechte: new Set(['preise_sehen', 'kalk_sehen']) };
   assert.equal(R.darfKalk(ctx, { bauleiter_id: 103 }), true);
-  assert.equal(R.darfKalk(ctx, { bauleiter_id: 102 }), false);
-  assert.equal(R.darfPreise(ctx, { bauleiter_id: 102 }), false);
+  assert.equal(R.darfKalk(ctx, { bauleiter_id: 102 }), true);
+  assert.equal(R.darfPreise(ctx, { bauleiter_id: 102 }), true);
   const buero = { benutzer: { id: 101, rolle: 'buero' }, rechte: new Set(['preise_sehen', 'kalk_sehen']) };
   assert.equal(R.darfKalk(buero, { bauleiter_id: 103 }), true);
   const polier = { benutzer: { id: 1, rolle: 'polier' }, rechte: new Set(['bericht_erstellen']) };
@@ -78,7 +81,8 @@ test('B-01: benutzer nur GF; stammdaten für Polier/Mitarbeiter gesperrt', () =>
     assert.equal(R.effektiveRechte(rolle, { benutzer: true }, ['benutzer']).has('benutzer'), false, rolle);
   }
   assert.equal(R.effektiveRechte('polier', { stammdaten: true }, ['stammdaten']).has('stammdaten'), false);
-  assert.equal(R.effektiveRechte('bauleiter', {}, ['stammdaten']).has('stammdaten'), false); // C-05
+  assert.equal(R.effektiveRechte('bauleiter', {}, ['stammdaten']).has('stammdaten'), true); // Bauleiter wie Büro (13.11.2026)
+  assert.equal(R.effektiveRechte('mitarbeiter', {}, ['stammdaten']).has('stammdaten'), false);
 });
 
 test('B-03: PIN-Regeln je Rolle', () => {

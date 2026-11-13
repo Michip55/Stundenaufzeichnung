@@ -29,8 +29,9 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   api.post('/baustellen/:id/fertigmeldung', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
-    const zustaendig = (ich.rolle === 'polier' && baustelleImBereich(ich, bs)) || (ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id);
-    if (!zustaendig) throw keinZugriff('Die Fertigstellung melden Polier und Bauleiter der Baustelle.');
+    // Inhaber 13.11.2026: Bauleiter = Büro – er meldet nicht, er bestätigt (Phasenwechsel „fertiggestellt“)
+    const zustaendig = ich.rolle === 'polier' && baustelleImBereich(ich, bs);
+    if (!zustaendig) throw keinZugriff('Die Fertigstellung meldet der Polier der Baustelle; Büro und Bauleiter bestätigen sie über die Phase.');
     if (bs.phase !== 'in_arbeit') throw konflikt('Fertigmeldung nur für Baustellen „In Arbeit“.');
     const body = v.objekt(req.body);
     const notiz = body.notiz == null ? '' : v.text(body.notiz, 'notiz', { max: 500, pflicht: false });

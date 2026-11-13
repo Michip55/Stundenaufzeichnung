@@ -45,6 +45,7 @@ function zeitStatus(db, benutzerId, jetzt) {
         .map((b) => ({ typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(new Date(b.zeit)), baustelleId: b.baustelleId, quelle: b.quelle }))
     },
     geplant: require('./planer').geplantHeute(db, benutzerId, heute), // 12.8: nur veröffentlichte Einsätze
+    standardKostenstelleId: require('../kostenstellen').standardFuer(db, benutzerId), // 12.25: Büro/Bauleiter/GF → „Büro“
     warnungen
   };
 }
@@ -89,9 +90,9 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U')", benutzerId, wienDatum(zeitpunkt));
       // R-01: Grund nur für die Person selbst; Kolonne/Polier erfahren nur „Abwesenheit“
       if (abw) {
-        // R-01: Krankenstand nennen nur für die Person selbst (Kolonne/Polier: „eine Abwesenheit“); Urlaub ist kein Gesundheitsdatum
-        const grund = abw.code === 'U' ? 'Urlaub' : erfasstVon === benutzerId ? 'Krankenstand' : 'eine Abwesenheit';
-        throw konflikt(`Für diesen Tag ist ${grund} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
+        // Inhaber 13.11.2026: über die Kolonne nie ein Grund (auch nicht „abwesend“) – nur die Person selbst erfährt ihn
+        if (erfasstVon !== benutzerId) throw konflikt(require('../datenschutz').KOLONNE_NEUTRAL);
+        throw konflikt(`Für diesen Tag ist ${abw.code === 'K' ? 'Krankenstand' : 'Urlaub'} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
       }
     }
     const p = pruefeBuchung(akt, typ, bsId);
@@ -180,7 +181,8 @@ module.exports = function zeitRouten(api, bt) {
       const partie = b.baustelle_id === bs.id || bs.polier_id === b.id;
       if (!partie && st.baustelleId !== bs.id && !(mitPlan && geplant.has(b.id))) continue;
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt));
-      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw ? require('../datenschutz').code(req.ctx, b.id, abw.code) : null, ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw && require('../datenschutz').siehtAbwesenheit(req.ctx, b.id) ? require('../datenschutz').code(req.ctx, b.id, abw.code) : null,
+        kolonneMoeglich: !(abw && ['K', 'U'].includes(abw.code)), ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
     }
     res.json(out);
   });

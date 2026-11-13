@@ -14,7 +14,7 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
   const o = {
     id: bs.id, kst: bs.kst, name: bs.name, kurz: bs.kurz, auftraggeber: bs.auftraggeber, agAdresse: bs.ag_adresse,
     bauvorhaben: bs.bauvorhaben, adresse: bs.adresse, bauherrVertreter: bs.bauherr_vertreter, art: bs.art,
-    status: bs.status, intern: bs.intern === 1, polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
+    status: bs.status, intern: bs.intern === 1, kostenstelle: bs.intern === 1 ? 'intern' : 'baustelle', polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
     beginn: bs.beginn, ende: bs.ende, version: bs.version,
     lat: bs.lat, lng: bs.lng
   };
@@ -61,7 +61,7 @@ function pruefeVersion(body, aktuell, was = 'Die Baustelle') {
 
 /** Bauleiter-/Polier-Zuordnung ändern nur Büro und GF (C-05) */
 function pruefeZuordnung(ctx, body) {
-  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !['buero', 'gf'].includes(ctx.benutzer.rolle)) {
+  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !require('../rechte').BUERO_ROLLEN.includes(ctx.benutzer.rolle)) {
     throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet nur das Büro bzw. die Geschäftsführung zu.');
   }
 }

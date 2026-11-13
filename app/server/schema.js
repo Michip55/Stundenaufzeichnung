@@ -1161,6 +1161,46 @@ CREATE TRIGGER plan_tag_merken AFTER INSERT ON plan_einsatz BEGIN
   INSERT OR IGNORE INTO plan_tag (datum, gespeichert) VALUES (NEW.datum, NEW.erstellt);
 END;
 `
+  },
+  {
+    version: 26,
+    name: 'Datenschutz: Schlechtwetter-Meldungen des Poliers ohne Auskunft über Abwesenheiten (13.11.2026)',
+    sql: `
+CREATE TABLE sw_meldung (
+  id INTEGER PRIMARY KEY,
+  polier_id INTEGER NOT NULL REFERENCES benutzer(id),
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
+  von TEXT NOT NULL, bis TEXT NOT NULL,
+  antrag_id TEXT NOT NULL,
+  notiz TEXT,
+  status TEXT NOT NULL DEFAULT 'gemeldet' CHECK (status IN ('gemeldet','bestaetigt')),
+  erstellt TEXT NOT NULL,
+  bestaetigt TEXT, bestaetigt_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX sw_meldung_polier ON sw_meldung(polier_id);
+CREATE INDEX sw_meldung_antrag ON sw_meldung(antrag_id);
+`
+  },
+  {
+    version: 27,
+    name: 'Inhaber 13.11.2026: Bauleiter in allem wie Büro (Rechte-Matrix)',
+    sql: `
+-- Bestehende Datenbanken: Matrix der Rolle bauleiter = Matrix der Rolle buero (Ausnahmen je Person bleiben)
+DELETE FROM rolle_recht WHERE rolle = 'bauleiter' AND EXISTS (SELECT 1 FROM rolle_recht WHERE rolle = 'buero');
+INSERT INTO rolle_recht (rolle, recht, wert) SELECT 'bauleiter', recht, wert FROM rolle_recht WHERE rolle = 'buero';
+INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
+  SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'recht', 'rolle:bauleiter', NULL, '{"wieRolle":"buero"}',
+    'Rechte-Matrix: Rolle Bauleiter erhält die Rechte der Rolle Büro (Entscheidung des Inhabers 13.11.2026)'
+  WHERE EXISTS (SELECT 1 FROM rolle_recht WHERE rolle = 'bauleiter');
+`
+  },
+  {
+    version: 28,
+    name: '12.25: interne Kostenstellen, Standard-Kostenstelle je Person',
+    sql: `
+-- Die Kostenstellen-Art ist das bestehende Kennzeichen baustelle.intern (0 = Baustelle, 1 = interne Kostenstelle).
+ALTER TABLE benutzer ADD COLUMN standard_kostenstelle_id INTEGER REFERENCES baustelle(id);
+`
   }
 ];
 

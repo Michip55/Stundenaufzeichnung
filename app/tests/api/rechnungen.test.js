@@ -11,13 +11,13 @@ test('Ausgangsrechnungen', async (t) => {
   for (const r of ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf']) c[r] = await s.login(U[r]);
   let r1, r2;
 
-  await t.test('Rechte: Polier/Mitarbeiter 403, Bauleiter nur lesen (eigene), Büro schreibt', async () => {
+  await t.test('Rechte: Polier/Mitarbeiter 403, Bauleiter wie Büro (13.11.2026)', async () => {
     for (const r of ['mitarbeiter', 'polier']) {
       assert.equal((await c[r].get('/rechnungen')).status, 403);
       assert.equal((await c[r].get('/offene-posten')).status, 403);
       assert.equal((await c[r].post(`/baustellen/${BS.pitten}/rechnungen`, { nr: 'X', typ: 'teil', datum: '2026-11-01', netto: 1 })).status, 403);
     }
-    assert.equal((await c.bauleiter.post(`/baustellen/${BS.pitten}/rechnungen`, { nr: 'X', typ: 'teil', datum: '2026-11-01', netto: 1 })).status, 403);
+    assert.equal((await c.bauleiter.post(`/baustellen/${BS.pitten}/rechnungen`, { nr: 'X', typ: 'quatsch', datum: '2026-11-01', netto: 1 })).status, 400); // darf schreiben, nur ungültig
   });
 
   await t.test('Berechnung: USt, Haftrücklass, Fälligkeit, Skontofrist (Rundung je Schritt)', async () => {
@@ -47,10 +47,10 @@ test('Ausgangsrechnungen', async (t) => {
     assert.equal((await c.buero.put(`/rechnungen/${r2.id}`, { version: r2.version, netto: 1 })).status, 409);
   });
 
-  await t.test('Bauleiter liest eigene; €-Schutz', async () => {
+  await t.test('Bauleiter liest alle (wie Büro); €-Schutz', async () => {
     const l = (await c.bauleiter.get('/rechnungen')).daten;
-    assert.ok(l.some((x) => x.id === r1.id) && l.some((x) => x.id === r2.id)); // beide eigene Baustellen
-    assert.equal((await c.bauleiter.put(`/rechnungen/${r2.id}`, { version: 1, notiz: 'x' })).status, 403);
+    assert.ok(l.some((x) => x.id === r1.id) && l.some((x) => x.id === r2.id));
+    assert.equal((await c.bauleiter.put(`/rechnungen/${r2.id}`, { version: 9999, notiz: 'x' })).status, 409); // darf schreiben (veraltete Version)
     s.db.lauf("UPDATE rolle_recht SET wert = 0 WHERE rolle = 'bauleiter' AND recht = 'preise_sehen'");
     try {
       assert.equal((await c.bauleiter.get(`/rechnungen/${r1.id}`)).status, 403);

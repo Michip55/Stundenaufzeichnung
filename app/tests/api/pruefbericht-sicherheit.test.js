@@ -45,7 +45,7 @@ test('B-01: jede Rolle × jedes vergebbare Recht × jede Route – keine €-Lec
                 '/positionen/katalog', `/baustellen/${BS.pitten}/positionen`, `/baustellen/${BS.pitten}/positionen/export.xlsx`].includes(p)) assert.equal(r.status, 403, p);
               if (r.status === 200) assert.deepEqual(euroFelder(r.daten), [], `${rolle}+${recht} ${p}`);
             }
-            if (p === '/rechte' || (p === '/benutzer' && rolle !== 'buero')) assert.equal(r.status, 403, `${rolle}+${recht} ${p}`);
+            if (p === '/rechte' || (p === '/benutzer' && !['buero', 'bauleiter'].includes(rolle))) assert.equal(r.status, 403, `${rolle}+${recht} ${p}`);
           }
           // keine Selbstbeförderung, keine Rechtevergabe
           assert.equal((await c.put(`/benutzer/${uid}`, { rolle: 'gf' })).status, 403);

@@ -21,7 +21,7 @@ test('Stammdaten verwalten', async (t) => {
         assert.equal((await c[r].post(`/stammdaten/${art}`, { code: 'x1', name: 'X' })).status, 403);
       }
       assert.equal((await c.bauleiter.get(`/stammdaten/${art}`)).status, 200, art);
-      assert.equal((await c.bauleiter.post(`/stammdaten/${art}`, { code: 'x1', name: 'X', text: 'X', einheit: 'Std.' })).status, 403, art);
+      assert.equal((await c.bauleiter.post(`/stammdaten/${art}`, {})).status, 400, art); // Bauleiter wie Büro: darf, nur ungültig
     }
     assert.equal((await c.buero.get('/stammdaten/lohngruppen')).status, 200);
   });

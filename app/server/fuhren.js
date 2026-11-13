@@ -46,8 +46,9 @@ function haltPruefen(db, roh, feld, erlaubt, standard) {
   if (!erlaubt.includes(art)) throw ungueltig(`${feld}.art muss ${erlaubt.join('|')} sein.`);
   const o = { art };
   if (art === 'baustelle') {
-    const bs = db.eins('SELECT id, kst, name, kurz, adresse, lat, lng FROM baustelle WHERE id = ?', Number(roh.baustelleId));
+    const bs = db.eins('SELECT id, kst, name, kurz, adresse, lat, lng, intern FROM baustelle WHERE id = ?', Number(roh.baustelleId));
     if (!bs) throw ungueltig(`${feld}.baustelleId: Baustelle nicht gefunden.`);
+    require('./kostenstellen').nurBaustelle(bs, 'Fuhren-Ziele'); // 12.25: als Ziel nur echte Baustellen (Grube/Adresse sonst)
     o.baustelleId = bs.id;
     o.text = roh.text ? String(roh.text).slice(0, 200) : `${bs.kurz || bs.name}${bs.adresse ? `, ${bs.adresse}` : ''}`;
     if (bs.lat != null && bs.lng != null) { o.lat = bs.lat; o.lon = bs.lng; }

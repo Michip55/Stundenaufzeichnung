@@ -56,7 +56,8 @@ test('Urlaub', async (t) => {
   });
 
   await t.test('Betriebsurlaub: Vorschau mit Konflikten, dann anlegen (Feiertage/Wochenende übersprungen)', async () => {
-    assert.equal((await c.bauleiter.post('/urlaub/betriebsurlaub', { von: '2026-12-21', bis: '2027-01-08', alle: true })).status, 403);
+    for (const r of ['mitarbeiter', 'polier']) assert.equal((await c[r].post('/urlaub/betriebsurlaub', { von: '2026-12-21', bis: '2027-01-08', alle: true, vorschau: true })).status, 403, r);
+    assert.equal((await c.bauleiter.post('/urlaub/betriebsurlaub', { von: '2026-12-21', bis: '2027-01-08', alle: true, vorschau: true })).status, 200); // Bauleiter wie Büro
     abw(U.mitarbeiter, '2026-12-23', 'K');
     let r = await c.buero.post('/urlaub/betriebsurlaub', { von: '2026-12-21', bis: '2027-01-08', baustelleIds: [BS.pitten], vorschau: true });
     assert.equal(r.status, 200);

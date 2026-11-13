@@ -43,14 +43,15 @@ test('Anmeldung, Sitzung, Abmeldung, Sperre', async (t) => {
     assert.equal(ich.status, 200);
     assert.equal(ich.daten.benutzer.rolle, 'buero');
     assert.ok(ich.daten.rechte.includes('lohn'));
-    assert.equal(ich.daten.baustellenIds.length, 8);
+    assert.equal(ich.daten.baustellenIds.length, 10); // 8 + interne Kostenstellen Büro (9000), Werkstatt (9100) – 12.25
     // Session-Token wird nur gehasht gespeichert
     const tok = c.cookie.split('=')[1];
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM sitzung WHERE token_hash = ?', tok).n, 0);
   });
 
   await t.test('baustellenIds je Rolle', async () => {
-    assert.deepEqual((await (await s.login(U.bauleiter)).get('/auth/ich')).daten.baustellenIds.sort(), [1, 2, 5, 7]);
+    // Bauleiter wie Büro (13.11.2026): alle Baustellen und Kostenstellen
+    assert.equal((await (await s.login(U.bauleiter)).get('/auth/ich')).daten.baustellenIds.length, 10);
     assert.deepEqual((await (await s.login(U.polier)).get('/auth/ich')).daten.baustellenIds, [1]);
     assert.deepEqual((await (await s.login(U.mitarbeiter)).get('/auth/ich')).daten.baustellenIds, [1]);
   });

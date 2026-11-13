@@ -26,7 +26,7 @@ test('Zeitraum-Anträge', async (t) => {
     assert.equal((await r('polier', { benutzerId: 4, von: VON, bis: BIS, code: 'SW' })).status, 200); // Partie
     assert.equal((await r('polier', { benutzerId: 4, von: VON, bis: BIS, code: 'U' })).status, 403);
     assert.equal((await r('polier', { benutzerId: 9, von: VON, bis: BIS, code: 'SW' })).status, 403); // nicht seine Partie
-    assert.equal((await r('bauleiter', { benutzerId: 4, von: VON, bis: BIS, code: 'U' })).status, 403);
+    assert.equal((await r('bauleiter', { benutzerId: 4, von: VON, bis: BIS, code: 'U' })).status, 200); // Bauleiter wie Büro (13.11.2026)
     assert.equal((await r('buero', { benutzerId: 3, von: VON, bis: BIS, code: 'K' })).status, 200);
     assert.equal((await r('buero', { benutzerId: 3, von: VON, bis: '2027-02-03', code: 'U' })).status, 400); // > 62 Tage
     assert.equal((await r('buero', { benutzerId: 3, von: BIS, bis: VON, code: 'U' })).status, 400);
@@ -47,8 +47,9 @@ test('Zeitraum-Anträge', async (t) => {
     assert.deepEqual(r.daten.konto, { rest, restNachAntrag: rest - 7 });
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM abwesenheit').n, n0);
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM benachrichtigung').n, m0);
-    // Konto nur für U und nur mit Einsicht
-    assert.equal((await c.polier.post('/abwesenheiten/zeitraum', { benutzerId: 4, von: VON, bis: BIS, code: 'SW', vorschau: true })).daten.konto, null);
+    // Schlechtwetter-Meldung des Poliers: keine Konto-/Tagesauskunft (Inhaber 13.11.2026)
+    const sw = (await c.polier.post('/abwesenheiten/zeitraum', { benutzerId: 4, von: VON, bis: BIS, code: 'SW', vorschau: true })).daten;
+    assert.deepEqual(Object.keys(sw).sort(), ['arbeitstage', 'benutzerId', 'bis', 'code', 'text', 'von', 'vorschau']);
   });
 
   await t.test('Anlegen: ein Antrag, genau eine Benachrichtigung je Büro/GF', async () => {
@@ -94,15 +95,15 @@ test('Zeitraum-Anträge', async (t) => {
     assert.match(r.daten.fehler, /ganzen Antrag/);
     assert.equal((await c.mitarbeiter.put(`/abwesenheiten/antraege/${aid}`, { status: 'genehmigt' })).status, 403);
     assert.equal((await c.polier.put(`/abwesenheiten/antraege/${aid}`, { status: 'genehmigt' })).status, 403);
-    assert.equal((await c.bauleiter.put(`/abwesenheiten/antraege/${aid}`, { status: 'genehmigt' })).status, 403); // nur SW
+
     assert.equal((await c.buero.put('/abwesenheiten/antraege/xyz-!', { status: 'genehmigt' })).status, 400);
     assert.equal((await c.buero.put('/abwesenheiten/antraege/gibtsnicht', { status: 'genehmigt' })).status, 404);
     const vorher = meldungen(U.mitarbeiter).length;
     const kVor = await kontoMa();
-    const g = await c.buero.put(`/abwesenheiten/antraege/${aid}`, { status: 'genehmigt', antwort: 'Schönen Urlaub' });
+    const g = await c.bauleiter.put(`/abwesenheiten/antraege/${aid}`, { status: 'genehmigt', antwort: 'Schönen Urlaub' }); // Bauleiter wie Büro
     assert.equal(g.status, 200, JSON.stringify(g.daten));
     assert.equal(g.daten.status, 'genehmigt');
-    assert.ok(zeilen(U.mitarbeiter, VON, BIS).every((a) => a.status === 'genehmigt' && a.entschieden_von === U.buero && a.antwort === 'Schönen Urlaub'));
+    assert.ok(zeilen(U.mitarbeiter, VON, BIS).every((a) => a.status === 'genehmigt' && a.entschieden_von === U.bauleiter && a.antwort === 'Schönen Urlaub'));
     const neu = meldungen(U.mitarbeiter).slice(vorher);
     assert.equal(neu.length, 1);
     assert.equal(neu[0].titel, 'Urlaub genehmigt');
@@ -131,7 +132,7 @@ test('Zeitraum-Anträge', async (t) => {
     assert.ok(zeilen(U.mitarbeiter, '2026-11-25', '2026-11-26').every((a) => a.antrag_id === neu.daten.antragId && a.status === 'beantragt'));
     assert.equal((await antrag('buero', r.daten.antragId)).arbeitstage, 1); // 24.11. bleibt abgelehnt
     // Zurückziehen: eigen und offen ja, fremd nein, entschieden nein
-    assert.equal((await c.polier.del(`/abwesenheiten/antraege/${neu.daten.antragId}`)).status, 403);
+    assert.equal((await c.polier.del(`/abwesenheiten/antraege/${neu.daten.antragId}`)).status, 404); // fremde Anträge sind für den Polier unsichtbar
     const w = await c.mitarbeiter.del(`/abwesenheiten/antraege/${neu.daten.antragId}`);
     assert.deepEqual(w.daten, { ok: true, geloescht: 2 });
     assert.equal((await c.mitarbeiter.del(`/abwesenheiten/antraege/${aid}`)).status, 409);
@@ -173,16 +174,18 @@ test('Zeitraum-Anträge', async (t) => {
     assert.equal(k.daten.konto, null);
     assert.equal(s.db.alle('SELECT * FROM benachrichtigung WHERE schluessel = ?', `abw:antrag:${k.daten.antragId}`).length, 0); // genehmigt: keine Antragsmeldung
     assert.equal((await antrag('buero', k.daten.antragId)).code, 'K');
-    const pol = await antrag('polier', k.daten.antragId);
-    assert.equal(pol.code, 'abwesend');
+    assert.equal((await antrag('bauleiter', k.daten.antragId)).code, 'K'); // Bauleiter wie Büro
+    assert.equal(await antrag('polier', k.daten.antragId), undefined); // Polier sieht fremde Abwesenheiten gar nicht
     assert.equal(await antrag('mitarbeiter', k.daten.antragId), undefined);
-    // SW durch den Polier für seine Partie → Bauleiter der Stamm-Baustelle entscheidet als Ganzes
+    // SW durch den Polier für seine Partie → „gemeldet“, das Büro (auch Bauleiter) bestätigt
     const sw = await c.polier.post('/abwesenheiten/zeitraum', { benutzerId: 4, von: '2026-11-12', bis: '2026-11-13', code: 'SW' });
     assert.equal(sw.status, 201, JSON.stringify(sw.daten));
-    assert.equal(sw.daten.status, 'beantragt');
-    const e = await c.bauleiter.put(`/abwesenheiten/antraege/${sw.daten.antragId}`, { status: 'genehmigt' });
+    assert.equal(sw.daten.status, 'gemeldet');
+    assert.equal(sw.daten.text, 'Schlechtwetter gemeldet – das Büro bestätigt.');
+    const e = await c.bauleiter.post(`/abwesenheiten/sw-meldungen/${sw.daten.meldungId}/bestaetigen`, {});
     assert.equal(e.status, 200);
-    assert.equal(e.daten.status, 'genehmigt');
+    assert.equal(e.daten.status, 'bestaetigt');
+    assert.ok(zeilen(4, '2026-11-12', '2026-11-13').every((a) => a.code === 'SW' && a.status === 'genehmigt'));
   });
 
   await t.test('Einzel-POST bleibt; Warnungen je Antrag statt je Tag', async () => {

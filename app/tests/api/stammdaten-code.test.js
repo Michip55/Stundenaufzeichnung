@@ -22,7 +22,9 @@ test('Code eines verwendeten Materials/Geräts umbenennen', async (t) => {
   const neuCode = `${m.code}_neu`;
 
   await t.test('Rechte', async () => {
-    for (const r of ['mitarbeiter', 'polier', 'bauleiter']) assert.equal((await c[r].put(`/stammdaten/materialien/${m.id}`, { version: ver('material', m.id), code: neuCode })).status, 403, r);
+    for (const r of ['mitarbeiter', 'polier']) assert.equal((await c[r].put(`/stammdaten/materialien/${m.id}`, { version: ver('material', m.id), code: neuCode })).status, 403, r);
+    // Bauleiter wie Büro (13.11.2026): darf (hier nur Vorschau, speichert nichts)
+    assert.equal((await c.bauleiter.put(`/stammdaten/materialien/${m.id}`, { version: ver('material', m.id), code: neuCode, vorschau: true })).status, 200);
   });
 
   await t.test('Vorschau zählt nur, speichert nichts', async () => {

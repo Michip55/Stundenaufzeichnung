@@ -10,35 +10,36 @@ const NEIN = 403;
 /**
  * Jede sensible Route gegen jede Rolle. 'ok' = weder 401 noch 403 (kann 200/201/400 sein).
  * Reihenfolge: mitarbeiter, polier, bauleiter, buero, gf
+ * Owner-Entscheidung 13.11.2026: Bauleiter = Büro (Spalte 3 = Spalte 4).
  */
 const MATRIX = [
   ['GET', '/preise', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/kalkulation', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', `/kalkulation/${BS.pitten}`, null, [NEIN, NEIN, OK, OK, OK]],
-  ['GET', `/kalkulation/${BS.reisinger}`, null, [NEIN, NEIN, NEIN, OK, OK]],
-  ['GET', '/monat?monat=2026-11', null, [NEIN, NEIN, NEIN, OK, OK]],
-  ['GET', '/monat/export.csv?monat=2026-11', null, [NEIN, NEIN, NEIN, OK, OK]],
-  ['GET', '/monat/buak.csv?monat=2026-11', null, [NEIN, NEIN, NEIN, OK, OK]],
+  ['GET', `/kalkulation/${BS.reisinger}`, null, [NEIN, NEIN, OK, OK, OK]],
+  ['GET', '/monat?monat=2026-11', null, [NEIN, NEIN, OK, OK, OK]],
+  ['GET', '/monat/export.csv?monat=2026-11', null, [NEIN, NEIN, OK, OK, OK]],
+  ['GET', '/monat/buak.csv?monat=2026-11', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/rechte', null, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['GET', '/benutzer', null, [NEIN, NEIN, NEIN, OK, OK]], // C-14: Büro verwaltet Mitarbeiter/Polier/Bauleiter
+  ['GET', '/benutzer', null, [NEIN, NEIN, OK, OK, OK]], // C-14: Büro verwaltet Mitarbeiter/Polier/Bauleiter
   ['GET', '/zeit/anwesend', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/berichte', null, [NEIN, OK, OK, OK, OK]],
-  ['GET', `/zeit/kolonne?baustelleId=${BS.pitten}`, null, [NEIN, OK, OK, NEIN, OK]],
-  ['PUT', '/preise/geraete/1', { feld: 'kostensatz', wert: 52 }, [NEIN, NEIN, NEIN, OK, OK]],
-  ['PUT', '/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 46 }, [NEIN, NEIN, NEIN, OK, OK]],
-  ['PUT', `/baustellen/${BS.pitten}/auftrag`, { schwellen: [80, 90, 100] }, [NEIN, NEIN, NEIN, OK, OK]],
-  ['POST', `/baustellen/${BS.pitten}/nachtraege`, { text: 'Test', betrag: 0 }, [NEIN, NEIN, NEIN, OK, OK]],
-  ['POST', `/baustellen/${BS.pitten}/fremdleistungen`, { text: 'Test', betrag: 0, datum: '2026-11-12' }, [NEIN, NEIN, NEIN, OK, OK]],
+  ['GET', `/zeit/kolonne?baustelleId=${BS.pitten}`, null, [NEIN, OK, NEIN, NEIN, OK]],
+  ['PUT', '/preise/geraete/1', { feld: 'kostensatz', wert: 52 }, [NEIN, NEIN, OK, OK, OK]],
+  ['PUT', '/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 46 }, [NEIN, NEIN, OK, OK, OK]],
+  ['PUT', `/baustellen/${BS.pitten}/auftrag`, { schwellen: [80, 90, 100] }, [NEIN, NEIN, OK, OK, OK]],
+  ['POST', `/baustellen/${BS.pitten}/nachtraege`, { text: 'Test', betrag: 0 }, [NEIN, NEIN, OK, OK, OK]],
+  ['POST', `/baustellen/${BS.pitten}/fremdleistungen`, { text: 'Test', betrag: 0, datum: '2026-11-12' }, [NEIN, NEIN, OK, OK, OK]],
   ['POST', `/baustellen/${BS.pitten}/leistungen`, { leistungId: 4, menge: 0.001, datum: '2026-11-12' }, [NEIN, NEIN, OK, OK, OK]],
-  ['POST', `/baustellen/${BS.reisinger}/leistungen`, { leistungId: 4, menge: 0.001, datum: '2026-11-12' }, [NEIN, NEIN, NEIN, OK, OK]],
-  ['POST', '/baustellen', {}, [NEIN, NEIN, NEIN, OK, OK]],
-  ['PUT', `/baustellen/${BS.pitten}`, {}, [NEIN, NEIN, NEIN, OK, OK]],
+  ['POST', `/baustellen/${BS.reisinger}/leistungen`, { leistungId: 4, menge: 0.001, datum: '2026-11-12' }, [NEIN, NEIN, OK, OK, OK]],
+  ['POST', '/baustellen', {}, [NEIN, NEIN, OK, OK, OK]],
+  ['PUT', `/baustellen/${BS.pitten}`, {}, [NEIN, NEIN, OK, OK, OK]],
   ['PUT', '/rechte/matrix', { rolle: 'buero', recht: 'kolonne', wert: false }, [NEIN, NEIN, NEIN, NEIN, OK]],
   ['PUT', '/rechte/ausnahme', { benutzerId: 2, recht: 'kolonne', wert: false }, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['POST', '/benutzer', {}, [NEIN, NEIN, NEIN, OK, OK]],
-  ['PUT', '/benutzer/2', {}, [NEIN, NEIN, NEIN, OK, OK]],
+  ['POST', '/benutzer', {}, [NEIN, NEIN, OK, OK, OK]],
+  ['PUT', '/benutzer/2', {}, [NEIN, NEIN, OK, OK, OK]],
   ['PUT', `/benutzer/${U.gf}`, { name: 'X' }, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['POST', '/zeit/kolonne', {}, [NEIN, OK, OK, NEIN, OK]],
+  ['POST', '/zeit/kolonne', {}, [NEIN, OK, NEIN, NEIN, OK]],
   ['POST', '/berichte', {}, [NEIN, OK, OK, OK, OK]]
 ];
 
@@ -103,30 +104,27 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     assert.ok(b.daten.some((m) => m.lohngruppe === 'fa'));
   });
 
-  await t.test('Bauleiter: €/Budget nur für eigene Baustellen', async () => {
+  await t.test('Bauleiter wie Büro: €/Budget für alle Baustellen (13.11.2026)', async () => {
     const liste = (await c.bauleiter.get('/baustellen')).daten;
-    const eigen = liste.find((b) => b.id === BS.pitten);
-    const fremd = liste.find((b) => b.id === BS.reisinger);
-    assert.equal(typeof eigen.auftragssumme, 'number');
-    assert.equal(typeof eigen.budgetVerbrauchProzent, 'number');
-    assert.deepEqual(euroFelder(fremd), []);
-    const detailFremd = (await c.bauleiter.get(`/baustellen/${BS.reisinger}`)).daten;
-    assert.deepEqual(euroFelder(detailFremd), []);
-    const detailEigen = (await c.bauleiter.get(`/baustellen/${BS.pitten}`)).daten;
-    assert.ok(Array.isArray(detailEigen.nachtraege));
-    // Kalkulationsübersicht: nur eigene
+    const buero = (await c.buero.get('/baustellen')).daten;
+    assert.deepEqual(liste.map((b) => b.id).sort(), buero.map((b) => b.id).sort());
+    for (const id of [BS.pitten, BS.reisinger]) {
+      const b = liste.find((x) => x.id === id);
+      assert.equal(typeof b.auftragssumme, 'number');
+      assert.equal(typeof b.budgetVerbrauchProzent, 'number');
+    }
+    assert.ok(Array.isArray((await c.bauleiter.get(`/baustellen/${BS.reisinger}`)).daten.nachtraege));
+    // Kalkulationsübersicht: alle wie Büro
     const k = (await c.bauleiter.get('/kalkulation')).daten.map((x) => x.baustelleId).sort();
-    assert.deepEqual(k, [BS.pitten, BS.kogler, BS.ternitz, BS.neustadt]);
+    assert.deepEqual(k, (await c.buero.get('/kalkulation')).daten.map((x) => x.baustelleId).sort());
     assert.equal((await c.gf.get('/kalkulation')).daten.length, 7);
-    // Berichte: nur eigene Baustellen
+    // Berichte: alle Baustellen
     const ber = (await c.bauleiter.get('/berichte')).daten;
-    assert.ok(ber.length > 0 && ber.every((b) => [1, 2, 5, 7].includes(b.baustelleId)));
+    assert.ok(ber.some((b) => b.baustelleId === BS.reisinger));
     const fremderBericht = s.db.eins('SELECT id FROM bericht WHERE baustelle_id = ?', BS.reisinger).id;
-    assert.equal((await c.bauleiter.get(`/berichte/${fremderBericht}`)).status, 403);
-    const eigenerBericht = s.db.eins('SELECT id FROM bericht WHERE baustelle_id = ?', BS.pitten).id;
-    const eb = await c.bauleiter.get(`/berichte/${eigenerBericht}`);
-    assert.equal(typeof eb.daten.kostenTag.gesamt, 'number');
-    // Bauleiter sieht Preise (lesen), darf sie nicht bearbeiten
+    const fb = await c.bauleiter.get(`/berichte/${fremderBericht}`);
+    assert.equal(fb.status, 200);
+    assert.equal(typeof fb.daten.kostenTag.gesamt, 'number');
     assert.equal(typeof (await c.bauleiter.get('/geraete')).daten[0].kostensatz, 'number');
   });
 
@@ -162,10 +160,11 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     s.db.lauf("UPDATE rolle_recht SET wert = 0 WHERE rolle = 'polier' AND recht = 'kalk_sehen'");
   });
 
-  await t.test('Bauleiter: Preise bearbeiten/Lohn nicht vergebbar; GF behält benutzer', async () => {
-    assert.equal((await c.gf.put('/rechte/matrix', { rolle: 'bauleiter', recht: 'preise_bearbeiten', wert: true })).status, 400);
-    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'stammdaten', wert: true })).status, 400); // C-05
-    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'lohn', wert: true })).status, 400);
+  await t.test('Bauleiter wie Büro: nur benutzer gesperrt; GF behält benutzer', async () => {
+    assert.equal((await c.gf.put('/rechte/matrix', { rolle: 'bauleiter', recht: 'benutzer', wert: true })).status, 400);
+    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'benutzer', wert: true })).status, 400);
+    const ich = (await c.bauleiter.get('/auth/ich')).daten.rechte.sort();
+    assert.deepEqual(ich, (await c.buero.get('/auth/ich')).daten.rechte.sort());
     const r = await c.gf.put('/rechte/matrix', { rolle: 'gf', recht: 'benutzer', wert: false });
     assert.equal(r.status, 400);
     assert.equal((await c.gf.get('/rechte')).status, 200);
@@ -226,7 +225,7 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'rolle'").n >= 1);
   });
 
-  await t.test('Anwesenheit: Bauleiter nur eigene Baustellen, keine €-Felder', async () => {
+  await t.test('Anwesenheit: Bauleiter wie Büro alle Baustellen, keine €-Felder', async () => {
     const alle = (await c.buero.get('/zeit/anwesend')).daten;
     assert.ok(alle.length > 5);
     for (const a of alle) {
@@ -234,9 +233,7 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
       assert.deepEqual(Object.keys(a).sort(), ['baustelleId', 'benutzerId', 'name', 'rolle', 'schichtBeginn', 'seit', 'status']);
     }
     const bl = (await c.bauleiter.get('/zeit/anwesend')).daten;
-    assert.ok(bl.length > 0);
-    assert.ok(bl.every((a) => [1, 2, 5, 7].includes(a.baustelleId)));
-    assert.ok(alle.some((a) => ![1, 2, 5, 7].includes(a.baustelleId)));
+    assert.deepEqual(bl, alle);
     // nach Ausnahme bericht_freigeben sieht der Polier nur seine Partie
     await c.gf.put('/rechte/ausnahme', { benutzerId: U.polier2, recht: 'bericht_freigeben', wert: true });
     const p2 = await s.login(U.polier2);
