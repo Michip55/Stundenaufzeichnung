@@ -625,3 +625,11 @@ a.link { color: var(--blue); font-weight: 600; text-decoration: underline; }
   .rep-row { flex-wrap: wrap; } .rep-meta { flex: 1 1 100%; flex-wrap: wrap; gap: 6px 10px; padding-left: 84px; } .rep-row > .ic:last-child { display: none; }
   .rep-row .rep-txt { flex: 1 1 0; }
 }
+
+/* Handy-Feinschliff nach Durchsicht (Prüfbericht 2) */
+@media (max-width: 719px) {
+  .bf-grid { align-items: stretch; }
+  .korr li[data-schicht] .grow, [data-benutzer] .grow { flex: 1 1 60%; }
+  .korr li[data-schicht] .korr-datum { width: auto; flex: 1 1 100%; }
+  .korr li[data-schicht] .btn, [data-benutzer] .btn { flex: 1 1 auto; }
+}
