@@ -31,7 +31,8 @@ test('Urlaub', async (t) => {
     assert.ok(pol.personen.every((p) => s.db.eins('SELECT baustelle_id FROM benutzer WHERE id = ?', p.benutzerId).baustelle_id === 1 || p.benutzerId === U.polier));
     const ma = (await c.mitarbeiter.get('/urlaub/kalender?von=2026-11-16&bis=2026-11-20')).daten;
     assert.deepEqual(ma.personen.map((p) => p.benutzerId), [U.mitarbeiter]);
-    assert.deepEqual(ma.personen[0].tage['2026-11-18'], { code: 'U', status: 'beantragt', id: ma.personen[0].tage['2026-11-18'].id });
+    const t18 = ma.personen[0].tage['2026-11-18'];
+    assert.deepEqual(t18, { code: 'U', status: 'beantragt', id: t18.id, antragId: `e${t18.id}` }); // 12.24: Bestand ohne Antrag
   });
 
   await t.test('Urlaubskonto: BUAK-Stand, genommen/geplant/beantragt, Rest; Rechte', async () => {

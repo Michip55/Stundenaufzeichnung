@@ -1137,6 +1137,15 @@ CREATE INDEX benutzer_lohngruppe_b ON benutzer_lohngruppe(benutzer_id, gueltig_a
 INSERT INTO benutzer_lohngruppe (benutzer_id, lohngruppe_id, gueltig_ab, erstellt)
   SELECT id, lohngruppe_id, '2000-01-01', strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM benutzer WHERE lohngruppe_id IS NOT NULL;
 `
+  },
+  {
+    version: 24,
+    name: 'Ausbaustufe 2: Abwesenheit als Zeitraum-Antrag (12.24)',
+    sql: `
+ALTER TABLE abwesenheit ADD COLUMN antrag_id TEXT;
+ALTER TABLE abwesenheit ADD COLUMN antwort TEXT;
+CREATE INDEX abwesenheit_antrag ON abwesenheit(antrag_id);
+`
   }
 ];
 

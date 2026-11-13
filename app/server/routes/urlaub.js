@@ -59,7 +59,7 @@ module.exports = function urlaubRouten(api, bt) {
     const map = new Map(personen.map((p) => [p.benutzerId, p]));
     for (const a of db.alle('SELECT * FROM abwesenheit WHERE datum >= ? AND datum <= ?', von, bis)) {
       const p = map.get(a.benutzer_id);
-      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: a.id, ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
+      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: a.id, antragId: a.antrag_id || `e${a.id}`, ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
     }
     res.json({ tage, personen, warnungen: warnungen(req.ctx, von, bis, ids) });
   });
@@ -94,6 +94,14 @@ module.exports = function urlaubRouten(api, bt) {
       hinweis: art === 'buak' ? 'Bauarbeiter: Urlaub nach BUAK (Anwartschaftswochen) – Stand laut BUAK-Kontoauszug eintragen; gezählt wird ab diesem Datum.' : 'Angestellte: Anspruch nach UrlG (30 Werktage bzw. 25 Arbeitstage, ab 25. Dienstjahr mehr) – Prüfen mit der Lohnverrechnung.'
     };
   }
+  /** 12.24: Konto im Urlaubsjahr des Datums → {rest, von, bis} (für den Zeitraum-Antrag) */
+  bt.urlaubKonto = (b, datum) => {
+    const beginn = einst().urlaubsjahrBeginn;
+    const y = Number(datum.slice(0, 4));
+    const jahr = datum >= `${y}-${beginn}` ? y : y - 1;
+    const k = konto({ ...b, pnr: b.pnr ?? null }, jahr);
+    return { rest: k.rest, von: `${jahr}-${beginn}`, bis: plusTage(`${jahr + 1}-${beginn}`, -1) };
+  };
   api.get('/urlaub/konto', (req, res) => {
     const jahr = req.query.jahr ? v.zahl(Number(req.query.jahr), 'jahr', { min: 2000, max: 2100, ganz: true }) : Number(heute().slice(0, 4));
     const ids = sichtbareIds(req.ctx);
@@ -155,13 +163,16 @@ module.exports = function urlaubRouten(api, bt) {
     let angelegt = 0;
     if (!vorschau) {
       db.transaktion(() => {
-        for (const p of personen) for (const d of tage) {
-          const a = db.eins('SELECT status FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', p.id, d);
-          if (a && a.status === 'genehmigt') continue;
-          db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, entschieden_von, entschieden, betriebsurlaub, notiz) VALUES (?, ?, 'U', 'genehmigt', ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = 'U', status = 'genehmigt', entschieden_von = excluded.entschieden_von, entschieden = excluded.entschieden, betriebsurlaub = excluded.betriebsurlaub, notiz = excluded.notiz`,
-          p.id, d, req.ctx.benutzer.id, jetzt(), req.ctx.benutzer.id, jetzt(), codeNeu === 'BU' ? 1 : 0, notiz);
-          angelegt++;
+        for (const p of personen) {
+          const aid = require('node:crypto').randomBytes(6).toString('hex'); // 12.24: ein Antrag je Person
+          for (const d of tage) {
+            const a = db.eins('SELECT status FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', p.id, d);
+            if (a && a.status === 'genehmigt') continue;
+            db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, entschieden_von, entschieden, betriebsurlaub, notiz, antrag_id) VALUES (?, ?, 'U', 'genehmigt', ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = 'U', status = 'genehmigt', entschieden_von = excluded.entschieden_von, entschieden = excluded.entschieden, betriebsurlaub = excluded.betriebsurlaub, notiz = excluded.notiz, antrag_id = excluded.antrag_id, antwort = NULL`,
+            p.id, d, req.ctx.benutzer.id, jetzt(), req.ctx.benutzer.id, jetzt(), codeNeu === 'BU' ? 1 : 0, notiz, aid);
+            angelegt++;
+          }
         }
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'abwesenheit', objekt: 'betriebsurlaub', neu: { von, bis, personen: personen.length, angelegt, code: codeNeu }, text: `${codeNeu === 'BU' ? 'Betriebsurlaub' : 'Urlaub'} ${von}–${bis} für ${personen.length} Personen eingetragen` });
       });
@@ -181,20 +192,43 @@ module.exports = function urlaubRouten(api, bt) {
     for (const p of personen) if (p.baustelle_id && ['mitarbeiter', 'polier'].includes(p.rolle)) { if (!partien.has(p.baustelle_id)) partien.set(p.baustelle_id, []); partien.get(p.baustelle_id).push(p.id); }
     const proTag = new Map();
     for (const a of abw) { const p = personen.find((x) => x.id === a.benutzer_id); if (!p || !p.baustelle_id || !istArbeitstag(a.datum)) continue; const k = `${p.baustelle_id}|${a.datum}`; proTag.set(k, (proTag.get(k) || 0) + 1); }
+    // 12.24: aufeinanderfolgende Arbeitstage derselben Partie zu einer Warnung zusammenfassen
+    const proBs = new Map();
     for (const [k, n] of proTag) {
       const [bsId, datum] = k.split('|');
       const groesse = (partien.get(Number(bsId)) || []).length || 1;
-      if (n > E.partieGrenze || (n / groesse) * 100 > E.partieGrenzeProzent) {
-        if (!(partien.get(Number(bsId)) || []).some(sicht)) continue;
-        const bs = db.eins('SELECT kst, kurz, name FROM baustelle WHERE id = ?', Number(bsId));
-        out.push({ typ: 'partie_viele', datum, baustelleId: Number(bsId), text: `${bs ? bs.kurz || bs.name : 'Partie'}: ${n} von ${groesse} Personen abwesend am ${datum.split('-').reverse().join('.')}.` });
-      }
+      if (!(n > E.partieGrenze || (n / groesse) * 100 > E.partieGrenzeProzent)) continue;
+      if (!(partien.get(Number(bsId)) || []).some(sicht)) continue;
+      if (!proBs.has(bsId)) proBs.set(bsId, []);
+      proBs.get(bsId).push({ datum, n, groesse });
     }
-    // Abwesenheit vs. Planer
-    for (const x of db.alle(`SELECT p.benutzer_id, e.datum, e.baustelle_id FROM plan_person p JOIN plan_einsatz e ON e.id = p.einsatz_id WHERE e.datum >= ? AND e.datum <= ? AND e.geloescht = 0`, von, bis)) {
+    const naechsterAT = (d) => { let x = plusTage(d, 1); while (!istArbeitstag(x)) x = plusTage(x, 1); return x; };
+    const de = (d) => d.split('-').reverse().join('.');
+    for (const [bsId, l] of proBs) {
+      l.sort((a, b) => a.datum.localeCompare(b.datum));
+      const bs = db.eins('SELECT kst, kurz, name FROM baustelle WHERE id = ?', Number(bsId));
+      let g = null;
+      const ausgeben = () => { if (g) out.push({ typ: 'partie_viele', datum: g.von, ...(g.bis !== g.von ? { bis: g.bis } : {}), baustelleId: Number(bsId), text: `${bs ? bs.kurz || bs.name : 'Partie'}: ${g.max === g.min ? g.max : `bis zu ${g.max}`} von ${g.groesse} Personen abwesend ${g.bis !== g.von ? `${de(g.von)}–${de(g.bis)}` : `am ${de(g.von)}`}.` }); };
+      for (const x of l) {
+        if (g && naechsterAT(g.bis) === x.datum) { g.bis = x.datum; g.max = Math.max(g.max, x.n); g.min = Math.min(g.min, x.n); continue; }
+        ausgeben();
+        g = { von: x.datum, bis: x.datum, max: x.n, min: x.n, groesse: x.groesse };
+      }
+      ausgeben();
+    }
+    // Abwesenheit vs. Planer – je Person und Antrag
+    const planK = new Map();
+    for (const x of db.alle(`SELECT p.benutzer_id, e.datum, e.baustelle_id FROM plan_person p JOIN plan_einsatz e ON e.id = p.einsatz_id WHERE e.datum >= ? AND e.datum <= ? AND e.geloescht = 0 ORDER BY e.datum`, von, bis)) {
       if (!sicht(x.benutzer_id)) continue;
       const a = abw.find((y) => y.benutzer_id === x.benutzer_id && y.datum === x.datum);
-      if (a) out.push({ typ: 'plan_konflikt', datum: x.datum, benutzerId: x.benutzer_id, baustelleId: x.baustelle_id, text: `${(personen.find((p) => p.id === x.benutzer_id) || {}).name} ist eingeteilt, aber abwesend.` });
+      if (!a) continue;
+      const k = `${x.benutzer_id}|${a.antrag_id || `e${a.id}`}`;
+      if (!planK.has(k)) planK.set(k, { typ: 'plan_konflikt', datum: x.datum, bis: x.datum, tage: 0, benutzerId: x.benutzer_id, baustelleId: x.baustelle_id, antragId: a.antrag_id || `e${a.id}` });
+      const w = planK.get(k); w.bis = x.datum; w.tage++;
+    }
+    for (const w of planK.values()) {
+      const n = (personen.find((p) => p.id === w.benutzerId) || {}).name;
+      out.push({ ...w, ...(w.bis === w.datum ? { bis: undefined } : {}), text: w.tage === 1 ? `${n} ist eingeteilt, aber abwesend.` : `${n} ist an ${w.tage} Tagen eingeteilt, aber abwesend (${de(w.datum)}–${de(w.bis)}).` });
     }
     // Resturlaub negativ, Anträge offen > 3 Tage
     const jahr = Number(heute().slice(0, 4));
@@ -202,8 +236,8 @@ module.exports = function urlaubRouten(api, bt) {
       const k = konto({ ...p, pnr: null }, jahr);
       if (k.rest != null && k.rest < 0) out.push({ typ: 'rest_negativ', benutzerId: p.id, text: `${p.name}: Resturlaub ${String(k.rest).replace('.', ',')} ${k.einheit}.` });
     }
-    for (const a of db.alle("SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.status = 'beantragt' AND a.erfasst < ?", new Date(bt.uhr().getTime() - 3 * 864e5).toISOString())) {
-      if (sicht(a.benutzer_id)) out.push({ typ: 'antrag_offen', datum: a.datum, benutzerId: a.benutzer_id, text: `Antrag von ${a.name} (${CODE_TEXT[a.code]} am ${a.datum.split('-').reverse().join('.')}) seit über 3 Tagen offen.` });
+    for (const g of offeneAntraege(db, bt)) {
+      if (sicht(g.benutzerId)) out.push({ typ: 'antrag_offen', antragId: g.antragId, datum: g.von, ...(g.bis !== g.von ? { bis: g.bis } : {}), benutzerId: g.benutzerId, text: `Antrag von ${g.name} (${CODE_TEXT[g.code]} ${g.bis !== g.von ? `${de(g.von)}–${de(g.bis)}, ${g.tage} Tage` : `am ${de(g.von)}`}) seit über 3 Tagen offen.` });
     }
     return out;
   }
@@ -246,11 +280,24 @@ module.exports = function urlaubRouten(api, bt) {
 };
 
 /** Stündlich: Anträge länger als 3 Tage offen → Benachrichtigung an Büro (einmal je Antrag) */
+/** Offene Anträge (beantragt, älter als 3 Tage) gruppiert je Antrag (12.24) */
+function offeneAntraege(db, bt) {
+  const grenze = new Date(bt.uhr().getTime() - 3 * 864e5).toISOString();
+  const g = new Map();
+  for (const a of db.alle("SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.status = 'beantragt' AND a.erfasst < ? ORDER BY a.datum", grenze)) {
+    const k = a.antrag_id || `e${a.id}`;
+    if (!g.has(k)) g.set(k, { antragId: k, benutzerId: a.benutzer_id, name: a.name, code: a.code, von: a.datum, bis: a.datum, tage: 0, ersteId: a.id });
+    const x = g.get(k); x.bis = a.datum; x.tage++;
+  }
+  return [...g.values()];
+}
 module.exports.pruefeAntraege = (bt) => {
   const { db } = bt;
-  const grenze = new Date(bt.uhr().getTime() - 3 * 864e5).toISOString();
   const buero = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'buero'");
-  for (const a of db.alle("SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.status = 'beantragt' AND a.erfasst < ?", grenze)) {
-    for (const e of buero) benachrichtige(db, { benutzerId: e.id, typ: 'urlaub', titel: `Antrag offen: ${a.name}`, text: `Antrag von ${a.name} für ${a.datum.split('-').reverse().join('.')} ist seit über 3 Tagen unbearbeitet.`, zeit: bt.uhr().toISOString(), schluessel: `urlaub:antrag:${a.id}` });
+  const de = (d) => d.split('-').reverse().join('.');
+  for (const a of offeneAntraege(db, bt)) {
+    // einmal je Antrag (Bestand: Schlüssel wie bisher je Eintrag)
+    const schluessel = a.antragId.startsWith('e') ? `urlaub:antrag:${a.ersteId}` : `urlaub:antrag:${a.antragId}`;
+    for (const e of buero) benachrichtige(db, { benutzerId: e.id, typ: 'urlaub', titel: `Antrag offen: ${a.name}`, text: `Antrag von ${a.name} für ${a.bis !== a.von ? `${de(a.von)}–${de(a.bis)} (${a.tage} Tage)` : de(a.von)} ist seit über 3 Tagen unbearbeitet.`, zeit: bt.uhr().toISOString(), schluessel });
   }
 };
