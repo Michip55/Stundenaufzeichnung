@@ -28,7 +28,7 @@ function ladeBerichtRoh(db, id) {
   if (!b) return null;
   b.personal = db.alle(`SELECT bp.*, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id
     WHERE bp.bericht_id = ? ORDER BY bp.pos, bp.id`, id);
-  b.geraete = db.alle(`SELECT bg.geraet_id, bg.stunden, g.code, g.name, g.sortierung FROM bericht_geraet bg JOIN geraet g ON g.id = bg.geraet_id
+  b.geraete = db.alle(`SELECT bg.geraet_id, bg.stunden, bg.anlage_id, g.code, g.name, g.sortierung FROM bericht_geraet bg JOIN geraet g ON g.id = bg.geraet_id
     WHERE bg.bericht_id = ? ORDER BY g.sortierung, g.id`, id);
   b.material = db.alle(`SELECT bm.material_id, bm.menge, m.code, m.name, m.einheit, m.vorlage, m.sortierung FROM bericht_material bm JOIN material m ON m.id = bm.material_id
     WHERE bm.bericht_id = ? ORDER BY m.sortierung, m.id`, id);
@@ -61,7 +61,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     })),
     gesamtstunden: r2(b.personal.reduce((a, p) => a + p.stunden, 0)),
     seg: { taetigkeit: b.seg_taetigkeit || '', stunden: b.seg_stunden },
-    geraete: b.geraete.map((g) => ({ geraetId: g.geraet_id, code: g.code, name: g.name, stunden: g.stunden })),
+    geraete: b.geraete.map((g) => ({ geraetId: g.geraet_id, code: g.code, name: g.name, stunden: g.stunden, ...(g.anlage_id ? { anlageId: g.anlage_id } : {}) })),
     material: b.material.map((m) => ({ materialId: m.material_id, code: m.code, name: m.name, menge: m.menge, einheit: m.einheit })),
     arbeitsleistung: b.arbeitsleistung,
     materialbeistellung: { eigen: b.mb_eigen, fremd: b.mb_fremd },
@@ -79,7 +79,32 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     bearbeitbar: b.status === 'entwurf' && !b.unterschriften.length
   };
   if (darfPreise(ctx, bs)) o.kostenTag = kostenTagFuer(db, b.id);
+  anlagenZumBericht(db, b, o);
   return o;
+}
+
+/** Servicebuch (API.md 11.4): Anlage je Gerätezeile (manuell oder automatisch) und Vorschlag je Gerät */
+function anlagenZumBericht(db, b, o, S) {
+  const { ladeStand } = require('../fuhrpark-daten');
+  S = S || ladeStand(db, wienDatum(db.uhr ? db.uhr() : new Date()));
+  const aktivJeGeraet = new Map();
+  for (const A of S.liste) if (!A.row.ausgeschieden && A.row.geraet_id) {
+    if (!aktivJeGeraet.has(A.row.geraet_id)) aktivJeGeraet.set(A.row.geraet_id, []);
+    aktivJeGeraet.get(A.row.geraet_id).push(A);
+  }
+  for (const g of o.geraete) {
+    let A = g.anlageId ? S.anlagen.get(g.anlageId) : null, zuordnung = 'manuell';
+    if (!A) { const k = aktivJeGeraet.get(g.geraetId) || []; if (k.length === 1) { A = k[0]; zuordnung = 'auto'; } }
+    if (A) g.anlage = { id: A.row.id, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen, status: A.status.status, gesperrt: A.status.gesperrt, zuordnung };
+  }
+  const vorschlag = {};
+  for (const z of db.alle(`SELECT bg.geraet_id, bg.anlage_id FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id
+      WHERE r.baustelle_id = ? AND bg.anlage_id IS NOT NULL AND r.datum <= ? ORDER BY r.datum, r.id`, b.baustelle_id, b.datum)) {
+    const A = S.anlagen.get(z.anlage_id);
+    if (A && !A.row.ausgeschieden) vorschlag[z.geraet_id] = z.anlage_id;
+  }
+  o.anlagenVorschlag = vorschlag;
+  return S;
 }
 
 /* ---------- Rechte ---------- */
@@ -197,7 +222,14 @@ function pruefeUpdate(db, body, kontext) {
       if (gesehen.has(geraetId)) throw ungueltig(`geraete[${i}]: Gerät ist doppelt eingetragen.`);
       gesehen.add(geraetId);
       if (!db.eins('SELECT id FROM geraet WHERE id = ?', geraetId)) throw ungueltig(`geraete[${i}]: Gerät nicht gefunden.`);
-      return { geraetId, stunden: v.zahl(g.stunden, `geraete[${i}].stunden`, { min: 0, max: 24 }) };
+      let anlageId = null;
+      if (g.anlageId !== undefined && g.anlageId !== null) {
+        anlageId = v.id(g.anlageId, `geraete[${i}].anlageId`);
+        const a = db.eins('SELECT id, geraet_id, ausgeschieden, bezeichnung FROM anlage WHERE id = ?', anlageId);
+        if (!a || a.geraet_id !== geraetId) throw ungueltig(`geraete[${i}]: Die Anlage gehört nicht zu diesem Gerät.`);
+        if (a.ausgeschieden) throw ungueltig(`geraete[${i}]: ${a.bezeichnung} ist ausgeschieden.`);
+      }
+      return { geraetId, anlageId, stunden: v.zahl(g.stunden, `geraete[${i}].stunden`, { min: 0, max: 24 }) };
     }).filter((g) => g.stunden > 0);
   }
   if (body.material !== undefined) {
@@ -263,7 +295,7 @@ function speichereUpdate(db, berichtId, u, zeit) {
   }
   if (u.geraete) {
     db.lauf('DELETE FROM bericht_geraet WHERE bericht_id = ?', berichtId);
-    for (const g of u.geraete) db.lauf('INSERT INTO bericht_geraet (bericht_id, geraet_id, stunden) VALUES (?, ?, ?)', berichtId, g.geraetId, g.stunden);
+    for (const g of u.geraete) db.lauf('INSERT INTO bericht_geraet (bericht_id, geraet_id, stunden, anlage_id) VALUES (?, ?, ?, ?)', berichtId, g.geraetId, g.stunden, g.anlageId || null);
   }
   if (u.material) {
     db.lauf('DELETE FROM bericht_material WHERE bericht_id = ?', berichtId);
@@ -377,7 +409,22 @@ module.exports = function berichtRouten(api, bt) {
       }
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Bericht ${b.baustelle.kst} ${b.datum} bearbeitet: ${Object.keys(u).join(', ')}` });
     });
-    res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
+    const o = berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id));
+    // Servicebuch (API.md 11.4): Hinweis auf gesperrte Anlagen – Speichern wird nicht verhindert
+    o.hinweise = [];
+    const { ladeStand, sperrText } = require('../fuhrpark-daten');
+    const { melde, fuhrparkBenutzer } = require('../fuhrpark-erinnerung');
+    const S = ladeStand(db, wienDatum(bt.uhr()));
+    for (const g of o.geraete) {
+      const A = g.anlage ? S.anlagen.get(g.anlage.id) : null;
+      if (!A || !A.status.gesperrt) continue;
+      const text = sperrText(A);
+      o.hinweise.push({ typ: 'anlage_gesperrt', anlageId: A.row.id, text });
+      for (const uid of fuhrparkBenutzer(db)) {
+        melde(db, { benutzerId: uid, titel: `Gesperrte Anlage im Bautagesbericht: ${A.row.bezeichnung}`, text: `${text} – eingetragen im Bericht ${b.baustelle.kst} vom ${b.datum.split('-').reverse().join('.')} von ${req.ctx.benutzer.name}.`, zeit: jetzt(), anlageId: A.row.id, baustelleId: b.baustelle_id, schluessel: `fp:gesperrt-genutzt:${A.row.id}:${b.id}` });
+      }
+    }
+    res.json(o);
   });
 
   /** Zusatz: Personal erneut aus den Stempelungen übernehmen (nur Entwurf) */
@@ -432,7 +479,10 @@ module.exports = function berichtRouten(api, bt) {
         }
       }
     });
-    if (neuerStatus === 'unterschrieben') pruefeBudget(bt, b.baustelle_id, { anlass: 'Unterschrift Bautagesbericht', benutzerId: req.ctx.benutzer.id });
+    if (neuerStatus === 'unterschrieben') {
+      pruefeBudget(bt, b.baustelle_id, { anlass: 'Unterschrift Bautagesbericht', benutzerId: req.ctx.benutzer.id });
+      if (b.geraete.length) require('../fuhrpark-erinnerung').pruefeFuhrparkSicher(bt); // Gerätestunden → Servicebuch
+    }
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
 
@@ -476,6 +526,7 @@ module.exports = function berichtRouten(api, bt) {
         text: `Bericht ${b.baustelle.kst} ${b.datum} freigegeben${selbst ? ' (Selbstfreigabe durch GF – Vier-Augen-Prinzip nicht eingehalten)' : ''}` });
     });
     pruefeBudget(bt, b.baustelle_id, { anlass: 'Freigabe Bautagesbericht', benutzerId: req.ctx.benutzer.id });
+    if (b.geraete.length) require('../fuhrpark-erinnerung').pruefeFuhrparkSicher(bt); // Gerätestunden → Servicebuch
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
 

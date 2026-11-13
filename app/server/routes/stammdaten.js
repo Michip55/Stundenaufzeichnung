@@ -290,8 +290,16 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/geraete', (req, res) => {
     const p = req.ctx.hat('preise_sehen');
+    // Servicebuch (API.md 11.4): aktive Anlagen je Gerät, ohne €
+    const S = require('../fuhrpark-daten').ladeStand(db, wienDatum(bt.uhr()));
+    const jeGeraet = new Map();
+    for (const A of S.liste) {
+      if (A.row.ausgeschieden || !A.row.geraet_id) continue;
+      if (!jeGeraet.has(A.row.geraet_id)) jeGeraet.set(A.row.geraet_id, []);
+      jeGeraet.get(A.row.geraet_id).push({ id: A.row.id, nummer: A.row.nummer, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen, status: A.status.status, gesperrt: A.status.gesperrt });
+    }
     res.json(db.alle('SELECT * FROM geraet ORDER BY sortierung, id').map((g) => {
-      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, vorlage: g.vorlage === 1 };
+      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, vorlage: g.vorlage === 1, anlagen: jeGeraet.get(g.id) || [] };
       if (p) { o.kostensatz = g.kostensatz; o.verrechnungssatz = g.verrechnungssatz; }
       return o;
     }));

@@ -8,7 +8,7 @@ test('Standard-Matrix entspricht API.md', () => {
   assert.deepEqual([...eff('mitarbeiter')].sort(), ['zeit_eigen']);
   assert.deepEqual([...eff('polier')].sort(), ['bericht_erstellen', 'kolonne', 'zeit_eigen']);
   assert.deepEqual([...eff('bauleiter')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'kalk_sehen', 'kolonne', 'preise_sehen', 'zeit_eigen']);
-  assert.deepEqual([...eff('buero')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
+  assert.deepEqual([...eff('buero')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
   assert.equal(eff('gf').size, R.RECHT_SCHLUESSEL.length);
 });
 

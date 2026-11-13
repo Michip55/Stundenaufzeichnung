@@ -136,7 +136,13 @@ module.exports = function zeitRouten(api, bt) {
     const body = v.objekt(req.body);
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
     stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort });
-    res.json(zeitStatus(db, req.ctx.benutzer.id, bt.uhr()));
+    const antwort = zeitStatus(db, req.ctx.benutzer.id, bt.uhr());
+    // Servicebuch (API.md 11.4): nach dem Ausstempeln eigene Fahrzeuge mit altem Zählerstand abfragen
+    if (typ === 'gehen') {
+      const { ladeStand } = require('../fuhrpark-daten');
+      antwort.zaehlerAbfrage = require('../fuhrpark-erinnerung').zaehlerAbfrage(ladeStand(db, wienDatum(bt.uhr())), req.ctx.benutzer.id);
+    }
+    res.json(antwort);
   });
 
   /** Wer ist gerade eingestempelt (Dashboard „Heute“). Bauleiter/Polier: nur eigene Baustellen. */

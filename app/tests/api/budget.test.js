@@ -168,7 +168,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
   await t.test('Benachrichtigungen: nur eigene, gelesen markieren', async () => {
     const liste = (await bl.get('/benachrichtigungen')).daten;
     assert.ok(liste.length > 0);
-    for (const n of liste) assert.deepEqual(Object.keys(n).filter((k) => !['baustelleId'].includes(k)).sort(), ['gelesen', 'id', 'text', 'titel', 'typ', 'zeit']);
+    for (const n of liste) assert.deepEqual(Object.keys(n).filter((k) => !['baustelleId', 'anlageId'].includes(k)).sort(), ['gelesen', 'id', 'text', 'titel', 'typ', 'zeit']);
     const fremde = (await buero.get('/benachrichtigungen')).daten.find((n) => !liste.some((x) => x.id === n.id));
     assert.equal((await bl.post(`/benachrichtigungen/${fremde.id}/gelesen`)).status, 404);
     assert.equal((await bl.post(`/benachrichtigungen/${liste[0].id}/gelesen`)).status, 200);

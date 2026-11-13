@@ -32,6 +32,7 @@ function createApp(opt = {}) {
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
+  db.uhr = uhr; // für Hilfsfunktionen ohne bt (z. B. Anlagenstatus im Bericht)
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
@@ -42,7 +43,17 @@ function createApp(opt = {}) {
   // Positionskatalog (Firmenvorlage, API.md 10) beim ersten Start anlegen
   require('./positionen').katalogAnlegen(db, uhr());
   require('./positionen').katalogAnpassungenAnwenden(db, uhr()); // versionierte Anpassungen (API.md 10d), einmalig
+  require('./fuhrpark-vorlagen').vorlagenAnlegen(db); // Servicebuch-Vorlagen (API.md 11), einmalig
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
+  // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
+  bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
+  bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS
+    || (db.pfad === ':memory:' ? path.join(require('node:os').tmpdir(), `bautag-uploads-${process.pid}-${require('node:crypto').randomBytes(6).toString('hex')}`) : path.join(__dirname, '..', 'data', 'uploads'));
+  // Servicebuch-Prüflauf: beim Start und stündlich (SERVICEBUCH_ENTWURF.md 6)
+  const { pruefeFuhrparkSicher } = require('./fuhrpark-erinnerung');
+  pruefeFuhrparkSicher(bt);
+  bt.fuhrparkTimer = setInterval(() => pruefeFuhrparkSicher(bt), 60 * 60 * 1000);
+  bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
   const verwalter = require('./rechte').entsperrKonten(db);
@@ -82,6 +93,8 @@ function createApp(opt = {}) {
     }
     next();
   });
+  // Schadensmeldungen mit Fotos (max. 8 MB je Foto, Base64) – eigenes, größeres Limit (API.md 11.9)
+  api.use('/fuhrpark/schaeden', express.json({ limit: '12mb', strict: true }));
   api.use(express.json({ limit: '2mb', strict: true }));
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
@@ -130,6 +143,7 @@ function createApp(opt = {}) {
   require('./routes/monat')(api, bt);
   require('./routes/benutzer')(api, bt);
   require('./routes/integrationen')(api, bt);
+  require('./routes/fuhrpark')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
@@ -163,7 +177,11 @@ function createApp(opt = {}) {
   });
 
   app.bt = bt;
-  app.schliessen = () => db.schliessen();
+  app.schliessen = () => {
+    clearInterval(bt.fuhrparkTimer);
+    db.schliessen();
+    if (bt.uploadsTemp) { try { fs.rmSync(bt.uploads, { recursive: true, force: true }); } catch (_) { /* egal */ } }
+  };
   return app;
 }
 
