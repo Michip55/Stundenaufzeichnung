@@ -30,7 +30,7 @@ function lohnCsv(m) {
       const t = ma.tage[d];
       const kuerzel = t.code && !t.codeStatus ? t.code : '';
       if (!t.stunden && !kuerzel && !t.unplausibel && !t.von) continue; // nur beantragt → Hinweiszeile
-      z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', deDatum(d), WT_KURZ[wochentag(d)], t.von || '', t.bis || '', t.pauseMin ?? '', r2(t.stunden), kuerzel, (t.baustellen || []).join(', ')]);
+      z.push([ma.pnr ?? '', ma.name, (t.lohngruppe !== undefined ? t.lohngruppe : ma.lohngruppe) ?? '', deDatum(d), WT_KURZ[wochentag(d)], t.von || '', t.bis || '', t.pauseMin ?? '', r2(t.stunden), kuerzel, (t.baustellen || []).join(', ')]);
     }
   }
   z.push([]);
@@ -38,7 +38,17 @@ function lohnCsv(m) {
   for (const ma of m.mitarbeiter) {
     z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', m.monat, ma.summe, ma.normal, ma.ueberstunden, ma.sw, ma.swStunden, ma.k, ma.u, ma.za, ma.seg]);
   }
+  // 12.22: Lohngruppenwechsel im Monat (Tageszeilen tragen die Lohngruppe des Tages)
+  const wechsel = [];
+  for (const ma of m.mitarbeiter) {
+    const a = ma.lohngruppen || [];
+    for (let i = 1; i < a.length; i++) {
+      const tt = a[i].von.split('-');
+      wechsel.push(`Lohngruppenwechsel: ${ma.name} ab ${tt[2]}.${tt[1]}.: ${a[i - 1].lohngruppe || '–'} → ${a[i].lohngruppe || '–'} (Stunden ${a[i - 1].lohngruppe || '–'}: ${String(a[i - 1].stunden).replace('.', ',')}, ${a[i].lohngruppe || '–'}: ${String(a[i].stunden).replace('.', ',')})`);
+    }
+  }
   const hinweise = [
+    ...wechsel,
     ...(m.beantragt || []).map((b) => `Beantragt, nicht genehmigt (nicht gezählt): ${b.name} ${deDatum(b.datum)} ${b.code}`),
     ...(m.offeneSchichten || []).map((o) => `Offene/unplausible Schicht (0 Std. gezählt, bitte korrigieren): ${o.name} ${deDatum(o.datum)} ab ${o.beginn || '?'}`),
     ...(m.warnungen || []).filter((w) => w.typ !== 'unplausibel').map((w) => (['ueberschneidung', 'nicht_im_bericht', 'abwesenheit_mit_stunden', 'selbstfreigabe'].includes(w.typ)

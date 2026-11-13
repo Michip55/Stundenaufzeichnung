@@ -36,7 +36,7 @@ function verwendung(db, art, z) {
   const u = { berichte: 0, positionen: 0, personen: 0, fuhren: 0, meldungen: 0 };
   if (art === 'geraete') { u.berichte = zahl('SELECT COUNT(*) AS n FROM bericht_geraet WHERE geraet_id = ?', z.id); u.positionen = quelle('geraet', z.code); u.personen = zahl('SELECT COUNT(*) AS n FROM anlage WHERE geraet_id = ?', z.id); }
   if (art === 'materialien') { u.berichte = zahl('SELECT COUNT(*) AS n FROM bericht_material WHERE material_id = ?', z.id); u.positionen = quelle('material', z.code); u.fuhren = zahl('SELECT COUNT(*) AS n FROM plan_fuhre WHERE material_id = ?', z.id); }
-  if (art === 'lohngruppen') { u.personen = zahl('SELECT COUNT(*) AS n FROM benutzer WHERE lohngruppe_id = ?', z.id); u.positionen = quelle('personal', z.id); }
+  if (art === 'lohngruppen') { u.personen = zahl('SELECT COUNT(*) AS n FROM benutzer WHERE lohngruppe_id = ? OR id IN (SELECT benutzer_id FROM benutzer_lohngruppe WHERE lohngruppe_id = ?)', z.id, z.id); u.positionen = quelle('personal', z.id); }
   if (art === 'leistungen') u.meldungen = zahl('SELECT COUNT(*) AS n FROM leistungsmeldung WHERE leistung_id = ?', z.id);
   return u;
 }

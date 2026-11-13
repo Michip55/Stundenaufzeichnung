@@ -25,9 +25,8 @@ const PROTOTYP_HEUTE = '2026-11-12';
 const LOHNGRUPPEN = [
   ['pol', 'Polier', 'Polier · Angestellte Bau A3', 58.0, 74.0], ['va', 'Vorarbeiter', 'KV Bau · Lohngruppe IIa', 49.5, 66.0],
   ['fa', 'Facharbeiter', 'KV Bau · Lohngruppe IIb', 46.0, 62.0], ['ma', 'Maschinist', 'KV Bau · Lohngruppe IIb', 47.0, 63.0],
-  ['lkw', 'LKW-Fahrer', 'KV Güterbeförderung', 44.0, 58.0], ['hi', 'Hilfsarbeiter', 'KV Bau · Lohngruppe IV', 39.5, 52.0],
-  ['le', 'Lehrling', 'KV Bau · 2. Lehrjahr', 19.0, 34.0]
-];
+  ['lkw', 'LKW-Fahrer', 'KV Güterbeförderung', 44.0, 58.0], ['hi', 'Hilfsarbeiter', 'KV Bau · Lohngruppe IV', 39.5, 52.0]
+]; // keine Lehrlinge im Betrieb (13.11.2026) – bei Bedarf über Stammdaten (12.21) anlegen
 
 // Reihenfolge exakt wie auf der Papiervorlage (linke Spalte, dann rechte Spalte)
 const GERAETE = [
@@ -61,13 +60,13 @@ const LEISTUNGEN = [
 const M = (id, vn, nn, lg, kst, rolle = 'mitarbeiter') => ({ id, name: `${vn} ${nn}`, lg, kst, rolle, pnr: 1000 + id });
 const MITARBEITER = [
   M(1, 'Josef', 'Haidbauer', 'pol', '26-041', 'polier'), M(2, 'Lukas', 'Brandstätter', 'fa', '26-041'), M(3, 'Daniel', 'Schwarz', 'fa', '26-041'),
-  M(4, 'Roland', 'Kerschbaumer', 'ma', '26-041'), M(5, 'Mehmet', 'Yıldız', 'hi', '26-041'), M(6, 'Fabian', 'Stickler', 'le', '26-041'),
+  M(4, 'Roland', 'Kerschbaumer', 'ma', '26-041'), M(5, 'Mehmet', 'Yıldız', 'hi', '26-041'), M(6, 'Fabian', 'Stickler', 'hi', '26-041'),
   M(7, 'Karl', 'Ungersböck', 'lkw', '26-041'), M(8, 'Franz', 'Leitgeb', 'pol', '26-038', 'polier'), M(9, 'Christian', 'Trimmel', 'fa', '26-038'),
   M(10, 'Günter', 'Scherz', 'ma', '26-038'), M(11, 'Bogdan', 'Ionescu', 'hi', '26-038'), M(12, 'Zoran', 'Petrović', 'lkw', '26-038'),
   M(13, 'Thomas', 'Riegler', 'va', '26-044', 'polier'), M(14, 'Mario', 'Gruber', 'fa', '26-044'), M(15, 'Peter', 'Schabauer', 'hi', '26-044'),
   M(16, 'Patrick', 'Hofer', 'fa', '26-029'), M(17, 'Markus', 'Zöchling', 'fa', '26-029'), M(18, 'Reinhard', 'Luef', 'lkw', '26-029'),
   M(19, 'Manfred', 'Puchegger', 'va', '26-047', 'polier'), M(20, 'Herbert', 'Flasch', 'ma', '26-047'), M(21, 'Dominik', 'Kogelbauer', 'hi', '26-047'),
-  M(22, 'Andreas', 'Stangl', 'va', '26-035', 'polier'), M(23, 'Stefan', 'Weninger', 'fa', '26-035'), M(24, 'Elias', 'Woltron', 'le', '26-035'),
+  M(22, 'Andreas', 'Stangl', 'va', '26-035', 'polier'), M(23, 'Stefan', 'Weninger', 'fa', '26-035'), M(24, 'Elias', 'Woltron', 'hi', '26-035'),
   M(25, 'Gerhard', 'Wallner', 'pol', '26-050', 'polier'), M(26, 'Werner', 'Posch', 'ma', '26-050'), M(27, 'Ivan', 'Horvat', 'hi', '26-050'),
   M(28, 'Erwin', 'Pürrer', 'lkw', '26-050'), M(29, 'Johann', 'Tisch', 'lkw', '26-050'), M(30, 'Alois', 'Dorfmeister', 'ma', '90-001')
 ];
@@ -309,7 +308,7 @@ function seed(db, opt = {}) {
         const geraete = pick(b.geraete, 0.5).map(([k, v]) => ({ geraetId: geraetId[k], stunden: Math.min(v, 10) }));
         const material = pick(b.material, 1).map(([k, v]) => ({ materialId: materialId[k], menge: v }));
         for (const p of personal) {
-          if (p.stunden > 0 && ['fa', 'hi', 'le'].includes(lg.get(p.benutzerId)) && r() < 0.2) p.segStunden = 2 + Math.floor(r() * 3);
+          if (p.stunden > 0 && ['fa', 'hi'].includes(lg.get(p.benutzerId)) && r() < 0.2) p.segStunden = 2 + Math.floor(r() * 3);
         }
         const segSumme = personal.reduce((a, p) => a + (p.segStunden || 0), 0);
         const t1 = b.texte[Math.floor(r() * b.texte.length)], t2 = b.texte[Math.floor(r() * b.texte.length)];

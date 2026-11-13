@@ -1119,6 +1119,24 @@ CREATE TABLE ki_nutzung (
 );
 CREATE INDEX ki_nutzung_tag ON ki_nutzung(tag);
 `
+  },
+  {
+    version: 23,
+    name: 'Ausbaustufe 2: Lohngruppe stichtaggenau (12.22)',
+    sql: `
+CREATE TABLE benutzer_lohngruppe (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  lohngruppe_id TEXT REFERENCES lohngruppe(id),
+  gueltig_ab TEXT NOT NULL,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX benutzer_lohngruppe_b ON benutzer_lohngruppe(benutzer_id, gueltig_ab);
+-- Basisstand: die bisherige Zuordnung gilt von Anfang an
+INSERT INTO benutzer_lohngruppe (benutzer_id, lohngruppe_id, gueltig_ab, erstellt)
+  SELECT id, lohngruppe_id, '2000-01-01', strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM benutzer WHERE lohngruppe_id IS NOT NULL;
+`
   }
 ];
 

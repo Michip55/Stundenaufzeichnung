@@ -86,6 +86,7 @@ function createApp(opt = {}) {
   const sicher = (name, f) => { try { f(bt); } catch (e) { console.error(`[BauTag] ${name}:`, e.message); } };
   bt.stuendlich = () => {
     preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt);
+    sicher('Lohngruppen', require('./lohngruppen').tagesLauf); // 12.22
     sicher('Bauvorhaben', require('./bauvorhaben').pruefeBauvorhaben);
     sicher('Rechnungen', require('./rechnungen').pruefeRechnungen);
     sicher('Urlaubsanträge', require('./routes/urlaub').pruefeAntraege);

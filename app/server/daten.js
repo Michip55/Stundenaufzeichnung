@@ -34,7 +34,8 @@ function ladeBerichteFuerKalk(db, baustelleId) {
   const berichte = db.alle('SELECT id, datum, status FROM bericht WHERE baustelle_id = ? ORDER BY datum', baustelleId);
   if (!berichte.length) return [];
   const nachId = new Map(berichte.map((b) => [b.id, { ...b, personal: [], geraete: [], material: [], regie: [] }]));
-  for (const p of db.alle(`SELECT bp.bericht_id, bp.stunden, bp.benutzer_id, b.lohngruppe_id FROM bericht_personal bp
+  // 12.22: Lohngruppe am Berichtstag
+  for (const p of db.alle(`SELECT bp.bericht_id, bp.stunden, bp.benutzer_id, ${require('./lohngruppen').lgAm('b', 'r.datum')} AS lohngruppe_id FROM bericht_personal bp
       JOIN benutzer b ON b.id = bp.benutzer_id JOIN bericht r ON r.id = bp.bericht_id WHERE r.baustelle_id = ?`, baustelleId)) {
     nachId.get(p.bericht_id).personal.push({ benutzerId: p.benutzer_id, lohngruppeId: p.lohngruppe_id, stunden: p.stunden });
   }
@@ -87,7 +88,8 @@ function kalkulationFuer(db, bs, preise) {
 /** Kosten eines Berichts (kostenTag) */
 function kostenTagFuer(db, berichtId) {
   const b = db.eins('SELECT datum FROM bericht WHERE id = ?', berichtId);
-  const personal = db.alle('SELECT bp.stunden, b.lohngruppe_id AS lohngruppeId FROM bericht_personal bp JOIN benutzer b ON b.id = bp.benutzer_id WHERE bp.bericht_id = ?', berichtId);
+  const personal = db.alle(`SELECT bp.stunden, ${require('./lohngruppen').lgAm('b', 'r.datum')} AS lohngruppeId FROM bericht_personal bp JOIN benutzer b ON b.id = bp.benutzer_id
+    JOIN bericht r ON r.id = bp.bericht_id WHERE bp.bericht_id = ?`, berichtId);
   const geraete = db.alle('SELECT geraet_id AS geraetId, stunden FROM bericht_geraet WHERE bericht_id = ?', berichtId);
   const material = db.alle('SELECT material_id AS materialId, menge FROM bericht_material WHERE bericht_id = ?', berichtId);
   const preise = ladePreise(db);

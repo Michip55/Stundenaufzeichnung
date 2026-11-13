@@ -91,10 +91,10 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal(d.stand, '2026-04-01');
     const summe = (sql, ...p) => s.db.eins(sql, ...p).m || 0;
     const fa = finde(d, 'Facharbeiter');
-    assert.deepEqual(fa.quelle, { art: 'personal', ref: ['pol', 'va', 'fa', 'hi', 'le'] });
+    assert.deepEqual(fa.quelle, { art: 'personal', ref: ['pol', 'va', 'fa', 'hi'] });
     assert.equal(fa.zuordnungPruefen, true);
     assert.equal(fa.mengeAuto, r2(summe(`SELECT SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id JOIN benutzer b ON b.id = bp.benutzer_id
-      WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND b.lohngruppe_id IN ('pol','va','fa','hi','le')`, BS.pitten)));
+      WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND b.lohngruppe_id IN ('pol','va','fa','hi')`, BS.pitten)));
     const geraet = (code) => summe(`SELECT SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id JOIN geraet g ON g.id = bg.geraet_id
       WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND g.code = ?`, BS.pitten, code);
     assert.equal(finde(d, 'Mobilbagger 7-11 t').mengeAuto, geraet('b9'));

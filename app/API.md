@@ -374,7 +374,7 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
 
 | Bautagesbericht | Position der Vorlage |
 |---|---|
-| Personal Polier, Vorarbeiter, Facharbeiter, Hilfsarbeiter, Lehrling (Std.) | Facharbeiter (Std.) |
+| Personal Polier, Vorarbeiter, Facharbeiter, Hilfsarbeiter (Std.) | Facharbeiter (Std.) |
 | Personal LKW-Fahrer, Maschinist | – (in den Transport-/Gerätesätzen enthalten) |
 | LKW 2-Achser / 3-Achser / 4-Achser | LKW 2A / LKW 3A / LKW 4A |
 | LKW mit Kran 3-A | 3A-Kran |

@@ -4,6 +4,8 @@ const { ungueltig, nichtGefunden, konflikt, keinZugriff } = require('../fehler')
 const R = require('../rechte');
 const auth = require('../auth');
 const { brauche } = require('./hilfe');
+const L = require('../lohngruppen');
+const { wienDatum } = require('../datum');
 
 /** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
 /** Rollenwechsel, die das Büro vornehmen darf (D-02) */
@@ -149,6 +151,7 @@ module.exports = function benutzerRouten(api, bt) {
     if (f.aktiv === undefined) f.aktiv = 1;
     const k = Object.keys(f);
     const r = db.lauf(`INSERT INTO benutzer (${k.join(', ')}) VALUES (${k.map(() => '?').join(', ')})`, ...k.map((x) => f[x]));
+    if (f.lohngruppe_id) db.lauf('INSERT INTO benutzer_lohngruppe (benutzer_id, lohngruppe_id, gueltig_ab, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', r.id, f.lohngruppe_id, L.BASIS, jetzt(), req.ctx.benutzer.id); // 12.22
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${r.id}`, neu: { name: f.name, rolle: f.rolle, lohngruppe: f.lohngruppe_id ?? null }, text: `Benutzer ${f.name} angelegt` });
     res.status(201).json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
   });
@@ -160,12 +163,20 @@ module.exports = function benutzerRouten(api, bt) {
     if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
     const body = v.objekt(req.body);
     const { f, pin } = pruefeFelder(body, true, alt.rolle, id);
+    // 12.22: Lohngruppe als Verlaufseintrag (stichtaggenau), nicht direkt überschreiben
+    let lgNeu;
+    const heute = wienDatum(bt.uhr());
+    if (body.lohngruppeGueltigAb !== undefined && body.lohngruppe === undefined) throw ungueltig('lohngruppeGueltigAb nur zusammen mit lohngruppe.');
+    if ('lohngruppe_id' in f) {
+      lgNeu = { id: f.lohngruppe_id, gueltigAb: L.pruefeGueltigAb(body.lohngruppeGueltigAb, body.lohngruppeRueckwirkend, heute), explizit: body.lohngruppeGueltigAb != null && body.lohngruppeGueltigAb !== '' };
+      delete f.lohngruppe_id;
+    }
     if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Büro und Geschäftsführung vergibt nur die GF.');
     const rollenwechsel = Boolean(f.rolle && f.rolle !== alt.rolle);
     if (rollenwechsel && !req.ctx.hat('benutzer') && !(BUERO_ROLLENWECHSEL.includes(alt.rolle) && BUERO_ROLLENWECHSEL.includes(f.rolle))) {
       throw keinZugriff('Zum oder vom Bauleiter macht nur die Geschäftsführung (Büro: Mitarbeiter ↔ Polier).');
     }
-    if (!Object.keys(f).length && !pin) throw ungueltig('Keine Änderungen angegeben.');
+    if (!Object.keys(f).length && !pin && !lgNeu) throw ungueltig('Keine Änderungen angegeben.');
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
     }
@@ -179,8 +190,18 @@ module.exports = function benutzerRouten(api, bt) {
     if (rollenwechsel && !auth.FELD_ROLLEN.includes(f.rolle) && !pin && !(alt.pin_laenge >= 6)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
     const entfernt = [];
+    let lgErg = null;
     db.transaktion(() => {
-      db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
+      if (k.length) db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
+      if (lgNeu) {
+        lgErg = L.setzen(db, { benutzerId: id, lohngruppeId: lgNeu.id, gueltigAb: lgNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt(), explizit: lgNeu.explizit });
+        L.abgleichen(db, heute, id);
+        db.protokolliere({
+          zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`,
+          alt: { lohngruppe: lgErg.ersetzt !== undefined ? lgErg.ersetzt : lgErg.alt, gueltigAb: lgErg.gueltigAb }, neu: { lohngruppe: lgErg.neu, gueltigAb: lgErg.gueltigAb, ...(lgErg.ersetzt !== undefined ? { ersetzt: true } : {}) },
+          text: `Lohngruppe ${alt.name}: ${lgErg.alt || '–'} → ${lgErg.neu || '–'} ab ${lgErg.gueltigAb.split('-').reverse().join('.')}${lgErg.gueltigAb < heute ? ' (rückwirkend)' : ''}`
+        });
+      }
       // Ausnahmen, die für die neue Rolle gesperrt sind, entfernen
       if (rollenwechsel) {
         for (const r of R.GESPERRT[f.rolle]) db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', id, r);
@@ -209,12 +230,42 @@ module.exports = function benutzerRouten(api, bt) {
       }
       if (pin) neuW.pin = 'zurückgesetzt';
       if (entfernt.length) neuW.zuordnungenEntfernt = entfernt;
-      db.protokolliere({
+      if (k.length || pin) db.protokolliere({
         zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: f.rolle && f.rolle !== alt.rolle ? 'rolle' : 'benutzer', objekt: `benutzer:${id}`,
         alt: altW, neu: neuW, text: `Benutzer ${alt.name} geändert${pin ? ' (PIN zurückgesetzt)' : ''}`
       });
     });
-    res.json({ ...benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}) });
+    // 12.22: Budget-Alarme neu prüfen, wenn schon gerechnete Tage betroffen sind
+    if (lgErg && lgErg.gueltigAb <= heute) {
+      const B = require('../budget');
+      for (const bsId of L.betroffeneBaustellen(db, id, lgErg.gueltigAb)) B.pruefeBudget(bt, bsId, { anlass: 'Lohngruppe geändert', benutzerId: req.ctx.benutzer.id });
+    }
+    res.json({ ...benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}), ...(lgNeu ? { lohngruppeVerlauf: L.verlaufJson(db, id, heute) } : {}) });
+  });
+
+  /* ---------- Lohngruppen-Verlauf (12.22, vertraulich) ---------- */
+  const darfLohngruppeSehen = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn') || ctx.hat('benutzer');
+  api.get('/benutzer/:id/lohngruppen-verlauf', (req, res) => {
+    if (!darfLohngruppeSehen(req.ctx)) throw keinZugriff('Die Lohngruppe ist vertraulich.');
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    if (!db.eins('SELECT id FROM benutzer WHERE id = ?', id)) throw nichtGefunden('Benutzer nicht gefunden.');
+    res.json(L.verlaufJson(db, id, wienDatum(bt.uhr())));
+  });
+  api.delete('/benutzer/:id/lohngruppen-verlauf/:vid', verwalterPruefen, (req, res) => {
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
+    if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
+    const e = db.eins('SELECT * FROM benutzer_lohngruppe WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.vid, 'Eintrag-ID'), id);
+    if (!e) throw nichtGefunden('Eintrag nicht gefunden.');
+    const heute = wienDatum(bt.uhr());
+    if (e.gueltig_ab <= heute) throw konflikt('Nur künftige Lohngruppen-Einträge können gelöscht werden. Für die Vergangenheit einen neuen Eintrag (rückwirkend) setzen.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM benutzer_lohngruppe WHERE id = ?', e.id);
+      L.abgleichen(db, heute, id);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, alt: { lohngruppe: e.lohngruppe_id, gueltigAb: e.gueltig_ab }, neu: null, text: `Künftige Lohngruppe ${e.lohngruppe_id || '–'} ab ${e.gueltig_ab.split('-').reverse().join('.')} für ${b.name} gelöscht` });
+    });
+    res.json({ ok: true, lohngruppeVerlauf: L.verlaufJson(db, id, heute) });
   });
 
   /** Konto entsperren (C-07): Büro für Mitarbeiter/Polier/Bauleiter, GF für alle */

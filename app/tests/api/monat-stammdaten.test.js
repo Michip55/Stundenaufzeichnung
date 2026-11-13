@@ -80,7 +80,7 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
 
   await t.test('Preise: lesen und Eingabeprüfung beim Ändern', async () => {
     const p = (await buero.get('/preise')).daten;
-    assert.equal(p.lohngruppen.length, 7);
+    assert.equal(p.lohngruppen.length, 6); // ohne Lehrling (13.11.2026)
     assert.equal(p.geraete.length, 23);
     assert.equal(p.geraete[0].name, 'LKW mit Kran 3-A');
     assert.ok('ep' in p.leistungen[0] && 'ek' in p.materialien[0] && 'regiesatz' in p.lohngruppen[0]);

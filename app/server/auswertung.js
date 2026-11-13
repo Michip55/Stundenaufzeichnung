@@ -286,13 +286,24 @@ function monat(db, monatStr, jetzt) {
         if (a.code === 'ZA') za++;
       }
     }
+    // 12.22: Lohngruppe stichtaggenau – Monatsletzter, abweichende Tage, Abschnitte bei Wechsel
+    const lgTag = require('./lohngruppen').zeitachse(db, b.id);
+    const lgMonat = lgTag(letzter);
+    const abschnitte = [];
+    for (const d of daten) {
+      const lg = lgTag(d);
+      const st = tageObj[d] ? tageObj[d].stunden || 0 : 0;
+      const l = abschnitte[abschnitte.length - 1];
+      if (l && l.lohngruppe === lg) { l.bis = d; l.stunden += st; } else abschnitte.push({ lohngruppe: lg, von: d, bis: d, stunden: st });
+      if (tageObj[d] && lg !== lgMonat) tageObj[d].lohngruppe = lg;
+    }
     const summe = r2(tw.reduce((x, t) => x + t.stunden, 0));
     const ueberstunden = ueberstundenZeitraum(tw, cfg);
     for (const w of azgWarnungen(roh, { jetzt })) {
       if (w.datum >= erster && w.datum <= letzter) warnungen.push({ benutzerId: b.id, name: b.name, ...w });
     }
     return {
-      id: b.id, name: b.name, pnr: b.pnr, lohngruppe: b.lohngruppe_id, tage: tageObj, summe,
+      id: b.id, name: b.name, pnr: b.pnr, lohngruppe: lgMonat, ...(abschnitte.length > 1 ? { lohngruppen: abschnitte.map((a) => ({ ...a, stunden: r2(a.stunden) })) } : {}), tage: tageObj, summe,
       normal: r2(summe - ueberstunden), ueberstunden, sw, swStunden: r2(swStunden), k, u, za, seg: r2(seg.get(b.id) || 0)
     };
   });
