@@ -204,7 +204,7 @@ function meldungZiel(m) {
   if (m.typ === 'bericht' && (kann('bericht_erstellen') || kann('bericht_freigeben'))) return m.berichtId ? `#/bericht/${m.berichtId}` : '#/berichte';
   if (m.typ === 'azg' && kann('zeit_eigen')) return '#/woche';
   if (m.typ === 'abwesenheit') return '#/abwesenheiten';
-  if (m.typ === 'fuhrpark') return m.schadenId ? `#/fuhrpark?reiter=schaeden&schaden=${m.schadenId}` : m.anlageId ? `#/fuhrpark/anlage/${m.anlageId}` : '#/fuhrpark';
+  if (m.typ === 'fuhrpark') return m.schadenId ? `#/fuhrpark?reiter=schaeden&schaden=${m.schadenId}` : /Schaden/.test(m.titel || '') ? '#/fuhrpark?reiter=schaeden' : m.anlageId ? `#/fuhrpark/anlage/${m.anlageId}` : '#/fuhrpark';
   if (m.typ === 'sicherheit' && (kann('benutzer') || darfBenutzerPflegen())) return '#/benutzer';
   return '';
 }
