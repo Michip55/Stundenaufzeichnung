@@ -837,69 +837,138 @@ async function dokumenteUndRechnungen(h, z) {
   await abmelden();
 }
 
-/* ================= Urlaubsübersicht und Urlaubskonto (12.19) ================= */
+/* ================= Urlaubsübersicht, Urlaubskonto (12.19) und Zeitraum-Anträge (12.24) ================= */
 async function urlaub(h, z) {
   const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg } = h;
   const heute = h.heute();
-  const von = naechsterArbeitstag(heute, 15), bis = naechsterArbeitstag(heute, 16);
+  // Montag in gut zwei Wochen bis zum Montag darauf: Mo–Fr + Wochenende + Mo = 6 Arbeitstage
+  const von = (() => { let t = plusTage(heute, 16); while (new Date(t + 'T12:00:00Z').getUTCDay() !== 1) t = plusTage(t, 1); return t; })();
+  const bis = plusTage(von, 7);
+  const zaTag = plusTage(von, 9); // Mittwoch der Folgewoche: zweiter Antrag (wird abgelehnt)
   const monat = von.slice(0, 7), jahr = Number(von.slice(0, 4));
+  const kurz = (iso) => `${iso.slice(8)}.${iso.slice(5, 7)}.`;
+  const stelle = async (v, b, code, notiz) => {
+    await page.waitForSelector('dialog[open] #uaf');
+    await page.fill('#uaf [name="von"]', v);
+    pruef(await page.locator('#uaf [name="bis"]').inputValue() >= v, 'A2-Url: „Bis“ folgt nicht dem „Von“');
+    await page.fill('#uaf [name="bis"]', b); await page.locator('#uaf [name="bis"]').dispatchEvent('change');
+    await page.selectOption('#uaf [name="code"]', code);
+    if (notiz) await page.fill('#uaf [name="notiz"]', notiz);
+  };
 
-  /* ---- Mitarbeiter: Konto sehen, Urlaub beantragen ---- */
+  /* ---- Mitarbeiter: ein Antrag von–bis mit Vorschau, zweiter Antrag, dritter wird zurückgezogen ---- */
   const ichM = await anmelden('mitarbeiter');
-  const L = ichM.benutzer.id;
+  const L = ichM.benutzer.id, name = ichM.benutzer.name;
   await geh(`/urlaub?monat=${monat}`);
-  if (g.mobil) {
-    await page.waitForSelector('#mein-urlaub');
-    await page.click('#ur-antrag');
-  } else {
-    await page.waitForSelector('#ur-kalender');
-    pruef(await page.locator('#ur-kalender tr[data-person]').count() === 1, 'A2-Url: Mitarbeiter sieht im Kalender andere Personen');
-    await page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"]`).click();
-  }
+  const oeffne = async () => { await page.waitForSelector('#ur-antrag'); await page.click('#ur-antrag'); };
+  if (!g.mobil) { await page.waitForSelector('#ur-kalender'); pruef(await page.locator('#ur-kalender tr[data-person]').count() === 1, 'A2-Url: Mitarbeiter sieht im Kalender andere Personen'); }
+  await oeffne(von);
   await page.waitForSelector('dialog[open] #uaf');
   pruef((await page.locator('#uaf [name="code"] option').evaluateAll((o) => o.map((x) => x.value))).join() === 'U,ZA', 'A2-Url: Mitarbeiter kann anderes als Urlaub/Zeitausgleich beantragen');
-  await page.fill('#uaf [name="von"]', von); await page.fill('#uaf [name="bis"]', bis);
-  await dialogUeberlauf('urlaub antrag');
+  await stelle(von, bis, 'U', 'Familienurlaub');
+  await page.waitForSelector('#zr-vorschau[data-arbeitstage="6"]');
+  const vt = (await page.locator('#zr-vorschau').innerText()).replace(/\s+/g, ' ');
+  pruef(/6 Arbeitstage/.test(vt) && /Wochenende und Feiertage zählen nicht/.test(vt), `A2-Url: Vorschau zeigt nicht „6 Arbeitstage“ (${vt.slice(0, 120)})`);
+  const probe = (await api('POST', '/abwesenheiten/zeitraum', { benutzerId: L, von, bis, code: 'U', vorschau: true })).json;
+  pruef(probe.arbeitstage === 6 && probe.antragId === null && (!probe.konto || probe.konto.restNachAntrag == null || vt.includes(String(probe.konto.restNachAntrag).replace('.', ','))), `A2-Url: Vorschau weicht vom Server ab (${JSON.stringify(probe).slice(0, 160)})`);
+  await dialogUeberlauf('urlaub von-bis'); await shot('urlaub-von-bis');
   await page.click('#ua-ok');
-  const kurz = (iso) => `${iso.slice(8)}.${iso.slice(5, 7)}.`;
-  if (g.mobil) { await page.waitForSelector(`#ur-meine li:has-text("${kurz(bis)}") [data-zurueck]`); pruef(await page.locator(`#ur-meine li:has-text("${kurz(von)}"):has-text("beantragt")`).count() === 1, 'A2-Url: Anträge fehlen in „Mein Urlaub“'); }
-  else await page.waitForSelector(`#ur-kalender [data-zelle][data-datum="${von}"][data-status="beantragt"].offen`);
-  const meine = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
-  pruef(meine.length === 2 && meine.every((a) => a.status === 'beantragt' && a.code === 'U'), `A2-Url: Antrag nicht als zwei beantragte Urlaubstage gespeichert (${JSON.stringify(meine)})`);
+  await page.waitForSelector(`#ur-meine [data-antrag][data-status="beantragt"]:has-text("${kurz(von)}")`);
+  const tage1 = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
+  pruef(tage1.length === 6 && tage1.every((a) => a.status === 'beantragt' && a.code === 'U') && new Set(tage1.map((a) => a.antragId)).size === 1, `A2-Url: Antrag nicht als ein Antrag mit 6 Arbeitstagen gespeichert (${tage1.length} Tage, ${[...new Set(tage1.map((a) => a.antragId))].length} Anträge)`);
+  const antrag1 = tage1[0] && tage1[0].antragId;
+  pruef(/6 Arbeitstage/.test(await page.locator(`#ur-meine [data-antrag="${antrag1}"]`).innerText()) && await page.locator(`#ur-meine [data-antrag="${antrag1}"] [data-antrag-zurueck]`).count() === 1, 'A2-Url: „Meine Anträge“ zeigt den Antrag nicht gruppiert mit „zurückziehen“');
   await toastWeg();
+  // zweiter Antrag (ein Tag Zeitausgleich) – wird später abgelehnt
+  await oeffne(zaTag); await stelle(zaTag, zaTag, 'ZA');
+  await page.waitForSelector('#zr-vorschau[data-arbeitstage="1"]');
+  await page.click('#ua-ok');
+  await page.waitForSelector(`#ur-meine [data-antrag]:has-text("${kurz(zaTag)}")`);
+  await toastWeg();
+  // dritter Antrag: zurückziehen, solange er offen ist
+  const weg = plusTage(von, 10);
+  await oeffne(weg); await stelle(weg, weg, 'U');
+  await page.waitForSelector('#zr-vorschau[data-arbeitstage="1"]');
+  await page.click('#ua-ok');
+  const zWeg = page.locator(`#ur-meine [data-antrag]:has-text("${kurz(weg)}")`);
+  await zWeg.waitFor(); await toastWeg();
+  await zWeg.locator('[data-antrag-zurueck]').click();
+  await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForFunction((t) => ![...document.querySelectorAll('#ur-meine [data-antrag]')].some((li) => li.innerText.includes(t)), kurz(weg));
+  pruef((await api('GET', `/abwesenheiten?von=${weg}&bis=${weg}`)).json.filter((a) => a.benutzerId === L).length === 0, 'A2-Url: zurückgezogener Antrag ist noch gespeichert');
+  await toastWeg();
+  // dieselbe Eingabe von der Seite „Abwesenheiten“ (Von–Bis statt einzelner Tag)
+  await geh('/abwesenheiten');
+  await page.click('[data-akt="antrag"]');
+  await page.waitForSelector('dialog[open] #abw-f');
+  pruef(await page.locator('#abw-f [name="von"]').count() === 1 && await page.locator('#abw-f [name="bis"]').count() === 1 && await page.locator('#abw-f [name="notiz"]').count() === 1 && await page.locator('#zr-vorschau').count() === 1, 'A2-Url: „Abwesenheiten“ hat nicht den Von–Bis-Dialog');
+  await dialogUeberlauf('abwesenheiten von-bis');
+  await page.click('dialog[open] [data-zu]');
   await keinEuro('urlaub mitarbeiter'); await ueberlauf('urlaub mitarbeiter'); await shot('urlaub-mitarbeiter');
   await abmelden();
 
-  /* ---- Büro: Kalender, Muster beantragt/genehmigt, genehmigen, Konto, Betriebsurlaub ---- */
+  /* ---- Büro: genau eine Meldung, ganzer Antrag mit einem Klick, keine Tages-Entscheidung, Korrektur, Ablehnen ---- */
   await anmelden('buero');
+  const meld = (await api('GET', '/benachrichtigungen')).json.filter((n) => `${n.titel} ${n.text}`.includes(name) && `${n.titel} ${n.text}`.includes(kurz(von)));
+  pruef(meld.length === 1 && /6 Arbeitstage/.test(`${meld[0].titel} ${meld[0].text}`), `A2-Url: nicht genau eine Benachrichtigung zum Antrag (${meld.length})`);
+  const kontoVor = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
   await geh(`/urlaub?monat=${monat}`);
-  if (g.mobil) {
-    await page.waitForSelector('#ur-partie');
-    pruef(await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}") [data-entscheid="genehmigt"]`).count() >= 2, 'A2-Url: Büro (Handy) sieht die offenen Anträge nicht');
-    await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}") [data-entscheid="genehmigt"]`).first().click();
-    await page.waitForFunction((n) => document.querySelectorAll('#ur-partie [data-entscheid="genehmigt"]').length < n, await page.locator('#ur-partie [data-entscheid="genehmigt"]').count() + 1);
-    await toastWeg();
-  } else {
-    await page.waitForSelector('#ur-kalender');
+  const liste = g.mobil ? '#ur-partie' : '#ur-antraege';
+  await page.waitForSelector(`${liste} [data-antrag="${antrag1}"]`);
+  const z1 = page.locator(`${liste} [data-antrag="${antrag1}"]`).first();
+  pruef(new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · Urlaub · .*${kurz(von).replace(/\./g, '\\.')}.*${kurz(bis).replace(/\./g, '\\.')}`).test((await z1.innerText()).replace(/\s+/g, ' ')) && /6 Arbeitstage/.test(await z1.innerText()), `A2-Url: Antrag nicht gruppiert dargestellt (${(await z1.innerText()).replace(/\s+/g, ' ').slice(0, 120)})`);
+  pruef(await page.locator('[data-tag-entscheid], [data-entscheid]').count() === 0, 'A2-Url: es gibt Knöpfe zum Entscheiden einzelner Tage');
+  if (!g.mobil) {
+    // Klick auf einen Tag öffnet den ganzen Antrag; beantragt = schraffiert, genehmigt = gefüllt
     pruef(await page.locator('#ur-kalender tr[data-person]').count() >= 10 && await page.locator('#ur-kalender tr.ur-gruppe').count() >= 2 && await page.locator('#ur-legende span').count() >= 7, 'A2-Url: Team-Kalender (Zeilen, Partien, Legende) unvollständig');
     const zelleV = page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"]`);
-    // beantragt = schraffiert + gestrichelt, genehmigt = gefüllt: Unterschied in Muster und Helligkeit, nicht nur in der Farbe
     const stilOffen = await zelleV.evaluate((e) => { const s = getComputedStyle(e); return { bild: s.backgroundImage, rand: s.borderTopStyle, farbe: s.backgroundColor }; });
-    pruef(await page.locator(`#ur-antraege li:has-text("${ichM.benutzer.name}")`).count() === 2, 'A2-Url: Liste „Offene Anträge“ zeigt die zwei Tage nicht');
     await ueberlauf('urlaub monat'); await shot('urlaub-monat');
     await zelleV.click();
-    await page.waitForSelector('dialog[open] #ur-eintrag');
-    await page.click('dialog[open] [data-entscheid="genehmigt"]');
+    await page.waitForSelector(`dialog[open] #ur-eintrag [data-antrag="${antrag1}"]`);
+    pruef(/6 Arbeitstage/.test(await page.locator('#ur-eintrag').innerText()) && await page.locator('#ur-eintrag [data-tag-entscheid], #ur-eintrag [data-entscheid]').count() === 0 && await page.locator('#ur-eintrag .an-tage li').count() === 6, 'A2-Url: Tag öffnet nicht den ganzen Antrag (Tagesliste nur zur Ansicht)');
+    await dialogUeberlauf('urlaub antrag ganz');
+    await page.click('#ur-eintrag [data-antrag-entscheid="genehmigt"]');
     await page.waitForSelector(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"][data-status="genehmigt"].ok`);
     const stilOk = await zelleV.evaluate((e) => { const s = getComputedStyle(e); return { bild: s.backgroundImage, rand: s.borderTopStyle, farbe: s.backgroundColor }; });
     pruef(/gradient/.test(stilOffen.bild) && stilOffen.rand === 'dashed' && stilOk.bild === 'none' && stilOk.farbe !== stilOffen.farbe, `A2-Url: beantragt/genehmigt unterscheiden sich nicht in Muster und Helligkeit (${JSON.stringify([stilOffen, stilOk])})`);
-    pruef(await page.locator(`#ur-antraege li:has-text("${ichM.benutzer.name}")`).count() === 1, 'A2-Url: genehmigter Tag steht noch bei den offenen Anträgen');
-    await toastWeg();
-    // Filter Partie
+  } else {
+    await z1.locator('[data-antrag-entscheid="genehmigt"]').click();
+    await page.waitForSelector(`${liste} [data-antrag="${antrag1}"][data-status="genehmigt"]`);
+  }
+  await toastWeg();
+  const tage2 = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
+  pruef(tage2.length === 6 && tage2.every((a) => a.status === 'genehmigt'), 'A2-Url: „Ganzen Antrag genehmigen“ setzt nicht alle Tage auf genehmigt');
+  // zweiten Antrag als Ganzes ablehnen (mit Begründung)
+  const za = (await api('GET', `/abwesenheiten?von=${zaTag}&bis=${zaTag}`)).json.find((a) => a.benutzerId === L);
+  await page.locator(`${liste} [data-antrag="${za.antragId}"] [data-antrag-entscheid="abgelehnt"]`).first().click();
+  await page.waitForSelector('dialog[open] #an-ab');
+  await page.fill('#an-ab [name="antwort"]', 'Betonage in dieser Woche');
+  await page.click('#an-ab-ok');
+  await page.waitForFunction((id) => !document.querySelector(`[data-antrag="${id}"] [data-antrag-entscheid]`), za.antragId);
+  await toastWeg();
+  // Korrigieren (nur Büro, nach der Genehmigung): einen Tag herausnehmen → Konto rechnet neu
+  if (!g.mobil) await page.locator('#ur-entschieden > summary').click();
+  const zKorr = page.locator(`${liste} [data-antrag="${antrag1}"] [data-antrag-korrigieren]`).first();
+  await zKorr.scrollIntoViewIfNeeded(); await zKorr.click();
+  await page.waitForSelector('dialog[open] #an-korr');
+  pruef(await page.locator('#an-korr [name="tag"]').count() === 6 && /früher zurück/i.test(await page.locator('#an-korr').innerText()), 'A2-Url: Korrektur-Dialog ohne Tagesliste oder Hinweis');
+  await page.locator('#an-korr [name="tag"]').last().check();
+  await dialogUeberlauf('urlaub korrigieren'); await shot('urlaub-korrigieren');
+  await page.click('#an-korr-ok');
+  await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForFunction(() => !document.querySelector('dialog[open] #an-korr'));
+  await toastWeg();
+  const tage3 = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
+  const kontoNach = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
+  pruef(tage3.length === 5 && !tage3.some((a) => a.datum === bis) && Math.abs((kontoNach.geplant + kontoNach.genommen) - (kontoVor.geplant + kontoVor.genommen) - 5) < 0.001, `A2-Url: Korrektur entfernt den Tag nicht oder das Konto rechnet nicht neu (Tage ${tage3.length}, geplant ${kontoVor.geplant} → ${kontoNach.geplant})`);
+  await ueberlauf('urlaub büro'); await shot('urlaub-buero');
+
+  if (!g.mobil) {
+    // Filter Partie, Jahr, Konten
     await page.selectOption('#ur-bs', String(ichM.benutzer.baustelleId));
     await page.waitForFunction(() => document.querySelectorAll('#ur-kalender tr.ur-gruppe').length === 1);
     await page.selectOption('#ur-bs', '');
-    // Jahr und Konten
     await page.click('[data-tab="jahr"]');
     await page.waitForSelector('#ur-jahr-tbl tbody tr');
     await ueberlauf('urlaub jahr'); await shot('urlaub-jahr');
@@ -956,18 +1025,29 @@ async function urlaub(h, z) {
   pruef(await page.locator('#pool-urlaub[href="#/urlaub"]').count() === 1, 'A2-Url: Verweis „Urlaub“ im Planer fehlt');
   await abmelden();
 
+  /* ---- Mitarbeiter: sieht „genehmigt“ und die Ablehnung mit Begründung ---- */
+  await anmelden('mitarbeiter');
+  await geh(`/urlaub?monat=${monat}`); await geh('/mehr'); await geh(`/urlaub?monat=${plusTage(von, 9).slice(0, 7)}`);
+  await page.waitForSelector(`#ur-meine [data-antrag="${za.antragId}"][data-status="abgelehnt"]`);
+  pruef(/Betonage in dieser Woche/.test(await page.locator(`#ur-meine [data-antrag="${za.antragId}"]`).innerText()) && await page.locator(`#ur-meine [data-antrag="${za.antragId}"] [data-antrag-zurueck]`).count() === 0, 'A2-Url: Ablehnung mit Begründung nicht sichtbar');
+  await geh(`/urlaub?monat=${monat}`);
+  await page.waitForSelector(`#ur-meine [data-antrag="${antrag1}"][data-status="genehmigt"]`);
+  pruef(await page.locator('#ur-meine [data-antrag-entscheid], #ur-meine [data-antrag-korrigieren]').count() === 0 && (await api('GET', '/benachrichtigungen')).json.some((n) => /abgelehnt/i.test(`${n.titel} ${n.text}`)), 'A2-Url: Mitarbeiter kann entscheiden/korrigieren oder bekam keine Meldung zur Ablehnung');
+  await keinEuro('urlaub mitarbeiter 2'); await ueberlauf('urlaub mitarbeiter 2');
+  await abmelden();
+
   /* ---- Polier: Abwesenheiten der eigenen Partie, Krank nicht im Klartext, keine € ---- */
   await anmelden('polier');
   await geh(`/urlaub?monat=${monat}`);
   if (g.mobil) {
     await page.waitForSelector('#ur-partie');
-    pruef(/Meine Partie – Abwesenheiten/i.test(await page.locator('#ur-partie h2').innerText()) && await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}")`).count() >= 1, 'A2-Url: Polier (Handy) sieht „Meine Partie – Abwesenheiten“ nicht');
-    pruef(await page.locator('#ur-partie [data-entscheid]').count() === 0, 'A2-Url: Polier kann Anträge entscheiden');
+    pruef(/Meine Partie – Abwesenheiten/i.test(await page.locator('#ur-partie h2').innerText()) && await page.locator(`#ur-partie [data-antrag]:has-text("${name}")`).count() >= 1, 'A2-Url: Polier (Handy) sieht „Meine Partie – Abwesenheiten“ nicht');
   } else {
     await page.waitForSelector('#ur-kalender');
-    pruef(await page.locator(`#ur-kalender tr[data-person="${L}"]`).count() === 1 && await page.locator('#ur-bu, #ur-antraege [data-entscheid]').count() === 0, 'A2-Url: Polier sieht seine Partie nicht oder darf entscheiden/Betriebsurlaub eintragen');
+    pruef(await page.locator(`#ur-kalender tr[data-person="${L}"]`).count() === 1 && await page.locator('#ur-bu').count() === 0, 'A2-Url: Polier sieht seine Partie nicht oder darf Betriebsurlaub eintragen');
     pruef(await page.locator('#ur-kalender [data-code="K"]').count() === 0, 'A2-Url: Polier sieht „Krank“ im Klartext');
   }
+  pruef(await page.locator('[data-antrag-entscheid], [data-antrag-korrigieren]').count() === 0, 'A2-Url: Polier kann Anträge entscheiden oder korrigieren');
   pruef(await page.locator('#ur-einst').count() === 0 && (await h.absichtlich(() => api('PUT', '/einstellungen/urlaub', { partieGrenze: 9 }))).status === 403, 'A2-Url: Polier erreicht die Urlaubs-Einstellungen');
   await keinEuro('urlaub polier'); await ueberlauf('urlaub polier'); await shot('urlaub-polier');
   await abmelden();

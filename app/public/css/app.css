@@ -1040,3 +1040,9 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 .fu-knoepfe { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .fu-knoepfe .btn { min-width: 0; padding-left: 8px; padding-right: 8px; white-space: normal; height: auto; }
 
 .dok-kat-btn.neu { color: var(--muted); justify-content: flex-start; border: 1.5px dashed var(--line); margin-top: 4px; }
+
+/* Abwesenheit als Zeitraum-Antrag */
+.zr-vorschau { background: #f6f7f9; border-radius: 12px; padding: 10px 12px; min-height: 44px; font-size: 14.5px; } .zr-vorschau:empty { display: none; } .zr-vorschau p { margin: 0; } .zr-zahl b { font-size: 16px; } .zr-warn { color: var(--red-d); font-weight: 700; display: flex; gap: 6px; align-items: center; margin-top: 4px !important; } .zr-aus { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.an-liste { display: flex; flex-direction: column; } .an-zeile { padding: 10px 12px; border-top: 1px solid var(--line-2); display: flex; flex-direction: column; gap: 6px; } .an-zeile:first-child { border-top: 0; } .an-kopf { display: flex; gap: 8px; align-items: flex-start; } .an-kopf .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .an-kopf b { overflow-wrap: anywhere; } .an-kopf small { color: var(--muted); font-size: 12.5px; }
+.an-knoepfe { display: flex; flex-wrap: wrap; gap: 6px; } .an-tage summary, .an-erledigt summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0; } .an-tage li { font-size: 13px; padding: 2px 0; } .an-erledigt { border-top: 1px solid var(--line-2); margin-top: 8px; padding-top: 6px; } .ur-seite .an-zeile { padding-left: 0; padding-right: 0; }
+@media (max-width: 719px) { .an-knoepfe .btn { flex: 1 1 auto; min-height: 44px; } }

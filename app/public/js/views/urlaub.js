@@ -5,6 +5,7 @@
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, leer, banner, dialog, bestaetigen, toast, rolleText, speicher, $ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
+import { zeitraumDialog, antraegeLaden, antraegeHtml, antraegeBinden } from './zeitraum.js';
 
 const CODES = { U: 'Urlaub', ZA: 'Zeitausgleich', K: 'Krank', SW: 'Schlechtwetter', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
 const MON = ['Jänner', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -23,15 +24,22 @@ export default async function urlaub(el, ctx) {
   let monat = /^\d{4}-\d{2}$/.test(ctx.query.get('monat') || '') ? ctx.query.get('monat') : heute.slice(0, 7);
   let jahr = Number(monat.slice(0, 4));
   let fBs = '', fRolle = '';
-  let kal = { tage: [], personen: [], warnungen: [] }, konten = [], baustellen = [], jahrDaten = null, fehler = '';
+  let kal = { tage: [], personen: [], warnungen: [] }, konten = [], baustellen = [], jahrDaten = null, antraege = [], fehler = '';
   const bsName = (id) => { const b = baustellen.find((x) => Number(x.id) === Number(id)); return b ? b.kurz || b.name : 'Ohne Partie'; };
 
+  // Offene Anträge immer alle (egal in welchem Monat), Entschiedenes für den gezeigten Monat; Mitarbeiter: alle eigenen kommenden
+  async function ladeAntraege() {
+    if (!leitet) return antraegeLaden({ von: fmt.addTage(heute, -14), bis: fmt.addTage(heute, 366) }).catch(() => []);
+    const [offen, imMonat] = await Promise.all([antraegeLaden({ status: 'beantragt' }).catch(() => []), antraegeLaden({ von: `${monat}-01`, bis: monEnde(monat) }).catch(() => [])]);
+    return [...offen, ...imMonat.filter((a) => !offen.some((o) => o.antragId === a.antragId))];
+  }
   async function ladeKal(von, bis) { return get(`/urlaub/kalender?von=${von}&bis=${bis}${fBs ? '&baustelleId=' + fBs : ''}`); }
   async function lade() {
     fehler = '';
     try {
-      if (handy) { [kal, konten] = await Promise.all([ladeKal(heute, fmt.addTage(heute, 60)), get(`/urlaub/konto?jahr=${jahr}`)]); return; }
-      if (tab === 'monat') kal = await ladeKal(`${monat}-01`, monEnde(monat));
+      // Anträge kommen gruppiert (ein Antrag = ein Zeitraum, 12.24); entschieden wird immer der ganze Antrag
+      if (handy) { [kal, konten, antraege] = await Promise.all([ladeKal(heute, fmt.addTage(heute, 60)), get(`/urlaub/konto?jahr=${jahr}`), antraegeLaden({ von: fmt.addTage(heute, -14), bis: fmt.addTage(heute, 366) }).catch(() => [])]); return; }
+      if (tab === 'monat') [kal, antraege] = await Promise.all([ladeKal(`${monat}-01`, monEnde(monat)), ladeAntraege()]);
       else if (tab === 'jahr') { const teile = await Promise.all([0, 2, 4, 6, 8, 10].map((m) => ladeKal(`${jahr}-${String(m + 1).padStart(2, '0')}-01`, monEnde(`${jahr}-${String(m + 2).padStart(2, '0')}`)))); const map = new Map(); teile.forEach((t) => t.personen.forEach((p) => { if (!map.has(p.benutzerId)) map.set(p.benutzerId, { ...p, tage: {} }); Object.assign(map.get(p.benutzerId).tage, p.tage); })); jahrDaten = [...map.values()]; }
       else konten = await get(`/urlaub/konto?jahr=${jahr}`);
     } catch (e) { if (e.status === 401 || e.netz) throw e; fehler = e.status === 403 ? 'Kein Zugriff.' : e.message; }
@@ -41,7 +49,8 @@ export default async function urlaub(el, ctx) {
 
   const sichtbar = (p) => !fRolle || p.rolle === fRolle;
   const gruppen = (personen) => { const g = new Map(); personen.filter(sichtbar).forEach((p) => { const k = p.baustelleId ?? 0; if (!g.has(k)) g.set(k, []); g.get(k).push(p); }); return [...g.entries()].sort((a, b) => bsName(a[0]).localeCompare(bsName(b[0]), 'de')); };
-  const offeneAntraege = () => { const l = []; kal.personen.forEach((p) => Object.entries(p.tage || {}).forEach(([datum, e]) => { if (e.status === 'beantragt') l.push({ ...e, datum, benutzerId: p.benutzerId, name: p.name }); })); return l.sort((a, b) => a.datum.localeCompare(b.datum)); };
+  const rechte = { entscheiden: (a) => ctx.kann('stammdaten') && Number(a.benutzerId) !== Number(ich.id), zurueck: (a) => Number(a.benutzerId) === Number(ich.id), korrigieren: () => ctx.kann('stammdaten') };
+  const offeneAntraege = () => antraege.filter((a) => a.status === 'beantragt');
   const darfEntscheiden = (benutzerId) => ctx.kann('stammdaten') && Number(benutzerId) !== Number(ich.id);
 
   /* ---------- Monat ---------- */
@@ -51,12 +60,14 @@ export default async function urlaub(el, ctx) {
     return `<div class="toolbar wrap"><div class="wp-nav"><button type="button" class="icon-btn" data-mon="-1" aria-label="Voriger Monat">${ic('left')}</button><b id="ur-monat">${MON[m - 1]} ${y}</b><button type="button" class="icon-btn" data-mon="1" aria-label="Nächster Monat">${ic('right')}</button><button type="button" class="btn ghost sm" data-mon="0">Heute</button></div><span class="grow"></span>
         ${leitet ? `<label class="field inline"><span class="vh">Partie / Baustelle</span><select class="input" id="ur-bs"><option value="">Alle Partien</option>${baustellen.filter((b) => !b.intern).map((b) => `<option value="${b.id}" ${String(b.id) === fBs ? 'selected' : ''}>${esc(b.kurz || b.name)}</option>`).join('')}</select></label>
         <label class="field inline"><span class="vh">Rolle</span><select class="input" id="ur-rolle"><option value="">Alle Rollen</option>${['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'].map((r) => `<option value="${r}" ${fRolle === r ? 'selected' : ''}>${esc(rolleText(r))}</option>`).join('')}</select></label>` : ''}
+        ${ctx.kann('zeit_eigen') ? `<button type="button" class="btn primary" id="ur-antrag">${ic('plus')}Urlaub beantragen</button>` : ''}
         ${darfBu ? `<button type="button" class="btn ghost" id="ur-bu">${ic('calendar')}Betriebsurlaub eintragen</button><button type="button" class="icon-btn" id="ur-einst" aria-label="Einstellungen Urlaub" title="Einstellungen">${ic('wrench')}</button>` : ''}</div>
       ${(kal.warnungen || []).length ? `<section class="card pad" id="ur-warnungen" aria-label="Warnungen"><ul class="warn-list">${kal.warnungen.map((w) => `<li data-warnung="${esc(w.typ)}">${ic('alert')}<span>${w.datum ? `<b>${esc(fmt.datumKurz(w.datum))}</b> ` : ''}${esc(w.text)}${w.typ === 'plan_konflikt' ? ` <a class="link sm" href="#/plan?datum=${w.datum}&ansicht=woche">im Planer ansehen</a>` : ''}</span></li>`).join('')}</ul></section>` : ''}
       <div class="ur-wrap">
         <section class="card ur-karte" aria-label="Team-Kalender ${MON[m - 1]} ${y}"><div class="wp-scroll"><table class="ur-tbl" id="ur-kalender"><thead><tr><th class="ur-name">Mitarbeiter</th>${kal.tage.map((t) => { const d = fmt.dt(t.datum); return `<th class="${t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''}${t.datum === heute ? ' heute' : ''}" title="${t.feiertag ? esc(t.feiertag === true ? 'Feiertag' : t.feiertag) : ''}"><small>${fmt.WTK[d.getDay()]}</small>${d.getDate()}</th>`; }).join('')}</tr></thead>
-          <tbody>${gruppen(kal.personen).map(([bs, leute]) => `<tr class="ur-gruppe"><th colspan="${kal.tage.length + 1}">${esc(bsName(bs))} · ${leute.length}</th></tr>${leute.map((p) => `<tr data-person="${p.benutzerId}"><th class="ur-name" scope="row">${esc(p.name)}<small>${esc(rolleText(p.rolle))}</small></th>${kal.tage.map((t) => { const e = (p.tage || {})[t.datum]; const frei = t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''; return `<td class="${frei}"><button type="button" class="ur-z ${frei} ${zelleKl(e)}" data-zelle data-datum="${t.datum}" data-person="${p.benutzerId}" ${e ? `data-code="${esc(e.code)}" data-status="${esc(e.status)}" data-id="${e.id}"` : ''} aria-label="${esc(p.name)}, ${esc(fmt.datumKurz(t.datum))}: ${e ? `${esc(CODES[e.code] || e.code)} ${esc(e.status)}` : t.feiertag ? 'Feiertag' : 'frei'}">${e ? esc(e.code === 'abwesend' ? '–' : e.code) : t.feiertag ? 'F' : ''}</button></td>`; }).join('')}</tr>`).join('')}`).join('') || `<tr><td colspan="${kal.tage.length + 1}">${leer('Niemand in diesem Bereich.', 'users')}</td></tr>`}</tbody></table></div>${legende()}</section>
-        ${leitet ? `<aside class="card ur-seite" id="ur-antraege" aria-label="Offene Anträge"><h3>Offene Anträge <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3>${offen.length ? `<ul class="plain rows">${offen.map((a) => `<li data-antrag="${a.id}"><span class="grow"><b>${esc(a.name)}</b><small>${esc(fmt.datumKurz(a.datum))} · ${esc(CODES[a.code] || a.code)}</small></span>${darfEntscheiden(a.benutzerId) ? `<button type="button" class="btn ghost sm" data-entscheid="genehmigt" data-id="${a.id}" aria-label="Antrag von ${esc(a.name)} genehmigen">${ic('check', 'xs')}</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}" aria-label="Antrag von ${esc(a.name)} ablehnen">${ic('x', 'xs')}</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted sm">Keine offenen Anträge in diesem Monat.</p>'}</aside>` : ''}
+          <tbody>${gruppen(kal.personen).map(([bs, leute]) => `<tr class="ur-gruppe"><th colspan="${kal.tage.length + 1}">${esc(bsName(bs))} · ${leute.length}</th></tr>${leute.map((p) => `<tr data-person="${p.benutzerId}"><th class="ur-name" scope="row">${esc(p.name)}<small>${esc(rolleText(p.rolle))}</small></th>${kal.tage.map((t) => { const e = (p.tage || {})[t.datum]; const frei = t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''; return `<td class="${frei}"><button type="button" class="ur-z ${frei} ${zelleKl(e)}" data-zelle data-datum="${t.datum}" data-person="${p.benutzerId}" ${e ? `data-code="${esc(e.code)}" data-status="${esc(e.status)}" data-id="${e.id}" data-antrag-id="${esc(e.antragId ?? 'e' + e.id)}"` : ''} aria-label="${esc(p.name)}, ${esc(fmt.datumKurz(t.datum))}: ${e ? `${esc(CODES[e.code] || e.code)} ${esc(e.status)}` : t.feiertag ? 'Feiertag' : 'frei'}">${e ? esc(e.code === 'abwesend' ? '–' : e.code) : t.feiertag ? 'F' : ''}</button></td>`; }).join('')}</tr>`).join('')}`).join('') || `<tr><td colspan="${kal.tage.length + 1}">${leer('Niemand in diesem Bereich.', 'users')}</td></tr>`}</tbody></table></div>${legende()}</section>
+        ${leitet ? `<aside class="card ur-seite" id="ur-antraege" aria-label="Offene Anträge"><h3>Offene Anträge <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3>${antraegeHtml(offen, rechte, 'Keine offenen Anträge.')}
+          ${antraege.some((a) => a.status !== 'beantragt') ? `<details class="an-erledigt" id="ur-entschieden"><summary>Entschieden in diesem Monat (${antraege.filter((a) => a.status !== 'beantragt').length})</summary>${antraegeHtml(antraege.filter((a) => a.status !== 'beantragt'), rechte)}</details>` : ''}</aside>` : `<aside class="card ur-seite" id="ur-meine-box" aria-label="Meine Anträge"><h3>Meine Anträge <span class="count">${antraege.length}</span></h3><div id="ur-meine">${antraegeHtml(antraege, { ...rechte, mitName: false }, 'Kein Antrag.')}</div></aside>`}
       </div>`;
   }
   /* ---------- Jahr: kompakte Wärmekarte (Abwesenheitstage je Monat) ---------- */
@@ -98,20 +109,17 @@ export default async function urlaub(el, ctx) {
     });
   }
   /* ---------- Zelle: beantragen / eintragen / entscheiden ---------- */
-  function zellDialog(z) {
+  async function zellDialog(z) {
     const pid = Number(z.dataset.person), datum = z.dataset.datum, selbst = pid === Number(ich.id);
     const p = kal.personen.find((x) => Number(x.benutzerId) === pid) || { name: ich.name };
     if (z.dataset.id) {
-      const status = z.dataset.status, code = z.dataset.code;
-      const kannEntscheiden = status === 'beantragt' && darfEntscheiden(pid);
-      const kannWeg = (selbst && status === 'beantragt') || (ctx.kann('stammdaten') && !selbst);
-      const dlg = dialog({ titel: `${p.name} · ${fmt.datumKurz(datum)}`, inhalt: `<div class="stack-s" id="ur-eintrag"><p><span class="ur-z ${zelleKl({ code, status })}">${esc(code === 'abwesend' ? '–' : code)}</span> <b>${esc(CODES[code] || code)}</b> – ${esc(status)}</p>${selbst && status === 'beantragt' ? '<p class="muted sm">Eigene Anträge entscheidet immer jemand anderer (Vier-Augen-Prinzip).</p>' : ''}</div>`,
-        fuss: `${kannWeg ? `<button class="btn danger" type="button" id="ur-weg">${selbst ? 'Antrag zurückziehen' : 'Löschen'}</button><span class="grow"></span>` : ''}<button class="btn ghost" type="button" data-zu>Schließen</button>${kannEntscheiden ? '<button class="btn ghost" type="button" data-entscheid="abgelehnt">Ablehnen</button><button class="btn primary" type="button" data-entscheid="genehmigt">Genehmigen</button>' : ''}` });
-      dlg.el.addEventListener('click', async (e) => {
-        const en = e.target.closest('[data-entscheid]');
-        if (en) { try { await put(`/abwesenheiten/${z.dataset.id}`, { status: en.dataset.entscheid }); dlg.zu(); toast(en.dataset.entscheid === 'genehmigt' ? 'Antrag genehmigt.' : 'Antrag abgelehnt.'); ctx.meldungenNeu(); } catch (x) { toast(x.message, 'warn'); } return neu(); }
-        if (e.target.closest('#ur-weg')) { try { await del(`/abwesenheiten/${z.dataset.id}`); dlg.zu(); toast(selbst ? 'Antrag zurückgezogen.' : 'Abwesenheit gelöscht.'); } catch (x) { toast(x.message, 'warn'); } neu(); }
-      });
+      // Ein Tag, der zu einem Antrag gehört, öffnet den ganzen Antrag
+      let a = antraege.find((x) => String(x.antragId) === z.dataset.antragId);
+      if (!a) a = (await antraegeLaden({ benutzerId: pid, von: datum, bis: datum }).catch(() => [])).find((x) => (x.tage || []).some((t) => t.datum === datum));
+      if (!a) a = { antragId: z.dataset.antragId, benutzerId: pid, name: p.name, code: z.dataset.code, von: datum, bis: datum, arbeitstage: 1, status: z.dataset.status, tage: [{ id: Number(z.dataset.id), datum, status: z.dataset.status }] };
+      if (!antraege.some((x) => x.antragId === a.antragId)) antraege.push(a);
+      const dlg = dialog({ titel: `Antrag · ${a.name || p.name}`, inhalt: `<div class="stack-s" id="ur-eintrag">${antraegeHtml([a], rechte)}${selbst && a.status === 'beantragt' ? '<p class="muted sm">Eigene Anträge entscheidet immer jemand anderer (Vier-Augen-Prinzip).</p>' : ''}</div>`, fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
+      antraegeBinden(dlg.el, ctx, (id) => antraege.find((x) => String(x.antragId) === String(id)), () => { dlg.zu(); neu(); });
       return;
     }
     const darfEintragen = selbst || ctx.kann('stammdaten') || ich.rolle === 'polier';
@@ -120,25 +128,8 @@ export default async function urlaub(el, ctx) {
   }
   function antragDialog(pid, name, datum) {
     const selbst = pid === Number(ich.id);
-    const codes = ctx.kann('stammdaten') && !selbst ? ['U', 'ZA', 'K', 'SW'] : selbst ? ['U', 'ZA'] : ['SW'];
-    const dlg = dialog({ titel: selbst ? 'Urlaub beantragen' : `Abwesenheit eintragen · ${name}`, inhalt: `<form id="uaf" class="form-grid" novalidate>
-      <label class="field full"><span class="field-label">Art</span><select class="input lg" name="code">${codes.map((c) => `<option value="${c}">${CODES[c]}</option>`).join('')}</select></label>
-      <label class="field"><span class="field-label">Von</span><input class="input lg" type="date" name="von" required value="${esc(datum)}"></label>
-      <label class="field"><span class="field-label">Bis</span><input class="input lg" type="date" name="bis" required value="${esc(datum)}"></label>
-      <p class="muted sm full">${selbst ? 'Der Antrag wartet auf Genehmigung durch das Büro. ' : ''}Wochenenden und Feiertage werden ausgelassen.</p><p class="form-err full" role="alert" hidden></p></form>`,
-      fuss: `<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="uaf" id="ua-ok">${selbst ? 'Beantragen' : 'Eintragen'}</button>` });
-    $('#uaf', dlg.el).addEventListener('submit', async (e) => {
-      e.preventDefault(); const f = new FormData(e.target); const err = $('.form-err', dlg.el);
-      const von = f.get('von'), bis = f.get('bis');
-      if (!von || !bis || bis < von) { err.hidden = false; err.textContent = 'Bitte Von und Bis eintragen – Bis darf nicht vor Von liegen.'; return; }
-      const frei = new Set((await get(`/urlaub/feiertage?jahr=${von.slice(0, 4)}`).catch(() => [])).map((x) => x.datum));
-      const tage = []; for (let t = von; t <= bis && tage.length <= 62; t = fmt.addTage(t, 1)) if (![0, 6].includes(fmt.dt(t).getDay()) && !frei.has(t)) tage.push(t);
-      if (!tage.length) { err.hidden = false; err.textContent = 'In diesem Zeitraum liegt kein Arbeitstag.'; return; }
-      $('#ua-ok', dlg.el).disabled = true; let ok = 0; const fehl = [];
-      for (const t of tage) { try { await post('/abwesenheiten', { benutzerId: pid, datum: t, code: f.get('code') }); ok += 1; } catch (x) { fehl.push(`${fmt.datumKurz(t)}: ${x.message}`); } }
-      if (fehl.length && !ok) { $('#ua-ok', dlg.el).disabled = false; err.hidden = false; err.textContent = fehl[0]; return; }
-      dlg.zu(); toast(fehl.length ? `${ok} Tag${ok === 1 ? '' : 'e'} eingetragen, ${fehl.length} nicht möglich (${fehl[0]}).` : selbst ? `Antrag für ${ok} Tag${ok === 1 ? '' : 'e'} gestellt.` : `${ok} Tag${ok === 1 ? '' : 'e'} eingetragen.`, fehl.length ? 'warn' : 'ok'); ctx.meldungenNeu(); neu();
-    });
+    const codes = ctx.kann('stammdaten') && !selbst ? ['U', 'ZA', 'K', 'SW'] : selbst ? (ich.rolle === 'polier' ? ['U', 'ZA', 'SW'] : ['U', 'ZA']) : ['SW'];
+    zeitraumDialog({ benutzerId: pid, name, selbst, codes, von: datum, formId: 'uaf', okId: 'ua-ok', fertig: () => { ctx.meldungenNeu(); neu(); } });
   }
   /* ---------- Betriebsurlaub / Winterpause: Vorschau, dann anlegen ---------- */
   function buDialog() {
@@ -172,16 +163,14 @@ export default async function urlaub(el, ctx) {
   /* ---------- Handy ---------- */
   function handyHtml() {
     const k = konten.find((x) => Number(x.benutzerId) === Number(ich.id));
-    const ichP = kal.personen.find((p) => Number(p.benutzerId) === Number(ich.id));
-    const meine = Object.entries((ichP && ichP.tage) || {}).sort((a, b) => a[0].localeCompare(b[0]));
-    const andere = []; kal.personen.filter((p) => Number(p.benutzerId) !== Number(ich.id)).forEach((p) => Object.entries(p.tage || {}).forEach(([datum, e]) => { if (e.status !== 'abgelehnt') andere.push({ ...e, datum, name: p.name, benutzerId: p.benutzerId }); }));
-    andere.sort((a, b) => a.datum.localeCompare(b.datum) || a.name.localeCompare(b.name, 'de'));
+    const meine = antraege.filter((a) => Number(a.benutzerId) === Number(ich.id) && a.bis >= heute);
+    const andere = antraege.filter((a) => Number(a.benutzerId) !== Number(ich.id) && a.bis >= heute).sort((x, y) => (x.status === 'beantragt' ? 0 : 1) - (y.status === 'beantragt' ? 0 : 1) || x.von.localeCompare(y.von));
     const kz = (t, v, kl = '') => `<div class="${kl}"><small>${t}</small><b>${v}</b></div>`;
     return `<section class="card pad stack-s" id="mein-urlaub" aria-labelledby="h-mu"><h2 class="me-h flach" id="h-mu">Mein Urlaub ${jahr}</h2>
         ${k ? `<div class="ur-konto" id="ur-mein-konto">${kz('Anspruch', fmt.zahl(k.anspruch, 1))}${kz('Übertrag', fmt.zahl(k.uebertrag, 1))}${kz('Genommen', fmt.zahl(k.genommen, 1))}${kz('Geplant', fmt.zahl(k.geplant, 1))}${kz('Beantragt', fmt.zahl(k.beantragt, 1))}${kz('Rest', fmt.zahl(k.rest, 1), 'rest')}</div><p class="muted sm">${esc(k.einheit || 'Arbeitstage')}${k.art === 'buak' ? ` · Anspruch laut BUAK-Kontoauszug${k.buak && k.buak.datum ? ' vom ' + esc(fmt.datum(k.buak.datum)) : ' (noch nicht eingetragen)'}` : ''}</p>` : '<p class="muted sm">Für dieses Jahr ist noch kein Urlaubskonto angelegt.</p>'}
         <button type="button" class="btn primary lg" id="ur-antrag">${ic('plus')}Urlaub beantragen</button></section>
-      <section class="card" aria-label="Meine Abwesenheiten"><h2 class="me-h">Meine nächsten Abwesenheiten</h2><ul class="plain rows" id="ur-meine">${meine.map(([datum, e]) => `<li><span class="ur-z ${zelleKl(e)}">${esc(e.code)}</span><span class="grow"><b>${esc(fmt.datumKurz(datum))}${fmt.dt(datum).getFullYear()}</b><small>${esc(CODES[e.code] || e.code)} · ${esc(e.status)}</small></span>${e.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueck="${e.id}">Zurückziehen</button>` : ''}</li>`).join('') || '<li class="muted">Nichts eingetragen.</li>'}</ul></section>
-      ${leitet ? `<section class="card" id="ur-partie" aria-label="Abwesenheiten im Bereich"><h2 class="me-h">${ich.rolle === 'polier' ? 'Meine Partie – Abwesenheiten' : 'Abwesenheiten in meinem Bereich'}</h2><ul class="plain rows">${andere.slice(0, 60).map((a) => `<li data-antrag="${a.id}"><span class="ur-z ${zelleKl(a)}">${esc(a.code === 'abwesend' ? '–' : a.code)}</span><span class="grow"><b>${esc(a.name)}</b><small>${esc(fmt.datumKurz(a.datum))} · ${esc(CODES[a.code] || a.code)} · ${esc(a.status)}</small></span>${a.status === 'beantragt' && darfEntscheiden(a.benutzerId) ? `<button type="button" class="btn ghost sm" data-entscheid="genehmigt" data-id="${a.id}" aria-label="genehmigen">${ic('check', 'xs')}</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}" aria-label="ablehnen">${ic('x', 'xs')}</button>` : ''}</li>`).join('') || '<li class="muted">In den nächsten 60 Tagen ist niemand abwesend.</li>'}</ul></section>` : ''}
+      <section class="card" aria-label="Meine Anträge"><h2 class="me-h">Meine Anträge</h2><div id="ur-meine">${antraegeHtml(meine, { ...rechte, mitName: false }, 'Nichts eingetragen.')}</div></section>
+      ${leitet ? `<section class="card" id="ur-partie" aria-label="Abwesenheiten im Bereich"><h2 class="me-h">${ich.rolle === 'polier' ? 'Meine Partie – Abwesenheiten' : 'Anträge und Abwesenheiten in meinem Bereich'}</h2>${antraegeHtml(andere.slice(0, 200), rechte, 'In nächster Zeit ist niemand abwesend.')}</section>` : ''}
       ${darfBu ? `<button type="button" class="btn ghost" id="ur-einst">${ic('wrench')}Einstellungen Urlaub</button>` : ''}
       ${legende()}`;
   }
@@ -218,13 +207,10 @@ export default async function urlaub(el, ctx) {
     if (e.target.closest('#ur-bu')) return buDialog();
     if (e.target.closest('#ur-einst')) return einstDialog();
     if (e.target.closest('#ur-antrag')) return antragDialog(Number(ich.id), ich.name, fmt.addTage(heute, 1));
-    const en = e.target.closest('[data-entscheid]');
-    if (en && en.dataset.id) { try { await put(`/abwesenheiten/${en.dataset.id}`, { status: en.dataset.entscheid }); toast(en.dataset.entscheid === 'genehmigt' ? 'Antrag genehmigt.' : 'Antrag abgelehnt.'); ctx.meldungenNeu(); } catch (x) { toast(x.message, 'warn'); } return neu(); }
-    const zr = e.target.closest('[data-zurueck]');
-    if (zr) { if (!(await bestaetigen('Antrag zurückziehen?', '', 'Zurückziehen'))) return; try { await del(`/abwesenheiten/${zr.dataset.zurueck}`); toast('Antrag zurückgezogen.'); } catch (x) { toast(x.message, 'warn'); } return neu(); }
     const ke = e.target.closest('[data-konto-edit]'); if (ke) { const k = konten.find((x) => String(x.benutzerId) === ke.dataset.kontoEdit); if (k) kontoDialog(k); return; }
     const z = e.target.closest('[data-zelle]'); if (z && !z.classList.contains('we') && !z.classList.contains('feiertag')) zellDialog(z);
   });
+  antraegeBinden(el, ctx, (id) => antraege.find((x) => String(x.antragId) === String(id)), () => neu());
   el.addEventListener('change', (e) => { if (e.target.id === 'ur-bs') { fBs = e.target.value; neu(); } if (e.target.id === 'ur-rolle') { fRolle = e.target.value; zeichne(); } });
   zeichne();
 }
