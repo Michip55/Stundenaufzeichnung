@@ -857,6 +857,36 @@ async function dokumenteUndRechnungen(h, z) {
   await page.fill('#dkk [name="name"]', `Vermessung ${k}`);
   await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForSelector('#dkk .form-err:not([hidden])'); });
   await page.click('dialog[open] [data-zu]');
+  // Bearbeiten/Löschen: eigene umbenennen, eingebaute nur umbenennen, löschen nur wenn leer
+  await page.click(`[data-kat-edit="${kVerm.schluessel}"]`);
+  await page.waitForSelector('dialog[open] #dkk');
+  pruef(await page.locator('#dkk [name="polier"]').isChecked() && await page.locator('#dkk-weg').count() === 1, 'A2-Dok: Bearbeiten einer eigenen Kategorie ohne Rechte-Felder oder Löschen');
+  await page.fill('#dkk [name="name"]', `Vermessung ${k} neu`);
+  await page.click('#dkk-ok');
+  await page.waitForSelector(`.dok-kat-btn:has-text("Vermessung ${k} neu")`);
+  await toastWeg();
+  await page.click('[data-kat-edit="plaene"]');
+  await page.waitForSelector('dialog[open] #dkk');
+  pruef(await page.locator('#dkk [name="finanziell"], #dkk [name="polier"], #dkk-weg').count() === 0 && await page.locator('#dkk [name="name"]').count() === 1, 'A2-Dok: eingebaute Kategorie lässt mehr als Umbenennen zu');
+  await page.click('dialog[open] [data-zu]');
+  await neueKat(`Leer ${k}`, false, false);
+  const kLeer = (await api('GET', '/dokument-kategorien')).json.find((x) => x.name === `Leer ${k}`);
+  await page.click(`[data-kat-edit="${kLeer.schluessel}"]`);
+  await page.waitForSelector('dialog[open] #dkk-weg');
+  await page.click('#dkk-weg');
+  await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForFunction((n) => ![...document.querySelectorAll('.dok-kat-btn')].some((b) => b.innerText.includes(n)), `Leer ${k}`);
+  await toastWeg();
+  // nicht leer → Löschen wird abgelehnt und erklärt
+  pruef((await api('POST', `/baustellen/${W}/dokumente`, { kategorie: kVerm.schluessel, titel: `Absteckplan ${k}`, dateiBase64: PDF('Absteckplan').toString('base64'), dateiname: 'absteckplan.pdf' })).status === 201, 'A2-Dok: Dokument in eigener Kategorie nicht ablegbar');
+  await page.click(`[data-kat-edit="${kVerm.schluessel}"]`);
+  await page.waitForSelector('dialog[open] #dkk-weg');
+  await page.click('#dkk-weg');
+  await page.waitForSelector('dialog[open] [data-ok]');
+  await h.absichtlich(async () => { await page.locator('dialog[open] [data-ok]').last().click(); await page.waitForSelector('#dkk .form-err:not([hidden])'); });
+  pruef(/noch Dokumente/.test(await page.locator('#dkk .form-err').innerText()) && (await api('GET', '/dokument-kategorien')).json.some((x) => x.schluessel === kVerm.schluessel), 'A2-Dok: nicht leere Kategorie wurde gelöscht oder ohne Erklärung abgelehnt');
+  await dialogUeberlauf('kategorie bearbeiten');
+  await page.click('dialog[open] [data-zu]');
   await ueberlauf('dokumente kategorien'); await shot('dokumente-kategorien');
   await abmelden();
 
