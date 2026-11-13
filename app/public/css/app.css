@@ -805,3 +805,5 @@ dialog.dlg.lb-dlg { width: min(1100px, calc(100vw - 32px)); max-height: 94vh; ba
   .punch.sch-melden { max-width: none; } .sch-datum { flex: 1 1 45% !important; }
   .sd-akt .btn { flex: 1 1 auto; } .lb img { max-height: 70vh; } dialog.dlg.lb-dlg { width: 100vw; }
 }
+.tbl td.fp-haupt { font-weight: 600; } .tbl td.fp-haupt a:hover { text-decoration: underline; } a.fp-kpi:hover { border-color: #c5cad1; }
+.fp-frist small.fp-dues, .plain.rows small.fp-dues { display: flex; }

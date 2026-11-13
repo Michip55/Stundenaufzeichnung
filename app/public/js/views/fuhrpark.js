@@ -5,7 +5,7 @@ import { get } from '../api.js';
 import { ic, esc, fmt, leer, banner, toast, dialog, $, $$ } from '../ui.js';
 import { KLASSE, ART_GRUPPEN, STATUS, STATUS_FOLGE, PLAN_ART, statusChip, anlageStatus, fmtZ, faelligHtml, grundHtml, dringChip, mangelChip, regelText, liste as arr,
   mangelMelden, zaehlerstandDialog, anlageDialog, mangelBearbeiten, vorlageDialog, vorlageAnwenden } from './fuhrpark-dialoge.js';
-import { schaedenReiter, schadenMelden, schadenZahl } from './schaeden.js';
+import { schaedenReiter, schadenMelden, schadenZahl, merkAnlagen } from './schaeden.js';
 
 const REITER = [
   { id: 'uebersicht', text: 'Übersicht', icon: 'grid', darf: (c) => c.kann('fuhrpark') },
@@ -58,6 +58,7 @@ export async function fuhrpark(el, ctx) {
 async function geraete(el, ctx, kopf, darf) {
   let inaktiv = false;
   let alle = await get('/fuhrpark/anlagen');
+  merkAnlagen(alle);
   const ich = ctx.ich.benutzer.id;
   const meineBs = ctx.ich.baustellenIds || [];
   let art = ctx.query.get('art') || '';
@@ -79,7 +80,7 @@ async function geraete(el, ctx, kopf, darf) {
     const k = mitKosten();
     return `<div class="fp-liste-karten">${gruppe('Meine Fahrzeuge', meine, 'fp-meine')}${gruppe('Auf meiner Baustelle', baustelle, 'fp-baustelle')}${gruppe(meine.length || baustelle.length ? 'Alle Geräte' : `${treffer.length} ${treffer.length === 1 ? 'Gerät' : 'Geräte'}`, treffer, 'fp-alle')}</div>
       <div class="card fp-liste-tabelle"><div class="tbl-wrap"><table class="tbl fp-tbl" id="fp-tabelle"><thead><tr><th>Status</th><th>Nr.</th><th>Bezeichnung</th><th>Kennzeichen</th><th class="sp-standort">Standort</th><th>Nächster Termin</th><th class="r">Zähler</th><th class="c">Mängel</th>${k ? '<th class="r">Kosten Jahr</th>' : ''}</tr></thead>
-      <tbody>${treffer.map((a) => { const s = anlageStatus(a); return `<tr data-anlage="${a.id}" data-status="${esc(s)}"><td>${statusChip(s)}</td><td class="muted nw">${esc(a.nummer || '')}</td><td class="main"><a href="#/fuhrpark/anlage/${a.id}">${esc(a.bezeichnung)}</a><small>${esc(KLASSE[a.klasse] || '')}${a.verantwortlich ? ' · ' + esc(a.verantwortlich.name) : ''}</small></td><td class="nw">${a.kennzeichen ? `<span class="kennz">${esc(a.kennzeichen)}</span>` : '<span class="muted">–</span>'}</td><td class="sp-standort">${esc(standortText(a) || '–')}</td><td>${terminKurz(a)}</td><td class="r num">${zaehlerKurz(a)}</td><td class="c">${a.offeneMaengel ? `<span class="count red">${a.offeneMaengel}</span>` : '<span class="muted">–</span>'}</td>${k ? `<td class="r num nw">${'kostenJahr' in a ? fmt.eur0(a.kostenJahr || 0) : ''}</td>` : ''}</tr>`; }).join('')}</tbody></table></div></div>`;
+      <tbody>${treffer.map((a) => { const s = anlageStatus(a); return `<tr data-anlage="${a.id}" data-status="${esc(s)}"><td>${statusChip(s)}</td><td class="muted nw">${esc(a.nummer || '')}</td><td class="fp-haupt"><a href="#/fuhrpark/anlage/${a.id}">${esc(a.bezeichnung)}</a><small>${esc(KLASSE[a.klasse] || '')}${a.verantwortlich ? ' · ' + esc(a.verantwortlich.name) : ''}</small></td><td class="nw">${a.kennzeichen ? `<span class="kennz">${esc(a.kennzeichen)}</span>` : '<span class="muted">–</span>'}</td><td class="sp-standort">${esc(standortText(a) || '–')}</td><td>${terminKurz(a)}</td><td class="r num">${zaehlerKurz(a)}</td><td class="c">${a.offeneMaengel ? `<span class="count red">${a.offeneMaengel}</span>` : '<span class="muted">–</span>'}</td>${k ? `<td class="r num nw">${'kostenJahr' in a ? fmt.eur0(a.kostenJahr || 0) : ''}</td>` : ''}</tr>`; }).join('')}</tbody></table></div></div>`;
   }
   function zeichne() {
     const anzahl = (g) => alle.filter((a) => gruppeVon(a) === g).length;
@@ -154,7 +155,7 @@ async function uebersicht(el, ctx, kopf) {
   const unpl = Array.isArray(u.unplausibleStaende) ? u.unplausibleStaende : null;
   const unplZahl = unpl ? unpl.length : Number(u.unplausibleStaende) || 0;
   const offen = maengel.length || (typeof u.offeneMaengel === 'number' ? u.offeneMaengel : arr(u.offeneMaengel).length);
-  const kachel = (s, hinweis) => `<a class="kpi link fp-kpi k-${s}" href="#/fuhrpark?reiter=geraete&status=${s}" data-kpi="${s}"><small>${ic(STATUS[s][2])}${esc(STATUS[s][0])}</small><b>${n[s]}</b><em>${esc(hinweis)}</em></a>`;
+  const kachel = (s, hinweis) => `<a class="kpi fp-kpi k-${s}" href="#/fuhrpark?reiter=geraete&status=${s}" data-kpi="${s}"><small>${ic(STATUS[s][2])}${esc(STATUS[s][0])}</small><b>${n[s]}</b><em>${esc(hinweis)}</em></a>`;
   el.innerHTML = `<div class="page fp-page">
     ${kopf()}
     <div class="kpi-row fp-ampel" aria-label="Zustand des Fuhrparks">
@@ -226,7 +227,7 @@ async function vorlagen(el, ctx, kopf) {
   el.innerHTML = `<div class="page fp-page">${kopf()}
     ${banner('info', 'Die Intervalle sind <b>Startwerte aus der Recherche</b>. Vorlagen mit dem Kennzeichen „Prüfen“ bitte mit Prüfstelle, WKO bzw. Serviceheft abstimmen und danach das Kennzeichen entfernen.')}
     <div class="card"><div class="tbl-wrap"><table class="tbl fp-vorl" id="fp-vorlagen"><thead><tr><th>Vorlage</th><th>Art</th><th>Gilt für</th><th>Intervall</th><th class="c">Sperrt</th><th></th></tr></thead>
-    <tbody>${vl.map((v) => `<tr data-vorlage="${esc(v.schluessel)}" class="${v.aktiv === false || v.aktiv === 0 ? 'inaktiv' : ''}"><td class="main">${esc(v.titel)} ${v.pruefen ? '<span class="chip xs st-amber" data-pruefen>Prüfen</span>' : ''}${v.aktiv === false || v.aktiv === 0 ? ' <span class="chip xs st-grey">inaktiv</span>' : ''}<small>${esc(v.rechtsgrundlage || '')}${v.gueltigAb ? ` · gültig ab ${esc(fmt.datum(v.gueltigAb))}` : ''}</small></td><td>${esc(PLAN_ART[v.art] || v.art)}</td><td>${esc(klassen(v))}</td><td>${esc(regelText(v.regel))}</td><td class="c">${v.regel && v.regel.sperrtBeiUeberfaellig ? ic('lock', 'xs') + '<span class="vh">ja</span>' : '<span class="muted">–</span>'}</td>
+    <tbody>${vl.map((v) => `<tr data-vorlage="${esc(v.schluessel)}" class="${v.aktiv === false || v.aktiv === 0 ? 'inaktiv' : ''}"><td class="fp-haupt">${esc(v.titel)} ${v.pruefen ? '<span class="chip xs st-amber" data-pruefen>Prüfen</span>' : ''}${v.aktiv === false || v.aktiv === 0 ? ' <span class="chip xs st-grey">inaktiv</span>' : ''}<small>${esc(v.rechtsgrundlage || '')}${v.gueltigAb ? ` · gültig ab ${esc(fmt.datum(v.gueltigAb))}` : ''}</small></td><td>${esc(PLAN_ART[v.art] || v.art)}</td><td>${esc(klassen(v))}</td><td>${esc(regelText(v.regel))}</td><td class="c">${v.regel && v.regel.sperrtBeiUeberfaellig ? ic('lock', 'xs') + '<span class="vh">ja</span>' : '<span class="muted">–</span>'}</td>
       <td class="r nw"><button type="button" class="btn ghost sm" data-v-bearb="${v.id}">${ic('edit')}Bearbeiten</button> <button type="button" class="btn ghost sm" data-v-anw="${v.id}">Auf Geräte anwenden</button></td></tr>`).join('')}</tbody></table></div></div></div>`;
   el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-v-bearb]'); if (b) { vorlageDialog(ctx, vl.find((v) => String(v.id) === b.dataset.vBearb)); return; }

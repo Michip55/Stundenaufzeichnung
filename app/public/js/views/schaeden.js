@@ -17,6 +17,8 @@ const fotoUrl = (s, f) => f.url || `/api/fuhrpark/schaeden/${s.id}/fotos/${f.id}
 const darfAlle = (ctx) => ctx.kann('fuhrpark') || ['buero', 'gf'].includes(ctx.ich.benutzer.rolle);
 const weiteSicht = (ctx) => darfAlle(ctx) || ['bauleiter', 'polier'].includes(ctx.ich.benutzer.rolle);
 
+// Geräteliste für die Schadensmeldung ohne Netz am Gerät merken (ohne Kosten, ohne Zählerstände)
+export const merkAnlagen = (l) => speicher.setz('bt_anlagen', arr(l).filter((a) => a.status !== 'ausgeschieden').map((a) => ({ id: a.id, nummer: a.nummer, bezeichnung: a.bezeichnung, kennzeichen: a.kennzeichen, klasse: a.klasse, gesperrt: !!a.gesperrt, verantwortlich: a.verantwortlich ? { id: a.verantwortlich.id } : null, standort: a.standort ? { baustelleId: a.standort.baustelleId } : null })));
 /* ---------- kleine Abfragen für andere Ansichten ---------- */
 export const schaedenFuerAnlage = (id) => get(`/fuhrpark/schaeden?anlageId=${id}`).catch(() => []);
 // Zahl am Reiter: offene Schäden im eigenen Sichtbereich plus Meldungen, die noch auf Verbindung warten
@@ -71,7 +73,12 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
         $('#sm-liste', box).innerHTML = gruppe('Zuletzt verwendet', zuletzt, 'sm-zuletzt') + gruppe('Meine Fahrzeuge', meine, 'sm-meine') + (sicht.length ? gruppe(zuletzt.length || meine.length ? 'Alle Geräte' : 'Geräte', sicht, 'sm-alle') : '<div class="state empty small"><p>Kein Gerät gefunden – unten „Anderes Gerät“ wählen.</p></div>');
       };
       $('#sm-suche', box).addEventListener('input', fuelle);
-      if (alle) fuelle(); else get('/fuhrpark/anlagen').then((l) => { alle = l; if (schritt === 1 && d.el.isConnected) fuelle(); }).catch(() => { $('#sm-liste', box).innerHTML = banner('info', 'Die Geräteliste ist ohne Verbindung nicht abrufbar. Bitte unten „Anderes Gerät“ wählen und das Gerät beschreiben.'); });
+      if (alle) fuelle(); else get('/fuhrpark/anlagen').then((l) => { alle = l; merkAnlagen(l); if (schritt === 1 && d.el.isConnected) fuelle(); }).catch(() => {
+        // Ohne Verbindung: zuletzt bekannte Geräteliste vom Gerät (nur Bezeichnung/Kennzeichen, keine Kosten)
+        alle = speicher.lies('bt_anlagen', []);
+        if (schritt !== 1 || !d.el.isConnected) return;
+        if (alle.length) fuelle(); else $('#sm-liste', box).innerHTML = banner('info', 'Die Geräteliste ist ohne Verbindung nicht abrufbar. Bitte unten „Anderes Gerät“ wählen und das Gerät beschreiben.');
+      });
     } else if (schritt === 2) {
       box.innerHTML = `${kopf()}${geraetBox()}
         <p class="sm-frage">Fotos vom Schaden <small>(bis zu ${MAX_FOTOS}, empfohlen)</small></p>
@@ -185,7 +192,9 @@ export function schadenMelden(ctx, { anlage = null, anlagen = null, baustelleId 
 export async function schaedenReiter(el, ctx, kopf) {
   const ich = ctx.ich.benutzer.id;
   const weit = weiteSicht(ctx);
-  let [liste, warten] = await Promise.all([get('/fuhrpark/schaeden'), schadenWarteschlange(ich)]);
+  // Ohne Verbindung bleibt die Ansicht benutzbar: wartende Meldungen und „Schaden melden“ funktionieren weiter
+  let ohneNetz = false;
+  let [liste, warten] = await Promise.all([get('/fuhrpark/schaeden').catch((x) => { if (!x.netz) throw x; ohneNetz = true; return []; }), schadenWarteschlange(ich)]);
   liste = arr(liste);
   const f = { status: ctx.query.get('status') || '', anlage: '', baustelle: '', art: '', von: '', bis: '' };
   const passt = (s) => (!f.status || (f.status === 'offen' ? offen(s) : s.status === f.status)) && (!f.anlage || (f.anlage === 'fremd' ? !s.anlageId : String(s.anlageId) === f.anlage))
@@ -204,10 +213,11 @@ export async function schaedenReiter(el, ctx, kopf) {
   }
   function listeHtml() {
     const sicht = liste.filter(passt);
+    if (ohneNetz) return banner('warn', '<b>Keine Verbindung.</b> Die Liste der Schäden ist gerade nicht abrufbar. Schäden können trotzdem gemeldet werden – sie werden gesendet, sobald Verbindung besteht.', 'wifiOff');
     if (!sicht.length) return `<div class="card">${leer(liste.length ? 'Keine Schadensmeldung passt zum Filter.' : weit ? 'Es wurden noch keine Schäden gemeldet.' : 'Sie haben noch keinen Schaden gemeldet.', 'camera')}</div>`;
     return `<div class="sch-karten">${sicht.map((s) => `<button type="button" class="card sch-karte" data-schaden="${s.id}" data-status="${esc(s.status)}">${daumen(s)}<span class="sch-txt"><small>${esc(zeit(s))}${s.baustelle ? ' · ' + esc(s.baustelle.name) : ''}</small><b>${esc(geraetName(s))}</b><span>${esc(S_ART[s.art] || '')} · ${esc(s.ursache || '')}</span><span class="sch-chips">${sStatusChip(s.status)}${einsatzChip(s.einsatzfaehig, '')}</span></span></button>`).join('')}</div>
       <div class="card sch-tabelle"><div class="tbl-wrap"><table class="tbl" id="sch-tbl"><thead><tr><th></th><th>Gemeldet</th><th>Gerät</th><th>Art / Ursache</th><th class="sp-standort">Baustelle</th><th>Gemeldet von</th><th>Einsatzfähig</th><th>Status</th></tr></thead><tbody>
-      ${sicht.map((s) => `<tr data-schaden="${s.id}" data-status="${esc(s.status)}" tabindex="0"><td>${daumen(s)}</td><td class="nw">${esc(zeit(s))}</td><td class="main">${esc(geraetName(s))}${s.anlage ? '' : '<small>anderes Gerät</small>'}</td><td><b>${esc(S_ART[s.art] || '')}</b><small class="sch-urs">${esc(s.ursache || '')}</small></td><td class="sp-standort">${esc((s.baustelle && s.baustelle.name) || '–')}</td><td>${esc((s.gemeldetVon && s.gemeldetVon.name) || '')}</td><td>${einsatzChip(s.einsatzfaehig)}</td><td>${sStatusChip(s.status)}</td></tr>`).join('')}
+      ${sicht.map((s) => `<tr data-schaden="${s.id}" data-status="${esc(s.status)}" tabindex="0"><td>${daumen(s)}</td><td class="nw">${esc(zeit(s))}</td><td class="fp-haupt">${esc(geraetName(s))}${s.anlage ? '' : '<small>anderes Gerät</small>'}</td><td><b>${esc(S_ART[s.art] || '')}</b><small class="sch-urs">${esc(s.ursache || '')}</small></td><td class="sp-standort">${esc((s.baustelle && s.baustelle.name) || '–')}</td><td>${esc((s.gemeldetVon && s.gemeldetVon.name) || '')}</td><td>${einsatzChip(s.einsatzfaehig)}</td><td>${sStatusChip(s.status)}</td></tr>`).join('')}
       </tbody></table></div></div>`;
   }
   function zeichne() {
