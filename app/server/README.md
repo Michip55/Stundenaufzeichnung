@@ -32,8 +32,8 @@ Die Meldung `ExperimentalWarning: SQLite is an experimental feature` von Node 22
 | `TRUST_PROXY` | – | **`1` hinter einem Reverse-Proxy setzen** (für HTTPS/PWA üblich). Nur dann gelten `X-Forwarded-For` (echte Client-IP für die Login-Sperre) und `X-Forwarded-Proto` (`Secure`-Cookie, HSTS). Ohne Proxy weglassen – sonst könnte jeder die Header fälschen. Fehlt es hinter einem Proxy, ist die Client-IP die Proxy-Adresse und die IP-Grenze der Anmeldung träfe alle gemeinsam. |
 | `BAUTAG_DEMO` | – | `1`: Testdaten ohne Pflicht zur PIN-Änderung (nur Vorführung) |
 | `BAUTAG_LOGIN_LISTE` | `1` | `0`: öffentliche Namensliste für die Anmeldung abschalten; Anmeldung dann mit Personalnummer + PIN |
-| `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier |
-| `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF |
+| `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier – Konzept-Vorschlag für das Polier-Tablet: `10` |
+| `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
 | `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
 | `NODE_ENV` | – | ohne Sonderbedeutung |
 
@@ -73,7 +73,16 @@ Alle Zeitstempel werden als ISO 8601 (UTC) gespeichert; Tagesgrenzen, Wochen und
 
 Push, E-Mail, SMS, Wetter, Diktat und Scan sind **nicht angebunden** (`/api/integrationen` → 501). Preise haben noch kein „gültig ab“ (eine Preisänderung wirkt rückwirkend auf alle Berichte, siehe `API.md` 7, M-08); Monatsabschluss, Fotos und Hochrechnung bis Bauende fehlen noch. Zeitkorrekturen macht das Büro (`/api/zeit/buchungen`), Korrekturanträge der Mitarbeiter gibt es noch nicht.
 
+### Produktentscheidungen (von der GF zu bestätigen)
+- **Sitzungsdauer:** Standard 12 h für Mitarbeiter/Polier (persönliche Geräte; ständiges Neu-Anmelden mit Handschuhen auf der Baustelle ist unpraktisch) und 60 min für Bauleiter/Büro/GF (dort liegen €-Daten), absolute Grenze 24 h. Das Konzept schlägt 10 bzw. 30 min vor – per Umgebungsvariable einstellbar.
+- **Kontosperre:** 20 falsche PINs in 24 h (über alle Geräte/IPs) sperren das Konto, bis Büro/GF entsperren (`POST /api/benutzer/:id/entsperren`), Büro/GF werden benachrichtigt. Abwägung: Ein Angreifer kann ein Konto so absichtlich sperren (Ärgernis), dafür ist verteiltes Durchprobieren einer 4-stelligen PIN nicht mehr möglich.
+- **Vier-Augen-Prinzip:** Eigene Urlaubs-/ZA-Anträge und eigene Stempelkorrekturen entscheidet bzw. macht immer eine andere Person (auch bei Büro/GF).
+- **Stammdaten/Zuordnung:** Bauleiter- und Polier-Zuordnung der Baustellen pflegt nur das Büro bzw. die GF; Bauleiter können `stammdaten` nicht erhalten.
+- **Benutzerverwaltung:** Büro legt Mitarbeiter/Poliere/Bauleiter an, setzt PINs zurück und entsperrt; Büro- und GF-Konten sowie Rechte/Rollen-Matrix nur die GF.
+
 ### Zeitregeln
 - Schichten zählen zum Tag des Beginns; über Mitternacht ist „bis“ < „von“.
 - Schichten über 16 Std. (vergessenes Ausstempeln) zählen mit 0 Std., bis das Büro korrigiert.
-- In Monat/Lohn-Export haben Stunden aus **freigegebenen** Bautagesberichten Vorrang vor den Stempelzeiten; SEG-Stunden nur aus freigegebenen Berichten; nur **genehmigte** Abwesenheiten zählen.
+- In Monat/Lohn-Export gilt je Person, Tag und Baustelle: Gibt es einen **freigegebenen** Bautagesbericht, zählen nur dessen Stunden (auch 0, Person fehlt → 0 mit Warnung); sonst die Stempelzeiten. Überschneidungen werden nur einmal gezählt und gemeldet. SEG-Stunden nur aus freigegebenen Berichten; nur **genehmigte** Abwesenheiten zählen.
+- Berichtsstunden rechnet immer der Server aus den Zeiten und der Pause (echte Zeitpunkte, also auch über Mitternacht und Zeitumstellung richtig). Personen im Bericht: Partie, auf der Baustelle gestempelt oder ausdrücklich als Gast; nie Bauleiter/Büro/GF; keine zeitliche Überschneidung mit anderen Baustellen.
+- Ganze Schichten trägt das Büro mit `POST /api/zeit/schichten` nach bzw. löscht sie mit `DELETE /api/zeit/schichten/:id` (immer mit Grund).
