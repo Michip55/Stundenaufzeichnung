@@ -25,7 +25,7 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 
 ## In Arbeit
 - Behebung der mittleren/niedrigen Befunde aus `PRUEFBERICHT_4.md` (E-01 Landschaftsabgabe geht beim Bestätigen verloren, E-02 Excel-Import-Absturz, E-03 Migration Bestands-DB, E-04 Re-Import der Vorlage, E-05…E-09) – danach kurze Nachprüfung und Pull Request
-- **Servicebuch + Schadensmeldung mit Fotos**: Umsetzung in getrenntem Arbeitsstand (Branch `servicebuch`, lokal)
+- **Servicebuch + Schadensmeldung mit Fotos**: PAUSIERT (Nutzungslimit 90 %). Zwischenstand lokal im Arbeitsstand `/home/user/bautag-servicebuch` (Branch `servicebuch`, Commit 50f8891): Server-Routen /api/fuhrpark inkl. Schäden mit Fotos, Fälligkeitslogik mit Unit-Tests, Oberfläche Übersicht/Geräte/Fristen/Zeitleiste/Schäden. Noch offen: Tests komplett, E2E, Prüfung, Übernahme in den Hauptstand
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
