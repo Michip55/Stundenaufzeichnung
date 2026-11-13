@@ -205,6 +205,7 @@ function createApp(opt = {}) {
   require('./routes/dokumente')(api, bt);
   require('./routes/rechnungen')(api, bt);
   require('./routes/urlaub')(api, bt);
+  require('./routes/importe')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);

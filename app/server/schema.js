@@ -1068,6 +1068,32 @@ CREATE TABLE urlaub_konto (
   PRIMARY KEY (benutzer_id, jahr)
 );
 `
+  },
+  {
+    version: 21,
+    name: 'Ausbaustufe 2: Leistungsverzeichnis (ÖNORM A 2063), Lohn-Vorlagen (12.20)',
+    sql: `
+CREATE TABLE lv_position (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  oz TEXT NOT NULL, kurztext TEXT NOT NULL, einheit TEXT,
+  menge REAL, ep REAL, gp REAL,
+  projektposition_id INTEGER REFERENCES projektposition(id) ON DELETE SET NULL,
+  sortierung INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX lv_position_bs ON lv_position(baustelle_id);
+CREATE TABLE lv_import (
+  baustelle_id INTEGER PRIMARY KEY REFERENCES baustelle(id) ON DELETE CASCADE,
+  datei TEXT, importiert TEXT NOT NULL, von INTEGER REFERENCES benutzer(id), summe REAL, format TEXT
+);
+CREATE TABLE lohn_vorlage (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  daten TEXT NOT NULL,
+  eingebaut INTEGER NOT NULL DEFAULT 0,
+  geaendert TEXT
+);
+`
   }
 ];
 

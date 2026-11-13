@@ -108,7 +108,7 @@ module.exports = function positionenRouten(api, bt) {
       ...(mitPreis ? { summe: g.summe, anteilProzent: g.anteilProzent } : {}),
       positionen: g.positionen.map((p) => {
         if (mitPreis) return p;
-        const { ep, summe, perioden, epGeplant, ...rest } = p; // eslint-disable-line no-unused-vars
+        const { ep, summe, perioden, epGeplant, soll, ...rest } = p; // eslint-disable-line no-unused-vars
         // E-08: PA/VE-Mengen sind Rechnungsbeträge in € – ohne preise_sehen nur die Anzahl der Einträge
         if (['pa', 've'].includes(String(p.einheit).trim().toLowerCase())) {
           const { menge, mengeAuto, mengeManuell, eintraege, ...ohne } = rest; // eslint-disable-line no-unused-vars

@@ -111,7 +111,7 @@ const EURO_FELDER = new Set([
   // Preise mit „gültig ab“ (API.md 12.2)
   'epGeplant', 'epVerlauf', 'perioden',
   // Ausgangsrechnungen (API.md 12.17)
-  'netto', 'brutto', 'ust', 'zahlbetrag', 'skontoGenommen', 'ruecklassOffen', 'ruecklassBetrag', 'summeOffen', 'summeUeberfaellig', 'ruecklaesseOffen', 'verrechnetNetto', 'rechnungen', 'haftruecklass', 'schlussrechnung'
+  'netto', 'brutto', 'ust', 'zahlbetrag', 'skontoGenommen', 'ruecklassOffen', 'ruecklassBetrag', 'summeOffen', 'summeUeberfaellig', 'ruecklaesseOffen', 'verrechnetNetto', 'rechnungen', 'haftruecklass', 'schlussrechnung', 'soll', 'gp'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.

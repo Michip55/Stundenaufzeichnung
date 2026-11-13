@@ -297,12 +297,17 @@ function projektPositionen(db, bs, auftragGesamt) {
   }));
   naturmaterialMengen(mitMengen);
   const r = berechnePositionen(mitMengen, auftragGesamt);
+  // API.md 12.20: Soll aus dem LV (zugeordnete LV-Positionen)
+  const soll = new Map();
+  for (const l of db.alle('SELECT projektposition_id AS pid, SUM(menge) AS menge, SUM(gp) AS gp FROM lv_position WHERE baustelle_id = ? AND projektposition_id IS NOT NULL GROUP BY projektposition_id', bs.id)) soll.set(l.pid, l);
   // API.md 12.2: Stand des heutigen EP und geplante EP je Position
   const heute = require('./datum').wienDatum(db.uhr ? db.uhr() : new Date());
   for (const g of r.gruppen) {
     for (const p of g.positionen) {
       const st = staende.get(p.id);
       p.epAb = st ? st.filter((x) => x.gueltig_ab <= heute).reduce((a, x) => x.gueltig_ab, '2000-01-01') : '2000-01-01';
+      const sl = soll.get(p.id);
+      if (sl) p.soll = { menge: sl.menge, gp: Math.round((sl.gp || 0) * 100) / 100, ep: sl.menge ? Math.round(((sl.gp || 0) / sl.menge) * 100) / 100 : null };
       if (st && st.some((x) => x.gueltig_ab > heute)) p.epGeplant = st.filter((x) => x.gueltig_ab > heute).map((x) => ({ id: x.id, ep: x.wert, gueltigAb: x.gueltig_ab }));
     }
   }
