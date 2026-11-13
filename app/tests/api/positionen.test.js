@@ -267,12 +267,14 @@ test('Nachkalkulation nach Positionen', async (t) => {
     let r = await c.buero.post('/positionen/katalog/import', { dateiBase64: vorlage });
     assert.equal(r.status, 200);
     assert.equal(r.daten.uebernommen, false);
-    // Original-Excel gegen den angepassten Katalog (10d): alte Gerätenamen erscheinen als „neu“, Rollschotter-Preis als geändert
-    assert.equal(r.daten.neu.length, 7);
-    assert.ok(r.daten.neu.some((p) => p.bezeichnung === 'Mobilbagger 9-11 to'));
-    // LKW 2A wurde oben auf 80 geändert → Vorlage hat 75; Rollschotter 12,50 (10d) → Vorlage 14,50
-    assert.deepEqual(r.daten.geaendert.map((g) => [g.bezeichnung, g.epAlt, g.epNeu]).sort(), [['LKW 2A', 80, 75], ['Rollschotter RK 16/63', 12.5, 14.5]]);
-    assert.equal(r.daten.unveraendert, 94);
+    // E-04: Original-Excel gegen den angepassten Katalog (10d): alte Gerätenamen → umbenannte Positionen, Rollschotter geschützt
+    assert.equal(r.daten.neu.length, 0);
+    assert.equal(r.daten.umbenannt.length, 7);
+    assert.ok(r.daten.umbenannt.some((u) => u.alt === 'Mobilbagger 9-11 to' && u.neu === 'Mobilbagger 7-11 t'));
+    assert.deepEqual(r.daten.geaendert.map((g) => [g.bezeichnung, g.epAlt, g.epNeu, Boolean(g.geschuetzt)]).sort(), [['LKW 2A', 80, 75, false], ['Rollschotter RK 16/63', 12.5, 14.5, true]]);
+    assert.equal(r.daten.geaendert.find((g) => g.geschuetzt).hinweis, 'weicht von Preisliste-2026-Anpassung ab');
+    assert.equal(r.daten.unveraendert, 101);
+    assert.deepEqual([r.daten.fehler, r.daten.doppelt, r.daten.ohneSummenzeile], [[], [], []]);
     // geänderte Datei: neue Position + anderer Preis
     const json = X.ladeKatalogVorlage();
     const gruppen = X.GRUPPEN.map((g) => ({ schluessel: g.schluessel, positionen: json.positionen.filter((p) => p.gruppe === g.schluessel).map((p) => ({ ...p, ep: p.bezeichnung === 'Dumper' ? 50 : p.ep })) }));

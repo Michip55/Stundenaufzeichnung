@@ -40,16 +40,72 @@ function textAusZelle(v) {
   return typeof v === 'object' ? '' : String(v);
 }
 
+/** Grenzen für hochgeladene Excel-Dateien (E-02) */
+const IMPORT_GRENZEN = { dateiBytes: 5 * 1024 * 1024, eintraege: 300, eintragBytes: 10 * 1024 * 1024, gesamtBytes: 25 * 1024 * 1024, zeilen: 5000 };
+
+/**
+ * Prüft eine xlsx-Datei (ZIP) VOR dem Lesen gegen ZIP-Bomben: Anzahl Einträge, keine ZIP64/Verschlüsselung,
+ * tatsächlich entpackte Größe je Eintrag und gesamt (mit begrenztem Entpacken gemessen).
+ * @throws {Error} mit deutschem Text
+ */
+function pruefeZip(buf, g = IMPORT_GRENZEN) {
+  const zlib = require('node:zlib');
+  if (buf.length > g.dateiBytes) throw new Error(`Die Datei ist größer als ${g.dateiBytes / 1024 / 1024} MB.`);
+  if (buf.length < 22 || buf.readUInt32LE(0) !== 0x04034b50) throw new Error('Keine Excel-Datei (xlsx).');
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Die Excel-Datei ist beschädigt (ZIP-Verzeichnis fehlt).');
+  const anzahl = buf.readUInt16LE(eocd + 10);
+  const cdGroesse = buf.readUInt32LE(eocd + 12);
+  const cdStart = buf.readUInt32LE(eocd + 16);
+  if (anzahl === 0xffff || cdStart === 0xffffffff || cdGroesse === 0xffffffff) throw new Error('ZIP64-Dateien werden nicht unterstützt.');
+  if (anzahl > g.eintraege) throw new Error(`Die Datei enthält zu viele Einträge (${anzahl}, höchstens ${g.eintraege}).`);
+  if (cdStart + cdGroesse > buf.length) throw new Error('Die Excel-Datei ist beschädigt (ZIP-Verzeichnis).');
+  let pos = cdStart, gesamt = 0;
+  for (let n = 0; n < anzahl; n++) {
+    if (pos + 46 > buf.length || buf.readUInt32LE(pos) !== 0x02014b50) throw new Error('Die Excel-Datei ist beschädigt (ZIP-Eintrag).');
+    const flags = buf.readUInt16LE(pos + 8);
+    const methode = buf.readUInt16LE(pos + 10);
+    const komprimiert = buf.readUInt32LE(pos + 20);
+    const entpacktLaut = buf.readUInt32LE(pos + 24);
+    const nameLen = buf.readUInt16LE(pos + 28), extraLen = buf.readUInt16LE(pos + 30), kommentarLen = buf.readUInt16LE(pos + 32);
+    const lokal = buf.readUInt32LE(pos + 42);
+    if (flags & 1) throw new Error('Verschlüsselte Excel-Dateien werden nicht unterstützt.');
+    if (komprimiert === 0xffffffff || entpacktLaut === 0xffffffff || lokal === 0xffffffff) throw new Error('ZIP64-Dateien werden nicht unterstützt.');
+    if (entpacktLaut > g.eintragBytes) throw new Error('Ein Bestandteil der Datei ist entpackt zu groß.');
+    if (lokal + 30 > buf.length || buf.readUInt32LE(lokal) !== 0x04034b50) throw new Error('Die Excel-Datei ist beschädigt (lokaler ZIP-Kopf).');
+    const start = lokal + 30 + buf.readUInt16LE(lokal + 26) + buf.readUInt16LE(lokal + 28);
+    if (start + komprimiert > buf.length) throw new Error('Die Excel-Datei ist beschädigt (Daten fehlen).');
+    const daten = buf.subarray(start, start + komprimiert);
+    let tatsaechlich;
+    if (methode === 0) tatsaechlich = komprimiert;
+    else if (methode === 8) {
+      try {
+        tatsaechlich = zlib.inflateRawSync(daten, { maxOutputLength: g.eintragBytes }).length;
+      } catch (e) {
+        throw new Error(e.code === 'ERR_BUFFER_TOO_LARGE' || e instanceof RangeError ? 'Ein Bestandteil der Datei ist entpackt zu groß.' : 'Die Excel-Datei ist beschädigt (Entpacken fehlgeschlagen).');
+      }
+    } else throw new Error('Unbekannte Kompression in der Excel-Datei.');
+    gesamt += tatsaechlich;
+    if (gesamt > g.gesamtBytes) throw new Error(`Die Datei ist entpackt größer als ${g.gesamtBytes / 1024 / 1024} MB.`);
+    pos += 46 + nameLen + extraLen + kommentarLen;
+  }
+  return { eintraege: anzahl, entpacktBytes: gesamt };
+}
+
 /**
  * Liest eine Datei im Aufbau der Vorlage.
  * @param {Buffer} buffer
  * @returns {Promise<{positionen:Array<{gruppe,bezeichnung,einheit,ep,zeile}>, offen:Array}>}
  */
-async function leseVorlage(buffer) {
+async function leseVorlage(buffer, { maxZeilen = IMPORT_GRENZEN.zeilen } = {}) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const ws = wb.worksheets.find((w) => w.rowCount > 0);
   if (!ws) throw new Error('Die Datei enthält kein befülltes Tabellenblatt.');
+  if (ws.rowCount > maxZeilen) throw new Error(`Die Tabelle hat zu viele Zeilen (${ws.rowCount}, höchstens ${maxZeilen}).`);
   const positionen = [];
   let offen = [];
   const summenzeilen = new Map(GRUPPEN.map((g) => [g.summenzeile.toLowerCase(), g.schluessel]));
@@ -65,7 +121,8 @@ async function leseVorlage(buffer) {
     const einheit = textAusZelle(row.getCell(2).value).trim();
     const ep = zahlAusZelle(row.getCell(14).value);
     if (!einheit || ep == null) return; // Titel-/Leerzeilen
-    offen.push({ bezeichnung: a, einheit, ep, zeile: nr });
+    // Texte begrenzen (geprüft wird später je Zeile)
+    offen.push({ bezeichnung: a.slice(0, 1000), einheit: einheit.slice(0, 100), ep, zeile: nr, laenge: { bezeichnung: a.length, einheit: einheit.length } });
   });
   return { positionen, offen };
 }
@@ -211,4 +268,4 @@ if (require.main === module) {
   })().catch((e) => { console.error(e.message); process.exit(1); });
 }
 
-module.exports = { GRUPPEN, GRUPPEN_SCHLUESSEL, VORLAGE, KATALOG_JSON, leseVorlage, schreibeExport, ladeKatalogVorlage, ladeAnpassungen, wendeAnpassungenAn, zahlAusZelle };
+module.exports = { IMPORT_GRENZEN, pruefeZip, GRUPPEN, GRUPPEN_SCHLUESSEL, VORLAGE, KATALOG_JSON, leseVorlage, schreibeExport, ladeKatalogVorlage, ladeAnpassungen, wendeAnpassungenAn, zahlAusZelle };

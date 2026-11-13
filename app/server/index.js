@@ -82,7 +82,10 @@ function createApp(opt = {}) {
     }
     next();
   });
-  api.use(express.json({ limit: '2mb', strict: true }));
+  // JSON-Grenze 2 MB; nur der Excel-Import (Datei ≤ 5 MB als Base64) bis 7 MB (E-02)
+  const jsonKlein = express.json({ limit: '2mb', strict: true });
+  const jsonImport = express.json({ limit: '7mb', strict: true });
+  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport : jsonKlein)(req, res, next));
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (typeof req.body !== 'object' || Array.isArray(req.body))) {
