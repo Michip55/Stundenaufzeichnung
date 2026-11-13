@@ -56,4 +56,16 @@ class Recorder {
   }
 }
 
-module.exports = { Recorder };
+// Sprecher-Clips ({file, offset in s}) an ihren Zeitpunkten unter das Video legen
+function muxAudio(videoIn, clips, out) {
+  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-i', videoIn];
+  clips.forEach((c) => args.push('-i', c.file));
+  const parts = clips.map((c, i) => `[${i + 1}:a]aresample=48000,adelay=${Math.round(c.offset * 1000)}:all=1[a${i}]`);
+  const mix = `${clips.map((_, i) => `[a${i}]`).join('')}amix=inputs=${clips.length}:normalize=0:dropout_transition=0,loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]`;
+  args.push('-filter_complex', [...parts, mix].join(';'), '-map', '0:v', '-map', '[aout]',
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-shortest', '-movflags', '+faststart', out);
+  execFileSync('ffmpeg', args, { stdio: 'inherit' });
+  return out;
+}
+
+module.exports = { Recorder, muxAudio };
