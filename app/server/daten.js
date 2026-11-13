@@ -142,6 +142,8 @@ function personalVorschlag(db, baustelleId, datum, jetzt) {
     else zeilen.set(a.benutzer_id, { benutzerId: a.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, stunden: 0, code: a.code, segStunden: 0 });
   }
   const namen = new Map(db.alle('SELECT id, name, rolle FROM benutzer').map((b) => [b.id, b]));
+  // D-04: Bauleiter/Büro/GF stehen nie im Bericht (ihre Stempelzeiten zählen direkt)
+  for (const id of [...zeilen.keys()]) if (!['mitarbeiter', 'polier'].includes((namen.get(id) || {}).rolle)) zeilen.delete(id);
   const rang = (id) => (bs && id === bs.polier_id ? 0 : namen.get(id) && namen.get(id).rolle === 'polier' ? 1 : 2);
   return [...zeilen.values()]
     .map((z) => ({ ...z, name: (namen.get(z.benutzerId) || {}).name || '?' }))

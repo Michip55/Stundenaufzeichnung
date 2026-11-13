@@ -171,6 +171,36 @@ function mitBericht(t, zeilen, gedeckt, bsMap) {
   };
 }
 
+const FELD = ['mitarbeiter', 'polier'];
+
+/**
+ * D-03: Sicherheitsnetz über die Tagesgrenze. Überschneidet sich eine Berichtszeile eines Tages mit
+ * gezählten Stempelzeiten anderer Tage oder mit Berichtszeilen des Vortags, wird die Überschneidung
+ * am Berichtstag abgezogen.
+ */
+function tagesuebergreifend(tw, zeilenFuer, gedecktFuer) {
+  const stempelIv = new Map(tw.map((t) => [t.datum, (t.intervalle || []).filter((i) => !(gedecktFuer(t.datum) || new Set()).has(i.baustelleId)).map((i) => [i.von, i.bis])]));
+  const zeilenIv = new Map(tw.map((t) => [t.datum, (zeilenFuer(t.datum) || []).flatMap((z) => bloeckeAlsZeitpunkte(t.datum, z))]));
+  for (const t of tw) {
+    const eigen = zeilenIv.get(t.datum);
+    if (!eigen.length) continue;
+    let ms = 0;
+    for (const [d, iv] of stempelIv) {
+      if (d === t.datum) continue;
+      for (const a of eigen) for (const b of iv) ms += ueberlappungMs(a, b);
+    }
+    const vortag = zeilenIv.get(plusTage(t.datum, -1)) || [];
+    for (const a of eigen) for (const b of vortag) ms += ueberlappungMs(a, b);
+    if (ms > 0) {
+      const h = ms / 3600000;
+      t.stunden = r2(Math.max(0, t.stunden - h));
+      t.ueberschneidung = true;
+      t.warnungen = [...(t.warnungen || []), { typ: 'ueberschneidung', text: `Berichtszeiten überschneiden sich über die Tagesgrenze um ${r2(h).toLocaleString('de-AT')} Std. mit einem anderen Tag – nur einmal gezählt, bitte prüfen.` }];
+    }
+  }
+  return tw;
+}
+
 /** Eigene Woche (Mo–So) */
 function woche(db, benutzerId, datum, jetzt) {
   const mo = wochenbeginn(datum);
@@ -179,8 +209,11 @@ function woche(db, benutzerId, datum, jetzt) {
   const abw = new Map(db.alle("SELECT datum, code, status FROM abwesenheit WHERE benutzer_id = ? AND datum BETWEEN ? AND ? AND status <> 'abgelehnt'", benutzerId, daten[0], daten[6]).map((a) => [a.datum, a]));
   const bsMap = baustellenMap(db);
   const ber = berichtsZeilen(db, daten[0], daten[6], benutzerId);
-  const tage = tageswerte(sch, daten, bsMap).map((t0) => {
-    const t = mitBericht(t0, ber.zeilen.get(`${benutzerId}|${t0.datum}`), ber.gedeckt.get(t0.datum), bsMap);
+  const feld = FELD.includes((db.eins('SELECT rolle FROM benutzer WHERE id = ?', benutzerId) || {}).rolle);
+  const zeilenFuer = (d) => (feld ? ber.zeilen.get(`${benutzerId}|${d}`) : null);
+  const gedecktFuer = (d) => (feld ? ber.gedeckt.get(d) : null);
+  const tw = tagesuebergreifend(tageswerte(sch, daten, bsMap).map((t0) => mitBericht(t0, zeilenFuer(t0.datum), gedecktFuer(t0.datum), bsMap)), zeilenFuer, gedecktFuer);
+  const tage = tw.map((t) => {
     const a = abw.get(t.datum);
     const o = { datum: t.datum, wochentag: WT_KURZ[wochentag(t.datum)], stunden: t.stunden, pauseMin: t.pauseMin, von: t.von, bis: t.bis, baustellen: t.baustellen };
     if (t.quelle) o.quelle = t.quelle;
@@ -219,7 +252,11 @@ function monat(db, monatStr, jetzt) {
   const mitarbeiter = benutzer.map((b) => {
     const roh = ladeSchichten(db, b.id, erster, letzter, jetzt);
     const sch = plausibilisieren(roh, jetzt);
-    const tw = tageswerte(sch, daten, bsMap).map((t) => mitBericht(t, ber.zeilen.get(`${b.id}|${t.datum}`), ber.gedeckt.get(t.datum), bsMap));
+    // D-04: für Bauleiter/Büro/GF zählen immer die Stempelzeiten
+    const feld = FELD.includes(b.rolle);
+    const zeilenFuer = (d) => (feld ? ber.zeilen.get(`${b.id}|${d}`) : null);
+    const gedecktFuer = (d) => (feld ? ber.gedeckt.get(d) : null);
+    const tw = tagesuebergreifend(tageswerte(sch, daten, bsMap).map((t) => mitBericht(t, zeilenFuer(t.datum), gedecktFuer(t.datum), bsMap)), zeilenFuer, gedecktFuer);
     const abw = new Map(db.alle("SELECT datum, code, status FROM abwesenheit WHERE benutzer_id = ? AND datum BETWEEN ? AND ? AND status <> 'abgelehnt'", b.id, erster, letzter).map((a) => [a.datum, a]));
     const tageObj = {};
     let sw = 0, k = 0, u = 0, za = 0, swStunden = 0;
@@ -238,6 +275,10 @@ function monat(db, monatStr, jetzt) {
         offeneSchichten.push({ benutzerId: b.id, name: b.name, datum: t.datum, beginn: t.von, text: 'Schicht über 16 Std. bzw. nicht ausgestempelt – zählt mit 0 Std., bitte korrigieren.' });
       }
       tageObj[t.datum] = e;
+      if (genehmigt && ['K', 'U', 'ZA'].includes(a.code) && t.stunden > 0) {
+        // D-08: Abwesenheit und Arbeitsstunden am selben Tag
+        warnungen.push({ benutzerId: b.id, name: b.name, datum: t.datum, typ: 'abwesenheit_mit_stunden', stufe: 'hinweis', text: `Genehmigte Abwesenheit „${a.code}“ und ${t.stunden.toLocaleString('de-AT')} Arbeitsstunden am selben Tag – bitte prüfen.` });
+      }
       if (genehmigt) {
         if (a.code === 'SW') { sw++; swStunden += Math.max(0, (feiertag(t.datum) ? 0 : cfg.tagNormal[wochentag(t.datum)]) - t.stunden); }
         if (a.code === 'K') k++;

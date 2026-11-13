@@ -59,8 +59,10 @@ module.exports = function abwesenheitsRouten(api, bt) {
     let status, rueck;
     if (benutzerId === ich.id) {
       // Vier-Augen-Prinzip (C-09): eigene Anträge sind immer „beantragt“, auch für Büro/GF
-      if (!['U', 'ZA'].includes(code)) throw keinZugriff('Selbst können nur Urlaub (U) oder Zeitausgleich (ZA) beantragt werden.');
-      status = 'beantragt'; rueck = 7;
+      // D-09: der Polier meldet Schlechtwetter auch für sich selbst
+      const erlaubt = ich.rolle === 'polier' ? ['U', 'ZA', 'SW'] : ['U', 'ZA'];
+      if (!erlaubt.includes(code)) throw keinZugriff(ich.rolle === 'polier' ? 'Selbst können nur U, ZA oder SW gemeldet werden.' : 'Selbst können nur Urlaub (U) oder Zeitausgleich (ZA) beantragt werden.');
+      status = 'beantragt'; rueck = code === 'SW' ? 3 : 7;
     } else if (ctx.hat('stammdaten')) {
       status = 'genehmigt'; rueck = 62;
     } else if (ich.rolle === 'polier' && code === 'SW') {
@@ -95,9 +97,12 @@ module.exports = function abwesenheitsRouten(api, bt) {
 
   api.put('/abwesenheiten/:id', (req, res) => {
     const ctx = req.ctx;
-    if (!darfEntscheiden(ctx)) throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung.');
     const id = v.pfadId(req.params.id, 'ID');
-    const a = db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
+    const a = db.eins('SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
+    // D-09: SW bestätigt auch der Bauleiter der Stamm-Baustelle der Person
+    const bauleiterSw = a && a.code === 'SW' && ctx.benutzer.rolle === 'bauleiter' && a.stamm != null
+      && Boolean(db.eins('SELECT id FROM baustelle WHERE id = ? AND bauleiter_id = ?', a.stamm, ctx.benutzer.id));
+    if (!darfEntscheiden(ctx) && !bauleiterSw) throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung (Schlechtwetter auch der Bauleiter der Baustelle).');
     if (!a) throw nichtGefunden('Abwesenheit nicht gefunden.');
     if (a.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Anträge entscheidet eine andere Person (Vier-Augen-Prinzip).');
     const status = v.auswahl(v.objekt(req.body).status, 'status', ['genehmigt', 'abgelehnt']);

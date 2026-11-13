@@ -121,6 +121,7 @@ function pruefePersonal(db, liste, kontext) {
   const gesehen = new Set();
   const schichtenTag = schichtenAmTag(db, datum, jetzt);
   const vortag = schichtenAmTag(db, plusTage(datum, -1), jetzt);
+  const folgetag = schichtenAmTag(db, plusTage(datum, 1), jetzt);
   return liste.map((p, i) => {
     const f = `personal[${i}]`;
     v.objekt(p, f);
@@ -131,7 +132,7 @@ function pruefePersonal(db, liste, kontext) {
     if (!person) throw ungueltig(`${f}: Mitarbeiter nicht gefunden.`);
     if (!PERSONAL_ROLLEN.includes(person.rolle)) throw ungueltig(`${f}: ${person.name} (Bauleitung/Büro/Geschäftsführung) kann nicht als Personal in einen Bautagesbericht eingetragen werden.`);
     const gast = p.gast === undefined || p.gast === null ? false : v.bool(p.gast, `${f}.gast`);
-    const eigene = [...(schichtenTag.get(benutzerId) || []), ...(vortag.get(benutzerId) || [])];
+    const eigene = [...(vortag.get(benutzerId) || []), ...(schichtenTag.get(benutzerId) || []), ...(folgetag.get(benutzerId) || [])];
     const gestempeltHier = (schichtenTag.get(benutzerId) || []).some((sch) => [...sch.intervalle, ...(sch.intervalleRoh || [])].some((x) => x.art === 'arbeit' && x.baustelleId === bs.id));
     const partie = person.baustelle_id === bs.id || bs.polier_id === benutzerId;
     if (!partie && !gestempeltHier && !gast) {
@@ -160,18 +161,19 @@ function pruefePersonal(db, liste, kontext) {
     if (zeilenIv.length) {
       for (const sch of eigene) {
         for (const x of sch.intervalle) {
-          if (x.art !== 'arbeit' || x.baustelleId === bs.id) continue;
+          // D-03: auch die eigene Baustelle, wenn die Schicht zu einem anderen Berichtstag gehört
+          if (x.art !== 'arbeit' || (x.baustelleId === bs.id && sch.datum === datum)) continue;
           if (zeilenIv.some((r) => iv(r, [x.von, x.bis]) > 0)) {
             const kst = (db.eins('SELECT kst FROM baustelle WHERE id = ?', x.baustelleId) || {}).kst || '?';
-            throw ungueltig(`${f}: ${person.name} ist von ${hmZ(x.von)} bis ${hmZ(x.bis)} auf Baustelle ${kst} gestempelt – die Zeiten überschneiden sich.`);
+            throw ungueltig(`${f}: ${person.name} ist von ${hmZ(x.von)} bis ${hmZ(x.bis)} auf Baustelle ${kst} gestempelt${sch.datum !== datum ? ` (Schicht vom ${sch.datum.split('-').reverse().join('.')})` : ''} – die Zeiten überschneiden sich.`);
           }
         }
       }
-      for (const o of db.alle(`SELECT bp.von1, bp.bis1, bp.von2, bp.bis2, r.id, b.kst FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-          JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum = ? AND r.id <> ?`, benutzerId, datum, berichtId || -1)) {
-        const oIv = bloeckeAlsZeitpunkte(datum, o);
+      for (const o of db.alle(`SELECT bp.von1, bp.bis1, bp.von2, bp.bis2, r.id, r.datum, b.kst FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
+          JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ?`, benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)) {
+        const oIv = bloeckeAlsZeitpunkte(o.datum, o); // D-03: echte Zeitpunkte des jeweiligen Berichtstags
         if (zeilenIv.some((r) => oIv.some((x) => iv(r, x) > 0))) {
-          throw ungueltig(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} (${o.von1}–${o.bis2 || o.bis1}).`);
+          throw ungueltig(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
         }
       }
     }
