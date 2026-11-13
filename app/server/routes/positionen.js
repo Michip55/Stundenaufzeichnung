@@ -118,7 +118,7 @@ module.exports = function positionenRouten(api, bt) {
       })
     }));
     const o = { baustelleId: bs.id, gruppen, budgetVerbrauchProzent: r.budgetVerbrauchProzent, positionenFehlen: r.positionenFehlen, hinweise: r.hinweise, stand: db.einstellung('katalog_stand', null) };
-    if (mitPreis) Object.assign(o, { auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, anteilSummeProzent: r.anteilSummeProzent, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
+    if (mitPreis) Object.assign(o, { rechnungen: require('../rechnungen').summenBaustelle(db, bs.id), auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, anteilSummeProzent: r.anteilSummeProzent, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
     return o;
   }
 

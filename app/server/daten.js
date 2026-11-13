@@ -74,6 +74,7 @@ function kalkulationFuer(db, bs, preise) {
   k.status = budgetStatus(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen);
   k.hinweise = [...budgetHinweise(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen, 'Die Nachkalkulationssumme'), ...k.hinweise.filter((h) => !h.budget), ...pos.hinweise];
   k.positionenFehlen = pos.positionenFehlen;
+  k.rechnungen = require('./rechnungen').summenBaustelle(db, bs.id); // 12.17: verrechnet/bezahlt
   k.positionen = {
     ...k.positionen,
     anteilSummeProzent: pos.anteilSummeProzent,

@@ -36,7 +36,7 @@ module.exports = function kalkRouten(api, bt) {
     const o = { baustelle: baustelleKurz(bs), ...k, alarme };
     if (!darfPreise(req.ctx, bs)) {
       // kalk_sehen ohne preise_sehen (nur per Matrix möglich): Kennzahlen ohne €-Werte
-      for (const f of ['auftragssumme', 'nachtraege', 'auftragGesamt', 'erloes', 'erloesLeistung', 'erloesRegie', 'kosten', 'db', 'dbProzent', 'positionen', 'verlauf']) delete o[f];
+      for (const f of ['auftragssumme', 'nachtraege', 'auftragGesamt', 'erloes', 'erloesLeistung', 'erloesRegie', 'kosten', 'db', 'dbProzent', 'positionen', 'verlauf', 'rechnungen', 'interneKosten']) delete o[f];
     }
     res.json(o);
   });

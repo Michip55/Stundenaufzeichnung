@@ -109,7 +109,9 @@ const EURO_FELDER = new Set([
   // Servicebuch (API.md 11)
   'kostenJahr', 'kostenGesamt', 'kostenJeStunde',
   // Preise mit „gültig ab“ (API.md 12.2)
-  'epGeplant', 'epVerlauf', 'perioden'
+  'epGeplant', 'epVerlauf', 'perioden',
+  // Ausgangsrechnungen (API.md 12.17)
+  'netto', 'brutto', 'ust', 'zahlbetrag', 'skontoGenommen', 'ruecklassOffen', 'ruecklassBetrag', 'summeOffen', 'summeUeberfaellig', 'ruecklaesseOffen', 'verrechnetNetto', 'rechnungen', 'haftruecklass', 'schlussrechnung'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.

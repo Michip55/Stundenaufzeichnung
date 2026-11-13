@@ -86,6 +86,7 @@ function createApp(opt = {}) {
   bt.stuendlich = () => {
     preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt);
     sicher('Bauvorhaben', require('./bauvorhaben').pruefeBauvorhaben);
+    sicher('Rechnungen', require('./rechnungen').pruefeRechnungen);
     sicher('Plan-Erinnerung', require('./planer').pruefeErinnerung); // nie automatisch veröffentlichen (12.8c)
     require('./push').anstossen(bt);
   };
@@ -201,6 +202,7 @@ function createApp(opt = {}) {
   require('./routes/stammdatenverwaltung')(api, bt);
   require('./routes/planer')(api, bt);
   require('./routes/dokumente')(api, bt);
+  require('./routes/rechnungen')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
