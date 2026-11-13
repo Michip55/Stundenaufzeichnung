@@ -13,6 +13,8 @@ import { baustellen, baustelle } from './views/baustellen.js';
 import { archiv } from './views/lebenslauf.js';
 import plan, { einsatz, partie } from './views/plan.js';
 import { offenePosten } from './views/rechnungen.js';
+import urlaub from './views/urlaub.js';
+import lohnvorlagen from './views/lohnvorlagen.js';
 import preise from './views/preise.js';
 import { kalkUebersicht, kalkDetail } from './views/kalkulation.js';
 import monat from './views/monat.js';
@@ -71,11 +73,12 @@ const NAV = [
   { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier', 'bauleiter'), nurMehr: true },
   { id: 'offeneposten', pfad: '/offene-posten', text: 'Offene Posten', kurz: 'Posten', icon: 'euro', darf: eines('preise_sehen') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
-  { id: 'preise', pfad: '/preise', text: 'Preise & Stammdaten', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
+  { id: 'preise', pfad: '/preise', text: 'Stammdaten & Preise', kurz: 'Stammdaten', icon: 'tag', darf: eines('preise_sehen', 'stammdaten') },
   // Fuhrpark & Geräte: für alle (Geräteliste, Schaden/Mangel melden, Zählerstand); Pflege nur mit Recht „fuhrpark“. Am Handy unter „Mehr“.
   { id: 'fuhrpark', pfad: '/fuhrpark', text: 'Fuhrpark & Geräte', kurz: 'Geräte', icon: 'truck', darf: () => !!ich, nurMehr: true },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
   { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
+  { id: 'urlaub', pfad: '/urlaub', text: 'Urlaub', kurz: 'Urlaub', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn'), nurMehr: true },
   { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Benutzer', icon: 'shield', darf: () => kann('benutzer') || darfBenutzerPflegen() },
 ];
 const navErlaubt = () => {
@@ -104,7 +107,9 @@ const ROUTEN = [
   { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier', 'bauleiter') },
   { muster: /^\/partie$/, nav: 'partie', titel: 'Meine Partie', view: partie, darf: rolle('polier') },
   { muster: /^\/offene-posten$/, nav: 'offeneposten', titel: 'Offene Posten', view: offenePosten, darf: eines('preise_sehen') },
-  { muster: /^\/preise$/, nav: 'preise', titel: 'Preise & Stammdaten', view: preise, darf: eines('preise_sehen') },
+  { muster: /^\/preise$/, nav: 'preise', titel: 'Stammdaten & Preise', view: preise, darf: eines('preise_sehen', 'stammdaten') },
+  { muster: /^\/urlaub$/, nav: 'urlaub', titel: 'Urlaub', view: urlaub, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
+  { muster: /^\/lohn-vorlagen$/, nav: 'monat', titel: 'Lohn-Export: Vorlagen', view: lohnvorlagen, darf: eines('lohn') },
   { muster: /^\/kalkulation$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkUebersicht, darf: eines('kalk_sehen') },
   { muster: /^\/kalkulation\/(\d+)\/positionen$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: positionen, darf: eines('kalk_sehen') },
   { muster: /^\/kalkulation\/(\d+)$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkDetail, darf: eines('kalk_sehen') },

@@ -184,7 +184,7 @@ export default async function plan(el, ctx) {
         <div class="wp-scroll" data-zieh-scroll><div class="wp-gitter${wahl.size ? ' mit-wahl' : ''}" role="table" data-spalten="${sp}" data-st="--sp:${sp}">
           <div class="wp-zeile kopf" role="row"><div class="wp-bs" role="columnheader">Baustelle</div>${d.tage.map((t) => `<button type="button" class="wp-tag${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}" role="columnheader" data-tagwahl="${t.datum}" aria-pressed="${t.datum === tagWahl}" title="Tag für „Noch frei“ wählen">${esc(fmt.WTK[fmt.dt(t.datum).getDay()])} <span>${String(fmt.dt(t.datum).getDate()).padStart(2, '0')}.${String(fmt.dt(t.datum).getMonth() + 1).padStart(2, '0')}.</span>${t.feiertag ? `<small>${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}</small>` : ''}${t.vorschau ? '<small class="wie">wie Vortag</small>' : ''}</button>`).join('')}</div>
           ${d.baustellen.length ? d.baustellen.map((b) => `<div class="wp-zeile" role="row" data-bs-zeile="${b.id}"><div class="wp-bs" role="rowheader"><small>KST ${esc(b.kst || '–')}</small><b>${esc(b.kurz || b.name)}</b><small>${b.polier ? 'Polier ' + esc(b.polier.name) : 'kein Polier'}</small></div>${d.tage.map((t) => zelle(t, b)).join('')}</div>`).join('') : `<div class="pad">${leer('Keine Baustelle in Planung oder Arbeit.', 'pin')}</div>`}
-          ${fuhrenBahn(fuhren, d.tage, planer || ich.rolle === 'bauleiter')}
+          ${fuhrenBahn(fuhren, d.tage, planer || ich.rolle === 'bauleiter', tagWahl)}
         </div></div>
       </section>
       ${planer || ich.rolle === 'bauleiter' ? pool() : ''}
@@ -235,7 +235,7 @@ export default async function plan(el, ctx) {
         ${pool()}
       </div>
       <section class="card tg-fuhren" id="tg-fuhren" aria-label="Fuhren ${esc(tagKurz(tag))}"><div class="card-h pad-h"><h3>${ic('truck')}Fuhren · je LKW</h3>${planer || ich.rolle === 'bauleiter' ? `<span class="btn-row"><button type="button" class="btn ghost sm" id="fu-wie-gestern" data-datum="${tag}">${ic('copy')}Fuhren wie gestern</button><button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}">${ic('plus')}Fuhre</button></span>` : ''}</div>
-        <div class="wp-scroll"><div class="wp-gitter fu-tag" data-st="--sp:1">${fuhrenBahn(fuhren.filter((f) => f.datum === tag), [tagInfo(tag)], false)}</div></div></section>
+        <div class="wp-scroll"><div class="wp-gitter fu-tag" data-st="--sp:1">${fuhrenBahn(fuhren.filter((f) => f.datum === tag), [tagInfo(tag)], false, tag)}</div></div></section>
       <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" ${offen.einsaetze.length || offen.fuhren ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen${offen.einsaetze.length ? ` (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})` : ''}</button><span class="muted sm" id="tg-pub-info">${offen.einsaetze.length || offen.fuhren ? 'Vor dem Senden sehen Sie, wer eine Nachricht bekommt.' : 'Alles veröffentlicht – keine offenen Änderungen.'}</span></div>`;
   }
   // Bestätigung vor dem Senden: Der Server sagt im Probelauf (ohne Versand), wer eine Nachricht bekäme

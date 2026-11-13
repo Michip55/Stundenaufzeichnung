@@ -131,7 +131,7 @@ export async function baustelle(el, ctx) {
           <label class="field"><span class="field-label">Auftragssumme in Euro (netto)</span><input class="input lg num" name="auftragssumme" data-geld="leer" inputmode="decimal" autocomplete="off" value="${auftragssumme != null ? fmt.betrag(auftragssumme) : ''}" placeholder="noch nicht erfasst" ${darfAuftrag ? '' : 'disabled'}></label>
           <fieldset class="field"><legend class="field-label">Warnschwellen (Budget-Verbrauch in %)</legend><div class="thr">${[0, 1, 2].map((i) => `<label><span class="vh">Schwelle ${i + 1}</span><input class="input num" name="s${i}" inputmode="numeric" value="${schwellen[i] ?? ''}" ${darfAuftrag ? '' : 'disabled'}><span>%</span></label>`).join('')}</div></fieldset>
           <fieldset class="field"><legend class="field-label">Wer wird benachrichtigt?</legend><div class="chk-row">${['bauleiter', 'buero', 'gf'].map((r) => `<label class="check-inline"><input type="checkbox" name="e_${r}" ${empf[r] !== false ? 'checked' : ''} ${darfAuftrag ? '' : 'disabled'}> ${esc(rolleText(r))}</label>`).join('')}</div>
-            <small class="muted">Polier und Mitarbeiter erhalten nie Budget-Meldungen. Derzeit nur in der App – Push und E-Mail sind noch nicht angebunden.</small></fieldset>
+            <small class="muted">Polier und Mitarbeiter erhalten nie Budget-Meldungen. Die Meldung kommt in der App und – wer es eingeschaltet hat – per Push.</small></fieldset>
           <p class="form-err" role="alert" hidden></p>
           ${darfAuftrag ? `<button type="submit" class="btn primary" id="auftrag-ok">${ic('check')}Auftrag speichern</button>` : ''}
         </form>

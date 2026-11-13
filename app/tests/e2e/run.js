@@ -51,7 +51,7 @@ async function starteServer(extra = {}) {
 
 /* ------------------------------------------------------------------ */
 async function laufe(browser, g) {
-  const srv = await starteServer();
+  const srv = await starteServer({ BAUTAG_TEST: '1' }); // externe Dienste als Attrappen (API.md 12.18)
   const fehler = [];
   let schritte = 0;
   const pruef = (ok, text) => { schritte++; if (!ok) { fehler.push(text); console.log(`    ✗ ${text}`); } };

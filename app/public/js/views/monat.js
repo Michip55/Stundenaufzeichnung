@@ -23,6 +23,7 @@ export default async function monat(el, ctx) {
         ${ctx.kann('stammdaten') ? `<a class="btn ghost" id="zu-korrektur" href="#/korrektur">${ic('edit')}Zeiten korrigieren</a>` : ''}
         <a class="btn ghost" href="#/abwesenheiten">${ic('away')}Abwesenheiten</a>
         <a class="btn ghost" id="csv-lohn" href="/api/monat/export.csv?monat=${ym}" download="lohn-${ym}.csv">${ic('download')}CSV Lohnverrechnung</a>
+        <a class="btn ghost" id="lohn-vorlagen-link" href="#/lohn-vorlagen?monat=${ym}">${ic('table')}BMD-Export (Vorlagen)</a>
         <a class="btn ghost" id="csv-buak" href="/api/monat/buak.csv?monat=${ym}" download="buak-${ym}.csv">${ic('download')}CSV BUAK-Grundlage</a>
       </div>
       <div class="kpi-row four">

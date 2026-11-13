@@ -310,7 +310,7 @@ export default async function positionen(el, ctx) {
       neu();
     }
   });
-  el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.pt-in, .price-in input')) e.target.blur(); });
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.pt-in, .price-in input')) { e.preventDefault(); e.target.blur(); } });
   el.addEventListener('change', async (e) => {
     const t = e.target;
     if (t.id === 'f-menge') { nurMitMenge = t.checked; speicher.setz('bt_pos_nurmenge', nurMitMenge); zeichne(); return; }

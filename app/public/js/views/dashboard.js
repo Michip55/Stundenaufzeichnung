@@ -19,6 +19,11 @@ export default async function dashboard(el, ctx) {
     ctx.kann('kalk_sehen') ? teil(() => get('/kalkulation')) : null,
     ctx.kann('lohn') ? teil(() => get(`/monat?monat=${heute.slice(0, 7)}`)) : null,
   ]);
+  // Bauvorhaben-Kennzahlen (12.15) und offene Posten (12.17) – jede Kachel nur, wenn der Server sie liefert
+  const planer = ['buero', 'gf', 'bauleiter'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten');
+  const [kz, op, alleBs] = await Promise.all([planer ? teil(() => get('/baustellen-kennzahlen')) : null, ctx.kann('preise_sehen') ? teil(() => get('/offene-posten')) : null, planer ? teil(() => get('/baustellen?alle=1')) : null]);
+  const bald = fmt.addTage(heute, 92);
+  const gewaehr = alleBs && alleBs.ok ? alleBs.daten.filter((b) => b.gewaehrleistungBis && b.gewaehrleistungBis >= heute && b.gewaehrleistungBis <= bald) : [];
   // Ohne jede Verbindung/Recht: Fehler an den Rahmen weitergeben
   if (!bs.ok && (bs.fehler.netz || bs.fehler.status === 401)) throw bs.fehler;
   const baustellen = bs.ok ? bs.daten : [];
@@ -40,6 +45,12 @@ export default async function dashboard(el, ctx) {
       ${kalk ? `<a class="kpi link" href="#/kalkulation" data-kpi="budget"><small>Baustellen mit Budget-Warnung</small><b class="${auffaellig ? 'neg' : ''}">${kalk.ok ? auffaellig : '–'}</b><em>von ${kalkListe.length} Baustellen</em></a>` : `<div class="kpi"><small>Aktive Baustellen</small><b>${baustellen.filter((b) => !b.status || b.status === 'aktiv').length}</b><em>in Ihrem Bereich</em></div>`}
       ${mon ? `<a class="kpi link" href="#/monat" data-kpi="warnungen"><small>Arbeitszeit-Warnungen</small><b class="${warnungen.length ? 'neg' : ''}">${mon.ok ? warnungen.length : '–'}</b><em>${esc(fmt.monat(heute.slice(0, 7)))}</em></a>` : `<div class="kpi"><small>Heute</small><b class="date">${esc(fmt.datumKurz(heute))}</b><em>${fmt.dt(heute).getFullYear()}</em></div>`}
     </div>
+    ${kz && kz.ok ? `<div class="kpi-row four" id="bv-kacheln">
+      <a class="kpi sm link" href="#/baustellen?phase=schlussrechnung" data-kpi="schlussrechnungen"><small>Offene Schlussrechnungen</small><b>${kz.daten.offeneSchlussrechnungen ? kz.daten.offeneSchlussrechnungen.anzahl : 0}</b><em>${kz.daten.offeneSchlussrechnungen && kz.daten.offeneSchlussrechnungen.summe != null ? fmt.eur(kz.daten.offeneSchlussrechnungen.summe) : 'gelegt, noch nicht bezahlt'}</em></a>
+      <a class="kpi sm link" href="#/baustellen?phase=abgenommen" data-kpi="abnahme-ohne-rechnung"><small>Abnahmen ohne Rechnung</small><b class="${kz.daten.abnahmeOhneSchlussrechnung ? 'neg' : ''}">${kz.daten.abnahmeOhneSchlussrechnung ?? 0}</b><em>abgenommen, Schlussrechnung fehlt</em></a>
+      <a class="kpi sm link" href="#/baustellen/archiv" data-kpi="gewaehrleistung"><small>Gewährleistung läuft ab</small><b class="${gewaehr.length ? 'neg' : ''}">${gewaehr.length}</b><em>${gewaehr.length ? esc(gewaehr.slice(0, 2).map((b) => `${b.kurz || b.name} (${fmt.datum(b.gewaehrleistungBis)})`).join(', ')) : 'in den nächsten 3 Monaten'}</em></a>
+      ${op && op.ok ? `<a class="kpi sm link" href="#/offene-posten" data-kpi="offene-posten"><small>Offene Posten</small><b>${fmt.eur(op.daten.summeOffen)}</b><em>${op.daten.anzahlUeberfaellig ? `<span class="chip xs st-red">${op.daten.anzahlUeberfaellig} überfällig · ${fmt.eur(op.daten.summeUeberfaellig)}</span>` : `${op.daten.anzahlOffen ?? 0} Rechnungen offen`}</em></a>` : `<a class="kpi sm link" href="#/baustellen" data-kpi="fertigmeldungen"><small>Fertigmeldungen offen</small><b>${kz.daten.fertigmeldungenOffen ?? 0}</b><em>vom Polier gemeldet</em></a>`}
+    </div>` : ''}
     <div class="two-col">
       <section class="card" id="anwesend-karte" aria-labelledby="h-anw">
         <div class="card-h pad-h"><h3 id="h-anw">${ic('users')}Eingestempelt <span class="count">${anwesend.length}</span></h3></div>

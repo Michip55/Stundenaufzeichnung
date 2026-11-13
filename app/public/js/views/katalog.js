@@ -128,7 +128,7 @@ export async function katalogTab(box, ctx) {
     if (!(await bestaetigen('Position deaktivieren?', `„${p.bezeichnung}“ wird für neue Baustellen nicht mehr angeboten. Bestehende Baustellen behalten sie.`, 'Deaktivieren', 'danger'))) return;
     try { await del(`/positionen/katalog/${p.id}`); toast('Position deaktiviert.'); neu(); } catch (x) { toast(x.message, 'warn'); }
   });
-  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-kfeld]')) e.target.blur(); });
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-kfeld]')) { e.preventDefault(); e.target.blur(); } });
   box.addEventListener('change', async (e) => {
     const t = e.target;
     if (t.id === 'kat-inaktiv') { mitInaktiven = t.checked; zeichne(); return; }

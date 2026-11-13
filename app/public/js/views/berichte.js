@@ -183,6 +183,8 @@ export async function bericht(el, ctx) {
   }
   const zeigHinweise = () => { const h = $('#anlage-hinweise', el); if (!h) return; h.hidden = !anlageHinweise.length; h.innerHTML = anlageHinweise.length ? banner('warn', `<b>Gesperrtes Gerät im Bericht:</b> ${anlageHinweise.map((x) => esc(x.text)).join(' · ')} – der Bericht wird trotzdem gespeichert, das Büro wird verständigt.`, 'lock') : ''; };
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
+  // Menge, die aus erledigten Fuhren in die Materialzeile kam (12.8b) – nur zur Kennzeichnung
+  const ausFuhre = (mid) => { const z = b.material.find((m) => m.materialId === mid) || {}; return z.ausFuhren ?? z.mengeFuhren ?? (z.quelle === 'fuhre' ? z.menge : 0) ?? 0; };
   const gesamt = () => rund2(b.personal.reduce((s, p) => s + (Number(p.stunden) || 0), 0));
 
   /* ---- Speichern (automatisch, entprellt) ---- */
@@ -518,8 +520,10 @@ export async function bericht(el, ctx) {
             <label class="field w-s"><span class="field-label">Stunden</span><input type="text" inputmode="decimal" class="input num" data-f="seg.stunden" value="${b.seg.stunden ? fmt.zahl(b.seg.stunden) : ''}" placeholder="0" ${dis()}></label>
           </div></section>
           <section class="pf-sec a-ger" data-step="2" aria-labelledby="h-ger"><h4 id="h-ger">GERÄTE <span>Einsatzstunden</span></h4><div class="pf-ggrid"><div>${gSpalte(geraeteKat.slice(0, halb))}</div><div>${gSpalte(geraeteKat.slice(halb))}</div></div></section>
-          <section class="pf-sec a-mat" data-step="3" aria-labelledby="h-mat"><h4 id="h-mat">MATERIAL <span>Menge</span></h4><div class="pf-box flush mat-list">
-            ${matKat.map((m) => `<div class="mat-row${mMenge(m.id) ? ' on' : ''}" data-m="${m.id}"><span>${esc(m.name)}</span>${stepper(`data-material="${m.id}"`, mMenge(m.id), 1, m.einheit, m.name)}<small>${esc(m.einheit || '')}</small></div>`).join('')}
+          <section class="pf-sec a-mat" data-step="3" aria-labelledby="h-mat"><h4 id="h-mat">MATERIAL <span>Menge</span></h4>
+          ${(b.fuhrenVorschlag || []).length ? `<div class="fuhr-vorschlag" id="fuhren-vorschlag"><b>${ic('truck')}${b.fuhrenVorschlag.length} Fuhre${b.fuhrenVorschlag.length === 1 ? '' : 'n'} abgeladen – noch nicht im Bericht</b><ul class="plain">${b.fuhrenVorschlag.map((v) => `<li data-fuhre="${v.fuhreId}"><span class="grow">${esc(v.name || 'Material')} · <b>${esc(fmt.zahl(v.menge, 2))} ${esc(v.einheit || '')}</b>${v.fahrer ? ` · ${esc(v.fahrer)}` : ''}${v.zeit ? ` · ${esc(fmt.uhr(v.zeit))}` : ''}${v.hinweis ? `<small>${esc(v.hinweis)}</small>` : ''}</span></li>`).join('')}</ul>${editierbar() ? `<button type="button" class="btn primary" id="fuhren-uebernehmen">${ic('check')}In den Bericht übernehmen</button>` : '<small class="muted">Übernahme nur im Entwurf.</small>'}</div>` : ''}
+          <div class="pf-box flush mat-list">
+            ${matKat.map((m) => `<div class="mat-row${mMenge(m.id) ? ' on' : ''}" data-m="${m.id}"><span>${esc(m.name)}${ausFuhre(m.id) ? ` <i class="chip xs st-outline" data-aus-fuhre title="Menge (teilweise) aus Fuhren: ${esc(fmt.zahl(ausFuhre(m.id), 2))} ${esc(m.einheit || '')}">${ic('truck')}aus Fuhre</i>` : ''}</span>${stepper(`data-material="${m.id}"`, mMenge(m.id), 1, m.einheit, m.name)}<small>${esc(m.einheit || '')}</small></div>`).join('')}
           </div>${editierbar() ? `<div class="integ-row">${lieferscheinKnopf(integ)}</div>` : ''}</section>
           <section class="pf-sec a-leist" data-step="4" aria-labelledby="h-leist"><h4 id="h-leist">ARBEITSLEISTUNG</h4><div class="pf-box flush"><textarea class="input area" rows="5" data-f="arbeitsleistung" aria-labelledby="h-leist" placeholder="Was wurde heute gemacht?" ${dis()}>${esc(b.arbeitsleistung || '')}</textarea></div>
             ${editierbar() ? diktatHtml(integ) : ''}</section>
@@ -601,6 +605,10 @@ export async function bericht(el, ctx) {
     } else if (sp.dataset.pal) { b.paletten[sp.dataset.pal] = Math.round(v); geaendert('paletten'); }
   }
   el.addEventListener('click', async (e) => {
+    if (e.target.closest('#fuhren-uebernehmen')) {
+      try { await post(`/berichte/${id}/fuhren-uebernehmen`, { fuhreIds: (b.fuhrenVorschlag || []).map((v) => v.fuhreId) }); toast('Fuhren in den Bericht übernommen.'); ctx.neuLaden(); } catch (x) { toast(x.message, 'warn'); }
+      return;
+    }
     const d = e.target.closest('[data-stepper] [data-d]');
     if (d) { const sp = d.closest('[data-stepper]'); setzStepper(sp, zahl($('input', sp).value) + Number(d.dataset.d) * Number(sp.dataset.schritt)); return; }
     const aw = e.target.closest('[data-anlage-wahl]');
