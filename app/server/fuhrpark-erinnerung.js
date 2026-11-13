@@ -82,11 +82,15 @@ function zaehlerAbfrage(S, benutzerId) {
  * Meldung „Anlage gesperrt“ (manuell, schwere Mängel, Mangel sofort, Schaden nicht einsatzfähig).
  * @param {{buero?: boolean}} opt  buero: zusätzlich Büro/GF (Schäden)
  */
-function meldeSperre(db, A, { titel, text, zeit, schluessel, buero = false }) {
-  const empf = eindeutig([...fuhrparkBenutzer(db), ...aktiv(db, A.row.verantwortlich_id), ...standortLeute(db, A), ...(buero ? buroGf(db) : [])])
-;
+function meldeSperre(db, A, { titel, text, textStandort, zeit, schluessel, buero = false }) {
+  const voll = new Set([...fuhrparkBenutzer(db), ...aktiv(db, A.row.verantwortlich_id), ...(buero ? buroGf(db) : [])]);
+  const empf = eindeutig([...voll, ...standortLeute(db, A)]);
   let n = 0;
-  for (const id of empf) n += melde(db, { benutzerId: id, titel, text, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel }) ? 1 : 0;
+  for (const id of empf) {
+    // F-13: Polier/Bauleiter des Standorts ohne Fuhrpark-Recht erhalten bei Schäden keinen Ursachentext
+    const t = textStandort && !voll.has(id) ? textStandort : text;
+    n += melde(db, { benutzerId: id, titel, text: t, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel }) ? 1 : 0;
+  }
   return n;
 }
 

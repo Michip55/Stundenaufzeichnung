@@ -65,3 +65,39 @@ test('Dateinamen ohne Pfad und Steuerzeichen; Speicherpfad nur Zufallsnamen', ()
   assert.equal(B.dateiPfad('/tmp/x', 'a'.repeat(32) + '.jpg'), '/tmp/x/' + 'a'.repeat(32) + '.jpg');
 });
 
+
+/* ---------- F-07 (Prüfbericht 5) ---------- */
+const { chunk } = require('../api/fuhrpark-bilder');
+
+test('F-07: JPEG ohne Tabellen/Bilddaten abgelehnt, reservierte Segmente entfernt, Kantenlänge begrenzt', () => {
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16BE(n); return b; };
+  const seg = (m, d) => Buffer.concat([Buffer.from([0xff, m]), u16(d.length + 2), d]);
+  const sof = (h, w) => seg(0xc0, Buffer.concat([Buffer.from([8]), u16(h), u16(w), Buffer.from([1, 1, 0x11, 0])]));
+  const leer = Buffer.concat([Buffer.from([0xff, 0xd8]), sof(1, 1), seg(0xda, Buffer.from([1, 1, 0, 0, 63, 0])), Buffer.from([0xff, 0xd9])]);
+  assert.throws(() => B.bildPruefen(leer.toString('base64')), /unvollständig/);
+  const ok = testJpeg({ anhang: false });
+  const iSof = ok.indexOf(Buffer.from([0xff, 0xc0]));
+  const mitReserviert = Buffer.concat([ok.subarray(0, iSof), seg(0xf0, Buffer.from('GEHEIM-F0')), seg(0xc8, Buffer.from('GEHEIM-C8')), ok.subarray(iSof)]);
+  const r = B.bildPruefen(mitReserviert.toString('base64'));
+  assert.ok(!r.daten.includes(Buffer.from('GEHEIM')));
+  const riesig = Buffer.concat([ok.subarray(0, iSof), sof(20000, 20000), ok.subarray(iSof + 19)]);
+  assert.throws(() => B.bildPruefen(riesig.toString('base64')), /12000 Pixel/);
+});
+
+test('F-07: PNG 100.000 × 100.000 abgelehnt, iCCP entfernt; WebP animiert abgelehnt, ICCP entfernt; Steuerzeichen im Namen', () => {
+  const p = pngGrau(2, 2, [1, 2, 3, 4]);
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(100000, 0); ihdr.writeUInt32BE(100000, 4); ihdr[8] = 8;
+  const gross = Buffer.concat([p.subarray(0, 8), chunk('IHDR', ihdr), p.subarray(33)]);
+  assert.throws(() => B.bildPruefen(gross.toString('base64')), /12000 Pixel/);
+  const iccp = Buffer.concat([p.subarray(0, 33), chunk('iCCP', Buffer.from('GEHEIMES Profil\0\0xyz', 'latin1')), p.subarray(33)]);
+  assert.ok(!B.bildPruefen(iccp.toString('base64')).daten.includes(Buffer.from('GEHEIM')));
+  const w = testWebp({ anhang: false });
+  const anim = Buffer.from(w); anim[anim.indexOf(Buffer.from('VP8X')) + 8] |= 0x02;
+  assert.throws(() => B.bildPruefen(anim.toString('base64')), /Animierte WebP/);
+  const mitAnmf = Buffer.concat([w, riffChunk('ANMF', Buffer.alloc(16))]); mitAnmf.writeUInt32LE(mitAnmf.length - 8, 4);
+  assert.throws(() => B.bildPruefen(mitAnmf.toString('base64')), /Animierte WebP/);
+  const mitIcc = Buffer.concat([w, riffChunk('ICCP', Buffer.from('GEHEIM-ICC'))]); mitIcc.writeUInt32LE(mitIcc.length - 8, 4);
+  assert.ok(!B.bildPruefen(mitIcc.toString('base64')).daten.includes(Buffer.from('GEHEIM')));
+  assert.equal(B.sichererName('a‮gpj.exe', 'image/jpeg'), 'agpj.exe');
+  assert.equal(B.sichererName('foto​\u0007.jpg', 'image/jpeg'), 'foto.jpg');
+});

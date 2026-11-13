@@ -215,12 +215,10 @@ function pruefeUpdate(db, body, kontext) {
   }
   if (body.geraete !== undefined) {
     v.liste(body.geraete, 'geraete', { max: 100 });
-    const gesehen = new Set();
+    const gesehen = new Map();
     u.geraete = body.geraete.map((g, i) => {
       v.objekt(g, `geraete[${i}]`);
       const geraetId = v.id(g.geraetId, `geraete[${i}].geraetId`);
-      if (gesehen.has(geraetId)) throw ungueltig(`geraete[${i}]: Gerät ist doppelt eingetragen.`);
-      gesehen.add(geraetId);
       if (!db.eins('SELECT id FROM geraet WHERE id = ?', geraetId)) throw ungueltig(`geraete[${i}]: Gerät nicht gefunden.`);
       let anlageId = null;
       if (g.anlageId !== undefined && g.anlageId !== null) {
@@ -229,6 +227,12 @@ function pruefeUpdate(db, body, kontext) {
         if (!a || a.geraet_id !== geraetId) throw ungueltig(`geraete[${i}]: Die Anlage gehört nicht zu diesem Gerät.`);
         if (a.ausgeschieden) throw ungueltig(`geraete[${i}]: ${a.bezeichnung} ist ausgeschieden.`);
       }
+      // F-11: dasselbe Gerät mehrfach nur mit verschiedenen, gewählten Anlagen (z. B. zwei Radlader)
+      if (gesehen.has(geraetId) && (!anlageId || gesehen.get(geraetId).has(null) || gesehen.get(geraetId).has(anlageId))) {
+        throw ungueltig(`geraete[${i}]: Gerät ist doppelt eingetragen (mehrfach nur mit verschiedenen Anlagen).`);
+      }
+      if (!gesehen.has(geraetId)) gesehen.set(geraetId, new Set());
+      gesehen.get(geraetId).add(anlageId);
       return { geraetId, anlageId, stunden: v.zahl(g.stunden, `geraete[${i}].stunden`, { min: 0, max: 24 }) };
     }).filter((g) => g.stunden > 0);
   }

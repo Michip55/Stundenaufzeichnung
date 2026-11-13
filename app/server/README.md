@@ -30,6 +30,10 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 
 **Notfall – alle Verwaltungs-Konten gesperrt:** lokal am Server `node server/entsperren.js <Personalnummer>` (wird protokolliert). Kontosperren laufen außerdem von selbst ab (24 h, dann 48 h, dann 7 Tage).
 
+### Sicherung
+
+Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mit `sqlite3 … ".backup"` im laufenden Betrieb) **und der Fotoordner** der Schadensmeldungen (`BAUTAG_UPLOADS`, Standard: Ordner `uploads` neben der Datenbank). Beide gehören zusammen – Fotos ohne Datenbank sind nicht zuordenbar, die Datenbank ohne Fotos zeigt fehlende Bilder.
+
 ## Umgebungsvariablen
 
 | Variable | Standard | Bedeutung |
@@ -43,7 +47,7 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 | `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier – Konzept-Vorschlag für das Polier-Tablet: `10` |
 | `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
 | `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
-| `BAUTAG_UPLOADS` | `app/data/uploads` | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
+| `BAUTAG_UPLOADS` | `uploads` neben der Datenbank | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
 | `NODE_ENV` | – | ohne Sonderbedeutung |
 
 ## Aufbau

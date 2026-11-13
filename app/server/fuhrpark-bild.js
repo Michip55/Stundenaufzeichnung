@@ -11,6 +11,7 @@ const zlib = require('node:zlib');
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_FOTOS = 5;
+const MAX_KANTE = 12000; // F-07: größte Kantenlänge in Pixeln
 const ENDUNG = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 class BildFehler extends Error {}
@@ -25,10 +26,14 @@ function erkenne(buf) {
 
 /* ---------- JPEG ---------- */
 const SOF = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+const SOF_ARITH = new Set([0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+/** F-07: nur diese Segmente bleiben (DHT, DAC, DQT, DNL, DRI, SOS, SOFn); APP0 nur als JFIF */
+const JPEG_BEHALTEN = new Set([0xc4, 0xcc, 0xdb, 0xdc, 0xdd, 0xda, ...SOF]);
+const pruefeKante = (w, h, was) => { if (!w || !h) throw fehler(`${was}-Datei hat keine gültige Bildgröße.`); if (w > MAX_KANTE || h > MAX_KANTE) throw fehler(`Foto ist zu groß (höchstens ${MAX_KANTE} Pixel Kantenlänge).`); };
 
 function jpegBereinigen(buf) {
   const out = [Buffer.from([0xff, 0xd8])];
-  let i = 2, sof = false, sos = false, ende = false;
+  let i = 2, sof = false, sos = false, ende = false, dqt = false, dht = false, arith = false, scanDaten = 0;
   while (i < buf.length) {
     if (buf[i] !== 0xff) throw fehler('JPEG-Datei ist beschädigt (Segment erwartet).');
     while (i + 1 < buf.length && buf[i + 1] === 0xff) i++; // Füllbytes
@@ -51,17 +56,19 @@ function jpegBereinigen(buf) {
         j[16] = 0; j[17] = 0;
         out.push(j);
       }
-    } else if ((m >= 0xe1 && m <= 0xef) || m === 0xfe) {
-      // APP1–APP15 (EXIF, XMP, GPS, ICC, Hersteller) und Kommentare verwerfen
-    } else {
+    } else if (JPEG_BEHALTEN.has(m)) {
       if (SOF.has(m)) {
         if (len < 8) throw fehler('JPEG-Datei ist beschädigt (Bildkopf).');
-        const h = buf.readUInt16BE(i + 3), w = buf.readUInt16BE(i + 5);
-        if (!h || !w) throw fehler('JPEG-Datei hat keine gültige Bildgröße.');
+        pruefeKante(buf.readUInt16BE(i + 5), buf.readUInt16BE(i + 3), 'JPEG');
         sof = true;
+        if (SOF_ARITH.has(m)) arith = true;
       }
+      if (m === 0xdb) dqt = true;
+      if (m === 0xc4) dht = true;
+      if (m === 0xda && (!sof || !dqt)) throw fehler('JPEG-Datei ist unvollständig (Bildkopf/Quantisierung fehlt).');
       out.push(seg);
     }
+    // sonst: APP1–APP15 (EXIF, XMP, GPS, ICC, Hersteller), Kommentare und reservierte Segmente verwerfen
     i += len;
     if (m === 0xda) {
       sos = true;
@@ -75,15 +82,17 @@ function jpegBereinigen(buf) {
         }
         i++;
       }
+      scanDaten += i - start;
       out.push(buf.subarray(start, i));
     }
   }
   if (!ende || !sof || !sos) throw fehler('JPEG-Datei ist unvollständig oder kein Bild.');
+  if (!dqt || (!dht && !arith) || !scanDaten) throw fehler('JPEG-Datei ist unvollständig (Tabellen oder Bilddaten fehlen).');
   return Buffer.concat(out); // Daten nach dem Bildende (EOI) entfallen
 }
 
 /* ---------- PNG ---------- */
-const PNG_BEHALTEN = new Set(['IHDR', 'PLTE', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'pHYs', 'IDAT', 'IEND']);
+const PNG_BEHALTEN = new Set(['IHDR', 'PLTE', 'tRNS', 'gAMA', 'cHRM', 'sRGB', 'pHYs', 'IDAT', 'IEND']); // F-07: ohne iCCP (Profilname/Text)
 
 function pngBereinigen(buf) {
   const out = [buf.subarray(0, 8)];
@@ -96,7 +105,7 @@ function pngBereinigen(buf) {
     if (zlib.crc32(daten) !== buf.readUInt32BE(i + 8 + len)) throw fehler('PNG-Datei ist beschädigt (Prüfsumme).');
     if (erster) {
       if (typ !== 'IHDR' || len !== 13) throw fehler('PNG-Datei ist beschädigt (IHDR fehlt).');
-      if (!buf.readUInt32BE(i + 8) || !buf.readUInt32BE(i + 12)) throw fehler('PNG-Datei hat keine gültige Bildgröße.');
+      pruefeKante(buf.readUInt32BE(i + 8), buf.readUInt32BE(i + 12), 'PNG');
       erster = false;
     }
     if (PNG_BEHALTEN.has(typ)) out.push(buf.subarray(i, i + 12 + len));
@@ -110,7 +119,7 @@ function pngBereinigen(buf) {
 }
 
 /* ---------- WebP ---------- */
-const WEBP_BEHALTEN = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH', 'ANIM', 'ANMF', 'ICCP']);
+const WEBP_BEHALTEN = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH']); // F-07: ohne ICCP; Animation wird abgelehnt
 
 function webpBereinigen(buf) {
   const riff = buf.readUInt32LE(4);
@@ -123,11 +132,27 @@ function webpBereinigen(buf) {
     const len = buf.readUInt32LE(i + 4);
     const voll = 8 + len + (len % 2);
     if (i + 8 + len > ende) throw fehler('WebP-Datei ist beschädigt (Chunk).');
+    if (typ === 'ANIM' || typ === 'ANMF') throw fehler('Animierte WebP-Bilder sind nicht erlaubt.');
     if (WEBP_BEHALTEN.has(typ)) {
       let c = Buffer.from(buf.subarray(i, Math.min(i + voll, ende)));
       if (c.length < voll) c = Buffer.concat([c, Buffer.alloc(voll - c.length)]);
-      if (typ === 'VP8X') { if (len < 10) throw fehler('WebP-Datei ist beschädigt (VP8X).'); c[8] &= ~0x0c; } // EXIF-/XMP-Kennzeichen löschen
-      if (typ === 'VP8 ' || typ === 'VP8L' || typ === 'ANMF') bild = true;
+      const d = c.subarray(8);
+      if (typ === 'VP8X') {
+        if (len < 10) throw fehler('WebP-Datei ist beschädigt (VP8X).');
+        if (d[0] & 0x02) throw fehler('Animierte WebP-Bilder sind nicht erlaubt.');
+        c[8] &= ~0x2c; // EXIF-, XMP- und ICC-Kennzeichen löschen
+        pruefeKante(1 + d.readUIntLE(4, 3), 1 + d.readUIntLE(7, 3), 'WebP');
+      }
+      if (typ === 'VP8L') {
+        if (len < 5 || d[0] !== 0x2f) throw fehler('WebP-Datei ist beschädigt (VP8L).');
+        const b = d.readUInt32LE(1);
+        pruefeKante(1 + (b & 0x3fff), 1 + ((b >> 14) & 0x3fff), 'WebP');
+      }
+      if (typ === 'VP8 ') {
+        if (len < 10 || d[3] !== 0x9d || d[4] !== 0x01 || d[5] !== 0x2a) throw fehler('WebP-Datei ist beschädigt (VP8).');
+        pruefeKante(d.readUInt16LE(6) & 0x3fff, d.readUInt16LE(8) & 0x3fff, 'WebP');
+      }
+      if (typ === 'VP8 ' || typ === 'VP8L') bild = true;
       teile.push(c);
     }
     i += voll;
@@ -163,7 +188,8 @@ function bildPruefen(base64) {
 /** Dateiname für die Anzeige (ohne Pfadbestandteile/Steuerzeichen) */
 function sichererName(name, mime) {
   let n = typeof name === 'string' ? name : '';
-  n = n.split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f"<>|:*?]/g, '').replace(/^\.+/, '').trim().slice(0, 120);
+  // F-07: auch Unicode-Steuer- und Formatzeichen (z. B. U+202E Rechts-nach-links) entfernen
+  n = n.split(/[\\/]/).pop().replace(/[\p{Cc}\p{Cf}"<>|:*?]/gu, '').replace(/^\.+/, '').trim().slice(0, 120);
   if (!n) n = `foto.${ENDUNG[mime]}`;
   return n;
 }
@@ -189,4 +215,4 @@ function dateiPfad(dir, datei) {
   return p;
 }
 
-module.exports = { MAX_BYTES, MAX_FOTOS, ENDUNG, BildFehler, erkenne, bildPruefen, jpegBereinigen, pngBereinigen, webpBereinigen, sichererName, speichere, dateiPfad, uploadOrdner };
+module.exports = { MAX_KANTE, MAX_BYTES, MAX_FOTOS, ENDUNG, BildFehler, erkenne, bildPruefen, jpegBereinigen, pngBereinigen, webpBereinigen, sichererName, speichere, dateiPfad, uploadOrdner };

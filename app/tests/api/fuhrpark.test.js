@@ -341,9 +341,13 @@ test('Servicebuch: Bautagesbericht – Zurechnung der Gerätestunden, gesperrte 
     assert.ok(!(await buero.get('/fuhrpark/uebersicht')).daten.nichtZugeordnet.some((x) => x.code === 'graeder'));
     const verlauf = (await buero.get(`/fuhrpark/zaehler/${g1.zaehler[0].id}/verlauf`)).daten;
     assert.ok(verlauf.schaetzung.length >= 2);
+    // F-11: zweite Anlage zum selben Gerät – bisherige Zeilen bleiben fest bei der ersten, Schätzung unverändert
+    const vorher = (await buero.get(`/fuhrpark/anlagen/${g1.id}`)).daten.zaehler[0].aktuell;
     g2 = (await buero.post('/fuhrpark/anlagen', { bezeichnung: 'Gräder Komatsu GD 555', klasse: 'baumaschine', geraetId: geraet('graeder'), zaehler: [{ art: 'bh', startstand: 3000, startdatum: '2026-08-01', ausBericht: true }] })).daten;
-    assert.equal((await buero.get(`/fuhrpark/anlagen/${g1.id}`)).daten.zaehler[0].aktuell, 5000);
-    assert.ok((await buero.get('/fuhrpark/uebersicht')).daten.nichtZugeordnet.some((x) => x.code === 'graeder'));
+    assert.equal((await buero.get(`/fuhrpark/anlagen/${g1.id}`)).daten.zaehler[0].aktuell, vorher);
+    assert.equal(g2.zaehler[0].aktuell, 3000);
+    assert.ok(!(await buero.get('/fuhrpark/uebersicht')).daten.nichtZugeordnet.some((x) => x.code === 'graeder'));
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM bericht_geraet WHERE geraet_id = ? AND anlage_id IS NULL', geraet('graeder')).n, 0);
     const ger = (await pol.get('/geraete')).daten.find((x) => x.code === 'graeder');
     assert.deepEqual(ger.anlagen.map((a) => a.id).sort(), [g1.id, g2.id].sort());
   });

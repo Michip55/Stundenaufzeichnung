@@ -177,10 +177,11 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   box(RX, yr, RECHTS_B, ZEILE, null);
   box(RX, yr, 70, ZEILE, GRAU); t('GERÄTE:', RX + 3, yr + 3, { fett: true, gr: 8.5 });
   yr += ZEILE;
-  const gStd = new Map(bericht.geraete.map((g) => [g.geraetId, g.stunden]));
+  const gStd = new Map();
+  for (const g of bericht.geraete) gStd.set(g.geraetId, (gStd.get(g.geraetId) || 0) + g.stunden); // mehrere Anlagen je Gerät (API.md 11.11)
   const vorlageG = opt.geraete || [];
   const vorlageGIds = new Set(vorlageG.map((g) => g.id));
-  const sonstige = bericht.geraete.filter((g) => !vorlageGIds.has(g.geraetId));
+  const sonstige = [...new Map(bericht.geraete.filter((g) => !vorlageGIds.has(g.geraetId)).map((g) => [g.geraetId, { ...g, stunden: gStd.get(g.geraetId) }])).values()];
   const links = vorlageG.slice(0, 7).map((g) => ({ name: g.name, std: gStd.get(g.id) }));
   if (sonstige.length) sonstige.forEach((g) => links.push({ name: g.name, std: g.stunden }));
   else links.push({ name: '', std: null });

@@ -241,3 +241,54 @@ test('Anlagenstatus: Mangel sofort sperrt, ausgeschieden, fällig/bald/einsatzbe
   assert.equal(F.anlagenStatus(a, [{ status: 'unvollstaendig' }], []).status, 'einsatzbereit');
   assert.equal(F.anlagenStatus({ ...a, gesperrt: 1, sperr_grund: 'Hydraulik' }, [], []).sperrGruende[0].typ, 'manuell');
 });
+
+/* ---------- Prüfbericht 5 (Servicebuch) ---------- */
+
+test('F-02: PKW M1, EZ 05.12.2023, ohne letzte Durchführung – Bezugspunkt fest, nach der Toleranz überfällig und gesperrt', () => {
+  const pos = { regel: regel57aM1, bezugDatum: '2026-11-12' };
+  const am = (h) => F.berechnePosition(pos, { H: h, erstzulassung: '2023-12-05' });
+  assert.equal(am('2026-11-12').status, 'bald');
+  assert.equal(am('2026-11-12').faelligAm, '2026-12-01');
+  assert.equal(am('2026-12-15').status, 'faellig');
+  assert.equal(am('2027-04-30').status, 'faellig');
+  const p = am('2027-05-01');
+  assert.equal(p.status, 'ueberfaellig'); // vorher: „ok, nächster Termin 12/2028“
+  assert.equal(p.faelligAm, '2026-12-01');
+  assert.equal(F.anlagenStatus({ ausgeschieden: null, gesperrt: 0 }, [{ ...p, id: 1, titel: '§57a' }]).status, 'gesperrt');
+});
+
+test('F-02: LKW N3, EZ 10/2021, §57a jährlich ohne erfasste Begutachtung 10/2026 → sofort überfällig', () => {
+  const regel = { folgeMonate: [12], monatsgenau: true, toleranzVorMonate: 3, toleranzNachMonate: 0, sperrtBeiUeberfaellig: true };
+  const p = F.berechnePosition({ regel, bezugDatum: '2026-11-12' }, { H: '2026-11-12', erstzulassung: '2021-10-01' });
+  assert.equal(p.faelligAm, '2026-10-01');
+  assert.equal(p.status, 'ueberfaellig');
+  // ein Jahr später ohne Eintrag: weiterhin derselbe offene Termin
+  assert.equal(F.berechnePosition({ regel, bezugDatum: '2026-11-12' }, { H: '2027-11-12', erstzulassung: '2021-10-01' }).faelligAm, '2026-10-01');
+  // Neufahrzeug: erster Termin, solange kein Fenster offen war
+  assert.equal(F.berechnePosition({ regel, bezugDatum: '2026-11-12' }, { H: '2026-11-12', erstzulassung: '2026-06-01' }).faelligAm, '2027-06-01');
+});
+
+test('F-02: Winterausrüstung ohne letzte Durchführung – am 14.11. fällig, am 16.11. überfällig (nicht „ok, 31.10.2027“)', () => {
+  const pos = { regel: { jaehrlichAm: '10-31', vorlaufTage: 30 }, bezugDatum: '2026-11-12' };
+  assert.equal(F.berechnePosition(pos, { H: '2026-11-14' }).status, 'faellig');
+  const p = F.berechnePosition(pos, { H: '2026-11-16' });
+  assert.equal(p.status, 'ueberfaellig');
+  assert.equal(p.faelligAm, '2026-10-31');
+  // vor dem Vorlauf angelegt (August) → Termin dieses Jahres
+  assert.equal(F.berechnePosition({ ...pos, bezugDatum: '2026-08-01' }, { H: '2026-08-01' }).faelligAm, '2025-10-31');
+  assert.equal(F.berechnePosition({ ...pos, bezugDatum: '2026-10-05' }, { H: '2026-10-05' }).faelligAm, '2026-10-31');
+});
+
+test('F-15: einmaligAm ist nur erledigt, wenn nach Anlage der Frist durchgeführt', () => {
+  const regel = { einmaligAm: '2028-06-30' };
+  assert.notEqual(F.berechnePosition({ regel, letzteDatum: '2020-01-01', bezugDatum: '2026-11-01' }, { H }).status, 'erledigt');
+  assert.equal(F.berechnePosition({ regel, letzteDatum: '2026-11-10', bezugDatum: '2026-11-01' }, { H }).status, 'erledigt');
+});
+
+test('F-10: „gesperrt seit“ nach Wiener Datum', () => {
+  const a = F.anlagenStatus({ ausgeschieden: null, gesperrt: 1, sperr_grund: 'x', gesperrt_seit: '2026-11-12T23:01:00.000Z' }, [],
+    [{ typ: 'mangel', text: 'y', dringlichkeit: 'sofort', gemeldet: '2026-11-12T23:30:00.000Z' }, { typ: 'schaden', id: 7, text: 'GEHEIME Ursache', dringlichkeit: 'sofort', gemeldet: '2026-11-12T22:59:00.000Z' }]);
+  assert.deepEqual(a.sperrGruende.map((g) => g.seit), ['2026-11-13', '2026-11-13', '2026-11-12']);
+  // F-13: Ursache eines Schadens erscheint nicht im Sperrgrund
+  assert.equal(a.sperrGruende[2].text, 'Schaden gemeldet – nicht einsatzfähig');
+});

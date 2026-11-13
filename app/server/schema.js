@@ -662,6 +662,30 @@ CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
 INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT 'buero', 'fuhrpark', 1 WHERE EXISTS (SELECT 1 FROM rolle_recht);
 INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT 'gf', 'fuhrpark', 1 WHERE EXISTS (SELECT 1 FROM rolle_recht);
 `
+  },
+  {
+    version: 10,
+    name: 'Prüfbericht 5 Servicebuch: fester Bezugspunkt je Planposition (F-02), mehrere Anlagen je Gerät im Bericht (F-11)',
+    sql: `
+ALTER TABLE planposition ADD COLUMN bezug_datum TEXT;
+-- Bestand: EZ-basierte Regeln (folgeMonate) ab Erstzulassung, sonst ab Anlage der Anlage
+UPDATE planposition SET bezug_datum = (SELECT a.erstzulassung FROM anlage a WHERE a.id = planposition.anlage_id)
+  WHERE regel LIKE '%"folgeMonate"%';
+UPDATE planposition SET bezug_datum = (SELECT substr(a.erstellt, 1, 10) FROM anlage a WHERE a.id = planposition.anlage_id)
+  WHERE bezug_datum IS NULL;
+
+ALTER TABLE bericht_geraet RENAME TO bericht_geraet_alt;
+CREATE TABLE bericht_geraet (
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  geraet_id INTEGER NOT NULL REFERENCES geraet(id),
+  stunden REAL NOT NULL,
+  anlage_id INTEGER REFERENCES anlage(id)
+);
+INSERT INTO bericht_geraet (bericht_id, geraet_id, stunden, anlage_id) SELECT bericht_id, geraet_id, stunden, anlage_id FROM bericht_geraet_alt;
+DROP TABLE bericht_geraet_alt;
+CREATE UNIQUE INDEX bericht_geraet_eindeutig ON bericht_geraet(bericht_id, geraet_id, IFNULL(anlage_id, 0));
+CREATE INDEX bericht_geraet_geraet ON bericht_geraet(geraet_id);
+`
   }
 ];
 

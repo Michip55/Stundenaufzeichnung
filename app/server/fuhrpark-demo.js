@@ -161,8 +161,8 @@ function seedFuhrpark(db, jetzt) {
     const regel = JSON.parse(vo.regel);
     if (regel.datumAus) { delete regel.datumAus; regel.einmaligAm = plusMonate(H, 5); }
     const lzJ = lzt ? JSON.stringify(lzt) : null;
-    pos[`${nr}:${schl}`] = db.lauf(`INSERT INTO planposition (anlage_id, vorlage_id, titel, art, regel, letzte_datum, letzte_zaehler, start_datum, start_zaehler, aktiv)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`, ids[nr], vo.id, vo.titel, vo.art, JSON.stringify(regel), letzte, lzJ, letzte, lzJ).id;
+    pos[`${nr}:${schl}`] = db.lauf(`INSERT INTO planposition (anlage_id, vorlage_id, titel, art, regel, letzte_datum, letzte_zaehler, start_datum, start_zaehler, aktiv, bezug_datum)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`, ids[nr], vo.id, vo.titel, vo.art, JSON.stringify(regel), letzte, lzJ, letzte, lzJ, plusTage(H, -120)).id;
   }
 
   // Servicebuch-Einträge: je Anlage 1–4 der letzten 18 Monate (Altbestand ohne Zählerstand-Zeilen, Werte aus den Papieren)

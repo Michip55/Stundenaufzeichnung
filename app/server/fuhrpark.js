@@ -4,7 +4,7 @@
  * Fälligkeit je Planposition („was zuerst eintritt“) und Anlagenstatus.
  * Vertrag: SERVICEBUCH_ENTWURF.md Abschnitte 4 und 5, API.md 11.2. Alle Daten 'YYYY-MM-DD' (Europe/Vienna).
  */
-const { plusTage, tageZwischen, deDatum } = require('./datum');
+const { plusTage, tageZwischen, deDatum, wienDatum } = require('./datum');
 
 const KLASSEN = ['pkw', 'bus', 'lkw', 'anhaenger', 'baumaschine', 'walze', 'brecher', 'kleingeraet', 'sonstiges'];
 const ZAEHLER_ARTEN = ['km', 'bh', 'brecher', 'kran', 'hub'];
@@ -173,7 +173,8 @@ function datumsStatus(H, faelligAm, spaetestens, vorlauf) {
 /**
  * A) Datumskriterium (5.2 A).
  * @param {object} regel
- * @param {{H, letzteDatum?, erstzulassung?, basisErsatz?}} k  basisErsatz = Zähler-Startdatum bzw. Anlagedatum
+ * @param {{H, letzteDatum?, erstzulassung?, basisErsatz?, bezugDatum?}} k  basisErsatz = Zähler-Startdatum bzw. Anlagedatum;
+ *   bezugDatum = fester Bezugspunkt der Position ohne letzte Durchführung (Anlage der Position, F-02) – fehlt er: H
  */
 function datumsKriterium(regel, k) {
   const H = k.H;
@@ -186,12 +187,25 @@ function datumsKriterium(regel, k) {
     if (!k.erstzulassung) return { ...o, status: 'unvollstaendig', hinweis: 'Erstzulassung fehlt – Termin nicht berechenbar.' };
     const f = regel.folgeMonate;
     const vor = regel.toleranzVorMonate ?? 0, nach = regel.toleranzNachMonate ?? 0;
-    const EZ = monat(k.erstzulassung), L = letzte ? monat(letzte) : null, mH = monat(H);
+    const EZ = monat(k.erstzulassung), L = letzte ? monat(letzte) : null, B = monat(k.bezugDatum || H);
     let S = EZ, fk = f[0];
-    for (let i = 0; i < 600; i++) {
-      fk = f[Math.min(i, f.length - 1)];
-      S = monatPlus(S, fk);
-      if (L ? monatPlus(S, -vor) > L : monatPlus(S, nach) >= mH) break;
+    if (L) {
+      for (let i = 0; i < 600; i++) {
+        fk = f[Math.min(i, f.length - 1)];
+        S = monatPlus(S, fk);
+        if (monatPlus(S, -vor) > L) break;
+      }
+    } else {
+      // F-02: ohne erfasste Durchführung gilt der jüngste Termin, dessen Fenster zum Bezugspunkt schon offen war
+      // (sonst der erste Termin) – fest, wandert nicht mit „heute“ mit.
+      let x = EZ, kand = null, kandF = f[0];
+      for (let i = 0; i < 600; i++) {
+        const fi = f[Math.min(i, f.length - 1)];
+        x = monatPlus(x, fi);
+        if (monatPlus(x, -vor) > B) { if (!kand) { kand = x; kandF = fi; } break; }
+        kand = x; kandF = fi;
+      }
+      S = kand; fk = kandF;
     }
     const faelligAm = ersterTag(S);
     const spaetestens = letzterTag(monatPlus(S, nach));
@@ -222,12 +236,15 @@ function datumsKriterium(regel, k) {
     const vorlauf = Math.min(vorlaufTage, Math.floor(365 / 3));
     const [mm, dd] = regel.jaehrlichAm.split('-').map(Number);
     const amJahr = (y) => `${y}-${p2(mm)}-${p2(Math.min(dd, letzterTagImMonat(y, mm)))}`;
-    let y = Number((letzte || plusTage(H, -tolNachTage)).slice(0, 4)) - 1;
-    let D = amJahr(y);
-    for (let i = 0; i < 200; i++) {
-      D = amJahr(y);
-      if (letzte ? plusTage(D, -vorlauf) > letzte : D >= plusTage(H, -tolNachTage)) break;
-      y++;
+    let D;
+    if (letzte) {
+      let y = Number(letzte.slice(0, 4)) - 1;
+      for (let i = 0; i < 200; i++) { D = amJahr(y); if (plusTage(D, -vorlauf) > letzte) break; y++; }
+    } else {
+      // F-02: jüngster Stichtag, dessen Vorlauf zum Bezugspunkt schon begonnen hatte (fest)
+      const B = k.bezugDatum || H;
+      let y = Number(B.slice(0, 4)) + 1;
+      for (let i = 0; i < 200; i++) { D = amJahr(y); if (plusTage(D, -vorlauf) <= B) break; y--; }
     }
     const spaetestens = plusTage(D, tolNachTage);
     return { ...o, faelligAm: D, spaetestens, vorlaufTage: vorlauf, zyklus: D, status: datumsStatus(H, D, spaetestens, vorlauf) };
@@ -236,7 +253,8 @@ function datumsKriterium(regel, k) {
   if (regel.einmaligAm) {
     const faelligAm = regel.einmaligAm;
     const spaetestens = plusTage(faelligAm, tolNachTage);
-    if (letzte) return { ...o, faelligAm, spaetestens, vorlaufTage, zyklus: faelligAm, status: 'erledigt' };
+    // erledigt, wenn nach Anlage der Frist durchgeführt (F-15)
+    if (letzte && (!k.bezugDatum || letzte >= k.bezugDatum)) return { ...o, faelligAm, spaetestens, vorlaufTage, zyklus: faelligAm, status: 'erledigt' };
     return { ...o, faelligAm, spaetestens, vorlaufTage, zyklus: faelligAm, status: datumsStatus(H, faelligAm, spaetestens, vorlaufTage) };
   }
   return null;
@@ -298,7 +316,7 @@ function berechnePosition(pos, ctx) {
   const regel = pos.regel || {};
   const H = ctx.H;
   const kriterien = [];
-  const d = datumsKriterium(regel, { H, letzteDatum: pos.letzteDatum, erstzulassung: ctx.erstzulassung, basisErsatz: ctx.basisErsatz });
+  const d = datumsKriterium(regel, { H, letzteDatum: pos.letzteDatum, erstzulassung: ctx.erstzulassung, basisErsatz: ctx.basisErsatz, bezugDatum: pos.bezugDatum });
   if (d) kriterien.push(d);
   const vorlaufTage = regel.vorlaufTage ?? STANDARD.vorlaufTage;
   const zk = [];
@@ -345,9 +363,10 @@ function berechnePosition(pos, ctx) {
 function anlagenStatus(anlage, positionen, sperrMaengel = []) {
   if (anlage.ausgeschieden) return { status: 'ausgeschieden', ampel: 'grau', gesperrt: false, sperrGruende: [] };
   const gruende = [];
-  if (anlage.gesperrt) gruende.push({ typ: anlage.sperr_typ || 'manuell', text: anlage.sperr_grund || 'Gesperrt', seit: anlage.gesperrt_seit ? anlage.gesperrt_seit.slice(0, 10) : undefined });
+  if (anlage.gesperrt) gruende.push({ typ: anlage.sperr_typ || 'manuell', text: anlage.sperr_grund || 'Gesperrt', seit: anlage.gesperrt_seit ? wienDatum(anlage.gesperrt_seit) : undefined });
   for (const m of sperrMaengel) {
-    gruende.push({ typ: m.typ === 'schaden' ? 'schaden' : 'mangel', text: m.text, seit: m.gemeldet ? m.gemeldet.slice(0, 10) : undefined, ...(m.id ? { [m.typ === 'schaden' ? 'schadenId' : 'mangelId']: m.id } : {}) });
+    // F-13: Ursache eines Schadens nur im Sichtbereich (Schadensdetail) – im Sperrgrund ein neutraler Text
+    gruende.push({ typ: m.typ === 'schaden' ? 'schaden' : 'mangel', text: m.typ === 'schaden' ? 'Schaden gemeldet – nicht einsatzfähig' : m.text, seit: m.gemeldet ? wienDatum(m.gemeldet) : undefined, ...(m.id ? { [m.typ === 'schaden' ? 'schadenId' : 'mangelId']: m.id } : {}) });
   }
   for (const p of positionen) {
     if (p.sperrt && p.status === 'ueberfaellig') gruende.push({ typ: 'frist', text: `${p.titel} überfällig`, seit: p.spaetestens ? plusTage(p.spaetestens, 1) : undefined, planpositionId: p.id });

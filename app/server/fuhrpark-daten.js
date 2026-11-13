@@ -105,7 +105,7 @@ function berechneAnlage(A, H, baustellen) {
   for (const P of A.positionen) {
     P.regel = parseJson(P.row.regel, {});
     P.letzteZaehler = parseJson(P.row.letzte_zaehler, null);
-    P.calc = F.berechnePosition({ regel: P.regel, letzteDatum: P.row.letzte_datum, letzteZaehler: P.letzteZaehler }, ctx);
+    P.calc = F.berechnePosition({ regel: P.regel, letzteDatum: P.row.letzte_datum, letzteZaehler: P.letzteZaehler, bezugDatum: P.row.bezug_datum }, ctx);
   }
   const aktivePos = A.positionen.filter((p) => p.row.aktiv);
   const sperr = A.maengel.filter((m) => m.dringlichkeit === 'sofort');
@@ -244,7 +244,7 @@ function schadenSichtbar(db, ctx, m, cache = {}) {
   if (!['polier', 'bauleiter'].includes(rolle)) return false;
   const bsMap = cache.bs || (cache.bs = new Map(db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').map((b) => [b.id, b])));
   if (m.baustelle_id && baustelleImBereich(ctx.benutzer, bsMap.get(m.baustelle_id))) return true;
-  if (rolle === 'polier') {
+  { // Polier: Personen seiner Partie; Bauleiter: Personen mit Stamm-Baustelle auf seinen Baustellen (F-12)
     const melder = cache.melder || (cache.melder = new Map(db.alle('SELECT id, baustelle_id FROM benutzer').map((b) => [b.id, b.baustelle_id])));
     const stamm = melder.get(m.gemeldet_von);
     if (stamm && baustelleImBereich(ctx.benutzer, bsMap.get(stamm))) return true;

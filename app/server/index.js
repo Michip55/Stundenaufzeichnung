@@ -52,7 +52,7 @@ function createApp(opt = {}) {
   // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
   bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
   bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS
-    || (db.pfad === ':memory:' ? path.join(require('node:os').tmpdir(), `bautag-uploads-${process.pid}-${require('node:crypto').randomBytes(6).toString('hex')}`) : path.join(__dirname, '..', 'data', 'uploads'));
+    || (db.pfad === ':memory:' ? path.join(require('node:os').tmpdir(), `bautag-uploads-${process.pid}-${require('node:crypto').randomBytes(6).toString('hex')}`) : path.join(path.dirname(path.resolve(db.pfad)), 'uploads')); // F-14: neben der Datenbank
   // Servicebuch-Prüflauf: beim Start und stündlich (SERVICEBUCH_ENTWURF.md 6)
   const { pruefeFuhrparkSicher } = require('./fuhrpark-erinnerung');
   pruefeFuhrparkSicher(bt);

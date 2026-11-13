@@ -6,7 +6,7 @@
  */
 const fs = require('node:fs');
 const v = require('../validierung');
-const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
+const { ApiFehler, ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
 const { wienDatum, plusTage, tageZwischen, deDatum } = require('../datum');
 const { parseJson } = require('../daten');
 const F = require('../fuhrpark');
@@ -18,6 +18,7 @@ const X = require('../fuhrpark-export');
 const { brauche } = require('./hilfe');
 
 const EIGENTUM = ['eigen', 'leasing', 'miete'];
+const MAX_SCHAEDEN_TAG = 30; // F-14: Schadensmeldungen je Melder in 24 Stunden
 const EINTRAG_ARTEN = ['service', 'reparatur', 'pruefung', 'reifen', 'sonstiges'];
 const PRUEF = ['ohne_maengel', 'leichte_maengel', 'schwere_maengel'];
 const DRING = ['hinweis', 'bald', 'sofort'];
@@ -176,6 +177,19 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (nr && db.eins('SELECT id FROM anlage WHERE nummer = ? AND id IS NOT ?', nr, id)) throw konflikt(`Anlagennummer ${nr} ist bereits vergeben.`);
   }
 
+  /**
+   * F-11: Kommt eine zweite aktive Anlage zum selben Gerät dazu, werden die bisher automatisch zugerechneten
+   * Berichtszeilen der ersten Anlage fest zugeschrieben – die Schätzung der ersten ändert sich nicht rückwirkend.
+   */
+  function zuordnungFesthalten(req, geraetId, neueAnlageId) {
+    if (!geraetId) return 0;
+    const andere = db.alle('SELECT id, bezeichnung FROM anlage WHERE geraet_id = ? AND ausgeschieden IS NULL AND id IS NOT ?', geraetId, neueAnlageId);
+    if (andere.length !== 1) return 0;
+    const n = db.lauf('UPDATE bericht_geraet SET anlage_id = ? WHERE geraet_id = ? AND anlage_id IS NULL', andere[0].id, geraetId).changes;
+    if (n) protokoll(req, 'fuhrpark_anlage', `anlage:${andere[0].id}`, `${n} Berichtszeile(n) des Geräts fest ${andere[0].bezeichnung} zugeschrieben (zweite Anlage zum selben Gerät)`);
+    return n;
+  }
+
   function zaehlerAnlegen(anlageId, z, i, H, benutzerId) {
     v.objekt(z, `zaehler[${i}]`);
     const art = v.auswahl(z.art, `zaehler[${i}].art`, F.ZAEHLER_ARTEN);
@@ -239,8 +253,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (letzteDatum && letzteDatum > H) throw ungueltig('letzteDatum darf nicht in der Zukunft liegen.');
     const lz = pruefeLetzteZaehler(p.letzteZaehler);
     const lzJ = lz ? JSON.stringify(lz) : null;
-    return db.lauf(`INSERT INTO planposition (anlage_id, vorlage_id, titel, art, regel, letzte_datum, letzte_zaehler, start_datum, start_zaehler, aktiv)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`, anlage.id, vorlageId, titel, art, JSON.stringify(regel), letzteDatum, lzJ, letzteDatum, lzJ).id;
+    return db.lauf(`INSERT INTO planposition (anlage_id, vorlage_id, titel, art, regel, letzte_datum, letzte_zaehler, start_datum, start_zaehler, aktiv, bezug_datum)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`, anlage.id, vorlageId, titel, art, JSON.stringify(regel), letzteDatum, lzJ, letzteDatum, lzJ, H).id;
   }
 
   function vorlagenVorschlag(anlage) {
@@ -261,6 +275,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     const vorlagen = body.vorlagen === undefined ? null : v.liste(body.vorlagen, 'vorlagen', { max: 30 });
     const id = db.transaktion(() => {
       if (set.standort_baustelle_id !== undefined || set.standort_text !== undefined) set.standort_datum = H;
+      zuordnungFesthalten(req, set.geraet_id, null);
       const k = Object.keys(set);
       const aid = db.lauf(`INSERT INTO anlage (${k.join(', ')}, erstellt) VALUES (${k.map(() => '?').join(', ')}, ?)`, ...k.map((x) => set[x]), zeit()).id;
       zaehler.forEach((z, i) => zaehlerAnlegen(aid, z, i, H, req.ctx.benutzer.id));
@@ -297,6 +312,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (!A.row.ausgeschieden || reaktiv) pruefeEindeutig(set, A.row.id, A.row);
     if (set.standort_baustelle_id !== undefined || set.standort_text !== undefined) set.standort_datum = heute();
     db.transaktion(() => {
+      const geraetNeu = set.geraet_id !== undefined ? set.geraet_id : A.row.geraet_id;
+      if ((set.geraet_id !== undefined && set.geraet_id !== A.row.geraet_id) || reaktiv) zuordnungFesthalten(req, geraetNeu, A.row.id);
       const k = Object.keys(set);
       db.lauf(`UPDATE anlage SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...k.map((x) => set[x]), A.row.id);
       // Leasing-/Mietende mitführen
@@ -604,7 +621,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       for (const P of A.positionen.filter((p) => p.row.vorlage_id === quelleId && p.row.aktiv)) {
         let regel;
         try { regel = regelAusVorlage(vo, A.row, {}, P.regel); } catch (e) { fehler.push({ anlageId: A.row.id, planpositionId: P.row.id, fehler: e.message }); continue; }
-        const neu = F.berechnePosition({ regel, letzteDatum: P.row.letzte_datum, letzteZaehler: P.letzteZaehler }, D.kontextFuer(A, S.H));
+        const neu = F.berechnePosition({ regel, letzteDatum: P.row.letzte_datum, letzteZaehler: P.letzteZaehler, bezugDatum: P.row.bezug_datum }, D.kontextFuer(A, S.H));
         geaendert.push({
           anlageId: A.row.id, anlage: { bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen }, planpositionId: P.row.id, titel: P.row.titel,
           alt: { status: P.calc.status, naechstesDatum: P.calc.naechstesDatum, regel: P.regel }, neu: { status: neu.status, naechstesDatum: neu.naechstesDatum, regel }, _regel: regel
@@ -733,9 +750,10 @@ module.exports = function fuhrparkRouten(api, bt) {
   function positionNeuBerechnen(pid) {
     const e = db.eins(`SELECT e.* FROM eintrag_planposition ep JOIN servicebuch_eintrag e ON e.id = ep.eintrag_id
       WHERE ep.planposition_id = ? AND e.storniert IS NULL ORDER BY e.datum DESC, e.id DESC LIMIT 1`, pid);
-    if (e) {
+    const pos = db.eins('SELECT start_datum, start_zaehler FROM planposition WHERE id = ?', pid);
+    // F-03: es zählt nur die jüngste Durchführung – ein neuerer Startwert (Papiere/händisch) geht einem älteren Eintrag vor
+    if (e && !(pos.start_datum && pos.start_datum > e.datum)) {
       // Altbestand ohne Zählerstand-Zeilen (Werte aus den Papieren): Startwert desselben Tages ergänzt die Werte
-      const pos = db.eins('SELECT start_datum, start_zaehler FROM planposition WHERE id = ?', pid);
       const lz = pos.start_datum === e.datum ? { ...parseJson(pos.start_zaehler, {}) } : {};
       for (const s of db.alle('SELECT s.wert, z.art FROM zaehlerstand s JOIN zaehler z ON z.id = s.zaehler_id WHERE s.eintrag_id = ?', e.id)) lz[s.art] = s.wert;
       db.lauf('UPDATE planposition SET letzte_datum = ?, letzte_zaehler = ?, letzte_eintrag_id = ?, version = version + 1 WHERE id = ?', e.datum, Object.keys(lz).length ? JSON.stringify(lz) : null, e.id, pid);
@@ -801,9 +819,15 @@ module.exports = function fuhrparkRouten(api, bt) {
     for (const mid of mids) {
       const m = db.eins('SELECT * FROM mangel WHERE id = ?', mid);
       if (!m || m.anlage_id !== A.row.id) throw ungueltig(`Mangel/Schaden ${mid} gehört nicht zu dieser Anlage.`);
+      if (!['offen', 'in_arbeit'].includes(m.status)) throw ungueltig(`Mangel/Schaden ${mid} ist nicht offen (F-08: nur offene Meldungen können behoben werden).`);
+    }
+    // F-09: eine Prüfung mit schweren Mängeln erledigt keine Frist
+    if (pruefErgebnis === 'schwere_maengel' && erledigt.size) {
+      erledigt.clear();
     }
     const z0 = zeit();
     const warnungen = staende.filter((s) => s.p.warnung).map((s) => `${F.ZAEHLER_STAND_NAME[s.z.row.art]}: ${s.p.warnung}`);
+    if (pruefErgebnis === 'schwere_maengel' && pids.length) warnungen.push('Planpositionen nicht als erledigt markiert: Prüfung mit schweren Mängeln gilt nicht als bestanden.');
     const id = db.transaktion(() => {
       const eid = db.lauf(`INSERT INTO servicebuch_eintrag (anlage_id, art, datum, werkstatt, titel, arbeiten, teile, arbeitsstunden_intern, kosten, rechnung_nr, pruef_ergebnis, pruefer, erfasst, erfasst_von)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, A.row.id, art, datum, f.werkstatt, f.titel, f.arbeiten, f.teile, f.arbeitsstunden_intern, kosten ?? null, f.rechnung_nr, pruefErgebnis, f.pruefer, z0, req.ctx.benutzer.id).id;
@@ -817,7 +841,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       }
       for (const P of erledigt.values()) {
         db.lauf('INSERT OR IGNORE INTO eintrag_planposition (eintrag_id, planposition_id) VALUES (?, ?)', eid, P.row.id);
-        db.lauf('UPDATE planposition SET letzte_datum = ?, letzte_zaehler = ?, letzte_eintrag_id = ?, version = version + 1 WHERE id = ?', datum, Object.keys(werte).length ? JSON.stringify(werte) : null, eid, P.row.id);
+        positionNeuBerechnen(P.row.id); // F-03: rückdatierter Eintrag setzt eine jüngere Durchführung nicht zurück
       }
       for (const mid of mids) db.lauf("UPDATE mangel SET status = 'behoben', eintrag_id = ?, bearbeitet = ?, bearbeitet_von = ?, version = version + 1 WHERE id = ?", eid, z0, req.ctx.benutzer.id, mid);
       if (pruefErgebnis === 'schwere_maengel') {
@@ -873,7 +897,9 @@ module.exports = function fuhrparkRouten(api, bt) {
     const z0 = zeit();
     db.transaktion(() => {
       db.lauf('UPDATE servicebuch_eintrag SET storniert = ?, storno_grund = ?, storno_von = ?, version = version + 1 WHERE id = ?', z0, g, req.ctx.benutzer.id, e.id);
-      db.lauf("UPDATE zaehlerstand SET status = 'ungueltig', grund = ? WHERE eintrag_id = ?", `Eintrag storniert: ${g}`, e.id);
+      // F-04: nur Stände, die der Eintrag selbst angelegt hat, werden ungültig; übernommene nur gelöst
+      db.lauf("UPDATE zaehlerstand SET status = 'ungueltig', grund = ? WHERE eintrag_id = ? AND quelle = 'eintrag'", `Eintrag storniert: ${g}`, e.id);
+      db.lauf("UPDATE zaehlerstand SET eintrag_id = NULL WHERE eintrag_id = ? AND quelle <> 'eintrag'", e.id);
       for (const p of db.alle('SELECT planposition_id FROM eintrag_planposition WHERE eintrag_id = ?', e.id)) positionNeuBerechnen(p.planposition_id);
       db.lauf("UPDATE mangel SET status = 'offen', eintrag_id = NULL, version = version + 1 WHERE eintrag_id = ? AND status = 'behoben'", e.id);
       protokoll(req, 'fuhrpark_eintrag', `eintrag:${e.id}`, `Servicebuch-Eintrag ${e.titel} (${deDatum(e.datum)}) storniert: ${g}`, null, { storniert: true });
@@ -897,11 +923,12 @@ module.exports = function fuhrparkRouten(api, bt) {
     res.json(db.alle(`SELECT * FROM mangel WHERE ${w.join(' AND ')} ORDER BY gemeldet DESC, id DESC LIMIT 500`, ...p).map((m) => D.mangelJson(m, S)));
   });
 
-  function meldeMangel(A, m, { titel, text, z0 }) {
-    const gesperrt = m.dringlichkeit === 'sofort';
+  function meldeMangel(A, m, { titel, text, textStandort, z0 }) {
+    // F-01: fremdes/unbekanntes Gerät (keine Anlage) sperrt nichts – nur benachrichtigen
+    const gesperrt = Boolean(A) && m.dringlichkeit === 'sofort';
     if (gesperrt) {
       const A2 = stand().anlagen.get(A.row.id);
-      E.meldeSperre(db, A2, { titel, text, zeit: z0, schluessel: `fp:mangel:${m.id}`, buero: m.typ === 'schaden' });
+      E.meldeSperre(db, A2, { titel, text, textStandort, zeit: z0, schluessel: `fp:mangel:${m.id}`, buero: m.typ === 'schaden' });
     } else {
       const empf = new Set([...E.fuhrparkBenutzer(db), ...(m.typ === 'schaden' ? E.buroGf(db) : [])]);
       for (const uid of empf) E.melde(db, { benutzerId: uid, titel, text, zeit: z0, anlageId: A ? A.row.id : null, schluessel: `fp:mangel:${m.id}` });
@@ -964,7 +991,15 @@ module.exports = function fuhrparkRouten(api, bt) {
     return m;
   }
 
-  function fotoHinzufuegen(req, m, f, i) {
+  /** F-14: geschriebene Fotodateien löschen, wenn die Transaktion scheitert */
+  function mitDateiAufraeumen(geschrieben, fn) {
+    try { return fn(); } catch (e) {
+      for (const d of geschrieben) { try { fs.unlinkSync(B.dateiPfad(bt.uploads, d)); } catch (_) { /* schon weg */ } }
+      throw e;
+    }
+  }
+
+  function fotoHinzufuegen(req, m, f, i, geschrieben = []) {
     v.objekt(f, `fotos[${i}]`);
     let bild;
     try { bild = B.bildPruefen(f.bildBase64); } catch (e) { if (e instanceof B.BildFehler) throw ungueltig(i === null ? e.message : `Foto ${i + 1}: ${e.message}`); throw e; }
@@ -972,6 +1007,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (vorhanden) return { foto: vorhanden, neu: false };
     if (db.eins('SELECT COUNT(*) AS n FROM schaden_foto WHERE mangel_id = ?', m.id).n >= B.MAX_FOTOS) throw ungueltig(`Höchstens ${B.MAX_FOTOS} Fotos je Schadensmeldung.`);
     const datei = B.speichere(bt.uploads, bild.mime, bild.daten);
+    geschrieben.push(datei);
     try {
       const id = db.lauf('INSERT INTO schaden_foto (mangel_id, datei, mime, groesse, sha256, dateiname, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         m.id, datei, bild.mime, bild.daten.length, bild.sha256, B.sichererName(f.dateiname, bild.mime), zeit(), req.ctx.benutzer.id).id;
@@ -1027,29 +1063,38 @@ module.exports = function fuhrparkRouten(api, bt) {
       if (typeof body.zeitpunkt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(body.zeitpunkt) || Number.isNaN(Date.parse(body.zeitpunkt))) {
         throw ungueltig('zeitpunkt muss ein ISO-Zeitstempel mit Zeitzone sein (z. B. 2026-11-12T10:30:00+01:00).');
       }
-      const t = new Date(body.zeitpunkt);
-      if (t.getTime() > bt.uhr().getTime() + 5 * 60000) throw ungueltig('zeitpunkt darf nicht in der Zukunft liegen.');
+      let t = new Date(body.zeitpunkt);
       if (t.getTime() < bt.uhr().getTime() - 366 * 86400000) throw ungueltig('zeitpunkt liegt mehr als ein Jahr zurück.');
+      if (t.getTime() > bt.uhr().getTime()) t = bt.uhr(); // F-05: vorgehende Geräteuhr → auf „jetzt“ kappen
       zeitpunkt = t.toISOString();
+    }
+    // F-14: Mengengrenze je Melder und Tag (Fuhrpark/Büro/GF ausgenommen)
+    if (!D.istVerwaltung(req.ctx)) {
+      const seit = new Date(bt.uhr().getTime() - 24 * 3600000).toISOString();
+      if (db.eins("SELECT COUNT(*) AS n FROM mangel WHERE typ = 'schaden' AND gemeldet_von = ? AND gemeldet > ?", req.ctx.benutzer.id, seit).n >= MAX_SCHAEDEN_TAG) {
+        throw new ApiFehler(429, 'ZU_VIELE_VERSUCHE', `Höchstens ${MAX_SCHAEDEN_TAG} Schadensmeldungen in 24 Stunden – bitte das Büro verständigen.`);
+      }
     }
     const fotos = body.fotos === undefined ? [] : v.liste(body.fotos, 'fotos', { max: B.MAX_FOTOS });
     // Fotos vorab prüfen (kein halber Datensatz bei ungültigem Bild)
     fotos.forEach((f, i) => { v.objekt(f, `fotos[${i}]`); try { B.bildPruefen(f.bildBase64); } catch (e) { if (e instanceof B.BildFehler) throw ungueltig(`Foto ${i + 1}: ${e.message}`); throw e; } });
     const z0 = zeit();
     const dring = D.DRINGLICHKEIT[einsatzfaehig];
-    const id = db.transaktion(() => {
+    const geschrieben = [];
+    const id = mitDateiAufraeumen(geschrieben, () => db.transaktion(() => {
       const mid = db.lauf(`INSERT INTO mangel (typ, anlage_id, fremd_geraet, text, dringlichkeit, status, baustelle_id, gemeldet, gemeldet_von, schaden_art, beschreibung, einsatzfaehig, zeitpunkt, client_id)
         VALUES ('schaden', ?, ?, ?, ?, 'offen', ?, ?, ?, ?, ?, ?, ?, ?)`, A ? A.row.id : null, fremd, ursache, dring, bsId, z0, req.ctx.benutzer.id, art, beschreibung, einsatzfaehig, zeitpunkt, clientId).id;
       const m = db.eins('SELECT * FROM mangel WHERE id = ?', mid);
-      fotos.forEach((f, i) => fotoHinzufuegen(req, m, f, i));
+      fotos.forEach((f, i) => fotoHinzufuegen(req, m, f, i, geschrieben));
       protokoll(req, 'fuhrpark_schaden', `schaden:${mid}`, `Schaden gemeldet: ${A ? A.row.bezeichnung : fremd} (${art}, einsatzfähig: ${einsatzfaehig})`, null, { art, einsatzfaehig, fotos: fotos.length });
       const name = A ? A.row.bezeichnung : fremd;
       meldeMangel(A, m, {
         titel: einsatzfaehig === 'nein' && A ? `Gerät stillgelegt (Schaden): ${name}` : `Schaden gemeldet: ${name}`,
-        text: `${A ? E.anlageName(A.row) : fremd}: ${ursache.length > 200 ? ursache.slice(0, 200) + '…' : ursache} – gemeldet von ${req.ctx.benutzer.name}, einsatzfähig: ${einsatzfaehig === 'ja' ? 'ja' : einsatzfaehig === 'nein' ? 'nein' : 'eingeschränkt'}`, z0
+        text: `${A ? E.anlageName(A.row) : fremd}: ${ursache.length > 200 ? ursache.slice(0, 200) + '…' : ursache} – gemeldet von ${req.ctx.benutzer.name}, einsatzfähig: ${einsatzfaehig === 'ja' ? 'ja' : einsatzfaehig === 'nein' ? 'nein' : 'eingeschränkt'}`,
+        textStandort: `${A ? E.anlageName(A.row) : fremd}: Schaden gemeldet – nicht einsatzfähig, Gerät gesperrt.`, z0
       });
       return mid;
-    });
+    }));
     pruefen();
     res.status(201).json(D.schadenJson(db, db.eins('SELECT * FROM mangel WHERE id = ?', id), stand(), req.ctx));
   });
@@ -1089,7 +1134,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     const m = schadenAus(req, req.params.id);
     const offen = ['offen', 'in_arbeit'].includes(m.status);
     if (!D.istVerwaltung(req.ctx) && !(m.gemeldet_von === req.ctx.benutzer.id && offen)) throw keinZugriff('Fotos ergänzen kann nur der Melder (bei offener Meldung) bzw. Fuhrpark/Büro/GF.');
-    const r = db.transaktion(() => fotoHinzufuegen(req, m, v.objekt(req.body), null));
+    const geschrieben = [];
+    const r = mitDateiAufraeumen(geschrieben, () => db.transaktion(() => fotoHinzufuegen(req, m, v.objekt(req.body), null, geschrieben)));
     res.status(r.neu ? 201 : 200).json(D.fotoJson(r.foto, stand().namen));
   });
 
@@ -1185,7 +1231,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     const A = anlageAus(S, req.params.id);
     const kosten = mitKosten(req);
     const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
-    const pdf = await X.servicebuchPdf(db, S, A, { kosten, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert) });
+    const pdf = await X.servicebuchPdf(db, S, A, { kosten, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), ctx: req.ctx });
     protokoll(req, 'export', `anlage:${A.row.id}`, `Servicebuch-PDF ${A.row.bezeichnung}${kosten ? ' mit Kosten' : ''} erstellt`);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Servicebuch_${(A.row.nummer || A.row.id)}_${S.H}.pdf"`.replace(/[^\x20-\x7e]/g, '_'));

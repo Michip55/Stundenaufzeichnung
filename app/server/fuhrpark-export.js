@@ -6,7 +6,7 @@
 const PDFDocument = require('pdfkit');
 const { csv } = require('./export');
 const { winAnsi } = require('./pdf');
-const { deDatum } = require('./datum');
+const { deDatum, wienDatum } = require('./datum');
 const F = require('./fuhrpark');
 const D = require('./fuhrpark-daten');
 
@@ -73,7 +73,7 @@ function csvExport(db, S, { art, von, bis, kosten }) {
 }
 
 /** Servicebuch-PDF einer Anlage (pdfkit, Standardschrift) */
-function servicebuchPdf(db, S, A, { kosten = false, firma, unkomprimiert = false, texte = [] } = {}) {
+function servicebuchPdf(db, S, A, { kosten = false, firma, unkomprimiert = false, texte = [], ctx: sicht = null } = {}) {
   const a = A.row;
   const doc = new PDFDocument({ size: 'A4', margin: 40, compress: !unkomprimiert, info: { Title: `Servicebuch ${a.bezeichnung}`, Author: firma.name, Creator: 'BauTag' } });
   const teile = [];
@@ -149,9 +149,12 @@ function servicebuchPdf(db, S, A, { kosten = false, firma, unkomprimiert = false
   }
 
   titel('Offene Mängel und Schäden');
-  const offen = db.alle("SELECT * FROM mangel WHERE anlage_id = ? AND status IN ('offen','in_arbeit') ORDER BY gemeldet", a.id);
+  // F-13: Schäden nur im Sichtbereich des Anfragenden (Ursache, Melder)
+  const cache = {};
+  const offen = db.alle("SELECT * FROM mangel WHERE anlage_id = ? AND status IN ('offen','in_arbeit') ORDER BY gemeldet", a.id)
+    .filter((m) => m.typ !== 'schaden' || !sicht || D.schadenSichtbar(db, sicht, m, cache));
   for (const m of offen) {
-    zeile([[deDatum(m.gemeldet.slice(0, 10)), X0, 55], [m.typ === 'schaden' ? 'Schaden' : 'Mangel', X0 + 58, 55], [m.text, X0 + 116, 290], [`${m.dringlichkeit === 'sofort' ? 'stillgelegt' : m.dringlichkeit}, ${S.namen.get(m.gemeldet_von) || ''}`, X0 + 410, 105]]);
+    zeile([[deDatum(wienDatum(m.gemeldet)), X0, 55], [m.typ === 'schaden' ? 'Schaden' : 'Mangel', X0 + 58, 55], [m.text, X0 + 116, 290], [`${m.dringlichkeit === 'sofort' ? 'stillgelegt' : m.dringlichkeit}, ${S.namen.get(m.gemeldet_von) || ''}`, X0 + 410, 105]]);
   }
   if (!offen.length) zeile([['Keine offenen Mängel.', X0, 300]]);
   y += 10; platz(14);
