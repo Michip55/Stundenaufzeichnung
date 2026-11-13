@@ -10,7 +10,7 @@ const { brauche } = require('./hilfe');
 const BUERO_ROLLENWECHSEL = ['mitarbeiter', 'polier'];
 const { benachrichtige } = require('../budget');
 
-const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm'];
+const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm', 'katalog', 'nachkalkulation'];
 
 function protokollFuer(ctx, zeilen) {
   if (ctx.hat('preise_sehen')) return zeilen;

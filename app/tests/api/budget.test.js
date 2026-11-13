@@ -46,7 +46,8 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
 
   await t.test('Schwelle 80 % wird genau einmal gemeldet – an Bauleiter, Büro, GF', async () => {
     const k = await kalk(BS.pitten);
-    const summe = Math.round((k.kosten.gesamt / 0.85) * 100) / 100;
+    // Budget-Basis seit API.md 10: Nachkalkulationssumme ÷ Auftragssumme gesamt
+    const summe = Math.round((k.positionen.gesamtsumme / 0.85) * 100) / 100;
     let r = await buero.putV(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: summe });
     assert.equal(r.status, 200);
     assert.equal(r.daten.auftragssumme, summe);
@@ -68,10 +69,17 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'auftrag'").n >= 1);
   });
 
-  await t.test('Fremdleistung löst die nächste Schwelle (90 %) aus', async () => {
-    const k = await kalk(BS.pitten);
-    const fehlt = Math.ceil(k.auftragGesamt * 0.92 - k.kosten.gesamt);
-    const r = await buero.post(`/baustellen/${BS.pitten}/fremdleistungen`, { text: 'Saugbagger Nachtrag', betrag: fehlt, datum: '2026-11-12' });
+  await t.test('Fremdleistung zählt nur intern; Mengeneintrag der Nachkalkulation löst die nächste Schwelle (90 %) aus', async () => {
+    let k = await kalk(BS.pitten);
+    const f = await buero.post(`/baustellen/${BS.pitten}/fremdleistungen`, { text: 'Saugbagger', betrag: 5000, datum: '2026-11-12' });
+    assert.equal(f.status, 201);
+    const k1 = await kalk(BS.pitten);
+    assert.equal(k1.budgetVerbrauchProzent, k.budgetVerbrauchProzent);
+    assert.equal(k1.interneKosten.kosten.fremd, Math.round((k.interneKosten.kosten.fremd + 5000) * 100) / 100);
+    k = k1;
+    const fehlt = Math.ceil((k.auftragGesamt * 0.92 - k.positionen.gesamtsumme) / 1.15);
+    const pos = (await buero.get(`/baustellen/${BS.pitten}/positionen`)).daten.gruppen.find((g) => g.schluessel === 'fremdmaterial').positionen.find((p) => p.bezeichnung === 'Maleiner');
+    const r = await buero.post(`/baustellen/${BS.pitten}/positionen/${pos.id}/mengen`, { datum: '2026-11-12', menge: fehlt, notiz: 'Rechnung Maleiner' });
     assert.equal(r.status, 201);
     const m = await budgetMeldungen(bl, BS.pitten);
     assert.equal(m.length, 2);
@@ -101,9 +109,11 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.equal((await gf.putV(`/baustellen/${BS.pitten}/auftrag`, { empfaenger: { gf: false } })).status, 200);
     const gfVorher = (await budgetMeldungen(gf, BS.pitten)).length;
     const blVorher = (await budgetMeldungen(bl, BS.pitten)).length;
-    const r = await buero.put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 95 });
+    const fa = (await buero.get(`/baustellen/${BS.pitten}/positionen`)).daten.gruppen[0].positionen[0];
+    assert.equal(fa.bezeichnung, 'Facharbeiter');
+    const r = await buero.put(`/baustellen/${BS.pitten}/positionen/${fa.id}`, { ep: 150, version: fa.version });
     assert.equal(r.status, 200);
-    assert.equal(r.daten.kostensatz, 95);
+    assert.equal(r.daten.ep, 150);
     const k = await kalk(BS.pitten);
     assert.ok(k.budgetVerbrauchProzent >= 100, String(k.budgetVerbrauchProzent));
     assert.equal(k.status, 'kritisch');
@@ -111,15 +121,14 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     const blm = await budgetMeldungen(bl, BS.pitten);
     assert.equal(blm.length, blVorher + 1);
     assert.match(blm[0].titel, /Budget-Alarm/);
-    const pr = s.db.eins("SELECT alt, neu FROM protokoll WHERE art = 'preis' AND objekt = 'lohngruppen:fa' ORDER BY id DESC");
-    assert.deepEqual([JSON.parse(pr.alt).kostensatz, JSON.parse(pr.neu).kostensatz], [46, 95]);
-    await buero.put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 46 });
+    const pr = s.db.eins("SELECT alt, neu FROM protokoll WHERE art = 'nachkalkulation' AND objekt = ? ORDER BY id DESC", `position:${fa.id}`);
+    assert.deepEqual([JSON.parse(pr.alt).ep, JSON.parse(pr.neu).ep], [72.5, 150]);
   });
 
   await t.test('nie an Polier/Mitarbeiter – auch wenn als Bauleiter eingetragen', async () => {
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.polier, BS.neustadt);
     const k = await kalk(BS.neustadt);
-    await gf.putV(`/baustellen/${BS.neustadt}/auftrag`, { auftragssumme: Math.round(k.kosten.gesamt / 0.95) });
+    await gf.putV(`/baustellen/${BS.neustadt}/auftrag`, { auftragssumme: Math.round(k.positionen.gesamtsumme / 0.95) });
     assert.equal((await budgetMeldungen(pol)).length, 0);
     assert.ok((await budgetMeldungen(buero, BS.neustadt)).length >= 1);
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.bauleiter, BS.neustadt);
@@ -127,10 +136,14 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
 
   await t.test('Unterschrift (Kosten zählen ab „unterschrieben“) und Freigabe lösen Prüfung aus', async () => {
     const entwurf = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status = 'entwurf'", BS.ternitz).id;
-    const e = (await gf.get(`/berichte/${entwurf}`)).daten.kostenTag.gesamt;
+    // Wert des Berichts in der Nachkalkulation: kurz als unterschrieben werten und zurücksetzen
+    const g0 = (await kalk(BS.ternitz)).positionen.gesamtsumme;
+    s.db.lauf("UPDATE bericht SET status = 'unterschrieben' WHERE id = ?", entwurf);
+    const g1 = (await kalk(BS.ternitz)).positionen.gesamtsumme;
+    s.db.lauf("UPDATE bericht SET status = 'entwurf' WHERE id = ?", entwurf);
+    const e = g1 - g0;
     assert.ok(e > 100);
-    const k = await kalk(BS.ternitz);
-    const summe = Math.round(((k.kosten.gesamt + e / 2) / 0.9) * 100) / 100;
+    const summe = Math.round(((g0 + e / 2) / 0.9) * 100) / 100;
     await gf.putV(`/baustellen/${BS.ternitz}/auftrag`, { auftragssumme: summe });
     const vorher = (await budgetMeldungen(bl, BS.ternitz)).length;
     const sig = require('../../server/png').demoUnterschrift('x');

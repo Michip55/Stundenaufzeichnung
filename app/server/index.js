@@ -124,6 +124,7 @@ function createApp(opt = {}) {
   require('./routes/abwesenheiten')(api, bt);
   require('./routes/berichte')(api, bt);
   require('./routes/kalkulation')(api, bt);
+  require('./routes/positionen')(api, bt);
   require('./routes/benachrichtigungen')(api, bt);
   require('./routes/monat')(api, bt);
   require('./routes/benutzer')(api, bt);
