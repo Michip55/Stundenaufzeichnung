@@ -1048,6 +1048,26 @@ CREATE TABLE rechnung_mahnung (
   UNIQUE (rechnung_id, stufe)
 );
 `
+  },
+  {
+    version: 20,
+    name: 'Ausbaustufe 2: Urlaubskonto, Betriebsurlaub (12.19)',
+    sql: `
+ALTER TABLE abwesenheit ADD COLUMN betriebsurlaub INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE abwesenheit ADD COLUMN notiz TEXT;
+CREATE TABLE urlaub_konto (
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  jahr INTEGER NOT NULL,
+  art TEXT NOT NULL DEFAULT 'buak' CHECK (art IN ('buak','urlg')),
+  anspruch REAL,
+  einheit TEXT NOT NULL DEFAULT 'Arbeitstage' CHECK (einheit IN ('Arbeitstage','Werktage')),
+  uebertrag REAL NOT NULL DEFAULT 0,
+  buak_stand REAL, buak_datum TEXT,
+  notiz TEXT,
+  geaendert TEXT, geaendert_von INTEGER REFERENCES benutzer(id),
+  PRIMARY KEY (benutzer_id, jahr)
+);
+`
   }
 ];
 
