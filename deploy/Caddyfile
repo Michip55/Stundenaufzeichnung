@@ -6,8 +6,9 @@
 
 {$BAUTAG_DOMAIN} {
 	encode zstd gzip
+	# G-09: größte App-Grenze 35 MB (Dokumente/Importe als Base64-JSON) + Reserve – Tabelle in ANLEITUNG.md
 	request_body {
-		max_size 16MB
+		max_size 40MB
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -18,6 +19,15 @@
 		output file /data/zugriff.log {
 			roll_size 10MiB
 			roll_keep 10
+		}
+		# G-17: Fernunterschrift-Token nie im Zugriffsprotokoll (Pfad maskieren, Referer und Cookies weglassen)
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp ^(/api/fern/|/unterschrift/)[^/?#]+ $1***
+				request>headers>Referer delete
+				request>headers>Cookie delete
+			}
 		}
 	}
 }

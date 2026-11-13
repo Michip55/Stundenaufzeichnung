@@ -88,3 +88,17 @@ Siehe **SICHERHEIT.md, Abschnitt „Notfall: Wiederherstellung“**. Kurzfassung
 - Protokoll der App: `sudo docker compose -f /opt/bautag/deploy/docker-compose.yml logs --tail 100 app`
 - Protokoll der Sicherung: `sudo tail -50 /var/log/bautag-sicherung.log`
 - Neu starten: `sudo docker compose -f /opt/bautag/deploy/docker-compose.yml restart`
+
+## Größengrenzen beim Hochladen
+
+Alle Dateien gehen als Base64 im JSON an den Server (ca. 4/3 der Dateigröße). Die Grenze des Webservers (Caddy, `deploy/Caddyfile` → `request_body max_size`) muss über der größten App-Grenze liegen – sonst bricht der Upload mit „413“ ab. Werte bei Änderungen hier **und** in `app/server/index.js` anpassen (Prüftest `tests/unit/deploy.test.js`).
+
+| Wofür | Datei höchstens | Anfrage (JSON) höchstens | Ort in der App |
+|---|---|---|---|
+| Projektdokumente, LV-, BMD- und Stammdaten-Import | 25 MB | 35 MB | `jsonDokumente` |
+| Fotos (Bericht, Lieferschein, Papierbericht, Schaden, Fuhre, Fernunterschrift) | 8 MB je Foto | 12 MB | `jsonFotos` |
+| Excel-Import Positionskatalog | 5 MB | 7 MB | `jsonImport` |
+| alle anderen Anfragen | – | 2 MB | `jsonKlein` |
+| **Webserver Caddy** | – | **40 MB** (35 MB + Reserve) | `Caddyfile` |
+
+Das Zugriffsprotokoll von Caddy (`/data/zugriff.log` im Volume `caddy_daten`) enthält keine Fernunterschrift-Token: der Pfad `/api/fern/<Token>` bzw. `/unterschrift/<Token>` wird als `…/***` gespeichert, `Referer` und `Cookie` werden nicht protokolliert.

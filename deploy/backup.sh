@@ -93,6 +93,8 @@ offsite() {
 }
 
 pruefe_datei() { # Probeordner Datei → JSON
+  # G-10: mktemp legt den Ordner als root mit 0700 an – der Container läuft als „node“ (uid 1000) und braucht Leserechte
+  chmod -R a+rX "$1"
   if [[ -n "${BAUTAG_PRUEF_CMD:-}" ]]; then
     read -r -a cmd <<< "$BAUTAG_PRUEF_CMD"
     "${cmd[@]}" "$2"
