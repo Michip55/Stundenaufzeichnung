@@ -138,7 +138,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
     const pos = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 7-11 t');
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99 })).status, 400); // version fehlt
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99, version: pos.version + 5 })).status, 409);
-    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 7-11 t (Pitten)', version: pos.version });
+    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 7-11 t (Pitten)', version: pos.version, gueltigAb: '2000-01-01', rueckwirkend: true });
     assert.equal(r.status, 200);
     assert.equal(r.daten.ep, 100);
     assert.equal(r.daten.version, pos.version + 1);

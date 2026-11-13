@@ -1,6 +1,7 @@
 'use strict';
 const v = require('../validierung');
 const { ungueltig, nichtGefunden } = require('../fehler');
+const PV = require('../preise-verlauf');
 const { pruefeAlleBudgets } = require('../budget');
 const { brauche } = require('./hilfe');
 
@@ -24,35 +25,70 @@ function eintragJson(art, z) {
 module.exports = function preisRouten(api, bt) {
   const { db } = bt;
 
+  /** Eintrag + gueltigAb (Stand des heutigen Werts) + geplante Stände (API.md 12.2) */
+  function mitStand(art, z, seit, plan) {
+    const o = eintragJson(art, z);
+    const ab = {};
+    for (const f of ARTEN[art].felder) ab[f] = (seit.get(String(z.id)) || {})[f] || PV.BASIS_DATUM;
+    o.gueltigAb = ab;
+    o.geplant = plan.get(String(z.id)) || [];
+    return o;
+  }
+  const liste = (art, sql) => {
+    const seit = PV.gueltigSeit(db, art), plan = PV.geplant(db, art);
+    return db.alle(sql).map((z) => mitStand(art, z, seit, plan));
+  };
+
   api.get('/preise', brauche('preise_sehen'), (req, res) => {
+    PV.abgleichen(db); // heute gültige Werte (falls seit dem letzten Lauf ein Stand in Kraft trat)
     res.json({
-      lohngruppen: db.alle('SELECT * FROM lohngruppe ORDER BY sortierung').map((z) => eintragJson('lohngruppen', z)),
-      geraete: db.alle('SELECT * FROM geraet ORDER BY sortierung, id').map((z) => eintragJson('geraete', z)),
-      materialien: db.alle('SELECT * FROM material ORDER BY sortierung, id').map((z) => eintragJson('materialien', z)),
-      leistungen: db.alle('SELECT * FROM leistung ORDER BY code').map((z) => eintragJson('leistungen', z))
+      lohngruppen: liste('lohngruppen', 'SELECT * FROM lohngruppe ORDER BY sortierung'),
+      geraete: liste('geraete', 'SELECT * FROM geraet ORDER BY sortierung, id'),
+      materialien: liste('materialien', 'SELECT * FROM material ORDER BY sortierung, id'),
+      leistungen: liste('leistungen', 'SELECT * FROM leistung ORDER BY code')
     });
   });
 
-  api.put('/preise/:art/:id', brauche('preise_bearbeiten'), (req, res) => {
+  function ziel(req) {
     const art = req.params.art;
     const def = ARTEN[art];
     if (!def) throw ungueltig(`Unbekannte Preisart (erlaubt: ${Object.keys(ARTEN).join(', ')}).`);
     const id = def.idText
       ? (/^[a-z0-9_-]{1,20}$/i.test(req.params.id) ? req.params.id : (() => { throw ungueltig('ID ist ungültig.'); })())
       : v.pfadId(req.params.id);
+    const alt = db.eins(`SELECT * FROM ${def.tabelle} WHERE id = ?`, id);
+    if (!alt) throw nichtGefunden('Eintrag nicht gefunden.');
+    return { art, def, id, alt };
+  }
+
+  api.put('/preise/:art/:id', brauche('preise_bearbeiten'), (req, res) => {
+    const { art, def, id, alt } = ziel(req);
     const body = v.objekt(req.body);
     const feld = v.auswahl(body.feld, 'feld', def.felder);
     const wert = v.betrag(body.wert, 'wert', { min: 0, max: 1e6 });
-    const alt = db.eins(`SELECT * FROM ${def.tabelle} WHERE id = ?`, id);
-    if (!alt) throw nichtGefunden('Eintrag nicht gefunden.');
+    const g = PV.pruefeGueltigAb(db, body.gueltigAb, body.rueckwirkend);
     db.transaktion(() => {
-      db.lauf(`UPDATE ${def.tabelle} SET ${feld} = ? WHERE id = ?`, wert, id);
+      const r = PV.setzePreis(db, { art, ref: id, feld, wert, gueltigAb: g.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
       db.protokolliere({
         zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'preis', objekt: `${art}:${id}`,
-        alt: { [feld]: alt[feld] }, neu: { [feld]: wert }, text: `Preis geändert: ${alt.name || alt.text} – ${feld}`
+        alt: { [feld]: r.alt }, neu: { [feld]: wert, gueltigAb: g.gueltigAb, ...(g.rueckwirkend ? { rueckwirkend: true } : {}) },
+        text: `Preis geändert: ${alt.name || alt.text} – ${feld} ab ${g.gueltigAb.split('-').reverse().join('.')}${g.rueckwirkend ? ' (rückwirkend)' : ''}`
       });
     });
     pruefeAlleBudgets(bt, { anlass: 'Preisänderung', benutzerId: req.ctx.benutzer.id });
-    res.json(eintragJson(art, db.eins(`SELECT * FROM ${def.tabelle} WHERE id = ?`, id)));
+    const seit = PV.gueltigSeit(db, art), plan = PV.geplant(db, art);
+    res.json(mitStand(art, db.eins(`SELECT * FROM ${def.tabelle} WHERE id = ?`, id), seit, plan));
+  });
+
+  api.get('/preise/:art/:id/verlauf', brauche('preise_sehen'), (req, res) => {
+    const { art, id } = ziel(req);
+    res.json(PV.verlaufJson(db, art, id));
+  });
+
+  api.delete('/preise/:art/:id/verlauf/:vid', brauche('preise_bearbeiten'), (req, res) => {
+    const { art, id, alt } = ziel(req);
+    const s = PV.loescheStand(db, { art, ref: id, id: v.pfadId(req.params.vid, 'Stand-ID') });
+    db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'preis', objekt: `${art}:${id}`, alt: { [s.feld]: s.wert, gueltigAb: s.gueltig_ab }, text: `Geplanten Preis gelöscht: ${alt.name || alt.text} – ${s.feld} ab ${s.gueltig_ab.split('-').reverse().join('.')}` });
+    res.json({ ok: true });
   });
 };

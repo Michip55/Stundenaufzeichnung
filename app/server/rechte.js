@@ -107,7 +107,9 @@ const EURO_FELDER = new Set([
   'auftragssumme', 'auftragGesamt', 'nachtraege', 'kostenTag', 'kosten', 'erloes', 'db', 'dbProzent',
   'lohnkosten', 'geraetekosten', 'materialkosten',
   // Servicebuch (API.md 11)
-  'kostenJahr', 'kostenGesamt', 'kostenJeStunde'
+  'kostenJahr', 'kostenGesamt', 'kostenJeStunde',
+  // Preise mit „gültig ab“ (API.md 12.2)
+  'epGeplant', 'epVerlauf', 'perioden'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.

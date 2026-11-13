@@ -33,9 +33,15 @@ function berechnePositionen(positionen, auftragGesamt) {
     const mengeManuell = r3((p.eintraege || []).reduce((a, e) => a + r3(e.menge), 0));
     const mengeAuto = r3(p.mengeAuto || 0);
     const menge = r3(mengeAuto + mengeManuell);
-    const summe = r2(menge * p.ep);
+    let summe = r2(menge * p.ep);
+    const extra = {};
+    if (p.epStaende && p.epStaende.length > 1) {
+      extra.perioden = perioden(p, p.epStaende);
+      summe = r2(extra.perioden.reduce((a, x) => a + x.summe, 0));
+    }
     const g = nach.get(p.gruppe);
-    g.positionen.push({ ...p, mengeAuto, mengeManuell, menge, summe });
+    const { epStaende, mengeAutoNachDatum, ...ohne } = p; // eslint-disable-line no-unused-vars
+    g.positionen.push({ ...ohne, mengeAuto, mengeManuell, menge, summe, ...extra });
     if (p.aktiv) g.summe = r2(g.summe + summe);
     else if (menge) hinweise.push({ typ: 'info', text: `Ausgeblendete Position „${p.bezeichnung}“ hat ${menge.toLocaleString('de-AT')} ${p.einheit} – nicht in der Summe.` });
   }
@@ -92,7 +98,13 @@ function katalogAnpassungenAnwenden(db, jetzt = new Date()) {
         const q = zuordnungFuer(u.neu, u.einheit);
         if (q) db.lauf('UPDATE katalog SET quelle = ?, zuordnung_pruefen = 1 WHERE bezeichnung = ? AND einheit = ? AND quelle IS NULL', JSON.stringify(q), u.neu, u.einheit);
       }
-      for (const p of a.preise || []) db.lauf('UPDATE katalog SET ep = ?, version = version + 1, geaendert = ? WHERE bezeichnung = ? AND einheit = ?', p.ep, t, p.bezeichnung, p.einheit);
+      for (const p of a.preise || []) {
+        db.lauf('UPDATE katalog SET ep = ?, version = version + 1, geaendert = ? WHERE bezeichnung = ? AND einheit = ?', p.ep, t, p.bezeichnung, p.einheit);
+        // gibt es schon Preis-Stände (12.2), wird die Anpassung ein Stand ab heute (sonst setzte der Abgleich zurück)
+        for (const k of db.alle("SELECT k.id FROM katalog k WHERE k.bezeichnung = ? AND k.einheit = ? AND EXISTS (SELECT 1 FROM preis_stand s WHERE s.art = 'katalog' AND s.ref = CAST(k.id AS TEXT))", p.bezeichnung, p.einheit)) {
+          require('./preise-verlauf').setzePreis(db, { art: 'katalog', ref: k.id, feld: 'ep', wert: p.ep, gueltigAb: require('./datum').wienDatum(jetzt), jetzt });
+        }
+      }
       for (const n of a.neu || []) {
         if (db.eins('SELECT id FROM katalog WHERE gruppe = ? AND bezeichnung = ? AND einheit = ?', n.gruppe, n.bezeichnung, n.einheit)) continue;
         const nach = n.nach ? db.eins('SELECT sortierung FROM katalog WHERE gruppe = ? AND bezeichnung = ?', n.gruppe, n.nach) : null;
@@ -142,12 +154,18 @@ function bestandUebernehmen(db, jetzt = new Date()) {
 /** Katalog (aktive Positionen) in eine Baustelle kopieren; nur fehlende (nach katalog_id) */
 function katalogKopieren(db, baustelleId, jetzt = new Date()) {
   const t = jetzt.toISOString();
+  const PV = require('./preise-verlauf');
+  const heute = require('./datum').wienDatum(jetzt);
   const vorhanden = new Set(db.alle('SELECT katalog_id FROM projektposition WHERE baustelle_id = ? AND katalog_id IS NOT NULL', baustelleId).map((x) => x.katalog_id));
   let n = 0;
   for (const k of db.alle('SELECT * FROM katalog WHERE aktiv = 1 ORDER BY sortierung, id')) {
     if (vorhanden.has(k.id)) continue;
-    db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial, naturmaterial_pruefen, herkunft)
+    const ins = db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial, naturmaterial_pruefen, herkunft)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)`, baustelleId, k.id, k.gruppe, k.bezeichnung, k.einheit, k.ep, k.sortierung, k.quelle, k.zuordnung_pruefen, t, t, k.naturmaterial, k.naturmaterial_pruefen, k.herkunft);
+    // API.md 12.2: angekündigte (künftige) Katalogpreise gelten auch in der neuen Baustelle
+    for (const st of db.alle("SELECT wert, gueltig_ab FROM preis_stand WHERE art = 'katalog' AND ref = ? AND feld = 'ep' AND gueltig_ab > ? ORDER BY gueltig_ab", String(k.id), heute)) {
+      PV.setzePreis(db, { art: 'projektposition', ref: ins.id, feld: 'ep', wert: st.wert, gueltigAb: st.gueltig_ab, jetzt });
+    }
     n++;
   }
   return n;
@@ -159,16 +177,28 @@ function katalogKopieren(db, baustelleId, jetzt = new Date()) {
  */
 function autoMengen(db, baustelleId, positionen) {
   const mengen = new Map();
+  const nachDatum = new Map();
   const hinweise = [];
   // auch ausgeblendete Positionen (für den Hinweis „nicht in der Summe“)
   const mitQuelle = positionen.filter((p) => p.quelle && p.quelle.art !== 'naturmaterial');
-  if (!mitQuelle.length) return { mengen, hinweise };
-  const personal = db.alle(`SELECT b.lohngruppe_id AS ref, SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-    JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY b.lohngruppe_id`, baustelleId);
-  const geraete = db.alle(`SELECT g.code AS ref, SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id
-    JOIN geraet g ON g.id = bg.geraet_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY g.code`, baustelleId);
-  const material = db.alle(`SELECT m.code AS ref, m.einheit, SUM(bm.menge) AS m FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id
-    JOIN material m ON m.id = bm.material_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY m.code`, baustelleId);
+  if (!mitQuelle.length) return { mengen, nachDatum, hinweise };
+  // je Quelle und Berichtsdatum (API.md 12.2: Mengen zählen zum Berichtsdatum)
+  const gruppiert = (zeilen) => {
+    const m = new Map();
+    for (const z of zeilen) {
+      if (!m.has(z.ref)) m.set(z.ref, { ref: z.ref, einheit: z.einheit, m: 0, tage: [] });
+      const x = m.get(z.ref);
+      x.m += z.m || 0;
+      x.tage.push({ datum: z.datum, m: z.m || 0 });
+    }
+    return [...m.values()];
+  };
+  const personal = gruppiert(db.alle(`SELECT b.lohngruppe_id AS ref, r.datum, SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
+    JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY b.lohngruppe_id, r.datum`, baustelleId));
+  const geraete = gruppiert(db.alle(`SELECT g.code AS ref, r.datum, SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id
+    JOIN geraet g ON g.id = bg.geraet_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY g.code, r.datum`, baustelleId));
+  const material = gruppiert(db.alle(`SELECT m.code AS ref, m.einheit, r.datum, SUM(bm.menge) AS m FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id
+    JOIN material m ON m.id = bm.material_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY m.code, r.datum`, baustelleId));
   const quellen = { personal, geraet: geraete, material };
   const verwendet = new Map();
   const gemeldet = new Set();
@@ -176,13 +206,16 @@ function autoMengen(db, baustelleId, positionen) {
     const q = p.quelle;
     const refs = Array.isArray(q.ref) ? q.ref : [q.ref];
     let m = 0;
+    const tage = new Map();
     for (const z of quellen[q.art] || []) {
       if (!(refs.includes('alle') || refs.includes(z.ref))) continue;
       if (q.art === 'material' && q.faktor == null && einheitNorm(z.einheit) !== einheitNorm(p.einheit)) {
         hinweise.push({ typ: 'warnung', text: `„${p.bezeichnung}“: Material ${z.ref} wird in ${z.einheit} gemeldet, die Position rechnet in ${p.einheit} – bitte Umrechnungsfaktor in der Zuordnung angeben.` });
         continue;
       }
-      m += (z.m || 0) * (q.art === 'material' && q.faktor != null ? q.faktor : 1);
+      const f = q.art === 'material' && q.faktor != null ? q.faktor : 1;
+      m += (z.m || 0) * f;
+      for (const t of z.tage) tage.set(t.datum, (tage.get(t.datum) || 0) + t.m * f);
       const k = `${q.art}:${z.ref}`;
       // E-09: Mehrfachzuordnung nur unter aktiven Positionen melden (einmal je Eintrag)
       if (p.aktiv) {
@@ -193,9 +226,10 @@ function autoMengen(db, baustelleId, positionen) {
         verwendet.set(k, p.id);
       }
     }
+    nachDatum.set(p.id, tage);
     mengen.set(p.id, r3(m));
   }
-  return { mengen, hinweise };
+  return { mengen, nachDatum, hinweise };
 }
 
 /**
@@ -203,10 +237,38 @@ function autoMengen(db, baustelleId, positionen) {
  * die Summe der Tonnen aller aktiven Naturmaterial-Positionen (Bericht + manuelle Einträge).
  */
 function naturmaterialMengen(positionen) {
-  const tonnen = r3(positionen.filter((p) => p.aktiv && p.naturmaterial && einheitNorm(p.einheit) === 't')
-    .reduce((a, p) => a + r3(p.mengeAuto || 0) + (p.eintraege || []).reduce((x, e) => x + r3(e.menge), 0), 0));
-  for (const p of positionen) if (p.quelle && p.quelle.art === 'naturmaterial' && p.aktiv) p.mengeAuto = tonnen;
+  const natur = positionen.filter((p) => p.aktiv && p.naturmaterial && einheitNorm(p.einheit) === 't');
+  const tonnen = r3(natur.reduce((a, p) => a + r3(p.mengeAuto || 0) + (p.eintraege || []).reduce((x, e) => x + r3(e.menge), 0), 0));
+  // je Datum (API.md 12.2): Berichtsmengen am Berichtsdatum, Einträge an ihrem Datum
+  const tage = new Map();
+  for (const p of natur) {
+    for (const [d, m] of p.mengeAutoNachDatum || []) tage.set(d, (tage.get(d) || 0) + m);
+    for (const e of p.eintraege || []) tage.set(e.datum, (tage.get(e.datum) || 0) + r3(e.menge));
+  }
+  for (const p of positionen) {
+    if (p.quelle && p.quelle.art === 'naturmaterial' && p.aktiv) { p.mengeAuto = tonnen; p.mengeAutoNachDatum = tage; }
+  }
   return tonnen;
+}
+
+/**
+ * Perioden je EP-Stand (API.md 12.2): Menge je Zeitraum, Summe = RUNDEN(Menge × EP; 2).
+ * @param {Array<{gueltig_ab, wert}>} staende aufsteigend
+ * @returns {Array<{gueltigAb, bis, ep, menge, summe}>}
+ */
+function perioden(p, staende) {
+  const tage = new Map();
+  for (const [d, m] of p.mengeAutoNachDatum || []) tage.set(d, (tage.get(d) || 0) + m);
+  for (const e of p.eintraege || []) tage.set(e.datum, (tage.get(e.datum) || 0) + r3(e.menge));
+  return staende.map((s, i) => {
+    const ab = s.gueltig_ab;
+    const naechst = staende[i + 1] ? staende[i + 1].gueltig_ab : null;
+    let menge = 0;
+    for (const [d, m] of tage) if (d >= ab && (!naechst || d < naechst)) menge += m;
+    menge = r3(menge);
+    const bis = naechst ? new Date(Date.parse(`${naechst}T12:00:00Z`) - 864e5).toISOString().slice(0, 10) : null;
+    return { gueltigAb: ab, bis, ep: s.wert, menge, summe: r2(menge * s.wert) };
+  });
 }
 
 function positionJson(p) {
@@ -228,9 +290,22 @@ function projektPositionen(db, bs, auftragGesamt) {
     eintraege.get(e.position_id).push({ id: e.id, datum: e.datum, menge: e.menge, notiz: e.notiz, erstellt: e.erstellt, erstelltVon: e.erstellt_von, erstelltVonName: e.von_name });
   }
   const auto = autoMengen(db, bs.id, zeilen);
-  const mitMengen = zeilen.map((p) => ({ ...p, mengeAuto: auto.mengen.get(p.id) || 0, eintraege: eintraege.get(p.id) || [] }));
+  const staende = require('./preise-verlauf').epStaendeBaustelle(db, bs.id);
+  const mitMengen = zeilen.map((p) => ({
+    ...p, mengeAuto: auto.mengen.get(p.id) || 0, mengeAutoNachDatum: auto.nachDatum.get(p.id) || new Map(), eintraege: eintraege.get(p.id) || [],
+    ...(staende.has(p.id) ? { epStaende: staende.get(p.id) } : {})
+  }));
   naturmaterialMengen(mitMengen);
   const r = berechnePositionen(mitMengen, auftragGesamt);
+  // API.md 12.2: Stand des heutigen EP und geplante EP je Position
+  const heute = require('./datum').wienDatum(db.uhr ? db.uhr() : new Date());
+  for (const g of r.gruppen) {
+    for (const p of g.positionen) {
+      const st = staende.get(p.id);
+      p.epAb = st ? st.filter((x) => x.gueltig_ab <= heute).reduce((a, x) => x.gueltig_ab, '2000-01-01') : '2000-01-01';
+      if (st && st.some((x) => x.gueltig_ab > heute)) p.epGeplant = st.filter((x) => x.gueltig_ab > heute).map((x) => ({ id: x.id, ep: x.wert, gueltigAb: x.gueltig_ab }));
+    }
+  }
   const hinweise = [...auto.hinweise, ...r.hinweise];
   const natur = zeilen.filter((p) => p.aktiv && p.quelle && p.quelle.art === 'naturmaterial');
   if (natur.length > 1) hinweise.push({ typ: 'warnung', text: `${natur.length} aktive Positionen rechnen die Landschaftsabgabe aus den Tonnen Naturmaterial (${natur.map((p) => `„${p.bezeichnung}“`).join(', ')}) – sie wird mehrfach gezählt.` });

@@ -57,7 +57,21 @@ function createApp(opt = {}) {
   const { pruefeFuhrparkSicher } = require('./fuhrpark-erinnerung');
   const { pruefeSicherungSicher } = require('./sicherung-pruefung');
   bt.sicherungPruefen = opt.sicherungPruefen !== undefined ? Boolean(opt.sicherungPruefen) : process.env.BAUTAG_SICHERUNG_PRUEFEN === '1';
-  bt.stuendlich = () => { pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt); };
+  // API.md 12.2: Stammtabellen = heute gültige Preise; tritt ein Stand in Kraft → Budgets einmal am Tag prüfen
+  const preiseTag = () => {
+    try {
+      const PV = require('./preise-verlauf');
+      PV.abgleichen(db);
+      const heute = require('./datum').wienDatum(uhr());
+      const zuletzt = db.einstellung('preise_tag', null);
+      if (zuletzt !== heute) {
+        const neu = zuletzt && db.eins('SELECT 1 AS x FROM preis_stand WHERE gueltig_ab > ? AND gueltig_ab <= ? LIMIT 1', zuletzt, heute);
+        db.setzeEinstellung('preise_tag', heute);
+        if (neu) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Preisänderung tritt in Kraft' });
+      }
+    } catch (e) { console.error('[BauTag] Preis-Abgleich:', e.message); }
+  };
+  bt.stuendlich = () => { preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt); };
   bt.stuendlich();
   bt.fuhrparkTimer = setInterval(() => bt.stuendlich(), 60 * 60 * 1000);
   bt.fuhrparkTimer.unref();

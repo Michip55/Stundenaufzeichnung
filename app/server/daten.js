@@ -16,14 +16,17 @@ function parseJson(s, standard) {
   try { return s == null ? standard : JSON.parse(s); } catch (_) { return standard; }
 }
 
+/** Heute gültige Preise (Maps) + `am(datum)` für die am Tag gültigen Preise (API.md 12.2) */
 function ladePreise(db) {
   const m = (rows) => new Map(rows.map((r) => [r.id, r]));
-  return {
+  const heute = {
     lohngruppen: m(db.alle('SELECT id, name, kostensatz, regiesatz FROM lohngruppe')),
     geraete: m(db.alle('SELECT id, code, name, kostensatz, verrechnungssatz FROM geraet')),
     materialien: m(db.alle('SELECT id, code, name, einheit, ek, vk FROM material')),
     leistungen: m(db.alle('SELECT id, code, text, einheit, ep FROM leistung'))
   };
+  Object.defineProperty(heute, 'am', { value: require('./preise-verlauf').preisZeitachse(db, heute), enumerable: false });
+  return heute;
 }
 
 /** Kostenrelevante Berichtsdaten (alle Status) einer Baustelle */
@@ -82,10 +85,12 @@ function kalkulationFuer(db, bs, preise) {
 
 /** Kosten eines Berichts (kostenTag) */
 function kostenTagFuer(db, berichtId) {
+  const b = db.eins('SELECT datum FROM bericht WHERE id = ?', berichtId);
   const personal = db.alle('SELECT bp.stunden, b.lohngruppe_id AS lohngruppeId FROM bericht_personal bp JOIN benutzer b ON b.id = bp.benutzer_id WHERE bp.bericht_id = ?', berichtId);
   const geraete = db.alle('SELECT geraet_id AS geraetId, stunden FROM bericht_geraet WHERE bericht_id = ?', berichtId);
   const material = db.alle('SELECT material_id AS materialId, menge FROM bericht_material WHERE bericht_id = ?', berichtId);
-  return kostenBericht({ personal, geraete, material }, ladePreise(db));
+  const preise = ladePreise(db);
+  return kostenBericht({ personal, geraete, material }, b ? preise.am(b.datum) : preise);
 }
 
 /** Buchungen eines Benutzers im Zeitraum [von, bis) als Objekte für die Logik */

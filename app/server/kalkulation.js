@@ -92,40 +92,50 @@ function berechneKalkulation(e) {
   const verlauf = new Map();
   const tag = (d) => { if (!verlauf.has(d)) verlauf.set(d, { kosten: 0, erloes: 0 }); return verlauf.get(d); };
   let ohneLohngruppe = 0, regieStunden = 0, lohnStunden = 0;
+  // API.md 12.2: Preise am Tag des Berichts bzw. der Meldung (preise.am(datum)); sonst die übergebenen Preise
+  const pAm = (d) => (typeof e.preiseAm === 'function' ? e.preiseAm(d) : preise && typeof preise.am === 'function' ? preise.am(d) : preise);
+  const regieSatzAm = (d) => (get(pAm(d).lohngruppen, e.regieLohngruppe || 'fa') || { regiesatz: 0 }).regiesatz;
   const regieSatz = (get(preise.lohngruppen, e.regieLohngruppe || 'fa') || { regiesatz: 0 }).regiesatz;
+  let erloesRegie = 0;
 
   for (const b of gezaehlt) {
     const t = tag(b.datum);
+    const pr = pAm(b.datum);
     for (const p of b.personal || []) {
       const st = p.stunden || 0;
       if (!st) continue;
       lohnStunden += st;
-      const lg = get(preise.lohngruppen, p.lohngruppeId);
+      const lg = get(pr.lohngruppen, p.lohngruppeId);
       if (!lg) { ohneLohngruppe += st; continue; }
-      const x = posLohn.get(p.lohngruppeId) || { lohngruppeId: p.lohngruppeId, name: lg.name, stunden: 0, satz: lg.kostensatz, betrag: 0 };
+      const k = `${p.lohngruppeId}|${lg.kostensatz}`; // je Satz eine Zeile (12.2)
+      const x = posLohn.get(k) || { lohngruppeId: p.lohngruppeId, name: lg.name, stunden: 0, satz: lg.kostensatz, betrag: 0 };
       x.stunden += st; x.betrag += st * lg.kostensatz;
-      posLohn.set(p.lohngruppeId, x);
+      posLohn.set(k, x);
       t.kosten += st * lg.kostensatz;
     }
     for (const g of b.geraete || []) {
-      const ge = get(preise.geraete, g.geraetId);
+      const ge = get(pr.geraete, g.geraetId);
       if (!ge || !g.stunden) continue;
-      const x = posGeraet.get(g.geraetId) || { geraetId: g.geraetId, code: ge.code, name: ge.name, stunden: 0, satz: ge.kostensatz, betrag: 0 };
+      const k = `${g.geraetId}|${ge.kostensatz}`;
+      const x = posGeraet.get(k) || { geraetId: g.geraetId, code: ge.code, name: ge.name, stunden: 0, satz: ge.kostensatz, betrag: 0 };
       x.stunden += g.stunden; x.betrag += g.stunden * ge.kostensatz;
-      posGeraet.set(g.geraetId, x);
+      posGeraet.set(k, x);
       t.kosten += g.stunden * ge.kostensatz;
     }
     for (const m of b.material || []) {
-      const ma = get(preise.materialien, m.materialId);
+      const ma = get(pr.materialien, m.materialId);
       if (!ma || !m.menge) continue;
-      const x = posMaterial.get(m.materialId) || { materialId: m.materialId, code: ma.code, name: ma.name, einheit: ma.einheit, menge: 0, satz: ma.ek, betrag: 0 };
+      const k = `${m.materialId}|${ma.ek}`;
+      const x = posMaterial.get(k) || { materialId: m.materialId, code: ma.code, name: ma.name, einheit: ma.einheit, menge: 0, satz: ma.ek, betrag: 0 };
       x.menge += m.menge; x.betrag += m.menge * ma.ek;
-      posMaterial.set(m.materialId, x);
+      posMaterial.set(k, x);
       t.kosten += m.menge * ma.ek;
     }
     for (const r of b.regie || []) {
       regieStunden += r.stunden || 0;
-      t.erloes += (r.stunden || 0) * regieSatz;
+      const rs = regieSatzAm(b.datum);
+      erloesRegie += (r.stunden || 0) * rs;
+      t.erloes += (r.stunden || 0) * rs;
     }
   }
 
@@ -135,11 +145,12 @@ function berechneKalkulation(e) {
   const posLeistung = new Map();
   let erloesLeistung = 0;
   for (const l of e.leistungsmeldungen || []) {
-    const le = get(preise.leistungen, l.leistungId);
+    const le = get(pAm(l.datum).leistungen, l.leistungId);
     if (!le) continue;
-    const x = posLeistung.get(l.leistungId) || { leistungId: l.leistungId, code: le.code, text: le.text, einheit: le.einheit, menge: 0, ep: le.ep, betrag: 0 };
+    const k = `${l.leistungId}|${le.ep}`;
+    const x = posLeistung.get(k) || { leistungId: l.leistungId, code: le.code, text: le.text, einheit: le.einheit, menge: 0, ep: le.ep, betrag: 0 };
     x.menge += l.menge; x.betrag += l.menge * le.ep;
-    posLeistung.set(l.leistungId, x);
+    posLeistung.set(k, x);
     erloesLeistung += l.menge * le.ep;
     tag(l.datum).erloes += l.menge * le.ep;
   }
@@ -148,7 +159,6 @@ function berechneKalkulation(e) {
   const kLohn = sum(posLohn), kGeraete = sum(posGeraet), kMaterial = sum(posMaterial);
   const kFremd = (e.fremdleistungen || []).reduce((a, f) => a + f.betrag, 0);
   const kGesamt = kLohn + kGeraete + kMaterial + kFremd;
-  const erloesRegie = regieStunden * regieSatz;
   const erloes = erloesLeistung + erloesRegie;
   const db = erloes - kGesamt;
 

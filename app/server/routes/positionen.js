@@ -11,6 +11,7 @@ const { pruefeBudget } = require('../budget');
 const { wienDatum, plusTage } = require('../datum');
 const { brauche, baustelleAusPfad } = require('./hilfe');
 const { kalkulationFuer } = require('../daten');
+const PV = require('../preise-verlauf');
 
 const ARTEN = ['personal', 'geraet', 'material', 'naturmaterial'];
 
@@ -70,6 +71,14 @@ module.exports = function positionenRouten(api, bt) {
     return f;
   }
 
+  /** EP-Änderung aus den Feldern lösen → Stand mit gueltigAb (API.md 12.2) */
+  function epAenderung(f, body) {
+    if (f.ep === undefined) return null;
+    const wert = f.ep;
+    delete f.ep;
+    return { wert, ...PV.pruefeGueltigAb(db, body.gueltigAb, body.rueckwirkend) };
+  }
+
   function lesen(req, bs) {
     if (!darfKalk(req.ctx, bs)) throw keinZugriff('Die Nachkalkulation sehen Büro, GF und der Bauleiter der Baustelle.');
   }
@@ -99,7 +108,7 @@ module.exports = function positionenRouten(api, bt) {
       ...(mitPreis ? { summe: g.summe, anteilProzent: g.anteilProzent } : {}),
       positionen: g.positionen.map((p) => {
         if (mitPreis) return p;
-        const { ep, summe, ...rest } = p; // eslint-disable-line no-unused-vars
+        const { ep, summe, perioden, epGeplant, ...rest } = p; // eslint-disable-line no-unused-vars
         // E-08: PA/VE-Mengen sind Rechnungsbeträge in € – ohne preise_sehen nur die Anzahl der Einträge
         if (['pa', 've'].includes(String(p.einheit).trim().toLowerCase())) {
           const { menge, mengeAuto, mengeManuell, eintraege, ...ohne } = rest; // eslint-disable-line no-unused-vars
@@ -119,6 +128,7 @@ module.exports = function positionenRouten(api, bt) {
 
   function katalogJson() {
     const alle = db.alle('SELECT * FROM katalog ORDER BY sortierung, id');
+    const seit = PV.gueltigSeit(db, 'katalog'), plan = PV.geplant(db, 'katalog');
     return {
       stand: db.einstellung('katalog_stand', null),
       gruppen: GRUPPEN.map((g) => ({
@@ -126,7 +136,9 @@ module.exports = function positionenRouten(api, bt) {
         positionen: alle.filter((k) => k.gruppe === g.schluessel).map((k) => ({
           id: k.id, gruppe: k.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, ep: k.ep, sortierung: k.sortierung,
           quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1,
-          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, naturmaterialMoeglich: einheitNorm(k.einheit) === 't', herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
+          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, naturmaterialMoeglich: einheitNorm(k.einheit) === 't', herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version,
+          epAb: (seit.get(String(k.id)) || {}).ep || PV.BASIS_DATUM,
+          ...(plan.has(String(k.id)) ? { epGeplant: plan.get(String(k.id)).map((x) => ({ id: x.id, ep: x.wert, gueltigAb: x.gueltigAb })) } : {})
         }))
       }))
     };
@@ -151,11 +163,14 @@ module.exports = function positionenRouten(api, bt) {
     if (body.version !== undefined && v.zahl(body.version, 'version', { min: 1, ganz: true }) !== alt.version) throw konflikt('Die Katalogposition wurde inzwischen geändert. Bitte neu laden.', { version: alt.version });
     const f = pruefeFelder(body, true, alt);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
+    const ep = epAenderung(f, body);
     const k = Object.keys(f);
     db.transaktion(() => {
-      db.lauf(`UPDATE katalog SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1, geaendert = ? WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), id);
+      db.lauf(`UPDATE katalog SET ${[...k.map((x) => `${x} = ?`), 'version = version + 1', 'geaendert = ?'].join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), id);
+      if (ep) PV.setzePreis(db, { art: 'katalog', ref: id, feld: 'ep', wert: ep.wert, gueltigAb: ep.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
       const a = {}; for (const x of k) a[x] = alt[x];
-      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: `katalog:${id}`, alt: a, neu: f, text: `Katalog: „${alt.bezeichnung}“ geändert (bestehende Baustellen unverändert)` });
+      if (ep) a.ep = alt.ep;
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: `katalog:${id}`, alt: a, neu: { ...f, ...(ep ? { ep: ep.wert, gueltigAb: ep.gueltigAb, ...(ep.rueckwirkend ? { rueckwirkend: true } : {}) } : {}) }, text: `Katalog: „${alt.bezeichnung}“ geändert${ep ? ` (EP ab ${ep.gueltigAb.split('-').reverse().join('.')})` : ''} (bestehende Baustellen unverändert)` });
     });
     res.json(katalogJson().gruppen.flatMap((g) => g.positionen).find((p) => p.id === id));
   });
@@ -227,6 +242,7 @@ module.exports = function positionenRouten(api, bt) {
         } else unveraendert++;
       }
       const ohneSummenzeile = gelesen.offen.map((p) => ({ zeile: p.zeile, bezeichnung: p.bezeichnung }));
+      const gab = uebernehmen ? PV.pruefeGueltigAb(db, req.query.gueltigAb, req.query.rueckwirkend === '1') : null;
       if (uebernehmen) {
         if (fehler.length) throw ungueltig(`Die Datei enthält ${fehler.length} ungültige Zeile(n) – nichts übernommen.`, { zeilenFehler: fehler });
         db.transaktion(() => {
@@ -236,7 +252,8 @@ module.exports = function positionenRouten(api, bt) {
           }
           for (const g of geaendert) {
             if (g.geschuetzt && !ueberschreiben) continue;
-            db.lauf('UPDATE katalog SET ep = ?, aktiv = 1, version = version + 1, geaendert = ? WHERE id = ?', g.epNeu, jetzt(), g.id);
+            db.lauf('UPDATE katalog SET aktiv = 1, version = version + 1, geaendert = ? WHERE id = ?', jetzt(), g.id);
+            if (Math.abs(g.epNeu - g.epAlt) > 1e-9) PV.setzePreis(db, { art: 'katalog', ref: g.id, feld: 'ep', wert: g.epNeu, gueltigAb: gab.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
           }
           db.setzeEinstellung('katalog_stand', wienDatum(bt.uhr()));
           db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: 'katalog',
@@ -279,11 +296,14 @@ module.exports = function positionenRouten(api, bt) {
     if (version !== p.version) throw konflikt('Die Position wurde inzwischen geändert. Bitte neu laden.', { version: p.version });
     const f = pruefeFelder(body, true, p);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
+    const ep = epAenderung(f, body);
     const k = Object.keys(f);
     db.transaktion(() => {
-      db.lauf(`UPDATE projektposition SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1, geaendert = ? WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), p.id);
+      db.lauf(`UPDATE projektposition SET ${[...k.map((x) => `${x} = ?`), 'version = version + 1', 'geaendert = ?'].join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), p.id);
+      if (ep) PV.setzePreis(db, { art: 'projektposition', ref: p.id, feld: 'ep', wert: ep.wert, gueltigAb: ep.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
       const a = {}; for (const x of k) a[x] = p[x];
-      prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: „${p.bezeichnung}“ geändert`, a, f);
+      if (ep) a.ep = p.ep;
+      prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: „${p.bezeichnung}“ geändert${ep ? ` (EP ab ${ep.gueltigAb.split('-').reverse().join('.')}${ep.rueckwirkend ? ', rückwirkend' : ''})` : ''}`, a, { ...f, ...(ep ? { ep: ep.wert, gueltigAb: ep.gueltigAb } : {}) });
     });
     budget(req, bs, 'Änderung einer Position');
     res.json(positionJson(db.eins('SELECT * FROM projektposition WHERE id = ?', p.id)));
@@ -299,6 +319,7 @@ module.exports = function positionenRouten(api, bt) {
     if (akt && (akt.menge !== 0 || (akt.eintraege || []).length)) throw konflikt('Für die Position sind Mengen gebucht – bitte ausblenden statt löschen.');
     db.transaktion(() => {
       db.lauf('DELETE FROM projektposition WHERE id = ?', p.id);
+      db.lauf("DELETE FROM preis_stand WHERE art = 'projektposition' AND ref = ?", String(p.id));
       prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: „${p.bezeichnung}“ gelöscht`, positionJson(p), null);
     });
     res.json({ ok: true });
@@ -310,6 +331,7 @@ module.exports = function positionenRouten(api, bt) {
     const body = v.objekt(req.body);
     const modus = v.auswahl(body.modus ?? 'fehlende', 'modus', ['fehlende', 'preise']);
     const vorschau = body.vorschau === undefined ? false : v.bool(body.vorschau, 'vorschau');
+    const gab = modus === 'preise' ? PV.pruefeGueltigAb(db, body.gueltigAb, body.rueckwirkend) : null;
     let aenderungen;
     if (modus === 'fehlende') {
       const da = new Set(db.alle('SELECT katalog_id FROM projektposition WHERE baustelle_id = ? AND katalog_id IS NOT NULL', bs.id).map((x) => x.katalog_id));
@@ -321,8 +343,11 @@ module.exports = function positionenRouten(api, bt) {
         JOIN katalog k ON k.id = p.katalog_id WHERE p.baustelle_id = ? AND abs(p.ep - k.ep) > 0.000001 ORDER BY p.gruppe, p.sortierung`, bs.id);
       if (!vorschau && aenderungen.length) {
         db.transaktion(() => {
-          for (const a of aenderungen) db.lauf('UPDATE projektposition SET ep = ?, version = version + 1, geaendert = ? WHERE id = ?', a.epNeu, jetzt(), a.positionId);
-          prot(req, `baustelle:${bs.id}`, `Nachkalkulation ${bs.kst}: ${aenderungen.length} Preise aus der Vorlage übernommen`, null, aenderungen.map((a) => ({ id: a.positionId, ep: a.epNeu })));
+          for (const a of aenderungen) {
+            db.lauf('UPDATE projektposition SET version = version + 1, geaendert = ? WHERE id = ?', jetzt(), a.positionId);
+            PV.setzePreis(db, { art: 'projektposition', ref: a.positionId, feld: 'ep', wert: a.epNeu, gueltigAb: gab.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
+          }
+          prot(req, `baustelle:${bs.id}`, `Nachkalkulation ${bs.kst}: ${aenderungen.length} Preise aus der Vorlage übernommen (gültig ab ${gab.gueltigAb.split('-').reverse().join('.')})`, null, aenderungen.map((a) => ({ id: a.positionId, ep: a.epNeu, gueltigAb: gab.gueltigAb })));
         });
       }
     }
@@ -369,6 +394,48 @@ module.exports = function positionenRouten(api, bt) {
     res.json({ ok: true });
   });
 
+  /* ---------- Preis-Verlauf (API.md 12.2) ---------- */
+  const verlaufKatalog = (feld) => (s) => ({ id: s.id, [feld]: s.wert, gueltigAb: s.gueltigAb, erstellt: s.erstellt, erstelltVon: s.erstelltVon });
+  api.get('/positionen/katalog/:id/verlauf', brauche('preise_sehen'), (req, res) => {
+    const id = v.pfadId(req.params.id, 'Katalog-ID');
+    if (!db.eins('SELECT id FROM katalog WHERE id = ?', id)) throw nichtGefunden('Katalogposition nicht gefunden.');
+    res.json(PV.verlaufJson(db, 'katalog', id).map(verlaufKatalog('ep')));
+  });
+  api.delete('/positionen/katalog/:id/verlauf/:vid', brauche('preise_bearbeiten'), (req, res) => {
+    const id = v.pfadId(req.params.id, 'Katalog-ID');
+    const s = PV.loescheStand(db, { art: 'katalog', ref: id, id: v.pfadId(req.params.vid, 'Stand-ID') });
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: `katalog:${id}`, alt: { ep: s.wert, gueltigAb: s.gueltig_ab }, text: `Katalog: geplanten EP ab ${s.gueltig_ab} gelöscht` });
+    res.json({ ok: true });
+  });
+  api.get('/baustellen/:id/positionen/:pid/verlauf', (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    lesen(req, bs);
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Preise sehen Büro, GF und der Bauleiter der Baustelle.');
+    const p = position(bs, req.params.pid);
+    res.json(PV.verlaufJson(db, 'projektposition', p.id).map(verlaufKatalog('ep')));
+  });
+  api.delete('/baustellen/:id/positionen/:pid/verlauf/:vid', (req, res) => {
+    const bs = baustelleAusPfad(db, req.params.id);
+    lesen(req, bs); schreibenPreise(req);
+    const p = position(bs, req.params.pid);
+    const s = PV.loescheStand(db, { art: 'projektposition', ref: p.id, id: v.pfadId(req.params.vid, 'Stand-ID') });
+    prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: geplanten EP von „${p.bezeichnung}“ ab ${s.gueltig_ab} gelöscht`, { ep: s.wert, gueltigAb: s.gueltig_ab }, null);
+    res.json({ ok: true });
+  });
+
+  /** API.md 12.2: Position mit mehreren EP-Perioden → eine Zeile je Periode (eigene Menge, eigener EP) */
+  const de = (d) => d.split('-').reverse().join('.');
+  function exportZeilen(p) {
+    if (!p.perioden) return [p];
+    const mit = p.perioden.filter((x) => x.menge !== 0);
+    const liste = mit.length ? mit : [p.perioden[p.perioden.length - 1]];
+    return liste.map((x) => {
+      const erste = x.gueltigAb === PV.BASIS_DATUM;
+      const zusatz = erste ? (x.bis ? `bis ${de(x.bis)}` : '') : x.bis ? `ab ${de(x.gueltigAb)} bis ${de(x.bis)}` : `ab ${de(x.gueltigAb)}`;
+      return { bezeichnung: zusatz ? `${p.bezeichnung} (${zusatz})` : p.bezeichnung, einheit: p.einheit, ep: x.ep, mengeAuto: x.menge, eintraege: [] };
+    });
+  }
+
   api.get('/baustellen/:id/positionen/export.xlsx', async (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     lesen(req, bs);
@@ -377,7 +444,7 @@ module.exports = function positionenRouten(api, bt) {
     const r = projektPositionen(db, bs, k.auftragGesamt);
     const buf = await schreibeExport({
       titel: `Nachkalkulation ${bs.kst} ${bs.kurz || bs.name}`,
-      gruppen: r.gruppen.map((g) => ({ schluessel: g.schluessel, positionen: g.positionen.filter((p) => p.aktiv) }))
+      gruppen: r.gruppen.map((g) => ({ schluessel: g.schluessel, positionen: g.positionen.filter((p) => p.aktiv).flatMap(exportZeilen) }))
     });
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: `baustelle:${bs.id}`, text: `Nachkalkulation ${bs.kst} als Excel exportiert` });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

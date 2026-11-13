@@ -686,6 +686,25 @@ DROP TABLE bericht_geraet_alt;
 CREATE UNIQUE INDEX bericht_geraet_eindeutig ON bericht_geraet(bericht_id, geraet_id, IFNULL(anlage_id, 0));
 CREATE INDEX bericht_geraet_geraet ON bericht_geraet(geraet_id);
 `
+  },
+  {
+    version: 11,
+    name: 'Ausbaustufe 2: Preise mit „gültig ab“ (API.md 12.2)',
+    sql: `
+-- Ohne Stand gilt der Wert der Stammtabelle seit 2000-01-01; der erste Änderungs-Stand legt diesen Basisstand an.
+CREATE TABLE preis_stand (
+  id INTEGER PRIMARY KEY,
+  art TEXT NOT NULL CHECK (art IN ('lohngruppen','geraete','materialien','leistungen','katalog','projektposition')),
+  ref TEXT NOT NULL,
+  feld TEXT NOT NULL,
+  wert REAL NOT NULL CHECK (wert >= 0),
+  gueltig_ab TEXT NOT NULL,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id),
+  UNIQUE (art, ref, feld, gueltig_ab)
+);
+CREATE INDEX preis_stand_ref ON preis_stand(art, ref, feld, gueltig_ab);
+`
   }
 ];
 
