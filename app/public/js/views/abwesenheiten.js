@@ -11,7 +11,8 @@ const badge = (c) => `<span class="code-badge c-${esc(c)}">${esc(c)}</span>`;
 export default async function abwesenheiten(el, ctx) {
   const ich = ctx.ich.benutzer;
   const darfEntscheiden = ctx.kann('stammdaten') || ctx.kann('lohn');
-  const istPolier = !darfEntscheiden && ctx.kann('kolonne');
+  const istBauleiter = !darfEntscheiden && ich.rolle === 'bauleiter';
+  const istPolier = !darfEntscheiden && !istBauleiter && ctx.kann('kolonne');
   const heute = fmt.iso();
   const von = fmt.addTage(heute, -62), bis = fmt.addTage(heute, 366);
   let liste = [], leute = [];
@@ -33,11 +34,12 @@ export default async function abwesenheiten(el, ctx) {
 
   function zeichne() {
     const eigene = liste.filter((a) => a.benutzerId === ich.id);
-    const offen = liste.filter((a) => a.status === 'beantragt' && (darfEntscheiden ? true : false)).sort((a, b) => (a.datum > b.datum ? 1 : -1));
-    const andere = liste.filter((a) => a.benutzerId !== ich.id && (!darfEntscheiden || a.status !== 'beantragt'));
+    // D-09: der Bauleiter bestätigt Schlechtwetter-Meldungen seiner Baustellen (der Server liefert ihm nur diese)
+    const offen = liste.filter((a) => a.status === 'beantragt' && (darfEntscheiden || (istBauleiter && a.code === 'SW' && a.benutzerId !== ich.id))).sort((a, b) => (a.datum > b.datum ? 1 : -1));
+    const andere = liste.filter((a) => a.benutzerId !== ich.id && (!darfEntscheiden || a.status !== 'beantragt') && !offen.includes(a));
     el.innerHTML = `
     <div class="page narrow wide-md">
-      ${darfEntscheiden ? `
+      ${darfEntscheiden || (istBauleiter && offen.length) ? `
       <section class="card" id="abw-offen" aria-labelledby="h-offen">
         <div class="card-h pad-h"><h3 id="h-offen">${ic('calendar')}Anträge zur Genehmigung <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3></div>
         ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: a.benutzerId === ich.id ? '<span class="muted sm" data-eigener>Eigener Antrag – entscheidet eine andere Person</span>' : `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}
@@ -49,9 +51,9 @@ export default async function abwesenheiten(el, ctx) {
         ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: a.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}">Zurückziehen</button>` : '' })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
       </section>
 
-      ${darfEntscheiden || istPolier ? `
+      ${darfEntscheiden || istPolier || (istBauleiter && andere.length) ? `
       <section class="card" id="abw-andere" aria-labelledby="h-andere">
-        <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3><button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button></div>
+        <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3>${istBauleiter ? '' : `<button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button>`}</div>
         ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: darfEntscheiden ? `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` : '' })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
         ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankenstand trägt das Büro ein.</p>' : ''}
       </section>` : ''}
@@ -77,7 +79,7 @@ export default async function abwesenheiten(el, ctx) {
   }
   function eintragenDialog() {
     const eigeneBs = ctx.ich.baustellenIds || [];
-    const wahl = leute.filter((m) => m.aktiv !== false && (darfEntscheiden || (m.id !== ich.id && ['mitarbeiter', 'polier'].includes(m.rolle) && (m.baustelleId == null || eigeneBs.includes(m.baustelleId)))));
+    const wahl = leute.filter((m) => m.aktiv !== false && (darfEntscheiden || m.id === ich.id || (['mitarbeiter', 'polier'].includes(m.rolle) && (m.baustelleId == null || eigeneBs.includes(m.baustelleId)))));
     const codes = darfEntscheiden ? ['K', 'SW', 'U', 'ZA'] : ['SW'];
     const d = dialog({
       titel: darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen', breit: true,

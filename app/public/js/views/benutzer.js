@@ -6,7 +6,8 @@ import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, toast, s
 
 export default async function benutzer(el, ctx) {
   const voll = ctx.kann('benutzer');
-  const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter'];
+  const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter']; // diese Benutzer pflegt das Büro
+  const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [];
   let tab = !voll ? 'benutzer' : ['matrix', 'benutzer', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
   const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle);
@@ -16,7 +17,7 @@ export default async function benutzer(el, ctx) {
     if (!lohngruppen.length && ctx.kann('preise_sehen')) { try { lohngruppen = (await get('/preise')).lohngruppen || []; } catch (e) { /* optional */ } }
   }
   await lade();
-  const rollen = () => (voll ? r.rollen || Object.keys(ROLLEN) : BUERO_ROLLEN).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
+  const rollen = (m) => (voll ? r.rollen || Object.keys(ROLLEN) : m && m.rolle === 'bauleiter' ? ['bauleiter'] : BUERO_VERGIBT).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
   const gesperrt = (rolle, recht) => ((r.gesperrt || {})[rolle] || []).includes(recht);
   const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
   const rechtText = (k) => ((r.rechte || []).find((x) => x.schluessel === k) || {}).text || k;
@@ -41,8 +42,8 @@ export default async function benutzer(el, ctx) {
   function benutzerHtml() {
     const gesperrte = leute.filter(istGesperrt);
     const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
-      ${istGesperrt(m) ? `<span class="chip st-red">${ic('lock')}Gesperrt</span><button type="button" class="btn primary sm" data-entsperren="${m.id}">Entsperren</button>` : ''}
-      ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : '<span class="muted sm nw">nur durch GF</span>'}</li>`;
+      ${istGesperrt(m) ? `<span class="chip st-red">${ic('lock')}Gesperrt</span><button type="button" class="btn primary sm" data-entsperren="${m.id}">${darfBearbeiten(m) ? 'Entsperren' : 'Anmeldesperre aufheben'}</button>` : ''}
+      ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : '<span class="muted sm nw">Bearbeiten nur durch GF</span>'}</li>`;
     return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter, Poliere und Bauleiter an, setzen PINs zurück und entsperren Konten. Rollen Büro/Geschäftsführung und die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
       ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto gesperrt. „Entsperren“ hebt die Sperre auf; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben.</p></section>` : ''}
       <div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
@@ -66,7 +67,8 @@ export default async function benutzer(el, ctx) {
       : `<input class="input lg" name="lohngruppe" value="${esc((m && m.lohngruppe) || '')}">`;
     const d = dialog({ titel: m ? 'Benutzer bearbeiten' : 'Neuer Benutzer', breit: true, inhalt: `<form id="bf" class="stack-s" autocomplete="off">
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
-      <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle">${rollen().map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle" ${!voll && m && m.rolle === 'bauleiter' ? 'disabled' : ''} aria-describedby="rolle-hinweis">${rollen(m).map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (mit Einsicht in Preise der eigenen Baustellen) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
       <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
       <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label></div>
       <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
@@ -85,14 +87,29 @@ export default async function benutzer(el, ctx) {
     $('#bf', d.el).addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      const body = { name: f.get('name').trim(), rolle: f.get('rolle'), lohngruppe: f.get('lohngruppe') || null, baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null };
+      const body = { name: f.get('name').trim(), rolle: f.get('rolle') || (m && m.rolle), lohngruppe: f.get('lohngruppe') || null, baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null };
       if (f.get('pnr')) body.pnr = Number(f.get('pnr'));
       if (m && m.id === ctx.ich.benutzer.id) { delete body.rolle; } // eigene Rolle ändert niemand selbst
       if (f.get('pin')) body.pin = f.get('pin');
       if (m && m.id !== ctx.ich.benutzer.id) body.aktiv = f.get('aktiv') === 'on';
-      try { if (m) await put(`/benutzer/${m.id}`, body); else await post('/benutzer', body); d.zu(); toast(m ? 'Benutzer gespeichert.' : 'Benutzer angelegt.'); neuLaden(); }
+      if (m && body.rolle === m.rolle) delete body.rolle;
+      try {
+        const antwort = m ? await put(`/benutzer/${m.id}`, body) : await post('/benutzer', body);
+        d.zu(); toast(m ? 'Benutzer gespeichert.' : 'Benutzer angelegt.'); neuLaden();
+        zeigeFolgen(antwort);
+      }
       catch (x) { const err = $('.form-err', d.el); err.hidden = false; err.textContent = x.message; }
     });
+  }
+  // D-11: Nach einem Rollenwechsel meldet der Server gelöste Baustellen-Zuordnungen; D-02: Hinweis auf die Meldung an die GF
+  function zeigeFolgen(a) {
+    if (!a || typeof a !== 'object') return;
+    const roh = a.geloesteZuordnungen || a.zuordnungenGeloest || a.geloest || a.entfernteZuordnungen || [];
+    const liste = Array.isArray(roh) ? roh : [];
+    const hinweis = a.hinweis || (a.gfBenachrichtigt ? 'Die Geschäftsführung wurde benachrichtigt.' : '');
+    if (!liste.length && !hinweis) return;
+    const text = (z) => (typeof z === 'string' ? z : `${z.kst ? z.kst + ' · ' : ''}${z.name || (baustellen.find((b) => b.id === (z.baustelleId ?? z.id)) || {}).name || 'Baustelle ' + (z.baustelleId ?? z.id)}${z.feld || z.als ? ` (${/polier/i.test(z.feld || z.als) ? 'Polier' : 'Bauleiter'})` : ''}`);
+    dialog({ titel: 'Hinweis zur Änderung', inhalt: `<div id="folgen">${liste.length ? `<p><b>${esc(a.name || 'Die Person')}</b> war diesen Baustellen zugeordnet. Die Zuordnung wurde wegen des Rollenwechsels gelöst – bitte neu besetzen:</p><ul class="plain" data-geloest>${liste.map((z) => `<li><span>${esc(text(z))}</span></li>`).join('')}</ul>` : ''}${hinweis ? `<p class="muted" data-gf-hinweis>${esc(hinweis)}</p>` : ''}</div>`, fuss: '<button class="btn primary" type="button" data-zu>Verstanden</button>' });
   }
   function ausnahmeDialog() {
     const d = dialog({ titel: 'Ausnahme vergeben', inhalt: `<form id="af" class="stack-s">

@@ -1,8 +1,17 @@
 // Anmeldung: Benutzer wählen (oder Personalnummer eingeben, wenn die Namensliste abgeschaltet ist), dann PIN.
 import { get, post } from '../api.js';
-import { ic, esc, MARK, avatar, rolleText, laden, speicher, $ } from '../ui.js';
+import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, $ } from '../ui.js';
 
 const PIN_MAX = 12;
+// D-01: Wenn der Server ein Ende der Sperre mitteilt, wird es angezeigt („läuft ab um …“)
+function ablaufText(e) {
+  const d = e.daten || {};
+  const bis = d.gesperrtBis || d.sperreBis || d.ablauf || d.bis || (d.retryAfter ? new Date(Date.now() + d.retryAfter * 1000).toISOString() : null);
+  if (!bis || /läuft ab/i.test(e.message || '')) return '';
+  const t = new Date(bis); if (isNaN(t)) return '';
+  const heute = fmt.iso(t) === fmt.iso();
+  return ` Die Sperre läuft ab ${heute ? 'um' : `am ${fmt.datum(fmt.iso(t))} um`} ${fmt.uhr(t.toISOString())} Uhr.`;
+}
 
 export default async function login(root, { angemeldet }) {
   let liste = [];
@@ -106,7 +115,7 @@ export default async function login(root, { angemeldet }) {
     } catch (e) {
       sendet = false; pin = '';
       const text = e.netz ? 'Keine Verbindung zum Server. Bitte später erneut versuchen.'
-        : e.status === 423 || e.code === 'KONTO_GESPERRT' ? `${e.message || 'Dieses Konto ist gesperrt.'}${/Büro/i.test(e.message || '') ? '' : ' Bitte im Büro melden – dort wird das Konto entsperrt.'}`
+        : e.status === 423 || e.code === 'KONTO_GESPERRT' ? `${e.message || 'Dieses Konto ist gesperrt.'}${/Büro/i.test(e.message || '') ? '' : ' Bitte im Büro melden – dort wird das Konto entsperrt.'}${ablaufText(e)}`
         : e.status === 429 ? (e.message || 'Zu viele Fehlversuche. Bitte später erneut versuchen.')
         : e.status === 401 || e.status === 400 ? (e.message || 'PIN falsch. Bitte erneut eingeben.')
         : e.message;

@@ -633,3 +633,7 @@ a.link { color: var(--blue); font-weight: 600; text-decoration: underline; }
   .korr li[data-schicht] .korr-datum { width: auto; flex: 1 1 100%; }
   .korr li[data-schicht] .btn, [data-benutzer] .btn { flex: 1 1 auto; }
 }
+
+/* Prüfbericht 3 */
+.matrix .mit-std { display: block; font-size: 10.5px; font-weight: 700; color: var(--red-d); }
+#folgen ul { margin: 8px 0; }

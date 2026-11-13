@@ -521,14 +521,26 @@ export async function bericht(el, ctx) {
     const knopfAus = () => { knopf.disabled = false; };
     if (!(await allesSichern())) { toast('Unterschrift nicht möglich: Die letzten Änderungen sind noch nicht gespeichert.', 'warn'); anzeige(); knopfAus(); return; }
     try {
-      const r = await post(`/berichte/${id}/unterschrift`, { rolle, name, bildPng: pad.png() });
+      const r = await post(`/berichte/${id}/unterschrift`, { rolle, name, bildPng: pad.png(), version: b.version }); // D-07: unterschrieben wird genau der angezeigte Stand
       const neu = r && r.unterschriften ? r : await get(`/berichte/${id}`);
       b.unterschriften = neu.unterschriften || {}; b.status = neu.status; if (neu.version != null) b.version = neu.version;
       delete pads[rolle];
       toast(b.status === 'unterschrieben' ? 'Beide Unterschriften vorhanden – Bericht abgeschlossen.' : 'Unterschrift gespeichert.');
       zeichne(); // Inhalt ist ab jetzt gesperrt (M-02)
       if (b.status !== 'entwurf') ctx.meldungenNeu();
-    } catch (e) { toast(e.message, 'warn'); knopf.disabled = false; }
+    } catch (e) {
+      knopf.disabled = false;
+      if (e.status === 409) {
+        // D-07: Bericht wurde inzwischen geändert · D-05: für diese Rolle gibt es schon eine Unterschrift
+        const veraltet = e.daten && e.daten.version != null && e.daten.version !== b.version;
+        const d = dialog({
+          titel: veraltet ? 'Bericht wurde inzwischen geändert' : 'Unterschrift nicht möglich',
+          inhalt: `<p data-sig-konflikt="${veraltet ? 'version' : 'vorhanden'}">${esc(e.message)}</p><p class="muted sm">${veraltet ? 'Unterschrieben wird immer der aktuelle Stand. Bitte neu laden, den Inhalt noch einmal zeigen und dann unterschreiben lassen.' : 'Eine vorhandene Unterschrift wird nie überschrieben. Sie muss zuerst zurückgezogen werden – die des Bauherrn nur durch Büro oder Geschäftsführung (mit Vermerk im Bericht).'}</p>`,
+          fuss: '<button class="btn primary" type="button" data-zu>Neu laden</button>',
+        });
+        d.geschlossen.then(() => ctx.neuLaden());
+      } else toast(e.message, 'warn');
+    }
   }
   async function freigeben() {
     if (!(await bestaetigen('Bericht freigeben?', 'Der Bericht fließt damit in Nachkalkulation und Monatsauswertung ein.', 'Freigeben'))) return;
@@ -536,7 +548,10 @@ export async function bericht(el, ctx) {
       const r = await post(`/berichte/${id}/freigeben`);
       b.status = (r && r.status) || 'freigegeben'; if (r && r.version != null) b.version = r.version;
       toast('Bericht freigegeben.'); zeichne(); ctx.meldungenNeu();
-    } catch (e) { toast(e.message, 'warn'); }
+    } catch (e) {
+      if (e.status === 403) dialog({ titel: 'Freigabe nicht möglich', inhalt: `<p data-freigabe-abgelehnt>${esc(e.message)}</p><p class="muted sm">Vier-Augen-Prinzip: Wer die Unterschrift des Auftragnehmers erfasst hat, gibt den Bericht nicht selbst frei.</p>`, fuss: '<button class="btn primary" type="button" data-zu>Verstanden</button>' });
+      else toast(e.message, 'warn');
+    }
   }
 
   zeichne();
