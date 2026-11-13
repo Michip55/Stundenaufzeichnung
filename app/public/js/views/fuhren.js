@@ -110,7 +110,7 @@ export async function fuhreDialog(ctx, vor, fertig) {
     } catch (x) { $('#fu-ok', dlg.el).disabled = false; zeigF(x.status === 409 ? 'Inzwischen von jemand anderem geändert – bitte schließen und erneut öffnen.' : x.message); }
   });
   const weg = $('#fu-weg', dlg.el);
-  if (weg) weg.addEventListener('click', async () => { if (!(await bestaetigen(f.veroeffentlicht ? 'Fuhre stornieren?' : 'Fuhre löschen?', f.veroeffentlicht ? 'Der Fahrer wird benachrichtigt.' : '', f.veroeffentlicht ? 'Stornieren' : 'Löschen', 'danger'))) return; try { await del(`/plan/fuhren/${f.id}`); dlg.zu(); toast(f.veroeffentlicht ? 'Fuhre storniert.' : 'Fuhre gelöscht.'); } catch (x) { toast(x.message, 'warn'); } fertig(); });
+  if (weg) weg.addEventListener('click', async () => { if (!(await bestaetigen(f.veroeffentlicht ? 'Fuhre stornieren?' : 'Fuhre löschen?', f.veroeffentlicht ? 'Die Fuhre war schon veröffentlicht: Sie zählt als offene Änderung – der Fahrer erfährt es mit der nächsten Veröffentlichung („entfällt“).' : '', f.veroeffentlicht ? 'Stornieren' : 'Löschen', 'danger'))) return; try { await del(`/plan/fuhren/${f.id}`); dlg.zu(); toast(f.veroeffentlicht ? 'Fuhre storniert – bitte neu veröffentlichen, damit der Fahrer es erfährt.' : 'Fuhre gelöscht.', f.veroeffentlicht ? 'warn' : 'ok'); } catch (x) { toast(x.message, 'warn'); } fertig(); });
   const dk = $('#fu-dichte-ok', dlg.el);
   if (dk) dk.addEventListener('click', async () => { const w = parseZahl($('#fu-dichte', dlg.el).value); if (!(w > 0 && w < 10)) { toast('Dichte in t/m³ eintragen, z. B. 1,8.', 'warn'); return; } try { await put(`/materialien/${f.materialId}`, { dichte: w }); stamm = null; toast('Dichte gespeichert – gilt für künftige Fuhren.'); } catch (x) { toast(x.message, 'warn'); } });
 }

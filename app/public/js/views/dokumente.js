@@ -2,7 +2,7 @@
 // Vorschau (Bild im Lichtkasten, PDF im abgeschotteten Rahmen), Versionen, Suche, Löschen mit Bestätigung.
 // Welche Kategorien jemand sieht, bestimmt der Server; finanzielle Kategorien kommen nur mit Preis-Recht.
 import { get, post, put, api } from '../api.js';
-import { ic, esc, fmt, leer, banner, dialog, toast, $, $$ } from '../ui.js';
+import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
 
 const MAX_MB = 25;
@@ -44,7 +44,7 @@ export async function dokumenteTab(box, b, ctx) {
     const l = sicht();
     box.innerHTML = fehler ? banner('err', esc(fehler)) : `<div class="dok" id="dokumente">
       <aside class="dok-kat" aria-label="Kategorien"><button type="button" class="dok-kat-btn${kat ? '' : ' on'}" data-kat="" aria-pressed="${!kat}"><span>Alle Dokumente</span><b>${zahl('')}</b></button>
-        ${kats.map((k) => `<button type="button" class="dok-kat-btn${kat === k.schluessel ? ' on' : ''}" data-kat="${esc(k.schluessel)}" aria-pressed="${kat === k.schluessel}"><span>${esc(k.name)}${k.finanziell ? ` ${ic('euro', 'xs')}` : ''}</span><b>${zahl(k.schluessel)}</b></button>`).join('')}${ctx.kann('benutzer') ? `<button type="button" class="dok-kat-btn neu" id="dok-kat-neu">${ic('plus', 'xs')}<span>Eigene Kategorie</span></button>` : ''}</aside>
+        ${kats.map((k) => `<button type="button" class="dok-kat-btn${kat === k.schluessel ? ' on' : ''}" data-kat="${esc(k.schluessel)}" aria-pressed="${kat === k.schluessel}"><span>${esc(k.name)}${k.finanziell ? ` ${ic('euro', 'xs')}` : ''}</span><b>${zahl(k.schluessel)}</b></button>${ctx.kann('benutzer') ? `<button type="button" class="icon-btn sm dok-kat-edit" data-kat-edit="${esc(k.schluessel)}" aria-label="Kategorie ${esc(k.name)} bearbeiten" title="Kategorie bearbeiten">${ic('edit')}</button>` : ''}`).join('')}${ctx.kann('benutzer') ? `<button type="button" class="dok-kat-btn neu" id="dok-kat-neu">${ic('plus', 'xs')}<span>Eigene Kategorie</span></button>` : ''}</aside>
       <div class="dok-haupt-sp stack-s">
         <div class="toolbar wrap"><label class="search weit"><span>${ic('file')}</span><input type="search" id="dok-suche" placeholder="Titel, Dateiname oder Stichwort" aria-label="Dokumente durchsuchen" value="${esc(suche)}"></label>
           ${schreibKats().length ? `<button type="button" class="btn primary" id="dok-neu">${ic('plus')}Hochladen</button><button type="button" class="btn ghost" id="dok-kamera">${ic('camera')}Foto</button><input type="file" id="dok-datei" class="vh" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.xlsx,application/pdf,image/*" tabindex="-1" aria-hidden="true"><input type="file" id="dok-foto" class="vh" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">` : `<span class="chip st-grey" id="dok-nur-lesen">nur lesen</span>`}</div>
@@ -56,18 +56,31 @@ export async function dokumenteTab(box, b, ctx) {
   const neu = async () => { await lade(); zeichne(); };
 
   /* ---- Eigene Kategorie (nur Geschäftsführung) ---- */
-  function kategorieDialog() {
-    const dlg = dialog({ titel: 'Eigene Kategorie anlegen', inhalt: `<form id="dkk" class="stack-s" novalidate>
-      <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required maxlength="60" placeholder="z. B. Vermessung"></label>
-      <label class="check-inline"><input type="checkbox" name="finanziell"> Enthält Preise – nur mit Preis-Recht sichtbar (nie für Polier)</label>
-      <label class="check-inline"><input type="checkbox" name="polier"> Polier darf diese Kategorie lesen</label>
-      <p class="muted sm">Die Kategorie gilt für alle Baustellen und kann später nicht gelöscht werden.</p><p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="dkk" id="dkk-ok">Anlegen</button>' });
-    const form = $('#dkk', dlg.el);
-    form.elements.finanziell.addEventListener('change', (e) => { form.elements.polier.disabled = e.target.checked; if (e.target.checked) form.elements.polier.checked = false; });
+  function kategorieDialog(k) {
+    // eingebaute Kategorien lassen sich nur umbenennen; eigene auch in den Rechten ändern und – wenn leer – löschen
+    const eigen = !k || k.eigen;
+    const dlg = dialog({ titel: k ? `Kategorie „${k.name}“` : 'Eigene Kategorie anlegen', inhalt: `<form id="dkk" class="stack-s" novalidate>
+      <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required maxlength="60" value="${esc((k && k.name) || '')}" placeholder="z. B. Vermessung"></label>
+      ${eigen ? `<label class="check-inline"><input type="checkbox" name="finanziell" ${k && k.finanziell ? 'checked' : ''}> Enthält Preise – nur mit Preis-Recht sichtbar (nie für Polier)</label>
+      <label class="check-inline"><input type="checkbox" name="polier" ${k && k.polier ? 'checked' : ''} ${k && k.finanziell ? 'disabled' : ''}> Polier darf diese Kategorie lesen</label>` : '<p class="muted sm">Eingebaute Kategorie: nur der Name lässt sich ändern.</p>'}
+      ${k ? '' : '<p class="muted sm">Die Kategorie gilt für alle Baustellen.</p>'}<p class="form-err" role="alert" hidden></p></form>`,
+      fuss: `${k && k.eigen ? '<button class="btn danger" type="button" id="dkk-weg">Löschen</button><span class="grow"></span>' : ''}<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="dkk" id="dkk-ok">${k ? 'Speichern' : 'Anlegen'}</button>` });
+    const form = $('#dkk', dlg.el); const err = $('.form-err', dlg.el);
+    if (form.elements.finanziell) form.elements.finanziell.addEventListener('change', (e) => { form.elements.polier.disabled = e.target.checked; if (e.target.checked) form.elements.polier.checked = false; });
     form.addEventListener('submit', async (e) => {
-      e.preventDefault(); const f = new FormData(form); const err = $('.form-err', dlg.el); const name = String(f.get('name') || '').trim();
+      e.preventDefault(); const f = new FormData(form); const name = String(f.get('name') || '').trim();
       if (name.length < 2) { err.hidden = false; err.textContent = 'Bitte einen Namen eintragen.'; return; }
-      try { const k = await post('/dokument-kategorien', { name, finanziell: f.get('finanziell') === 'on', polier: f.get('polier') === 'on' }); dlg.zu(); toast('Kategorie angelegt.'); kat = (k && k.schluessel) || ''; neu(); } catch (x) { err.hidden = false; err.textContent = x.status === 409 ? 'Diese Kategorie gibt es schon.' : x.message; }
+      const body = { name, ...(eigen ? { finanziell: f.get('finanziell') === 'on', polier: f.get('polier') === 'on' } : {}) };
+      try {
+        const r = k ? await put(`/dokument-kategorien/${encodeURIComponent(k.schluessel)}`, body) : await post('/dokument-kategorien', body);
+        dlg.zu(); toast(k ? 'Kategorie gespeichert.' : 'Kategorie angelegt.'); if (!k) kat = (r && r.schluessel) || ''; neu();
+      } catch (x) { err.hidden = false; err.textContent = x.status === 409 ? (x.message || 'Diese Kategorie gibt es schon.') : x.message; }
+    });
+    const weg = $('#dkk-weg', dlg.el);
+    if (weg) weg.addEventListener('click', async () => {
+      if (!(await bestaetigen('Kategorie löschen?', `„${k.name}“ wird entfernt. Das geht nur, solange keine Dokumente darin liegen.`, 'Löschen', 'danger'))) return;
+      try { await api('DELETE', `/dokument-kategorien/${encodeURIComponent(k.schluessel)}`); dlg.zu(); toast('Kategorie gelöscht.'); if (kat === k.schluessel) kat = ''; neu(); }
+      catch (x) { err.hidden = false; err.textContent = x.status === 409 ? 'In dieser Kategorie liegen noch Dokumente (auch gelöschte zählen) – sie kann nicht gelöscht werden.' : x.message; }
     });
   }
 
@@ -143,6 +156,7 @@ export async function dokumenteTab(box, b, ctx) {
 
   box.addEventListener('click', async (e) => {
     const k = e.target.closest('[data-kat]'); if (k) { kat = k.dataset.kat; return zeichne(); }
+    const ke = e.target.closest('[data-kat-edit]'); if (ke) return kategorieDialog(kats.find((x) => x.schluessel === ke.dataset.katEdit));
     if (e.target.closest('#dok-kat-neu')) return kategorieDialog();
     if (e.target.closest('#dok-neu')) return $('#dok-datei', box).click();
     if (e.target.closest('#dok-kamera')) return $('#dok-foto', box).click();

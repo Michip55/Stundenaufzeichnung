@@ -160,7 +160,12 @@ export default async function preise(el, ctx) {
     $('#st-imp-ok', dlg.el).addEventListener('click', async (e) => {
       e.target.disabled = true;
       const rueck = ab && ab.value && ab.value < heute;
-      try { const r = await post(`/stammdaten/${t.art}/import`, { dateiBase64: b64, vorschau: false, ...(ab && ab.value ? { gueltigAb: ab.value } : {}), ...(rueck ? { rueckwirkend: true } : {}) }); dlg.zu(); toast(`Übernommen: ${typeof r.uebernommen === 'number' ? r.uebernommen : (r.neu || []).length + (r.geaendert || []).length} Einträge.`); neuLaden(); ctx.meldungenNeu(); }
+      try {
+        const r = await post(`/stammdaten/${t.art}/import`, { dateiBase64: b64, vorschau: false, ...(ab && ab.value ? { gueltigAb: ab.value } : {}), ...(rueck ? { rueckwirkend: true } : {}) });
+        // Erfolg nur melden, wenn der Server wirklich übernommen hat
+        if (r.uebernommen === false || r.uebernommen === 0 || (r.fehler || []).length) { e.target.disabled = false; toast(`Nichts übernommen${(r.fehler || []).length ? `: Zeile ${r.fehler[0].zeile} – ${r.fehler[0].text}` : '.'}`, 'warn'); return; }
+        dlg.zu(); toast(`Übernommen: ${typeof r.uebernommen === 'number' ? r.uebernommen : (r.neu || []).length + (r.geaendert || []).length} Einträge.`); neuLaden(); ctx.meldungenNeu();
+      }
       catch (x) { e.target.disabled = false; toast(x.message, 'warn'); }
     });
   }

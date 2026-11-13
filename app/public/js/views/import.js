@@ -82,15 +82,21 @@ export function importAssistent(ctx, art, opt = {}) {
       ${(v.warnungen || []).length ? banner('warn', v.warnungen.map((w) => esc(w.text || w)).join('<br>')) : ''}
       ${(v.positionen || []).length ? `<div class="tbl-wrap imp-hoch"><table class="tbl" id="imp-positionen"><thead><tr><th>OZ</th><th>Kurztext</th><th>EH</th><th class="num">Menge</th><th class="num">EP</th><th class="num">GP</th></tr></thead><tbody>${v.positionen.map((p) => `<tr><td>${esc(p.oz || '')}</td><td>${esc(p.kurztext || '')}</td><td>${esc(p.einheit || '')}</td><td class="num">${fmt.zahl(p.menge, 3)}</td><td class="num">${p.ep != null ? fmt.eur(p.ep) : '–'}</td><td class="num">${p.gp != null ? fmt.eur(p.gp) : '–'}</td></tr>`).join('')}</tbody></table></div>
       <label class="check-inline"><input type="checkbox" id="imp-auftrag"> Auftragssumme der Baustelle auf die LV-Summe setzen (${fmt.eur(v.summe)})</label><p class="muted sm">Bitte mit einer echten Exportdatei prüfen – ein bestehendes Soll-LV dieser Baustelle wird ersetzt.</p>` : ''}`;
-    const etwas = art === 'bmd-op' ? (v.zugeordnet || []).length > 0 : (v.positionen || []).length > 0;
+    // Mit Fehlerzeilen übernimmt der Server nichts – dann gibt es auch kein „Übernehmen“
+    const etwas = !(v.fehler || []).length && (art === 'bmd-op' ? (v.zugeordnet || []).length > 0 : (v.positionen || []).length > 0);
     box.innerHTML = `${schritte()}<div class="stack-s" id="imp-vorschau">${kern}
-      ${(v.fehler || []).length ? `<ul class="warn-list" id="imp-fehler">${v.fehler.map((x) => `<li>${ic('alert')}<span>Zeile ${x.zeile}: ${esc(x.text)}</span></li>`).join('')}</ul>` : ''}${fehlerZeile}
+      ${(v.fehler || []).length ? `${banner('err', `Die Datei enthält ${v.fehler.length} fehlerhafte Zeile${v.fehler.length === 1 ? '' : 'n'} – es wird nichts übernommen. Bitte in der Datei korrigieren und erneut hochladen.`)}<ul class="warn-list" id="imp-fehler">${v.fehler.map((x) => `<li>${ic('alert')}<span>Zeile ${x.zeile}: ${esc(x.text)}</span></li>`).join('')}</ul>` : ''}${fehlerZeile}
       <div class="btn-row end"><button class="btn ghost" type="button" id="imp-zurueck">Zurück</button><button class="btn primary" type="button" id="imp-ok" ${etwas ? '' : 'disabled'}>Übernehmen</button></div></div>`;
     $('#imp-zurueck', box).addEventListener('click', () => (braucht() && zu ? s2() : s1()));
     $('#imp-ok', box).addEventListener('click', async (e) => {
       e.target.disabled = true;
-      try { const r = await sende(false, art === 'lv' && $('#imp-auftrag', box) && $('#imp-auftrag', box).checked ? { auftragssummeUebernehmen: true } : {}); s4(r); } catch (x) { e.target.disabled = false; zeigFehler(x.message); }
+      try { const r = await sende(false, art === 'lv' && $('#imp-auftrag', box) && $('#imp-auftrag', box).checked ? { auftragssummeUebernehmen: true } : {}); if (r.uebernommen === false || r.uebernommen === 0) return nichtUebernommen(r.fehler || [], 'Der Server hat nichts übernommen.'); s4(r); } catch (x) { if (x.daten && Array.isArray(x.daten.zeilenFehler)) return nichtUebernommen(x.daten.zeilenFehler, x.message); e.target.disabled = false; zeigFehler(x.message); }
     });
+  }
+  // Nichts gebucht: klar sagen und die Fehlerzeilen zeigen – keine Erfolgsmeldung
+  function nichtUebernommen(zeilen, text) {
+    box.innerHTML = `${schritte()}<div id="imp-abgelehnt" data-uebernommen="0">${banner('err', `<b>Nichts übernommen.</b> ${esc(text || '')}`)}${zeilen.length ? `<ul class="warn-list" id="imp-fehler">${zeilen.slice(0, 50).map((x) => `<li>${ic('alert')}<span>Zeile ${esc(x.zeile ?? '?')}: ${esc(x.text || x.fehler || '')}</span></li>`).join('')}</ul>` : ''}<div class="btn-row end"><button class="btn ghost" type="button" id="imp-zurueck">Andere Datei wählen</button></div></div>`;
+    $('#imp-zurueck', box).addEventListener('click', s1);
   }
   function s4(r) {
     schritt = 4;

@@ -373,8 +373,10 @@ async function planer(h, z) {
   await page.click('#tg-pub');
   await page.waitForSelector('dialog[open] #pub-vorschau');
   const emp1 = await page.locator('#pub-empfaenger li').evaluateAll((l) => l.map((x) => [Number(x.dataset.pubPerson), x.dataset.art]));
-  pruef(emp1.length === 2 && emp1.every(([, a]) => a === 'neu') && emp1.some(([id]) => id === L) && emp1.some(([id]) => id === P2.benutzerId), `A2-Plan: Vorschau der Empfänger falsch (${JSON.stringify(emp1)})`);
-  pruef(/2 Personen werden benachrichtigt/.test((await page.locator('#pub-text').innerText()).replace(/\s+/g, ' ')), 'A2-Plan: Text „2 Personen werden benachrichtigt“ fehlt');
+  const ohnePartie = emp1.filter(([, a]) => a !== 'partie');
+  pruef(ohnePartie.length === 2 && ohnePartie.every(([, a]) => a === 'neu') && ohnePartie.some(([id]) => id === L) && ohnePartie.some(([id]) => id === P2.benutzerId) && emp1.every(([, a]) => ['neu', 'partie'].includes(a)), `A2-Plan: Vorschau der Empfänger falsch (${JSON.stringify(emp1)})`);
+  const nEmp = new Set(emp1.map(([id]) => id)).size;
+  pruef(new RegExp(`${nEmp} Personen werden benachrichtigt`).test((await page.locator('#pub-text').innerText()).replace(/\s+/g, ' ')), `A2-Plan: Text „${nEmp} Personen werden benachrichtigt“ fehlt`);
   await dialogUeberlauf('plan veröffentlichen'); await shot('plan-veroeffentlichen');
   await page.click('#pub-abbrechen');
   await page.waitForTimeout(300);
@@ -438,6 +440,29 @@ async function planer(h, z) {
   pruef((await api('POST', '/plan/veroeffentlichen', { von: heute, bis: heute })).status === 200, 'A2-Plan: heute veröffentlichen nicht möglich');
   await toastWeg();
 
+  // G-14: eine veröffentlichte Fuhre löschen → zählt als unveröffentlichte Änderung; der Dialog nennt, für wen sie entfällt
+  const fuhre3 = (await api('POST', '/plan/fuhren', { datum: morgen, anlageId: lkw.anlageId, fahrerId: P2.benutzerId, materialId: mat.id, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: B } })).json;
+  pruef((await api('POST', '/plan/veroeffentlichen', { von: morgen, bis: morgen })).status === 200, 'A2-G14: Fuhre veröffentlichen nicht möglich');
+  await geh('/plan?ansicht=geraete'); await geh('/plan?ansicht=tag');
+  await page.waitForSelector(`#tg-stand[data-zustand="veroeffentlicht"]`);
+  pruef(await page.locator('#tg-pub').isDisabled(), 'A2-G14: ohne offene Änderung ist „veröffentlichen“ aktiv');
+  await page.locator(`[data-fuhre="${fuhre3.id}"]`).first().click();
+  await page.waitForSelector('dialog[open] #fu-weg');
+  await page.click('#fu-weg');
+  await page.waitForSelector('dialog[open] [data-ok]');
+  pruef(/nächsten Veröffentlichung/.test(await page.locator('dialog[open]').last().innerText()), 'A2-G14: Hinweis fehlt, dass der Fahrer es erst mit der Veröffentlichung erfährt');
+  await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForSelector('#tg-stand[data-zustand="geaendert"]');
+  pruef(!(await page.locator('#tg-pub').isDisabled()) && Number(await page.locator('#tg-pub').getAttribute('data-personen')) >= 1, 'A2-G14: gelöschte veröffentlichte Fuhre zählt nicht als offene Änderung');
+  await toastWeg();
+  await page.click('#tg-pub');
+  await page.waitForSelector('dialog[open] #pub-vorschau');
+  pruef(await page.locator(`#pub-empfaenger li[data-pub-person="${P2.benutzerId}"][data-art="entfaellt"], #pub-empfaenger li[data-pub-person="${P2.benutzerId}"][data-art="geaendert"]`).count() === 1, `A2-G14: der Fahrer der gelöschten Fuhre fehlt im Bestätigungsdialog (${JSON.stringify(await page.locator('#pub-empfaenger li').evaluateAll((l) => l.map((x) => [x.dataset.pubPerson, x.dataset.art])))})`);
+  await page.click('#pub-ok');
+  await page.waitForSelector('#tg-stand[data-zustand="veroeffentlicht"]');
+  await toastWeg();
+  await geh('/plan?ansicht=woche');
+  pruef(await page.locator('#wp-pub').getAttribute('data-anzahl') !== null, 'A2-G14: Kopf der Woche ohne Zähler der offenen Änderungen');
   // 9) Fortschreiben: Montag planen → Dienstag ist Vorschau ohne die Person im Urlaub → tauschen → veröffentlichen
   const mo = (() => { let t = morgen; while (new Date(t + 'T12:00:00Z').getUTCDay() !== 1) t = plusTage(t, 1); return plusTage(t, 7); })(); // Montag der übernächsten Woche
   const di = plusTage(mo, 1);
@@ -461,12 +486,13 @@ async function planer(h, z) {
   await toastWeg();
   const probe = (await api('POST', '/plan/veroeffentlichen', { von: di, bis: di, vorschau: true })).json;
   const ids = probe.empfaenger.map((e) => e.benutzerId);
-  pruef(probe.empfaenger.every((e) => e.art === 'neu') && ids.includes(P3.benutzerId) && ids.includes(P5.benutzerId) && !ids.includes(P4.benutzerId) && probe.anzahl === ids.length, `A2-Fort: erste Veröffentlichung meldet nicht alle Eingeteilten bzw. die Person im Urlaub (${JSON.stringify(probe.empfaenger)})`);
+  pruef(probe.empfaenger.every((e) => ['neu', 'partie'].includes(e.art)) && ids.includes(P3.benutzerId) && ids.includes(P5.benutzerId) && !ids.includes(P4.benutzerId), `A2-Fort: erste Veröffentlichung meldet nicht alle Eingeteilten bzw. die Person im Urlaub (${JSON.stringify(probe.empfaenger)})`);
   pruef((await api('POST', '/plan/veroeffentlichen', { von: di, bis: di })).status === 200, 'A2-Fort: Dienstag veröffentlichen nicht möglich');
   await page.locator(`.wp-gitter [data-zelle][data-datum="${di}"][data-bs="${B2}"] [data-chip="p"][data-id="${P5.benutzerId}"] [data-chip-auf]`).click();
   await page.waitForSelector('dialog[open] #chip-weg'); await page.click('#chip-weg'); await toastWeg();
   const probe2 = (await api('POST', '/plan/veroeffentlichen', { von: di, bis: di, vorschau: true })).json;
-  pruef(probe2.anzahl === 1 && probe2.empfaenger[0].benutzerId === P5.benutzerId && probe2.empfaenger[0].art === 'entfaellt', `A2-Fort: erneute Veröffentlichung trifft nicht nur die geänderte Person (${JSON.stringify(probe2.empfaenger)})`);
+  const p2e = probe2.empfaenger.filter((e) => e.art !== 'partie');
+  pruef(p2e.length === 1 && p2e[0].benutzerId === P5.benutzerId && p2e[0].art === 'entfaellt', `A2-Fort: erneute Veröffentlichung trifft nicht nur die geänderte Person (${JSON.stringify(probe2.empfaenger)})`);
   // Projektzeitplan und Geräte-Disposition erreichbar
   await geh('/plan?ansicht=zeitplan');
   await page.waitForSelector('#zeitplan .zp-zeile[data-bv]');
@@ -719,8 +745,24 @@ async function dokumenteUndRechnungen(h, z) {
   pruef(csv.ok() && csvText.includes(nr2) && csvText.includes(';'), `A2-Re: CSV-Export der offenen Posten → ${csv.status()}`);
   pruef(await page.locator('#op-auftraggeber li').count() >= 1 && await page.locator('#op-ruecklaesse li').count() >= 1, 'A2-Re: Listen je Auftraggeber / Rücklässe fehlen');
   await ueberlauf('offene posten'); await shot('offene-posten');
-  // BMD: Offene Posten importieren – Datei → Spalten zuordnen → Vorschau → übernehmen
+  // G-04: Datei mit einer fehlerhaften Zeile → Vorschau zeigt den Fehler, „Übernehmen“ ist gesperrt, nichts wird gebucht, keine Erfolgsmeldung
   await page.fill('#op-suche', '');
+  await page.click('#op-bmd');
+  await page.waitForSelector('dialog[open] #imp-datei');
+  await page.setInputFiles('#imp-datei', { name: 'op-fehler.csv', mimeType: 'text/csv', buffer: Buffer.from(`Belegnr;Datum;Kunde;Offen\n${nr};12.11.2026;Testkunde;1400,00\n${nr2};12.11.2026;Testkunde;kaputt\n`, 'utf8') });
+  await page.click('#imp-weiter1');
+  await page.waitForSelector('#imp2');
+  await page.selectOption('#imp2 [name="trennzeichen"]', ';'); await page.selectOption('#imp2 [name="kodierung"]', 'utf-8'); await page.selectOption('#imp2 [name="dezimal"]', ','); await page.selectOption('#imp2 [name="datumFormat"]', 'TT.MM.JJJJ'); await page.check('#imp2 [name="kopfzeile"]');
+  for (const [f, w] of [['belegnr', 'Belegnr'], ['datum', 'Datum'], ['offen', 'Offen'], ['kunde', 'Kunde'], ['netto', ''], ['brutto', ''], ['faellig', ''], ['bezahlt', ''], ['zahlungsdatum', '']]) await page.fill(`#imp2 [name="sp_${f}"]`, w);
+  await page.click('#imp-weiter2');
+  await page.waitForSelector('#imp-vorschau');
+  pruef(await page.locator('#imp-fehler li').count() >= 1 && await page.locator('#imp-ok').isDisabled() && /nichts übernommen/i.test(await page.locator('#imp-vorschau').innerText()), `A2-G04: Fehlerzeile sperrt „Übernehmen“ nicht (${(await page.locator('#imp-vorschau').innerText()).replace(/\s+/g, ' ').slice(0, 160)})`);
+  const direkt = await h.absichtlich(() => api('POST', '/import/bmd-op', { dateiBase64: Buffer.from(`Belegnr;Datum;Kunde;Offen\n${nr};12.11.2026;Testkunde;1400,00\n${nr2};12.11.2026;Testkunde;kaputt\n`).toString('base64'), dateiname: 'op-fehler.csv', vorschau: false }));
+  pruef((direkt.status === 400 || direkt.json.uebernommen === false) && (await api('GET', `/rechnungen/${re.id}`)).json.offen === 6400, `A2-G04: Datei mit Fehlerzeile wurde (teilweise) gebucht (${direkt.status})`);
+  pruef(!/aktualisiert/.test(await page.locator('#imp-assistent').innerText()) && await page.locator('#imp-fertig').count() === 0, 'A2-G04: Erfolgsmeldung, obwohl nichts übernommen wurde');
+  await dialogUeberlauf('bmd fehlerzeile'); await shot('bmd-fehlerzeile');
+  await page.click('dialog[open] [data-zu]');
+  // BMD: Offene Posten importieren – Datei → Spalten zuordnen → Vorschau → übernehmen
   await page.click('#op-bmd');
   await page.waitForSelector('dialog[open] #imp-datei');
   await page.setInputFiles('#imp-datei', { name: 'op-liste.csv', mimeType: 'text/csv', buffer: Buffer.from(`Belegnr;Datum;Kunde;Offen\n${nr};12.11.2026;Testkunde;1400,00\nRE-FREMD-9;01.11.2026;Fremd GmbH;500,00\n`, 'utf8') });
@@ -1243,6 +1285,56 @@ async function dienste(h, z) {
 }
 const PIN_A2 = '1234', NAME_BL = 'Stefan Aigner';
 
+/* ================= G-05: „Morgen“ = nächster Arbeitstag (Freitag, Tag vor einem Feiertag) ================= */
+async function arbeitstag(h) {
+  const { pruef, g } = h;
+  const login = async (page, url, name) => {
+    await page.goto(url + '/#/login'); await page.waitForSelector('.login-user');
+    await page.fill('#login-suche', name.split(' ')[1]); await page.click(`.login-user:has-text("${name}")`);
+    for (const zf of PIN_A2) await page.click(`.pin-pad [data-z="${zf}"]`);
+    await page.click('.pin-pad [data-ok]'); await page.waitForSelector('#view'); await page.waitForTimeout(300);
+  };
+  const apiP = (page, m, pfad, body) => page.evaluate(async ([m2, p2, b2]) => { const r = await fetch('/api' + p2, { method: m2, headers: { 'Content-Type': 'application/json' }, body: m2 === 'GET' ? undefined : JSON.stringify(b2 || {}) }); let j = null; try { j = await r.json(); } catch (e) { /* leer */ } return { status: r.status, json: j }; }, [m, pfad, body]);
+  const gehP = async (page, r) => { await page.evaluate((x) => { location.hash = x; }, '#' + r); await page.waitForFunction((x) => location.hash === '#' + x, r); await page.waitForFunction(() => !document.querySelector('#view .view-box > .state .spinner'), null, { timeout: 10000 }); await page.waitForTimeout(80); };
+  for (const [uhr, heute, naechster, kurz, wochentag] of [['2026-11-13T15:00:00+01:00', '2026-11-13', '2026-11-16', 'Mo 16.11.', 'Montag'], ['2026-12-07T15:00:00+01:00', '2026-12-07', '2026-12-09', 'Mi 09.12.', 'Mittwoch']]) {
+    const srv = await h.starteServer({ BAUTAG_TEST: '1', BAUTAG_UHR: uhr });
+    const ctx = await h.neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil });
+    try {
+      await ctx.clock.setSystemTime(new Date(uhr));
+      const page = await ctx.newPage(); page.setDefaultTimeout(10000);
+      const fehler = []; page.on('console', (m) => { if (m.type() === 'error') fehler.push(m.text()); }); page.on('pageerror', (e) => fehler.push(e.message));
+      // Büro: nächsten Arbeitstag einteilen und veröffentlichen
+      await login(page, srv.url, 'Martina Koller');
+      const leute = (await apiP(page, 'GET', '/mitarbeiter')).json;
+      const polier = leute.find((m) => m.name === 'Josef Haidbauer'), lukas = leute.find((m) => m.name === 'Lukas Brandstätter');
+      for (const a of (await apiP(page, 'GET', `/abwesenheiten?von=${heute}&bis=${naechster}`)).json.filter((x) => x.benutzerId === lukas.id)) await apiP(page, 'DELETE', `/abwesenheiten/${a.id}`);
+      pruef((await apiP(page, 'POST', '/plan/einsaetze', { datum: naechster, baustelleId: polier.baustelleId, beginn: '06:30', benutzerIds: [lukas.id, polier.id] })).status === 201, `G-05 (${heute}): Einsatz am nächsten Arbeitstag nicht anlegbar`);
+      await gehP(page, '/plan?ansicht=tag');
+      await page.waitForSelector('#tg-tag');
+      const tt = (await page.locator('#tg-tag').innerText()).replace(/\s+/g, ' ');
+      pruef((await page.locator('#tg-tag').getAttribute('data-datum')) === naechster && tt.includes(kurz) && !/^Morgen/.test(tt), `G-05 (${heute}): Tagesansicht zeigt nicht den nächsten Arbeitstag „${kurz}“ („${tt}“, ${await page.locator('#tg-tag').getAttribute('data-datum')})`);
+      pruef((await page.locator('[data-ansicht="tag"]').innerText()).includes(kurz), `G-05 (${heute}): Reiter heißt „Morgen“, obwohl der nächste Arbeitstag ${kurz} ist`);
+      pruef((await page.locator('#tg-pub').innerText()).includes(kurz) && !/für morgen/i.test(await page.locator('#tg-pub').innerText()), `G-05 (${heute}): Knopf spricht von „morgen“`);
+      pruef((await apiP(page, 'POST', '/plan/veroeffentlichen', { von: naechster, bis: naechster })).status === 200, `G-05 (${heute}): veröffentlichen nicht möglich`);
+      await apiP(page, 'POST', '/auth/logout');
+      // Polier: „Meine Partie“ zeigt gleich den nächsten Arbeitstag
+      await login(page, srv.url, 'Josef Haidbauer');
+      await gehP(page, '/partie');
+      pruef(await page.locator('[data-partie-einsatz]').count() >= 1 && await page.locator('#partie-leer').count() === 0, `G-05 (${heute}): „Meine Partie“ zeigt den veröffentlichten ${kurz} nicht`);
+      pruef((await page.locator(`[data-partie-tag="${naechster}"]`).innerText()).includes(kurz) && await page.locator(`[data-partie-tag="${naechster}"][aria-selected="true"]`).count() === 1 && await page.locator('#partie-druck').count() === 1, `G-05 (${heute}): Reiter der Partie ist nicht „${kurz}“`);
+      await apiP(page, 'POST', '/auth/logout');
+      // Mitarbeiter: Karte für den nächsten Arbeitstag heißt nie „Heute“/„Morgen“
+      await login(page, srv.url, 'Lukas Brandstätter');
+      await gehP(page, '/einsatz');
+      await page.waitForSelector(`#einsatz-karte[data-datum="${naechster}"]`);
+      const wann = await page.locator('.me-wann').innerText();
+      pruef(!/heute|morgen/i.test(wann.replace(/wie heute/i, '')) && new RegExp(wochentag, 'i').test(wann), `G-05 (${heute}): „Mein Einsatz“ beschriftet den ${kurz} falsch („${wann}“)`);
+      pruef((await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1 && !(await page.evaluate(() => document.body.innerText)).includes('€'), `G-05 (${heute}): Überlauf oder € in „Mein Einsatz“`);
+      pruef(fehler.filter((t) => !/401/.test(t)).length === 0, `G-05 (${heute}): Konsolenfehler: ${fehler.slice(0, 3).join(' | ')}`);
+    } finally { await ctx.close(); srv.stop(); }
+  }
+}
+
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

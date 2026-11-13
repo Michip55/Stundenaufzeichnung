@@ -125,7 +125,7 @@ async function laufe(browser, g) {
   try {
     haupt: {
     // Entwicklung: E2E_NUR_A2=1 prüft nur die Bereiche der Ausbaustufe 2 (tests/e2e/ausbau2.js)
-    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
+    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext, starteServer }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
     /* ============ 0. Falsche PIN ============ */
     await page.goto(srv.url + '/');
     await page.waitForSelector('.login-user');
@@ -1410,7 +1410,7 @@ async function laufe(browser, g) {
     pruef((await page.locator('.login-user small').allInnerTexts()).every((t) => !/Geschäftsführung|Büro|Bauleiter|Polier/.test(t)), 'B-03: Anmeldeliste zeigt Rollen');
 
     /* ============ Ausbaustufe 2: neue Bereiche (tests/e2e/ausbau2.js) ============ */
-    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext });
+    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext, starteServer });
     for (const teil of Object.keys(a2.TEILE)) await a2.TEILE[teil](h, z);
 
     /* ============ 6c. M-06: Sicherheits-Header, kein Inline-Skript ============ */

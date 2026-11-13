@@ -6,6 +6,7 @@ import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, rolleText, speicher, $, $$ } from '../ui.js';
 import { wienHeute, wienLokal } from '../zahl.js';
 import { ziehbar } from '../ziehen.js';
+import { feiertage, naechsterArbeitstag, tagName } from '../arbeitstag.js';
 import { zeitplanHtml, zeitplanLaden, zeitplanBinden } from './zeitplan.js';
 import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, partieFuhrenHtml } from './fuhren.js';
 
@@ -24,15 +25,18 @@ export default async function plan(el, ctx) {
   const eigene = (ctx.ich.baustellenIds || []).map(Number);
   const darfBs = (id) => planer || (ich.rolle === 'bauleiter' && eigene.includes(Number(id)));
   // nächster Arbeitstag („morgen“): Sa/So werden übersprungen
-  const naechsterTag = (iso, schritt = 1) => { let t = fmt.addTage(iso, schritt); while ([0, 6].includes(fmt.dt(t).getDay())) t = fmt.addTage(t, schritt); return t; };
+  // G-05: „Morgen“ = nächster Arbeitstag (ohne Sa/So und Feiertage)
+  const frei = await feiertage(heute);
+  const naechsterTag = (iso, schritt = 1) => naechsterArbeitstag(iso, frei, schritt);
   const morgen = naechsterTag(heute);
+  const kalMorgen = fmt.addTage(heute, 1);
   const stunde = Number(wienLokal(new Date().toISOString()).slice(11, 13));
   // Eingeteilt wird am Nachmittag für morgen – ab 12 Uhr startet der Planer in der Tagesansicht „Morgen“, davor in der Woche
   let ansicht = ['woche', 'tag', 'zeitplan', 'geraete'].includes(ctx.query.get('ansicht')) ? ctx.query.get('ansicht') : planer && !ctx.query.get('datum') && stunde >= 12 ? 'tag' : 'woche';
   let mitWe = speicher.lies('bt_plan_we') === true;
   let tagWahl = ctx.query.get('datum') || (ansicht === 'tag' ? morgen : '');
   let von = montag(ctx.query.get('datum') || (ansicht === 'tag' ? morgen : speicher.lies('bt_plan_woche') || heute));
-  let d = null, anfragen = [], fuhren = [], suche = '', fehler = '';
+  let d = null, anfragen = [], fuhren = [], suche = '', fehler = '', probe = null; // probe = Probelauf der Veröffentlichung für den gewählten Tag
   const wahl = new Map(); // Auswahl für „Einteilen“ ohne Ziehen: schluessel → {art, id, name, vonEinsatz?}
   let zp = null; // Projektzeitplan-Zustand
 
@@ -47,6 +51,8 @@ export default async function plan(el, ctx) {
     // Vorschau-Zellen („wie Vortag“) sind noch nicht gespeichert und haben keine Nummer – für die Oberfläche bekommen sie eine vorläufige
     d.einsaetze.forEach((e) => { if (e.id == null) { e.vorschau = true; e.id = `v:${e.datum}:${e.baustelleId}`; } });
     [anfragen, fuhren] = await Promise.all([get('/plan/anfragen?status=offen').catch(() => []), tage.length ? fuhrenLaden(tage[0], tage[tage.length - 1]).catch(() => []) : []]);
+    // Tagesansicht: Der Server sagt (ohne Versand), wer bei der Veröffentlichung eine Nachricht bekäme – auch „entfällt“ nach dem Löschen (G-14)
+    probe = ansicht === 'tag' ? await post('/plan/veroeffentlichen', { von: tagWahl, bis: tagWahl, vorschau: true }).catch(() => null) : null;
   }
   const tagInfo = (datum) => d.tage.find((t) => t.datum === datum) || { datum };
   // Vorschau-Tag speichern („Tag übernehmen“) und den nun gespeicherten Einsatz liefern
@@ -193,25 +199,29 @@ export default async function plan(el, ctx) {
     </div>`;
   }
   /* ---------- Tagesansicht „Morgen“: je Baustelle eine große Karte ---------- */
-  const tagWort = (t) => (t === morgen ? (fmt.addTage(heute, 1) === morgen ? 'morgen' : fmt.WT[fmt.dt(t).getDay()]) : t === heute ? 'heute' : tagKurz(t));
+  const tagWort = (t) => tagName(t, heute);
   // Wer bei der Veröffentlichung dieses Tages (voraussichtlich) eine Nachricht bekommt
   function offenFuer(tag) {
     const es = d.einsaetze.filter((e) => e.datum === tag && darfBs(e.baustelleId) && (!e.veroeffentlicht || e.geaendertNachVeroeffentlichung));
     const ids = new Set(); es.forEach((e) => (e.personen || []).forEach((p) => ids.add(Number(p.benutzerId))));
     const alle = d.einsaetze.filter((e) => e.datum === tag);
-    return { einsaetze: es, personen: ids.size, erst: !alle.some((e) => e.veroeffentlicht), fuhren: fuhren.filter((f) => f.datum === tag && f.status !== 'storniert' && (!f.veroeffentlicht || f.geaendertNachVeroeffentlichung)).length };
+    const pr = probe && tag === tagWahl ? probe : null;
+    const empf = pr ? pr.empfaenger || [] : null;
+    const entfaellt = empf ? empf.filter((x) => x.art === 'entfaellt').length : 0;
+    const offeneFuhren = fuhren.filter((f) => f.datum === tag && f.status !== 'storniert' && (!f.veroeffentlicht || f.geaendertNachVeroeffentlichung)).length;
+    return { einsaetze: es, personen: empf ? new Set(empf.map((x) => x.benutzerId)).size : ids.size, entfaellt, erst: !alle.some((e) => e.veroeffentlicht) && !entfaellt, fuhren: offeneFuhren, etwas: es.length > 0 || offeneFuhren > 0 || (pr ? (pr.anzahl ?? (empf || []).length) > 0 : false) };
   }
   function tagHtml() {
     const tag = tagWahl, t = d.tage.find((x) => x.datum === tag) || { datum: tag };
     const offen = offenFuer(tag);
     const abw = d.einsaetze.filter((e) => e.datum === tag && e.vorschau).reduce((n, e) => n + (e.uebersprungen || []).length, 0);
     const tagEs = d.einsaetze.filter((e) => e.datum === tag);
-    const zustandTag = !tagEs.length ? 'leer' : offen.einsaetze.length || offen.fuhren ? (offen.erst ? 'offen' : 'geaendert') : 'veroeffentlicht';
+    const zustandTag = !tagEs.length && !offen.etwas ? 'leer' : offen.etwas ? (offen.erst ? 'offen' : 'geaendert') : 'veroeffentlicht';
     const pubZeit = t.veroeffentlichtUm || tagEs.map((e) => e.veroeffentlichtUm || '').filter(Boolean).sort().pop();
-    const wort = tag === morgen ? 'Morgen' : tag === heute ? 'Heute' : tagKurz(tag);
+    const wort = tag === heute ? 'Heute' : tag === kalMorgen ? 'Morgen' : tagKurz(tag);
     const wie = t.vorschau ? `vorbereitet wie ${t.quelleDatum === heute ? 'heute' : t.quelleDatum ? tagKurz(t.quelleDatum) : 'am Vortag'}, ${abw} Abweichung${abw === 1 ? '' : 'en'}` : '';
     return `${zustandTag === 'leer' ? '' : `<div class="tg-auto ${zustandTag}" id="tg-stand" data-zustand="${zustandTag}" data-abweichungen="${abw}" role="status">${ic(zustandTag === 'veroeffentlicht' ? 'check' : 'alert')}<span>${zustandTag === 'veroeffentlicht' ? `<b>Veröffentlicht${pubZeit ? ' ' + esc(fmt.uhr(pubZeit)) : ''}</b> – alle Eingeteilten sind benachrichtigt.` : `<b>${esc(wort)} – ${zustandTag === 'geaendert' ? 'Änderungen noch nicht veröffentlicht' : 'noch nicht veröffentlicht'}</b>${wie ? ` · ${esc(wie)}` : ''}. Gesendet wird erst mit der Schaltfläche unten.`}</span>${t.vorschau ? `<button type="button" class="btn ghost sm" id="tg-uebernehmen" data-datum="${tag}">Tag übernehmen</button>` : ''}</div>`}
-      <div class="tg-kopf"><div class="wp-nav"><button type="button" class="icon-btn" data-tag-weiter="-1" aria-label="Vorheriger Arbeitstag">${ic('left')}</button><b id="tg-tag" data-datum="${tag}">${tag === morgen ? 'Morgen · ' : tag === heute ? 'Heute · ' : ''}${esc(fmt.WT[fmt.dt(tag).getDay()])} ${esc(tagKurz(tag).slice(3))}${t.feiertag ? ` · ${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}` : ''}</b><button type="button" class="icon-btn" data-tag-weiter="1" aria-label="Nächster Arbeitstag">${ic('right')}</button>${tag === morgen ? '' : '<button type="button" class="btn ghost sm" data-tag-morgen>Morgen</button>'}</div>
+      <div class="tg-kopf"><div class="wp-nav"><button type="button" class="icon-btn" data-tag-weiter="-1" aria-label="Vorheriger Arbeitstag">${ic('left')}</button><b id="tg-tag" data-datum="${tag}" data-naechster="${tag === morgen}">${tag === heute ? 'Heute · ' : tag === kalMorgen ? 'Morgen · ' : ''}${tag === heute || tag === kalMorgen ? esc(fmt.WT[fmt.dt(tag).getDay()]) + ' ' + esc(tagKurz(tag).slice(3)) : esc(tagKurz(tag))}${tag === morgen && tag !== kalMorgen ? ' · nächster Arbeitstag' : ''}${t.feiertag ? ` · ${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}` : ''}</b><button type="button" class="icon-btn" data-tag-weiter="1" aria-label="Nächster Arbeitstag">${ic('right')}</button>${tag === morgen ? '' : `<button type="button" class="btn ghost sm" data-tag-morgen>${morgen === kalMorgen ? 'Morgen' : esc(tagKurz(morgen))}</button>`}</div>
         <div class="wp-legende"><span><i class="wp-leg person"></i>Person</span><span><i class="wp-leg geraet"></i>Gerät</span><span><i class="wp-leg konflikt"></i>Konflikt</span></div></div>
       ${wahl.size ? `<div class="wp-auswahl" id="wp-auswahl" role="status"><b>${wahl.size} ausgewählt:</b> ${[...wahl.values()].map((w) => esc(w.name)).join(', ')} – jetzt auf der gewünschten Baustelle „Einteilen“ drücken. <button type="button" class="btn ghost sm" data-wahl-weg>Auswahl aufheben</button></div>` : ''}
       <div class="wp-wrap">
@@ -238,16 +248,17 @@ export default async function plan(el, ctx) {
       </div>
       <section class="card tg-fuhren" id="tg-fuhren" aria-label="Fuhren ${esc(tagKurz(tag))}"><div class="card-h pad-h"><h3>${ic('truck')}Fuhren · je LKW</h3>${planer || ich.rolle === 'bauleiter' ? `<span class="btn-row"><button type="button" class="btn ghost sm" id="fu-wie-gestern" data-datum="${tag}">${ic('copy')}Fuhren wie gestern</button><button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}">${ic('plus')}Fuhre</button></span>` : ''}</div>
         <div class="wp-scroll"><div class="wp-gitter fu-tag" data-st="--sp:1">${fuhrenBahn(fuhren.filter((f) => f.datum === tag), [tagInfo(tag)], false, tag)}</div></div></section>
-      <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" ${offen.einsaetze.length || offen.fuhren ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen${offen.einsaetze.length ? ` (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})` : ''}</button><span class="muted sm" id="tg-pub-info">${offen.einsaetze.length || offen.fuhren ? 'Vor dem Senden sehen Sie, wer eine Nachricht bekommt.' : 'Alles veröffentlicht – keine offenen Änderungen.'}</span></div>`;
+      <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" data-entfaellt="${offen.entfaellt}" ${offen.etwas ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen${offen.etwas ? ` (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})` : ''}</button><span class="muted sm" id="tg-pub-info">${offen.etwas ? `Vor dem Senden sehen Sie, wer eine Nachricht bekommt.${offen.entfaellt ? ` ${offen.entfaellt} Person${offen.entfaellt === 1 ? '' : 'en'} erfahr${offen.entfaellt === 1 ? 't' : 'en'}, dass der Einsatz entfällt.` : ''}` : 'Alles veröffentlicht – keine offenen Änderungen.'}</span></div>`;
   }
   // Bestätigung vor dem Senden: Der Server sagt im Probelauf (ohne Versand), wer eine Nachricht bekäme
   async function pubVorschau(von, bis = von) {
-    let probe;
-    try { probe = await post('/plan/veroeffentlichen', { von, bis, vorschau: true }); } catch (x) { toast(x.message, 'warn'); return; }
-    const emp = probe.empfaenger || [], n = probe.anzahl ?? emp.length;
-    const erst = emp.length > 0 && emp.every((x) => x.art === 'neu');
+    let lauf;
+    try { lauf = await post('/plan/veroeffentlichen', { von, bis, vorschau: true }); } catch (x) { toast(x.message, 'warn'); return; }
+    const emp = lauf.empfaenger || [];
+    const erst = emp.length > 0 && !emp.some((x) => x.art === 'geaendert' || x.art === 'entfaellt');
     const rot = (d.konflikte || []).filter((k) => k.typ !== 'wetter' && k.datum >= von && k.datum <= bis);
-    const ART = { neu: ['Einsatz', 'st-blue'], geaendert: ['geändert', 'st-amber'], entfaellt: ['entfällt', 'st-red'] };
+    const n = new Set(emp.map((x) => x.benutzerId)).size;
+    const ART = { neu: ['Einsatz', 'st-blue'], geaendert: ['geändert', 'st-amber'], entfaellt: ['entfällt', 'st-red'], partie: ['Partie-Meldung', 'st-grey'] };
     const wann = von === bis ? tagWort(von) : `KW ${kw(von)}`;
     const dlg = dialog({ titel: `Einteilung für ${wann} veröffentlichen?`, breit: true, inhalt: `<div class="stack-s" id="pub-vorschau" data-anzahl="${n}">
       <p id="pub-text"><b>${n} Person${n === 1 ? '' : 'en'}${erst ? '' : ' mit Änderungen'}</b> ${n === 1 ? 'wird' : 'werden'} benachrichtigt (in der App und per Push, wenn eingeschaltet). Vorher wird nichts gesendet.</p>
@@ -335,7 +346,7 @@ export default async function plan(el, ctx) {
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
         ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
-      <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', 'Morgen'], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
+      <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', morgen === kalMorgen ? 'Morgen' : tagKurz(morgen)], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
       ${fehler ? banner('err', esc(fehler)) : ''}
       <div id="wp-inhalt">${ansicht === 'woche' ? wocheHtml() : ansicht === 'tag' ? tagHtml() : ansicht === 'geraete' ? geraeteHtml() : zp ? zeitplanHtml(zp, ctx) : '<div class="state">Lädt …</div>'}</div>
     </div>`;
@@ -450,7 +461,7 @@ export default async function plan(el, ctx) {
   /* ---------- Ereignisse ---------- */
   el.addEventListener('click', async (e) => {
     const an = e.target.closest('[data-ansicht]');
-    if (an) { ansicht = an.dataset.ansicht; wahl.clear(); if (ansicht === 'zeitplan') { zeichne(); return zeigZeitplan(); } if (ansicht === 'tag') { tagWahl = morgen; if (!d.tage.some((t) => t.datum === morgen)) { von = montag(morgen); return neu(); } } return zeichne(); }
+    if (an) { ansicht = an.dataset.ansicht; wahl.clear(); if (ansicht === 'zeitplan') { zeichne(); return zeigZeitplan(); } if (ansicht === 'tag') { tagWahl = morgen; if (!d.tage.some((t) => t.datum === morgen)) von = montag(morgen); return neu(); } return zeichne(); }
     if (ansicht === 'zeitplan') return;
     const w = e.target.closest('[data-woche]');
     if (w) { von = fmt.addTage(von, Number(w.dataset.woche)); tagWahl = ''; wahl.clear(); speicher.setz('bt_plan_woche', von); return neu(); }
@@ -459,7 +470,7 @@ export default async function plan(el, ctx) {
     if (tw) { tagWahl = tw.dataset.tagwahl; return zeichne(); }
     if (e.target.closest('[data-wahl-weg]')) { wahl.clear(); return zeichne(); }
     const tw2 = e.target.closest('[data-tag-weiter]') || e.target.closest('[data-tag-morgen]');
-    if (tw2) { tagWahl = tw2.dataset.tagWeiter ? naechsterTag(tagWahl, Number(tw2.dataset.tagWeiter)) : morgen; wahl.clear(); if (!d.tage.some((t) => t.datum === tagWahl)) { von = montag(tagWahl); return neu(); } return zeichne(); }
+    if (tw2) { tagWahl = tw2.dataset.tagWeiter ? naechsterTag(tagWahl, Number(tw2.dataset.tagWeiter)) : morgen; wahl.clear(); if (!d.tage.some((t) => t.datum === tagWahl)) von = montag(tagWahl); return neu(); }
     if (e.target.closest('#tg-pub')) return pubVorschau(tagWahl);
     const dr = e.target.closest('#wp-druck');
     if (dr) {
@@ -538,13 +549,15 @@ export async function einsatz(el, ctx) {
   const tage = d.tage || [];
   fuhrenNachsenden(uid).then((n) => { if (n && ctx.aktuell()) ctx.neuLaden(); });
   const haupt = d.morgen && d.morgen.einsatz ? d.morgen : tage.find((t) => t.datum === heute && t.einsatz) || null;
-  const istMorgen = haupt && haupt.datum === fmt.addTage(heute, 1);
+  // G-05: „Heute“/„Morgen“ nur für den echten Kalendertag – sonst der Wochentag (z. B. am Freitag: „Montag 16.11.“)
+  const wann = haupt ? tagName(haupt.datum, heute) : '';
+  const wannGross = wann === 'heute' ? 'Heute · ' : wann === 'morgen' ? 'Morgen · ' : '';
   function karte(t) {
     const e = t.einsatz, b = e.baustelle || {};
     const fz = e.fahrzeug ? e.fahrzeug.bezeichnung || e.fahrzeug.text : (e.anlagen || [])[0] && e.anlagen[0].bezeichnung;
     const feld = (k, v) => (v ? `<div><small>${k}</small><b>${esc(v)}</b></div>` : '');
-    return `<section class="me-karte" id="einsatz-karte" data-datum="${t.datum}" aria-label="Einsatz ${istMorgen ? 'morgen' : 'heute'}">
-      <span class="me-wann">${istMorgen ? 'Morgen' : 'Heute'} · ${esc(fmt.WT[fmt.dt(t.datum).getDay()])} ${esc(tagKurz(t.datum).slice(3))}${t.geaendert ? ' · geändert' : ''}${t.wieVortag ? ' <i class="me-wie" data-wie-vortag>wie heute</i>' : ''}</span>
+    return `<section class="me-karte" id="einsatz-karte" data-datum="${t.datum}" data-wann="${esc(wann)}" aria-label="Einsatz ${esc(wann === 'heute' || wann === 'morgen' ? wann : 'am ' + wann)}">
+      <span class="me-wann">${wannGross}${esc(fmt.WT[fmt.dt(t.datum).getDay()])} ${esc(tagKurz(t.datum).slice(3))}${t.geaendert ? ' · geändert' : ''}${t.wieVortag ? ' <i class="me-wie" data-wie-vortag>wie heute</i>' : ''}</span>
       <div class="me-haupt"><b class="me-zeit">${e.beginn ? esc(e.beginn) + ' Uhr' : 'Beginn wie üblich'}</b><b class="me-bs">${esc(b.name || 'Baustelle')}</b><span>${esc(b.adresse || '')}</span></div>
       <div class="me-felder">${feld('Treffpunkt', e.treffpunkt)}${feld('Polier', e.polier && e.polier.name)}${feld('Fahrzeug', fz)}${feld('Arbeit', e.arbeit)}</div>
       ${e.meineNotiz ? `<p class="me-meine" id="me-meine-notiz"><small>Notiz für mich</small>${esc(e.meineNotiz)}</p>` : ''}
@@ -577,23 +590,24 @@ export async function einsatz(el, ctx) {
 
 /* ================= Polier: „Meine Partie morgen“ ================= */
 export async function partie(el, ctx) {
-  const heute = wienHeute(), morgen = fmt.addTage(heute, 1);
+  // G-05: Standard ist der nächste Arbeitstag (am Freitag der Montag, vor einem Feiertag der Tag danach)
+  const heute = wienHeute(), morgen = naechsterArbeitstag(heute, await feiertage(heute));
   let datum = ctx.query.get('datum') === heute ? heute : morgen;
   let d = { einsaetze: [] };
   async function lade() { d = await get(`/plan/partie?datum=${datum}`); }
   await lade();
   function zeichne() {
-    const wort = datum === heute ? 'heute' : 'morgen';
+    const name = tagName(datum, heute); const wort = name === 'heute' || name === 'morgen' ? name : `am ${name}`;
     ctx.titel(`Meine Partie ${wort}`, `${fmt.WTK[fmt.dt(datum).getDay()]} ${tagKurz(datum).slice(3)}`);
     el.innerHTML = `<div class="page narrow me-page">
-      <div class="tabs" role="tablist" aria-label="Tag">${[[heute, 'Heute'], [morgen, 'Morgen']].map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === datum}" class="${k === datum ? 'on' : ''}" data-partie-tag="${k}">${t}</button>`).join('')}</div>
+      <div class="tabs" role="tablist" aria-label="Tag">${[[heute, 'Heute'], [morgen, tagName(morgen, heute) === 'morgen' ? 'Morgen' : tagName(morgen, heute)]].map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === datum}" class="${k === datum ? 'on' : ''}" data-partie-tag="${k}">${t}</button>`).join('')}</div>
       ${d.einsaetze.length ? d.einsaetze.map((e) => `<div class="stack" data-partie-einsatz="${e.id}">
         <p class="me-kopf"><b>${esc((e.baustelle && (e.baustelle.name || e.baustelle.kurz)) || 'Baustelle')}</b>${e.beginn ? ` · ${esc(e.beginn)} Uhr` : ''}${e.treffpunkt ? ` · Treffpunkt ${esc(e.treffpunkt)}` : ''}${e.arbeit ? ` · ${esc(e.arbeit)}` : ''}</p>
         <section class="card" aria-label="Personal"><h2 class="me-h">Personal · ${(e.personen || []).length} <small class="muted" data-lesezahl>${(e.personen || []).filter((p) => p.gelesen || p.bestaetigt).length} gelesen · ${(e.personen || []).filter((p) => p.bestaetigt).length} bestätigt</small></h2><ul class="plain rows" data-partie-personen>${(e.personen || []).map((p) => `<li data-person="${p.benutzerId}"><span class="grow"><b>${esc(p.name)}</b><small>${esc(rolleText(p.rolle))}</small>${p.notiz ? `<span class="me-zeile-notiz" data-notiz>${esc(p.notiz)}</span>` : ''}</span>${p.telefon ? `<a class="icon-btn sm" href="tel:${esc(String(p.telefon).replace(/[^+\d]/g, ''))}" aria-label="${esc(p.name)} anrufen">${ic('sms')}</a>` : ''}<span class="me-status ${p.bestaetigt ? 'ok' : p.gelesen ? 'gelesen' : ''}" data-lesestand="${p.bestaetigt ? 'bestaetigt' : p.gelesen ? 'gelesen' : 'offen'}">${p.bestaetigt ? 'bestätigt' : p.gelesen ? 'gelesen' : 'noch nicht gelesen'}</span></li>`).join('') || '<li class="muted">Niemand eingeteilt.</li>'}</ul></section>
         <section class="card" aria-label="Geräte"><h2 class="me-h">Geräte · ${(e.anlagen || []).length}</h2><ul class="plain rows" data-partie-geraete>${(e.anlagen || []).map((a) => `<li><span class="grow"><b>${esc(a.bezeichnung || a.nummer || 'Gerät')}</b>${a.kennzeichen || a.fahrer ? `<small>${esc(a.kennzeichen || '')}${a.fahrer ? `${a.kennzeichen ? ' · ' : ''}Fahrer ${esc(a.fahrer.name)}` : ''}</small>` : ''}${a.notiz ? `<span class="me-zeile-notiz" data-notiz>${esc(a.notiz)}</span>` : ''}</span><span class="me-status ${a.gesperrt ? 'rot' : a.hinweis ? 'gelb' : 'ok'}">${a.gesperrt ? 'gesperrt' : esc(a.hinweis || 'einsatzbereit')}</span></li>`).join('') || '<li class="muted">Kein Gerät eingeteilt.</li>'}</ul></section>
         ${e.benoetigt ? `<div class="me-hinweis" data-benoetigt><b>Benötigt / Mitnehmen:</b> ${esc(e.benoetigt)}</div>` : ''}
         ${e.notiz ? `<div class="me-buero" data-buero-hinweis><b>Hinweis Büro:</b> ${esc(e.notiz)}</div>` : ''}
-        <div class="stack-s">${ctx.kann('kolonne') ? (datum === heute ? `<a class="btn primary lg" data-alle-stempeln href="#/kolonne?baustelleId=${e.baustelleId}&plan=1">${ic('users')}Alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</a>` : `<button type="button" class="btn primary lg" data-alle-stempeln disabled>${ic('users')}Morgen alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</button><p class="muted sm">Morgen früh hier mit einem Tipp – die eingeplante Mannschaft ist dann schon ausgewählt.</p>`) : ''}
+        <div class="stack-s">${ctx.kann('kolonne') ? (datum === heute ? `<a class="btn primary lg" data-alle-stempeln href="#/kolonne?baustelleId=${e.baustelleId}&plan=1">${ic('users')}Alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</a>` : `<button type="button" class="btn primary lg" data-alle-stempeln disabled>${ic('users')}${tagName(datum, heute) === 'morgen' ? 'Morgen' : tagName(datum, heute)} alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</button><p class="muted sm">Am Einsatztag hier mit einem Tipp – die eingeplante Mannschaft ist dann schon ausgewählt.</p>`) : ''}
           <button type="button" class="btn ghost lg" data-anfrage="${e.id}">Änderung beim Büro anfragen</button></div>
       </div>`).join('') : `<section class="card pad" id="partie-leer">${leer(`Für ${wort} ist noch kein Plan veröffentlicht.`, 'calendar')}<button type="button" class="btn ghost" data-anfrage="">Änderung beim Büro anfragen</button></section>`}
       ${partieFuhrenHtml(d.fuhren)}
