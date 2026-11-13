@@ -281,6 +281,22 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   }
   y += uH;
   fusszeile();
+  // API.md 12.6: Fotoanhang (2 × 3 je Seite, Beschreibung darunter; WebP nur als Hinweis)
+  const fotos = Array.isArray(opt.fotos) ? opt.fotos : [];
+  for (let i = 0; i < fotos.length; i += 6) {
+    doc.addPage({ size: 'A4', margin: 0 });
+    t(`Fotos zum Bautagesbericht ${bericht.baustelle.kst} vom ${deDatum(bericht.datum)}${fotos.length > 6 ? ` (${i / 6 + 1}/${Math.ceil(fotos.length / 6)})` : ''}`, 40, 30, { gr: 11, fett: true, b: 515 });
+    fotos.slice(i, i + 6).forEach((f, j) => {
+      const fx = 40 + (j % 2) * 265, fy = 60 + Math.floor(j / 2) * 255;
+      box(fx, fy, 250, 220);
+      if (f.mime === 'image/jpeg' || f.mime === 'image/png') {
+        try { doc.image(f.daten, fx + 4, fy + 4, { fit: [242, 212], align: 'center', valign: 'center' }); } catch (_) { t('Bild nicht darstellbar – in der App ansehen', fx + 8, fy + 100, { b: 234, align: 'center' }); }
+      } else {
+        t('Bild im Format WebP – in der App ansehen', fx + 8, fy + 100, { b: 234, align: 'center' });
+      }
+      t(`${i + j + 1}. ${f.beschreibung || f.dateiname || ''}`, fx, fy + 224, { gr: 8, b: 250 });
+    });
+  }
   doc.end();
   return fertig;
 }

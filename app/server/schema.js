@@ -804,6 +804,50 @@ CREATE TABLE mail_ausgang (
 );
 CREATE INDEX mail_ausgang_bezug ON mail_ausgang(bezug);
 `
+  },
+  {
+    version: 14,
+    name: 'Ausbaustufe 2: Fotos im Bautagesbericht, Lieferschein, Papierbericht (12.6, 12.11, 12.12)',
+    sql: `
+CREATE TABLE bericht_foto (
+  id INTEGER PRIMARY KEY,
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  art TEXT NOT NULL DEFAULT 'foto' CHECK (art IN ('foto','lieferschein','papier')),
+  datei TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  groesse INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  dateiname TEXT,
+  beschreibung TEXT,
+  ocr_text TEXT,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX bericht_foto_bericht ON bericht_foto(bericht_id);
+`
+  },
+  {
+    version: 15,
+    name: 'Ausbaustufe 2: Zwei-Faktor-Anmeldung (TOTP, 12.7)',
+    sql: `
+CREATE TABLE benutzer_2fa (
+  benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+  geheimnis TEXT NOT NULL,
+  aktiv INTEGER NOT NULL DEFAULT 0,
+  bestaetigt TEXT,
+  letzter_schritt INTEGER,
+  codes TEXT NOT NULL DEFAULT '[]',
+  salz TEXT NOT NULL,
+  erstellt TEXT NOT NULL
+);
+CREATE TABLE login_2fa (
+  token_hash TEXT PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  erstellt TEXT NOT NULL,
+  versuche INTEGER NOT NULL DEFAULT 0,
+  ip TEXT
+);
+`
   }
 ];
 

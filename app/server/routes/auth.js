@@ -66,11 +66,21 @@ module.exports = function authRouten(api, bt) {
     const zuKurz = !bt.demo && !auth.FELD_ROLLEN.includes(b.rolle) && body.pin.length < 6; // Demo-Modus: 1234 bleibt
     db.lauf('UPDATE benutzer SET pin_laenge = ?, muss_pin_aendern = CASE WHEN ? THEN 1 ELSE muss_pin_aendern END WHERE id = ?', body.pin.length, zuKurz ? 1 : 0, b.id);
     if (zuKurz) b.muss_pin_aendern = 1;
+    // API.md 12.7: mit aktiver Zwei-Faktor-Anmeldung erst nach dem Code anmelden
+    const zf = require('./zweifaktor');
+    if (zf.aktiv(db, b.id)) return res.json({ zweiterFaktor: true, vorgang: zf.neuerVorgang(bt, b.id, ip) });
+    anmelden(req, res, b);
+  });
+
+  /** Sitzung anlegen (nach PIN bzw. PIN + zweitem Faktor) */
+  function anmelden(req, res, b) {
     if (req.token) auth.beendeSitzung(db, req.token);
     const token = auth.neueSitzung(db, b.id, bt.uhr());
     auth.setzeCookie(req, res, token);
     res.json({ benutzer: benutzerJson(b, true), mussPinAendern: b.muss_pin_aendern === 1 });
-  });
+  }
+
+  require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip) => fehlversuch(bt, b, ip), clientIp });
 
   api.post('/auth/logout', (req, res) => {
     auth.beendeSitzung(db, req.token);
@@ -86,7 +96,8 @@ module.exports = function authRouten(api, bt) {
       rechte: [...req.ctx.rechte],
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,
-      sitzungMinuten: auth.inaktivMinuten(b.rolle, bt.sitzung)
+      sitzungMinuten: auth.inaktivMinuten(b.rolle, bt.sitzung),
+      zweiFaktor: require('./zweifaktor').stand(db, b)
     });
   });
 
