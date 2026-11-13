@@ -384,7 +384,7 @@ module.exports = function berichtRouten(api, bt) {
     if (datum > heute) throw ungueltig('Ein Bericht kann nicht für ein zukünftiges Datum angelegt werden.');
     if (datum < plusTage(heute, -366)) throw ungueltig('Das Datum liegt mehr als ein Jahr zurück.');
     // API.md 12.15: nach Bauende/Archiv keine neuen Berichte (Tage bis zum Phasenwechsel bleiben möglich)
-    if (bs.status === 'abgeschlossen' && (!bs.phase_seit || datum > bs.phase_seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${require('../bauvorhaben').PHASE_NAMEN[bs.phase] || bs.phase}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
+    if (bs.status === 'abgeschlossen' && (['archiviert', 'storniert'].includes(bs.phase) || !bs.phase_seit || datum > bs.phase_seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${require('../bauvorhaben').PHASE_NAMEN[bs.phase] || bs.phase}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
     const vorhanden = db.eins('SELECT id FROM bericht WHERE baustelle_id = ? AND datum = ?', baustelleId, datum);
     if (vorhanden) throw konflikt('Für diese Baustelle und diesen Tag gibt es bereits einen Bericht.', { id: vorhanden.id });
     const zeit = jetzt();

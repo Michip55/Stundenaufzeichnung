@@ -735,6 +735,29 @@ CREATE TABLE baustelle_phase (
   notiz TEXT
 );
 CREATE INDEX baustelle_phase_bs ON baustelle_phase(baustelle_id, zeit);
+
+-- Benachrichtigungstypen werden ab jetzt im Programm geprüft (neue Typen: baustelle, plan, rechnung, email, urlaub)
+ALTER TABLE benachrichtigung RENAME TO benachrichtigung_alt;
+CREATE TABLE benachrichtigung (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  typ TEXT NOT NULL,
+  titel TEXT NOT NULL,
+  text TEXT NOT NULL,
+  zeit TEXT NOT NULL,
+  gelesen INTEGER NOT NULL DEFAULT 0,
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  schluessel TEXT,
+  anlage_id INTEGER,
+  push TEXT,
+  UNIQUE (benutzer_id, schluessel)
+);
+INSERT INTO benachrichtigung (id, benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel, anlage_id, push)
+  SELECT id, benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel, anlage_id, 'alt' FROM benachrichtigung_alt;
+DROP TABLE benachrichtigung_alt;
+DROP INDEX IF EXISTS benachrichtigung_benutzer;
+CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
+CREATE INDEX benachrichtigung_push ON benachrichtigung(push) WHERE push IS NULL;
 `
   }
 ];
