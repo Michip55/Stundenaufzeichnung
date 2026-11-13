@@ -26,6 +26,10 @@ Entwurf einer Plattform für einen Erdbau- und Pflasterbetrieb in Österreich (c
 
 ## App starten (echte Anwendung)
 
+**Am einfachsten (Windows):** einmal Node.js „LTS“ von https://nodejs.org installieren, dann im heruntergeladenen Ordner **`BauTag-starten-Windows.bat` doppelklicken** – der Browser öffnet sich automatisch (Mac: `BauTag-starten-Mac.command`). Anmelden mit Namen und PIN 1234 (Testdaten).
+
+Manuell:
+
 ```bash
 cd app && npm install
 BAUTAG_DEMO=1 npm run seed      # Testdaten (Demo-PIN 1234) – nur zum Ausprobieren

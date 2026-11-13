@@ -3,6 +3,7 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- **Servicebuch + Schadensmeldung mit Fotos** übernommen (13.11.2026): Prüfung 5 + Nachprüfung bestanden (`PRUEFBERICHT_5_SERVICEBUCH.md`), Server 385/385, E2E Tablet/PC 783/783, Handy 788/788 (Einzellauf; ein früherer Lauf scheiterte nur unter Last durch eine parallel laufende Prüfung). Start per Doppelklick: `BauTag-starten-Windows.bat` / `BauTag-starten-Mac.command`
 - **Freigabe (13.11.2026):** Prüfbericht-4-Befunde E-01…E-09 + N-01 behoben, Nachprüfung bestanden (`PRUEFBERICHT_4_NACHPRUEFUNG.md`). Endstand: Server 290/290, E2E 484/484 je Größe (Handy, Tablet, PC) grün → Pull Request auf `main`
 - Vierte Prüfung (`PRUEFBERICHT_4.md`): **freigabefähig**, keine kritischen/hohen Befunde; alle Befunde aus Prüfbericht 3 bestätigt behoben. Tests: Server 277/277, E2E 463/463 je Größe grün
 - Oberfläche Positions-Nachkalkulation fertig; E2E uhrzeitunabhängig (feste Uhr), 463/463 je Größe laut Agent; Server 277/277 grün
@@ -25,10 +26,7 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- **Servicebuch + Schadensmeldung mit Fotos** (lokal: `/home/user/bautag-servicebuch`, Branch `servicebuch`, Commit e122a3e – noch NICHT auf GitHub):
-  - Server + Oberfläche fertig; Server-Tests 385/385 grün; unabhängige Prüfung 5 + Nachprüfung: alle 16 Befunde behoben, „freigabereif“.
-  - **Offen:** eigener E2E-Kontrolllauf zeigte am Handy einen Fehler im Offline-Schadens-Ablauf („Senden wurde nicht versucht“, Timeout bei `[data-sch-senden]`) – evtl. Last durch parallel laufende Prüfung, muss geklärt werden. Erst danach Übernahme in PR #1.
-  - Pausiert wegen Nutzungslimit (13.11., ~15:30 UTC).
+- –
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
