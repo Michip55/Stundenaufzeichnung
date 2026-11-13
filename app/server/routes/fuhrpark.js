@@ -1107,7 +1107,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     res.setHeader('Content-Type', f.mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="schaden-${m.id}-${f.id}.${B.ENDUNG[f.mime]}"`);
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'no-store'); // keine Zwischenspeicherung (geteilte Geräte)
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
     res.send(daten);
   });
