@@ -1111,8 +1111,8 @@ module.exports = function fuhrparkRouten(api, bt) {
   });
 
   api.delete(`${R}/schaeden/:id/fotos/:fid`, (req, res) => {
-    const { m, f } = fotoAus(req);
     if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Fotos löschen nur Fuhrpark, Büro und Geschäftsführung.');
+    const { m, f } = fotoAus(req);
     const g = req.body && req.body.grund !== undefined ? grund(req.body.grund, false) : null;
     db.transaktion(() => {
       db.lauf('DELETE FROM schaden_foto WHERE id = ?', f.id);
@@ -1126,7 +1126,7 @@ module.exports = function fuhrparkRouten(api, bt) {
 
   api.get(`${R}/fristen`, pflege, (req, res) => {
     const S = stand();
-    const bis = req.query.bis ? v.datum(String(req.query.bis), 'bis') : require('../fuhrpark').plusMonate(S.H, 6);
+    const bis = req.query.bis ? v.datum(String(req.query.bis), 'bis') : F.plusMonate(S.H, 6);
     const klasse = req.query.klasse ? v.auswahl(String(req.query.klasse), 'klasse', F.KLASSEN) : null;
     const art = req.query.art ? v.auswahl(String(req.query.art), 'art', F.PLAN_ARTEN) : null;
     res.json(D.fristen(S, { bis, klasse, art }).map(({ A, P }) => D.fristJson(A, P)));
