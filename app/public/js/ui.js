@@ -60,7 +60,9 @@ export const MARK = '<svg class="mark" viewBox="0 0 40 40" aria-hidden="true"><r
 export const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /* ---------- Formatierung de-AT ---------- */
-const nf = (min, max) => new Intl.NumberFormat('de-AT', { minimumFractionDigits: min, maximumFractionDigits: max });
+// Schreibweise wie in österreichischen Angeboten und Rechnungen: Tausenderpunkt und Dezimalkomma (1.234,50).
+// (Die CLDR-Vorgabe „de-AT“ setzt bei reinen Zahlen ein Leerzeichen – das passt nicht zur Eingabe „250.000“.)
+const nf = (min, max) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: min, maximumFractionDigits: max, useGrouping: 'always' });
 const NF0 = nf(0, 0), NF1 = nf(0, 1), NF2 = nf(2, 2), NF02 = nf(0, 2);
 const istZahl = (n) => typeof n === 'number' && isFinite(n);
 const WT = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];

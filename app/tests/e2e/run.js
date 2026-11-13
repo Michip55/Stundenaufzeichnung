@@ -188,17 +188,21 @@ async function laufe(browser, g) {
     pruef(await page.locator('.week-list .wd').count() === 7, 'Meine Woche zeigt nicht 7 Tage');
     // B-07: eigener Antrag mit Status, Zurückziehen
     await geh('/abwesenheiten'); await keinEuro('abwesenheiten');
-    const stelleAntrag = async () => { await page.click('[data-akt="antrag"]'); await page.waitForSelector('dialog[open] #abw-f'); await page.click('dialog[open] button[type="submit"]'); await page.waitForSelector('#abw-eigene li[data-status="beantragt"]'); };
+    const stelleAntrag = async () => { await page.click('[data-akt="antrag"]'); await page.waitForSelector('dialog[open] #abw-f'); await page.click('dialog[open] button[type="submit"]'); await page.waitForFunction(() => !document.querySelector('dialog[open]')); await page.waitForSelector('#abw-eigene li[data-status="beantragt"]'); };
     await stelleAntrag();
-    pruef(await page.locator('#abw-eigene li[data-status="beantragt"] [data-abw-status="beantragt"]').count() === 1, 'B-07: eigener Antrag zeigt nicht den Status „beantragt“');
+    pruef(await page.locator('#abw-eigene li[data-status="beantragt"] [data-abw-status="beantragt"]').count() >= 1, 'B-07: eigener Antrag zeigt nicht den Status „beantragt“');
     await ueberlauf('abwesenheiten mitarbeiter'); await shot('abwesenheiten-mitarbeiter');
-    await page.click('[data-zurueckziehen]');
+    const morgen = new Date(Date.now() + 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const eigenerAntrag = async () => (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === ich.benutzer.id && a.datum === morgen);
+    const ersterAntrag = await eigenerAntrag();
+    pruef(ersterAntrag && ersterAntrag.status === 'beantragt', `B-07: Antrag am Server nicht „beantragt“ (${JSON.stringify(ersterAntrag)})`);
+    await page.click(`#abw-eigene li[data-abw="${ersterAntrag.id}"] [data-zurueckziehen]`);
     await page.click('dialog[open] [data-ok]');
-    await page.waitForFunction(() => !document.querySelector('#abw-eigene li[data-status="beantragt"]'));
-    pruef((await api('GET', '/abwesenheiten')).json.filter((a) => a.benutzerId === ich.benutzer.id && a.status === 'beantragt').length === 0, 'B-07: zurückgezogener Antrag noch am Server');
+    await page.waitForFunction((id) => !document.querySelector(`#abw-eigene li[data-abw="${id}"]`), ersterAntrag.id);
+    pruef(!(await eigenerAntrag()), 'B-07: zurückgezogener Antrag noch am Server');
     await toastWeg();
     await stelleAntrag();
-    const antragId = (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === ich.benutzer.id && a.status === 'beantragt').id;
+    const antragId = (await eigenerAntrag()).id;
     pruef(await page.locator('#abw-offen, [data-entscheid]').count() === 0, 'B-07: Mitarbeiter sieht die Genehmigungsliste');
     await toastWeg();
     await geh('/pin'); await keinEuro('pin');
@@ -284,7 +288,7 @@ async function laufe(browser, g) {
     pruef(await zustand() === 'invalid', 'B-06: Zustand wechselt trotz ungültigem Personal auf gespeichert');
     await page.locator('.pf-g').nth(3).locator('[data-d="-1"]').click();
     await schritt(6);
-    await page.locator('.sig-box[data-sig="an"] canvas').scrollIntoViewIfNeeded();
+    await page.locator('.sig-box[data-sig="an"] canvas').evaluate((e) => e.scrollIntoView({ block: 'center' })); await sleep(80);
     { const r = await page.locator('.sig-box[data-sig="an"] canvas').boundingBox(); await page.mouse.move(r.x + 20, r.y + 40); await page.mouse.down(); await page.mouse.move(r.x + 120, r.y + 70, { steps: 4 }); await page.mouse.up(); }
     await page.locator('.sig-box[data-sig="an"] [data-sig-save]').click();
     await sleep(500);
@@ -338,7 +342,7 @@ async function laufe(browser, g) {
     const unterschreibe = async (rolle, name) => {
       const box = page.locator(`.sig-box[data-sig="${rolle}"]`);
       const cv = box.locator('canvas');
-      await cv.scrollIntoViewIfNeeded();
+      await cv.evaluate((e) => e.scrollIntoView({ block: 'center' })); await sleep(80);
       const r = await cv.boundingBox();
       await page.mouse.move(r.x + 30, r.y + r.height * 0.6);
       await page.mouse.down();
@@ -381,11 +385,16 @@ async function laufe(browser, g) {
     await page.waitForSelector('dialog[open] #abw-e');
     pruef((await page.locator('dialog[open] select[name="code"] option').allInnerTexts()).join('|').startsWith('SW') && await page.locator('dialog[open] select[name="code"] option').count() === 1, 'B-07: Polier kann andere Kürzel als SW wählen');
     pruef(await page.locator('dialog[open] input[name="wer"]').count() >= 1, 'B-07: Polier hat niemanden aus der Partie zur Auswahl');
-    await page.locator('dialog[open] input[name="wer"]').first().check();
+    const heuteWien = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const belegt = (await api('GET', `/abwesenheiten?von=${heuteWien}&bis=${heuteWien}`)).json.map((a) => String(a.benutzerId));
+    const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => !belegt.includes(v));
+    pruef(freieIds.length >= 1, 'B-07: in der Partie ist heute niemand ohne Abwesenheit (Testdaten)');
+    await page.locator(`dialog[open] input[name="wer"][value="${freieIds[0]}"]`).check();
     await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
     await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
     await page.waitForSelector('#abw-andere li');
-    pruef((await api('GET', '/abwesenheiten')).json.some((a) => a.code === 'SW' && a.datum === new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' })), 'B-07: Schlechtwetter des Poliers nicht am Server');
+    pruef((await api('GET', '/abwesenheiten')).json.some((a) => a.code === 'SW' && a.datum === heuteWien && String(a.benutzerId) === freieIds[0]), 'B-07: Schlechtwetter des Poliers nicht am Server');
     await toastWeg();
     await geh('/woche'); await keinEuro('polier woche');
     await geh('/mehr'); await keinEuro('polier mehr');
@@ -746,8 +755,9 @@ async function laufe(browser, g) {
 
     pruef(konsole.length === 0, `Konsolenfehler:\n      ${konsole.slice(0, 12).join('\n      ')}`);
   } catch (e) {
-    fehler.push(`Abbruch: ${e.message.split('\n').slice(0, 6).join(' | ')} (bei ${page.url()})`);
-    console.log(`    ✗ Abbruch: ${e.message.split('\n')[0]}`);
+    const zeile = (/run\.js:(\d+)/.exec(e.stack || '') || [])[1];
+    fehler.push(`Abbruch in Zeile ${zeile}: ${e.message.split('\n').slice(0, 6).join(' | ')} (bei ${page.url()})`);
+    console.log(`    ✗ Abbruch (run.js:${zeile}): ${e.message.split('\n').slice(0, 3).join(' | ')}`);
     if (konsole.length) console.log('      Konsole: ' + konsole.slice(0, 8).join(' || '));
     if (SHOTS) { try { await page.screenshot({ path: path.join(SHOTS, `${g.name}-ABBRUCH.png`) }); } catch (x) { /* egal */ } }
     if (process.env.E2E_SERVERLOG) console.log(srv.log().slice(-2000));

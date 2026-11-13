@@ -51,10 +51,9 @@ export async function baustellen(el, ctx) {
 export async function baustelle(el, ctx) {
   const id = ctx.params[0];
   const mitKalk = ctx.kann('kalk_sehen');
-  const [b, leute, kalk] = await Promise.all([
-    get(`/baustellen/${id}`), get('/mitarbeiter').catch(() => []),
-    mitKalk ? get(`/kalkulation/${id}`).catch((e) => (e.status === 403 ? null : Promise.reject(e))) : null,
-  ]);
+  const [b, leute] = await Promise.all([get(`/baustellen/${id}`), get('/mitarbeiter').catch(() => [])]);
+  // Nachkalkulation nur abfragen, wenn der Server für diese Baustelle Budgetdaten liefert (fremde Baustellen: nein)
+  const kalk = mitKalk && ('schwellen' in b || 'budgetVerbrauchProzent' in b) ? await get(`/kalkulation/${id}`).catch((e) => (e.status === 403 ? null : Promise.reject(e))) : null;
   ctx.titel(b.name || 'Baustelle', b.kst || '');
   const darfStamm = ctx.kann('stammdaten'), darfAuftrag = ctx.kann('preise_bearbeiten');
   const name = (pid) => (leute.find((m) => m.id === pid) || {}).name || '–';

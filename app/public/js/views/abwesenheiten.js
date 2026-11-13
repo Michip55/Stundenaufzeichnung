@@ -45,7 +45,7 @@ export default async function abwesenheiten(el, ctx) {
       </section>` : ''}
 
       <section class="card" id="abw-eigene" aria-labelledby="h-eigene">
-        <div class="card-h pad-h"><h3 id="h-eigene">Meine Abwesenheiten</h3><button type="button" class="btn primary sm" data-akt="antrag">${ic('plus')}Urlaub / Zeitausgleich beantragen</button></div>
+        <div class="card-h pad-h"><h3 id="h-eigene">Meine Abwesenheiten</h3><button type="button" class="btn primary sm" data-akt="antrag">${ic("plus")}Beantragen</button></div>
         ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: a.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}">Zurückziehen</button>` : '' })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
       </section>
 
