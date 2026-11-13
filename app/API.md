@@ -282,3 +282,38 @@ Bezug: `app/PRUEFBERICHT_2.md`. Gilt vor den Abschnitten 6 und 7.
 
 ### Baustelle (C-08)
 - `GET /baustellen/:id` liefert `version`. `PUT /baustellen/:id` und `PUT /baustellen/:id/auftrag` **verlangen** `version` (fehlt → 400, veraltet → 409 mit aktueller `version`).
+
+## 9. Änderungen nach Prüfbericht 3 (Backend, verbindlich)
+
+Bezug: `app/PRUEFBERICHT_3.md`. Gilt vor den Abschnitten 6–8.
+
+### Anmeldung / Kontosperre (D-01, D-12)
+- Die Kontosperre (20 Fehlversuche in 24 h) ist **befristet**: 1. Sperre 24 h, 2. Sperre 48 h, ab der 3. jeweils 7 Tage (Zähler zurück nach erfolgreicher Anmeldung oder Entsperrung). Antwort 423 `{code:"KONTO_GESPERRT"}` mit `Retry-After`. `GET /benutzer` → `gesperrt`, `gesperrtSeit`, zusätzlich `gesperrtBis`.
+- `POST /benutzer/:id/entsperren`: GF für alle; **Büro auch für GF- und Büro-Konten** (nur entsperren – kein PIN-Reset, keine sonstige Änderung). Nicht für sich selbst.
+- Notfall ohne Anmeldung (lokal am Server): `node server/entsperren.js <pnr>` hebt alle Sperren auf (protokolliert, Art `sicherheit`).
+- Beim Start warnt der Server (Konsole), wenn weniger als **zwei** aktive Konten GF/Büro entsperren können (GF bzw. Büro mit `stammdaten`). Empfehlung: mindestens zwei Verwaltungs-Konten anlegen.
+- Mit `BAUTAG_LOGIN_LISTE=0` ist die Anmeldung **nur** mit `{pnr, pin}` möglich; `{benutzerId}` → 400.
+
+### Benutzer / Rollen (D-02, D-11)
+- Büro: anlegen nur Rollen `mitarbeiter`/`polier`; Rollenwechsel nur `mitarbeiter` ↔ `polier`. Bauleiter anlegen oder jemanden zum/vom Bauleiter machen: nur GF. Büro darf bestehende Bauleiter weiter bearbeiten (Name, PIN-Reset, Entsperren, aktiv). Jeder Rollenwechsel durch das Büro → Benachrichtigung an die GF (`typ:"sicherheit"`).
+- Erhält jemand eine Rolle mit PIN-Mindestlänge 6 (Bauleiter/Büro/GF) und ist seine PIN kürzer (oder unbekannt), wird `mussPinAendern` gesetzt. Zusätzlich wird bei jeder Anmeldung mit zu kurzer PIN für die Rolle `mussPinAendern` gesetzt.
+- Rollenwechsel räumt unpassende Zuordnungen: wer nicht mehr Bauleiter/GF ist, wird als `bauleiterId`, wer nicht mehr Polier ist, als `polierId` aus allen Baustellen entfernt. `PUT /benutzer/:id` liefert dann `zuordnungenEntfernt:[{baustelleId, kst, feld:"bauleiterId"|"polierId"}]`.
+
+### Bautagesbericht (D-03, D-04, D-05, D-07, D-10)
+- Überschneidungsprüfung mit echten Zeitpunkten **über die Tagesgrenze**: gegen Stempelzeiten der Person auf **allen** Baustellen (auch der eigenen, wenn die Schicht zu einem anderen Berichtstag gehört) sowie gegen Zeilen der Person in Berichten vom **Vortag, selben Tag und Folgetag** → 400.
+- Personal-Vorschlag (Anlegen, `personal-aktualisieren`) enthält **nie** Bauleiter/Büro/GF. Deren Stempelstunden zählen im Lohn immer (die Regel „freigegebener Bericht ersetzt Stempel“ gilt für sie nicht).
+- `POST /berichte/:id/unterschrift` für eine Rolle, die schon unterschrieben hat → **409** (ersetzen nur über Zurückziehen). Der Bild-Abgleich (wiederverwendete/zurückgezogene Unterschrift) vergleicht die **dekodierten Bildpunkte** (PNG), nicht die Datei-Bytes.
+- `version` ist **Pflicht** bei `POST …/unterschrift` und `POST …/personal-aktualisieren` (fehlt → 400, veraltet → 409 mit aktueller `version`).
+- **Freigabe (Vier-Augen):** Wer die Unterschrift des Auftragnehmers (`an`) erfasst hat, darf denselben Bericht nicht freigeben (403) – außer der GF; eine solche GF-Selbstfreigabe wird im Protokoll und am Bericht markiert (`selbstfreigabe:true`) und im Monat als Warnung `typ:"selbstfreigabe"` gemeldet.
+
+### Monat / Lohn (D-03, D-08)
+- Sicherheitsnetz zusätzlich **über die Tagesgrenze**: Überschneidet sich eine freigegebene Berichtszeile mit gezählten Stempelzeiten oder Berichtszeilen eines anderen Tages, wird die Überschneidung am Berichtstag abgezogen (`ueberschneidung:true`, Warnung `ueberschneidung`, CSV-Hinweis).
+- Warnung `typ:"abwesenheit_mit_stunden"`, wenn an einem Tag mit genehmigtem **K, U oder ZA** Arbeitsstunden gezählt werden; Hinweiszeile im Lohn-CSV.
+
+### Abwesenheiten (D-09)
+- Polier darf Schlechtwetter (SW) auch **für sich selbst** melden (`beantragt`).
+- SW-Anträge bestätigen/ablehnen dürfen zusätzlich der **Bauleiter der Stamm-Baustelle** der Person (nicht für sich selbst). Andere Codes weiter nur Büro/Lohn.
+
+### Inbetriebnahme (D-06)
+- `npm run seed` (Testdaten) läuft **nur mit `BAUTAG_DEMO=1`**, sonst Abbruch mit Hinweis.
+- **`node server/einrichten.js`** legt eine leere Echt-Datenbank an (Rechte-Matrix, Lohngruppen, Geräte und Material der Papiervorlage **ohne Preise**) und die erste GF: `--name "…" --pnr 1 --pin 123456` oder Umgebung `BAUTAG_GF_NAME`, `BAUTAG_GF_PNR`, `BAUTAG_GF_PIN`, sonst interaktive Abfrage. PIN-Regeln gelten (mind. 6 Ziffern). Bricht ab, wenn die Datenbank schon Benutzer enthält.
