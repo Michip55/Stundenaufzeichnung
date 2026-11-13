@@ -178,6 +178,11 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     const eigen = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status = 'unterschrieben' ORDER BY datum LIMIT 1", BS.pitten).id;
     const fremd = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status = 'unterschrieben' ORDER BY datum LIMIT 1", BS.kogler).id;
     assert.equal((await c.polier.post(`/berichte/${fremd}/freigeben`)).status, 403);
+    // D-10: eigene AN-Unterschrift → nicht selbst freigeben
+    const vier = await c.polier.post(`/berichte/${eigen}/freigeben`);
+    assert.equal(vier.status, 403);
+    assert.match(vier.daten.fehler, /Vier-Augen-Prinzip/);
+    s.db.lauf("UPDATE unterschrift SET erfasst_von = ? WHERE bericht_id = ? AND rolle = 'an'", 4, eigen);
     assert.equal((await c.polier.post(`/berichte/${eigen}/freigeben`)).status, 200);
     // trotzdem keine Preise im Bericht
     assert.deepEqual(euroFelder((await c.polier.get(`/berichte/${eigen}`)).daten), []);
