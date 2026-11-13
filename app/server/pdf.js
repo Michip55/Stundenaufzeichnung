@@ -115,7 +115,8 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t('PERSONAL:', X0 + 3, yl + 3.5, { fett: true, gr: 9 });
   ['von', 'bis', 'von', 'bis', 'Pause', 'Arbstd.'].forEach((h, i) => { box(sx[i + 1], yl, sp[i + 1], ZEILE + 1); t(h, sx[i + 1], yl + 3.5, { b: sp[i + 1], align: 'center', gr: 8 }); });
   yl += ZEILE + 1;
-  const versteckt = (c) => fassung === 'ag' && (c === 'K' || c === 'U');
+  // R-01: Krankenstand nie im PDF – berichtJson liefert ihn maskiert als „abwesend“ → „abw.“ (AG-Fassung ganz ohne)
+  const versteckt = (c) => fassung === 'ag' && (c === 'K' || c === 'U' || c === 'abwesend');
   const personal = bericht.personal.filter((p) => !(versteckt(p.code) && !p.stunden));
   const zeilen = Math.max(6, personal.length);
   let gesamt = 0;
@@ -124,7 +125,7 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
     sp.forEach((s, j) => box(sx[j], yl, s, ZEILE));
     if (p) {
       gesamt += p.stunden || 0;
-      const code = p.code && !versteckt(p.code) ? p.code : '';
+      const code = p.code && !versteckt(p.code) ? (p.code === 'K' || p.code === 'abwesend' ? 'abw.' : p.code) : '';
       t(p.name, sx[0] + 3, yl + 3, { b: sp[0] - 5, gr: 8 });
       [p.von1, p.bis1, p.von2, p.bis2].forEach((z, j) => t(z || '', sx[j + 1], yl + 3, { b: sp[j + 1], align: 'center', gr: 8 }));
       t(p.pauseMin ? zahl(p.pauseMin / 60) : '', sx[5], yl + 3, { b: sp[5], align: 'center', gr: 8 });
@@ -138,7 +139,7 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t(zahl(gesamt), sx[6], yl + 3.5, { b: sp[6], align: 'center', gr: 8.5, fett: true });
   yl += ZEILE + 1;
   box(X0, yl, LINKS_B, ZEILE);
-  t(fassung === 'ag' ? 'SW = Schlechtwetter' : 'K = Krank      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich', X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
+  t(fassung === 'ag' ? 'SW = Schlechtwetter' : 'abw. = abwesend      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich', X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
   yl += ZEILE + 8;
 
   /* ---- Links: Material ---- */

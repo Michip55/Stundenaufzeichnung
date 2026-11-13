@@ -46,7 +46,8 @@ function oeffentlich(api, bt) {
   /** AG-Fassung als JSON (wie PDF fassung=ag): ohne €, ohne Kürzel K/U, ohne interne Felder */
   function agJson(b) {
     const j = B.berichtJson(db, { benutzer: { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b, { mitBild: false });
-    const personal = j.personal.filter((p) => !['K', 'U'].includes(p.code) || p.stunden > 0).map((p) => ({ name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pauseMin, stunden: p.stunden, code: ['K', 'U'].includes(p.code) ? null : p.code }));
+    const versteckt = ['K', 'U', 'abwesend'];
+    const personal = j.personal.filter((p) => !versteckt.includes(p.code) || p.stunden > 0).map((p) => ({ name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pauseMin, stunden: p.stunden, code: versteckt.includes(p.code) ? null : p.code }));
     return {
       baustelle: { kst: j.baustelle.kst, name: j.baustelle.name, auftraggeber: j.baustelle.auftraggeber, bauvorhaben: j.baustelle.bauvorhaben, adresse: j.baustelle.adresse },
       datum: j.datum, personal, gesamtstunden: j.gesamtstunden, geraete: j.geraete.map((g) => ({ code: g.code, name: g.name, stunden: g.stunden })),

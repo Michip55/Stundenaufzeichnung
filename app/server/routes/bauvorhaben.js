@@ -20,6 +20,7 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   api.post('/baustellen/:id/phase', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     const body = v.objekt(req.body);
+    BV.pruefePhaseRecht(req.ctx, bs); // R-07: Recht vor Version (Unberechtigte erfahren nichts über den Zustand)
     version(body, bs);
     db.transaktion(() => BV.wechslePhase(bt, req.ctx, bs, body));
     res.json(detail(req, bs.id));

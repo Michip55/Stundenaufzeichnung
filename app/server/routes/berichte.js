@@ -57,7 +57,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     status: b.status,
     personal: b.personal.map((p) => ({
       benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2,
-      pauseMin: p.pause_min, stunden: p.stunden, code: p.code, segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {}), ...(p.gast ? { gast: true } : {})
+      pauseMin: p.pause_min, stunden: p.stunden, code: require('../datenschutz').code(ctx, p.benutzer_id, p.code), segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {}), ...(p.gast ? { gast: true } : {})
     })),
     gesamtstunden: r2(b.personal.reduce((a, p) => a + p.stunden, 0)),
     seg: { taetigkeit: b.seg_taetigkeit || '', stunden: b.seg_stunden },
@@ -190,7 +190,14 @@ function pruefePersonal(db, liste, kontext) {
     // „bis“ vor „von“ = über Mitternacht (nächster Tag); gesamte Spanne höchstens 24 Std.
     if (blockZeitleiste(z, datum).spanneMin > 24 * 60) throw ungueltig(`${f}: Die Zeitblöcke umfassen mehr als 24 Stunden.`);
     const pauseMin = v.zahl(p.pauseMin ?? 0, `${f}.pauseMin`, { min: 0, max: 600, ganz: true });
-    const code = p.code === '' || p.code === null || p.code === undefined ? null : v.auswahl(p.code, `${f}.code`, CODES);
+    // R-01: „abwesend“ ist die maskierte Anzeige eines Krankenstands – beim Speichern bleibt der gespeicherte Code
+    let code;
+    if (p.code === 'abwesend') {
+      const alt = berichtId ? db.eins('SELECT code FROM bericht_personal WHERE bericht_id = ? AND benutzer_id = ?', berichtId, benutzerId) : null;
+      const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", benutzerId, datum);
+      code = alt && alt.code ? alt.code : abw ? abw.code : null;
+      if (!code) throw ungueltig(`${f}.code: „abwesend“ ist nur für eingetragene Abwesenheiten möglich.`);
+    } else code = p.code === '' || p.code === null || p.code === undefined ? null : v.auswahl(p.code, `${f}.code`, CODES);
     // C-02: Stunden immer aus Zeiten und Pause (echte Zeitpunkte, C-10); mitgesendete Stunden werden ignoriert
     const stunden = stundenAusBloecken({ ...z, pauseMin }, datum);
     if (z.von1 && pauseMin > 0 && stunden === 0) throw ungueltig(`${f}: Die Pause ist länger als die Arbeitszeit.`);
@@ -604,7 +611,8 @@ async function berichtPdf(bt, b, { fassung = 'ag', benutzer = null, fotos = fals
   const { db } = bt;
   const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
   // Bewusst ohne kostenTag: das PDF enthält nie €-Werte
-  const daten = berichtJson(db, { benutzer: benutzer || { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b);
+  // R-01: PDFs (intern und AG) zeigen nie den Krankenstand – „abw.“ (ctx ohne Rechte und ohne Person maskiert K)
+  const daten = berichtJson(db, { benutzer: { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b);
   const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id) : null;
   return erzeugeBerichtPdf(daten, { fassung, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
 }

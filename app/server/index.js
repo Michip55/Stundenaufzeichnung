@@ -217,18 +217,24 @@ function createApp(opt = {}) {
     });
   }
 
+  // Sperren „PIN ändern“ und „2FA einrichten“ (API.md 7, 12.7) – R-06: VOR allen Routen außer /auth/*, /gesundheit
+  // und der öffentlichen Fernunterschrift, damit auch später unter /auth registrierte Routen (z. B. Sicherheit) gesperrt sind
+  const sperren = (req, res, next) => {
+    if (!req.ctx) return next();
+    const pfad = req.path.toLowerCase();
+    if (pfad.startsWith('/auth/') || pfad === '/gesundheit' || pfad.startsWith('/fern/')) return next();
+    if (req.ctx.benutzer.muss_pin_aendern) return next(new ApiFehler(403, 'PIN_AENDERN', 'Bitte zuerst die PIN ändern.'));
+    const zf = require('./routes/zweifaktor').stand(db, req.ctx.benutzer);
+    if (zf.pflicht && !zf.aktiv) return next(new ApiFehler(403, '2FA_EINRICHTEN', 'Bitte zuerst die Zwei-Faktor-Anmeldung einrichten (Einstellungen → Sicherheit).'));
+    next();
+  };
+  api.use(sperren);
   require('./routes/auth')(api, bt);
   require('./routes/fernunterschrift').oeffentlich(api, bt); // 12.9: ohne Anmeldung
 
   // Ab hier nur angemeldet – und erst nach Änderung einer vorgegebenen PIN
   api.use(angemeldet);
-  api.use((req, res, next) => {
-    if (req.ctx.benutzer.muss_pin_aendern) return next(new ApiFehler(403, 'PIN_AENDERN', 'Bitte zuerst die PIN ändern.'));
-    // API.md 12.7: Zwei-Faktor-Pflicht der Rolle → erst einrichten
-    const zf = require('./routes/zweifaktor').stand(db, req.ctx.benutzer);
-    if (zf.pflicht && !zf.aktiv) return next(new ApiFehler(403, '2FA_EINRICHTEN', 'Bitte zuerst die Zwei-Faktor-Anmeldung einrichten (Einstellungen → Sicherheit).'));
-    next();
-  });
+  api.use(sperren);
   require('./routes/stammdaten')(api, bt);
   require('./routes/preise')(api, bt);
   require('./routes/zeit')(api, bt);

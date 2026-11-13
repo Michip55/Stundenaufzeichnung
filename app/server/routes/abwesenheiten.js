@@ -5,6 +5,7 @@ const { ungueltig, keinZugriff, konflikt, nichtGefunden } = require('../fehler')
 const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, deDatum, istArbeitstag, feiertag, wochentag } = require('../datum');
 const crypto = require('node:crypto');
+const DS = require('../datenschutz'); // R-01…R-03: Krankenstand/Notizen nur für stammdaten/lohn und die Person selbst
 const { benachrichtige } = require('../budget');
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
@@ -56,7 +57,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const ids = sichtbareIds(req.ctx);
     const z = db.alle(`SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id
       ${bed.length ? 'WHERE ' + bed.join(' AND ') : ''} ORDER BY a.datum DESC, b.name LIMIT 2000`, ...p);
-    res.json(z.filter((a) => !ids || ids.has(a.benutzer_id)).map(json));
+    res.json(z.filter((a) => !ids || ids.has(a.benutzer_id)).map(json).map((a) => DS.abwesenheitFuer(req.ctx, a)));
   });
 
   /** Status und Rückdatierungs-Grenze je Rolle und Code (B-07, C-09, C-13, D-09) – auch für 12.24 */
@@ -95,7 +96,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     if (datum < plusTage(heute, -rueck)) throw ungueltig(`Das Datum darf höchstens ${rueck} Tage zurückliegen.`);
     if (datum > plusTage(heute, 366)) throw ungueltig('Das Datum liegt zu weit in der Zukunft.');
     const vorhanden = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, datum);
-    if (vorhanden && vorhanden.status !== 'abgelehnt' && (!ctx.hat('stammdaten') || benutzerId === ich.id)) throw konflikt(`Für ${deDatum(datum)} ist bereits „${vorhanden.code}“ eingetragen.`);
+    if (vorhanden && vorhanden.status !== 'abgelehnt' && (!ctx.hat('stammdaten') || benutzerId === ich.id)) throw konflikt(`Für ${deDatum(datum)} ist ${DS.bereits(ctx, benutzerId, vorhanden.code)}.`);
     const zeit = bt.uhr().toISOString();
     let id;
     db.transaktion(() => {
@@ -136,7 +137,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${a.benutzer_id}`, alt: { datum: a.datum, code: a.code, status: a.status }, neu: { status }, text: `${CODE_TEXT[a.code]} ${a.name} ${deDatum(a.datum)} ${status}` });
       benachrichtige(db, { benutzerId: a.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a.code]} ${status}`, text: `Ihr Antrag (${CODE_TEXT[a.code]} am ${deDatum(a.datum)}) wurde ${status}.`, zeit, schluessel: `abw:${id}:${status}:${zeit}` });
     });
-    res.json(json(db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id)));
+    res.json(DS.abwesenheitFuer(ctx, json(db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id))));
   });
 
   api.delete('/abwesenheiten/:id', (req, res) => {
@@ -187,7 +188,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     for (let d = von; d <= bis; d = plusTage(d, 1)) {
       if (!istArbeitstag(d)) { const f = feiertag(d); if (f && wochentag(d) >= 1 && wochentag(d) <= 5) uebersprungen.push({ datum: d, grund: `Feiertag: ${f}` }); continue; }
       const a = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, d);
-      if (a && a.status === 'genehmigt') { uebersprungen.push({ datum: d, grund: `schon ${a.code} genehmigt` }); continue; }
+      if (a && a.status === 'genehmigt') { uebersprungen.push({ datum: d, grund: DS.darfDetails(ctx, benutzerId) ? `schon ${a.code} genehmigt` : 'bereits abwesend' }); continue; }
       if (a && a.status === 'beantragt' && !ersetzenErlaubt) { konflikte.push(d); continue; }
       if (a) ersetzen.push(a.id);
       tage.push(d);
@@ -239,15 +240,14 @@ module.exports = function abwesenheitsRouten(api, bt) {
       if (!gruppen.has(k)) gruppen.set(k, []);
       gruppen.get(k).push(a);
     }
-    const kSichtbar = (a) => darfEntscheiden(ctx) || a.benutzer_id === ctx.benutzer.id;
     return [...gruppen].map(([k, l]) => {
       // Status gilt für den ganzen Antrag (kein „teilweise“, Entscheidung 13.11.2026); Bestand gemischt → offen vor genehmigt vor abgelehnt
       const st = ['beantragt', 'genehmigt', 'abgelehnt'].filter((x) => l.some((a) => a.status === x));
       const erst = l.reduce((m, a) => (a.erfasst < m.erfasst ? a : m), l[0]);
       return {
-        antragId: k, benutzerId: l[0].benutzer_id, name: l[0].name, code: l[0].code === 'K' && !kSichtbar(l[0]) ? 'abwesend' : l[0].code,
+        antragId: k, benutzerId: l[0].benutzer_id, name: l[0].name, code: DS.code(ctx, l[0].benutzer_id, l[0].code),
         von: l[0].datum, bis: l[l.length - 1].datum, arbeitstage: l.length, status: st[0],
-        notiz: (l.find((a) => a.notiz) || {}).notiz || '', antwort: (l.find((a) => a.antwort) || {}).antwort || '',
+        notiz: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.notiz) || {}).notiz || '') || '', antwort: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.antwort) || {}).antwort || '') || '',
         erfasst: erst.erfasst, erfasstVon: erst.erfasst_von, ...(l.some((a) => a.betriebsurlaub) ? { art: 'betriebsurlaub' } : {}),
         tage: l.map((a) => ({ id: a.id, datum: a.datum, status: a.status }))
       };

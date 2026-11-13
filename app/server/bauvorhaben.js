@@ -50,9 +50,10 @@ function phaseFelder(db, bs, mitPreisen) {
     const b = db.eins('SELECT id, name FROM benutzer WHERE id = ?', fm.von);
     o.fertigmeldung = { von: b ? { id: b.id, name: b.name } : null, zeit: fm.zeit, notiz: fm.notiz || '' };
   }
-  const v = phaseVorschlag(db, bs);
-  if (v) o.phaseVorschlag = v;
   if (mitPreisen) {
+    // R-04: der Vorschlag leitet sich aus Rechnungen/Zahlungen ab – nur mit Preis-/Rechnungsrecht für diese Baustelle
+    const v = phaseVorschlag(db, bs);
+    if (v) o.phaseVorschlag = v;
     const sr = parseJson(bs.schlussrechnung, null);
     if (sr) o.schlussrechnung = sr;
     const hr = parseJson(bs.haftruecklass, null);
@@ -79,6 +80,12 @@ function phaseVorschlag(db, bs) {
   return null;
 }
 
+/** Grundrecht für Phasenwechsel (vor jeder Zustands-/Versionsprüfung, R-07) */
+function pruefePhaseRecht(ctx, bs) {
+  if (istPlaner(ctx)) return;
+  if (!(ctx.benutzer.rolle === 'bauleiter' && bs.bauleiter_id === ctx.benutzer.id)) throw keinZugriff('Den Stand des Bauvorhabens ändern Büro, GF und der Bauleiter der Baustelle.');
+}
+
 /**
  * Phase wechseln (Rechte, Übergang, Pflichtfelder) – im Aufrufer in einer Transaktion.
  * @returns {object} aktualisierte Baustelle
@@ -90,8 +97,8 @@ function wechslePhase(bt, ctx, bs, body) {
   if (bs.phase === 'archiviert') throw konflikt('Die Baustelle ist archiviert – zuerst das Archiv aufheben (nur Geschäftsführung).');
   if (!(UEBERGAENGE[bs.phase] || []).includes(ziel)) throw konflikt(`Von „${PHASE_NAMEN[bs.phase]}“ geht es nicht nach „${PHASE_NAMEN[ziel]}“ (möglich: ${(UEBERGAENGE[bs.phase] || []).map((p) => PHASE_NAMEN[p]).join(', ') || '–'}).`);
   const ich = ctx.benutzer;
+  pruefePhaseRecht(ctx, bs);
   if (!istPlaner(ctx)) {
-    if (!(ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id)) throw keinZugriff('Den Stand des Bauvorhabens ändern Büro, GF und der Bauleiter der Baustelle.');
     if (!BAULEITER_ZIELE.includes(ziel) || !BAULEITER_ZIELE.includes(bs.phase)) throw keinZugriff('Als Bauleiter bis „Abgenommen“ – Schlussrechnung, Bezahlung und Archiv erledigt das Büro.');
   }
   const heute = wienDatum(bt.uhr());
@@ -158,4 +165,4 @@ function pruefeBauvorhaben(bt) {
   }
 }
 
-module.exports = { PHASEN, PHASE_NAMEN, UEBERGAENGE, BAULEITER_ZIELE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };
+module.exports = { pruefePhaseRecht, PHASEN, PHASE_NAMEN, UEBERGAENGE, BAULEITER_ZIELE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };

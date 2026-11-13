@@ -6,6 +6,7 @@ const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag } = require('../datum');
 const { csv } = require('../export');
 const { benachrichtige } = require('../budget');
+const DS = require('../datenschutz');
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const CODE_TEXT = { U: 'Urlaub', ZA: 'Zeitausgleich', K: 'Krank', SW: 'Schlechtwetter', BU: 'Betriebsurlaub' };
@@ -27,11 +28,8 @@ module.exports = function urlaubRouten(api, bt) {
     }
     return ids;
   }
-  const code = (a, ctx, ich) => {
-    const c = a.betriebsurlaub ? 'BU' : a.code;
-    if (c === 'K' && !verwaltung(ctx) && a.benutzer_id !== ich) return 'abwesend';
-    return c;
-  };
+  // R-01: Krankenstand nur über den zentralen Datenschutz-Helfer
+  const code = (a, ctx) => (a.betriebsurlaub ? 'BU' : DS.code(ctx, a.benutzer_id, a.code));
   function zeitraum(q, max = 62) {
     const von = q.von ? v.datum(String(q.von), 'von') : heute();
     const bis = q.bis ? v.datum(String(q.bis), 'bis') : plusTage(von, 27);
@@ -108,7 +106,9 @@ module.exports = function urlaubRouten(api, bt) {
     let liste = db.alle('SELECT id, name, rolle, pnr FROM benutzer WHERE aktiv = 1 ORDER BY name').filter((b) => !ids || ids.has(b.id));
     if (req.query.benutzerId) liste = liste.filter((b) => b.id === Number(req.query.benutzerId));
     if (req.ctx.benutzer.rolle === 'mitarbeiter') liste = liste.filter((b) => b.id === req.ctx.benutzer.id);
-    res.json(liste.map((b) => konto(b, jahr)));
+    // R-05: Personalnummer nur mit stammdaten/lohn/benutzer (wie /mitarbeiter) bzw. die eigene
+    const pnrSichtbar = req.ctx.hat('stammdaten') || req.ctx.hat('lohn') || req.ctx.hat('benutzer');
+    res.json(liste.map((b) => { const k = konto(b, jahr); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return k; }));
   });
   api.put('/urlaub/konto/:benutzerId/:jahr', (req, res) => {
     if (!verwaltung(req.ctx)) throw keinZugriff('Urlaubskonten pflegen Büro bzw. Lohnverrechnung.');
@@ -237,7 +237,7 @@ module.exports = function urlaubRouten(api, bt) {
       if (k.rest != null && k.rest < 0) out.push({ typ: 'rest_negativ', benutzerId: p.id, text: `${p.name}: Resturlaub ${String(k.rest).replace('.', ',')} ${k.einheit}.` });
     }
     for (const g of offeneAntraege(db, bt)) {
-      if (sicht(g.benutzerId)) out.push({ typ: 'antrag_offen', antragId: g.antragId, datum: g.von, ...(g.bis !== g.von ? { bis: g.bis } : {}), benutzerId: g.benutzerId, text: `Antrag von ${g.name} (${CODE_TEXT[g.code]} ${g.bis !== g.von ? `${de(g.von)}–${de(g.bis)}, ${g.tage} Tage` : `am ${de(g.von)}`}) seit über 3 Tagen offen.` });
+      if (sicht(g.benutzerId)) out.push({ typ: 'antrag_offen', antragId: g.antragId, datum: g.von, ...(g.bis !== g.von ? { bis: g.bis } : {}), benutzerId: g.benutzerId, text: `Antrag von ${g.name} (${DS.text(ctx, g.benutzerId, g.code)} ${g.bis !== g.von ? `${de(g.von)}–${de(g.bis)}, ${g.tage} Tage` : `am ${de(g.von)}`}) seit über 3 Tagen offen.` });
     }
     return out;
   }
