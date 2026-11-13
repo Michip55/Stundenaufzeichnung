@@ -675,3 +675,5 @@ select[multiple].input { height: auto; padding: 6px; background-image: none; }
 }
 
 .eh-m { display: none; font-style: normal; font-weight: 500; color: var(--muted); } @media (max-width: 719px) { .eh-m { display: inline; } }
+
+@media (max-width: 719px) { .kat-tbl thead th:first-child { display: table-cell !important; } }
