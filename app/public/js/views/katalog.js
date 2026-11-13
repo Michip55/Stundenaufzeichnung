@@ -4,6 +4,10 @@ import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, starkOk, laden, leer, banner, dialog, bestaetigen, toast, $ } from '../ui.js';
 import { GRUPPEN, istBetrag, aufschlag, zuPruefen, naturPruefen, herkunftChip } from './positionen.js';
 
+// E-02: höchstens 1 MB je Datei (Server-Grenze laut API.md 10f); nie zwei Importe gleichzeitig
+export const MAX_IMPORT_BYTES = 1024 * 1024;
+let importLaeuft = false;
+
 export async function katalogTab(box, ctx) {
   const darf = ctx.kann('preise_bearbeiten');
   let k;
@@ -20,6 +24,7 @@ export async function katalogTab(box, ctx) {
         <span class="muted sm">${k.stand ? `Stand ${esc(/^\d{4}-\d{2}-\d{2}/.test(k.stand) ? fmt.datum(k.stand) : k.stand)}` : ''}</span><span class="grow"></span>
         ${darf ? `<label class="check-inline"><input type="checkbox" id="kat-inaktiv" ${mitInaktiven ? 'checked' : ''}> Deaktivierte zeigen</label>
         <button type="button" class="btn ghost sm" id="kat-import">${ic('download', 'up')}Excel importieren</button><input type="file" id="kat-datei" class="vh" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Excel-Datei der Vorlage wählen">` : ''}</div>
+      <div class="banner err" id="kat-fehler" role="alert" hidden>${ic('alert')}<span></span></div>
       ${banner('info', 'Das ist die <b>Firmenvorlage</b>. Neue Baustellen bekommen eine Kopie. Änderungen wirken nicht rückwirkend – je Baustelle gibt es „Aus Vorlage übernehmen“ mit Vorschau.')}
       ${k.gruppen.map((g) => {
         const liste = (g.positionen || []).filter((p) => mitInaktiven || p.aktiv !== false);
@@ -44,10 +49,23 @@ export async function katalogTab(box, ctx) {
 
   /* ---- Excel-Import mit Vorschau ---- */
   async function importiere(datei) {
-    if (datei.size > 5 * 1024 * 1024) { toast('Die Datei ist zu groß (höchstens 5 MB).', 'warn'); return; }
+    // E-02: Grenze passend zum Server (API.md 10f); die Vorlage des Betriebs hat rund 25 KB
+    const fehler = (text) => { const b = $('#kat-fehler', box); if (b) { b.hidden = !text; $('span', b).textContent = text || ''; if (text) b.scrollIntoView({ block: 'nearest' }); } if (text) toast(text, 'warn'); };
+    fehler('');
+    if (!/\.xlsx$/i.test(datei.name)) { fehler('Bitte eine Excel-Datei im Format .xlsx wählen (im Aufbau der Firmenvorlage).'); return; }
+    if (datei.size > MAX_IMPORT_BYTES) { fehler(`Die Datei ist zu groß (${fmt.zahl(datei.size / 1024 / 1024, 1)} MB). Erlaubt sind höchstens ${fmt.zahl(MAX_IMPORT_BYTES / 1024 / 1024, 1)} MB – die Firmenvorlage hat nur wenige Kilobyte.`); return; }
+    if (importLaeuft) { fehler('Ein Import läuft bereits – bitte warten, bis die Vorschau erscheint.'); return; }
+    importLaeuft = true;
+    const knopf = $('#kat-import', box); if (knopf) { knopf.disabled = true; knopf.dataset.laeuft = '1'; }
+    const fertig = () => { importLaeuft = false; const k2 = $('#kat-import', box); if (k2) { k2.disabled = false; delete k2.dataset.laeuft; } };
+    const meldung = (e) => (e.netz ? 'Keine Verbindung zum Server – die Datei wurde nicht übertragen.'
+      : e.status === 413 ? `Die Datei ist für den Import zu groß. Erlaubt sind höchstens ${fmt.zahl(MAX_IMPORT_BYTES / 1024 / 1024, 1)} MB.`
+      : e.status === 409 || e.status === 429 || e.status === 423 ? (e.message || 'Ein Import läuft bereits – bitte kurz warten und noch einmal versuchen.')
+      : `Die Datei wurde abgelehnt: ${e.message}`);
     const b64 = await new Promise((ok, nok) => { const r = new FileReader(); r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, '')); r.onerror = () => nok(r.error); r.readAsDataURL(datei); });
     let v;
-    try { v = await post('/positionen/katalog/import', { dateiBase64: b64 }); } catch (e) { toast(e.message, 'warn'); return; }
+    try { v = await post('/positionen/katalog/import', { dateiBase64: b64 }); } catch (e) { fertig(); fehler(meldung(e)); return; }
+    fertig();
     const neuL = v.neu || [], geaendert = v.geaendert || [];
     const d = dialog({ titel: 'Excel-Vorlage importieren – Vorschau', breit: true, inhalt: `<div class="stack-s" id="import-vorschau">
       <p class="muted sm">${esc(datei.name)}</p>
@@ -59,7 +77,7 @@ export async function katalogTab(box, ctx) {
     $('#imp-ok', d.el).addEventListener('click', async () => {
       $('#imp-ok', d.el).disabled = true;
       try { await post('/positionen/katalog/import?uebernehmen=1', { dateiBase64: b64 }); d.zu(); toast('Katalog aus der Excel-Datei übernommen.'); neu(); }
-      catch (e) { toast(e.message, 'warn'); $('#imp-ok', d.el).disabled = false; }
+      catch (e) { d.zu(); fehler(meldung(e)); }
     });
   }
 
