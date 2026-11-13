@@ -55,8 +55,11 @@ function createApp(opt = {}) {
     || (db.pfad === ':memory:' ? path.join(require('node:os').tmpdir(), `bautag-uploads-${process.pid}-${require('node:crypto').randomBytes(6).toString('hex')}`) : path.join(path.dirname(path.resolve(db.pfad)), 'uploads')); // F-14: neben der Datenbank
   // Servicebuch-Prüflauf: beim Start und stündlich (SERVICEBUCH_ENTWURF.md 6)
   const { pruefeFuhrparkSicher } = require('./fuhrpark-erinnerung');
-  pruefeFuhrparkSicher(bt);
-  bt.fuhrparkTimer = setInterval(() => pruefeFuhrparkSicher(bt), 60 * 60 * 1000);
+  const { pruefeSicherungSicher } = require('./sicherung-pruefung');
+  bt.sicherungPruefen = opt.sicherungPruefen !== undefined ? Boolean(opt.sicherungPruefen) : process.env.BAUTAG_SICHERUNG_PRUEFEN === '1';
+  bt.stuendlich = () => { pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt); };
+  bt.stuendlich();
+  bt.fuhrparkTimer = setInterval(() => bt.stuendlich(), 60 * 60 * 1000);
   bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
@@ -150,6 +153,7 @@ function createApp(opt = {}) {
   require('./routes/benutzer')(api, bt);
   require('./routes/integrationen')(api, bt);
   require('./routes/fuhrpark')(api, bt);
+  require('./routes/system')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);

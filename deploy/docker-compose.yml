@@ -1,0 +1,61 @@
+# BauTag – App + Caddy (automatisches HTTPS). Start: docker compose up -d  (im Ordner deploy/)
+# Einstellungen in deploy/.env (Vorlage: .env.beispiel, Rechte 600).
+name: bautag
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: bautag:aktuell
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+      BAUTAG_DB: /daten/bautag.db
+      BAUTAG_UPLOADS: /daten/uploads
+      BAUTAG_SICHERUNG_PRUEFEN: "1"
+    volumes:
+      - ${BAUTAG_DATEN:-/var/lib/bautag/daten}:/daten
+      - ${BAUTAG_SICHERUNG:-/var/lib/bautag/sicherung}:/sicherung
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *logging
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BAUTAG_DOMAIN: ${BAUTAG_DOMAIN:?BAUTAG_DOMAIN fehlt in .env}
+      BAUTAG_EMAIL: ${BAUTAG_EMAIL:?BAUTAG_EMAIL fehlt in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_daten:/data
+      - caddy_konfig:/config
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+volumes:
+  caddy_daten:
+  caddy_konfig:
