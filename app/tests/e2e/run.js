@@ -605,6 +605,38 @@ async function laufe(browser, g) {
     pruef(/\.csv$/.test(dl.suggestedFilename()) && csv.includes(';') && csv.split('\n').length > 3, 'CSV-Download Lohnverrechnung leer oder falsch');
     const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('#csv-buak')]);
     pruef(fs.readFileSync(await dl2.path(), 'utf8').includes(';'), 'CSV-Download BUAK leer');
+    // B-05: Büro trägt das vergessene Ausstempeln nach (mit Grund), ändert und sieht die Korrektur
+    const offenLang = (await api('GET', '/zeit/anwesend')).json.filter((x) => Date.now() - new Date(x.seit).getTime() > 12 * 3600e3).sort((x, y) => (x.seit < y.seit ? -1 : 1))[0];
+    if (offenLang) {
+      const lokalZeit = (ms) => new Date(ms).toLocaleString('sv-SE', { timeZone: 'Europe/Vienna' }).slice(0, 16).replace(' ', 'T');
+      const tag = lokalZeit(new Date(offenLang.seit).getTime()).slice(0, 10);
+      await geh(`/korrektur?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`, 'korrektur');
+      await page.waitForSelector('#k-liste li[data-buchung]');
+      const nVor = await page.locator('#k-liste li[data-buchung]').count();
+      await page.click('#k-neu');
+      await page.selectOption('dialog[open] select[name="typ"]', 'gehen');
+      await page.fill('dialog[open] input[name="zeit"]', lokalZeit(new Date(offenLang.seit).getTime() + 9 * 3600e3));
+      await page.click('dialog[open] button[type="submit"]');
+      pruef(await page.locator('dialog[open] .form-err:not([hidden])').count() === 1 || await page.locator('dialog[open] input[name="grund"]:invalid').count() === 1, 'B-05: Korrektur ohne Grund möglich');
+      await page.fill('dialog[open] input[name="grund"]', 'Ausstempeln vergessen (E2E)');
+      await ueberlauf('dialog korrektur'); await shot('korrektur-dialog');
+      await page.click('dialog[open] button[type="submit"]');
+      await page.waitForFunction((n) => !document.querySelector('dialog[open]') && document.querySelectorAll('#k-liste li[data-buchung]').length === n + 1, nVor);
+      pruef(!(await api('GET', '/zeit/anwesend')).json.some((x) => x.benutzerId === offenLang.benutzerId), 'B-05: Person nach nachgetragenem „Gehen“ noch eingestempelt');
+      const buchungen = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`)).json;
+      const neuB = buchungen.find((x) => x.quelle === 'buero' && x.typ === 'gehen');
+      pruef(!!neuB, 'B-05: nachgetragene Buchung nicht mit Quelle „buero“ am Server');
+      await toastWeg();
+      await page.click(`#k-liste [data-aendern="${neuB.id}"]`);
+      await page.fill('dialog[open] input[name="zeit"]', lokalZeit(new Date(offenLang.seit).getTime() + 8.5 * 3600e3));
+      await page.fill('dialog[open] input[name="grund"]', 'laut Polier 15:30 (E2E)');
+      await page.click('dialog[open] button[type="submit"]');
+      await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+      const geaendert = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`)).json.find((x) => x.id === neuB.id);
+      pruef(Math.abs(new Date(geaendert.zeit).getTime() - (new Date(offenLang.seit).getTime() + 8.5 * 3600e3)) < 61e3, 'B-05: geänderte Zeit nicht am Server');
+      await ueberlauf('korrektur nach änderung'); await shot('korrektur-liste');
+      await toastWeg();
+    } else pruef(false, 'B-05: keine lange offene Schicht in den Testdaten');
     await keinZugriff('/benutzer');
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
     await abmelden();
@@ -619,7 +651,7 @@ async function laufe(browser, g) {
     await geh('/preise');
     pruef(await page.locator('.price-in input').count() === 0, 'Bauleiter kann Preise bearbeiten');
     await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
-    await keinZugriff('/monat'); await keinZugriff('/benutzer');
+    await keinZugriff('/monat'); await keinZugriff('/benutzer'); await keinZugriff('/korrektur');
     // N-07: fremde Baustelle zeigt kein Auftragsformular
     const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !('auftragssumme' in x));
     if (fremdeBs) {
