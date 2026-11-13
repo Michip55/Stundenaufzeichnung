@@ -17,6 +17,7 @@ import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import hilfe from './views/hilfe.js';
 import push from './views/push.js';
+import zweifaktor, { zweiFaktorErzwungen } from './views/zweifaktor.js';
 import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
@@ -95,6 +96,7 @@ const ROUTEN = [
   { muster: /^\/fuhrpark$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: fuhrpark },
   { muster: /^\/fuhrpark\/anlage\/(\d+)$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: anlage },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
+  { muster: /^\/zwei-faktor$/, nav: 'mehr', titel: 'Zwei-Faktor-Anmeldung', view: zweifaktor },
   { muster: /^\/push$/, nav: 'mehr', titel: 'Push-Benachrichtigungen', view: push },
   { muster: /^\/hilfe$/, nav: 'mehr', titel: 'Hilfe & erste Schritte', view: hilfe },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
@@ -268,6 +270,12 @@ async function zeige() {
     pinErzwungen(root, ich, { fertig: async () => { await ladeIch(); location.hash = '#' + start(); zeige(); }, abmelden });
     return;
   }
+  // 12.7: Zwei-Faktor-Anmeldung ist für die Rolle Pflicht, aber noch nicht eingerichtet
+  if (ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv) {
+    document.title = 'BauTag · Zwei-Faktor einrichten';
+    zweiFaktorErzwungen(root, ich, { fertig: async () => { await ladeIch(); location.hash = '#' + start(); zeige(); }, abmelden });
+    return;
+  }
   const { pfad, query } = pfadJetzt();
   if (pfad === '/' || pfad === '/login') { location.replace('#' + start()); return; }
   if (!$('#view')) rahmen();
@@ -332,6 +340,7 @@ async function ladeIch(nurMitHinweis = false) {
   if (ich) {
     root.innerHTML = '';
     if (ich.mussPinAendern) return; // erst PIN ändern – keine weiteren Abfragen
+    if (ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv) return; // erst zweiten Faktor einrichten
     rahmen();
     holeMeldungen();
     nachsenden();
@@ -350,6 +359,7 @@ function lokalAbmelden() {
   if (location.hash !== '#/login') location.hash = '#/login'; else zeige();
 }
 window.addEventListener('bt:abgemeldet', () => { if (ich) { toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); lokalAbmelden(); } });
+window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });
 window.addEventListener('focus', () => { if (ich) { holeMeldungen(); nachsenden(); } });

@@ -1,7 +1,7 @@
 // Benutzer & Rechte: Rechte-Matrix (mit gesperrten Zellen), Ausnahmen je Benutzer, Benutzerverwaltung, Protokoll.
 // Geschäftsführung: alles. Büro (Prüfbericht 2, C-14): nur Benutzer der Rollen Mitarbeiter/Polier/Bauleiter anlegen,
 // PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
-import { get, post, put } from '../api.js';
+import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
 import { diensteTab } from './dienste.js';
 
@@ -77,9 +77,16 @@ export default async function benutzer(el, ctx) {
       <label class="field"><span class="field-label">${m ? 'PIN zurücksetzen (leer lassen = unverändert)' : 'Start-PIN'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" aria-describedby="pin-hinweis" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
       <p class="muted sm" id="pin-hinweis">4 bis 12 Ziffern (Bauleiter, Büro und Geschäftsführung mindestens 6), keine Folgen wie 1234. Die Person muss die PIN bei der nächsten Anmeldung selbst ändern.</p>
       ${m ? `<button type="button" class="btn ghost sm" data-entsperren="${m.id}">${ic('lock')}Anmeldesperre aufheben</button>` : ''}
+      ${m && voll && m.id !== ctx.ich.benutzer.id && ['bauleiter', 'buero', 'gf'].includes(m.rolle) ? `<button type="button" class="btn ghost sm" id="zf-reset">${ic('shield')}Zwei-Faktor zurücksetzen (Gerät verloren)</button>` : ''}
       ${m ? `<label class="switch-row flat"><span><b>Aktiv</b><small>Inaktive Benutzer können sich nicht anmelden.</small></span><input type="checkbox" class="vh" name="aktiv" ${m.aktiv === false || m.aktiv === 0 ? '' : 'checked'}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bf">Speichern</button>' });
+    const zfR = $('#zf-reset', d.el);
+    if (zfR) zfR.addEventListener('click', async () => {
+      zfR.disabled = true;
+      try { await del(`/benutzer/${m.id}/2fa`); toast(`Zwei-Faktor von ${m.name} zurückgesetzt – die Person meldet sich wieder nur mit der PIN an bzw. richtet neu ein.`); }
+      catch (x) { toast(x.message, 'warn'); zfR.disabled = false; }
+    });
     const entB = $('[data-entsperren]', d.el);
     if (entB) entB.addEventListener('click', async () => {
       entB.disabled = true;

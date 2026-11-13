@@ -35,6 +35,7 @@ export async function api(methode, pfad, body) {
     if (warten > 0) daten = { ...(daten || {}), retryAfter: warten }; // Sperrdauer (429/423) für die Anzeige „läuft ab um …“
     const fehler = new ApiFehler(antwort.status, daten);
     if (antwort.status === 403 && fehler.code === 'PIN_AENDERN') window.dispatchEvent(new CustomEvent('bt:pin'));
+    if (antwort.status === 403 && fehler.code === '2FA_EINRICHTEN') window.dispatchEvent(new CustomEvent('bt:2fa'));
     if (antwort.status === 401 && !pfad.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('bt:abgemeldet'));
     }

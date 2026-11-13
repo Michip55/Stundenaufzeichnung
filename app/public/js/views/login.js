@@ -97,6 +97,34 @@ export default async function login(root, { angemeldet }) {
       </div>`;
     punkte();
   }
+  function zeigeCode(vorgang, meldung = '', gesperrt = false) {
+    card.innerHTML = `
+      <button type="button" class="link-back" data-zurueck>${ic('left')}Abbrechen</button>
+      <div class="pin-user">${gewaehlt.pnr ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>Zweiter Faktor</p></div>
+      <form id="zf-login" class="stack-s" novalidate autocomplete="off">
+        <label class="field"><span class="field-label">Code aus der Authenticator-App</span><input class="input lg zf-code" id="zf-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" placeholder="6 Ziffern" ${gesperrt ? 'disabled' : ''}></label>
+        <p class="pin-msg${meldung ? ' err' : ''}" id="zf-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'Die PIN stimmt. Bitte jetzt den aktuellen Code eingeben.')}</p>
+        <button type="submit" class="btn primary lg block" id="zf-ok" ${gesperrt ? 'disabled' : ''}>${ic('check')}Anmelden</button>
+        <p class="muted sm">Handy nicht zur Hand? Statt des Codes einen <b>Wiederherstellungscode</b> (xxxx-xxxx) eingeben. Sind keine mehr übrig, setzt die Geschäftsführung den zweiten Faktor zurück.</p>
+      </form>`;
+    const feld = $('#zf-code', card); if (feld && !gesperrt) feld.focus();
+    $('#zf-login', card).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const code = feld.value.trim().replace(/\s/g, '');
+      if (!/^(\d{6}|[A-Za-z0-9]{4}-?[A-Za-z0-9]{4})$/.test(code)) { zeigeCode(vorgang, 'Bitte die 6 Ziffern aus der App oder einen Wiederherstellungscode eingeben.'); return; }
+      $('#zf-ok', card).disabled = true;
+      try {
+        await post('/auth/login/2fa', { vorgang, code });
+        if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
+        await angemeldet();
+      } catch (x) {
+        const zu = x.status === 429 || x.status === 423;
+        const abgelaufen = x.status === 410 || x.status === 404 || /abgelaufen|Vorgang/i.test(x.message || '') && x.status !== 400 && x.status !== 401;
+        if (abgelaufen && !zu) { zeigePin(`${x.message || 'Die Anmeldung ist abgelaufen.'} Bitte die PIN noch einmal eingeben.`); return; }
+        zeigeCode(vorgang, x.netz ? 'Keine Verbindung zum Server.' : `${x.message || 'Der Code stimmt nicht.'}${x.status === 423 ? ablaufText(x) : ''}`, zu);
+      }
+    });
+  }
   const punkte = () => {
     const d = $('.pin-dots', card); if (!d) return;
     d.innerHTML = Array.from({ length: Math.max(4, pin.length) }, (_, i) => `<i class="${i < pin.length ? 'on' : ''}"></i>`).join('');
@@ -108,7 +136,9 @@ export default async function login(root, { angemeldet }) {
     sendet = true; punkte();
     $('#pin-msg', card).textContent = 'Wird geprüft …';
     try {
-      await post('/auth/login', gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin });
+      const antwort = await post('/auth/login', gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin });
+      // 12.7: PIN stimmt, aber es fehlt noch der Code aus der Authenticator-App
+      if (antwort && antwort.zweiterFaktor) { sendet = false; pin = ''; zeigeCode(antwort.vorgang); return; }
       if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
       sendet = false;
       await angemeldet();
