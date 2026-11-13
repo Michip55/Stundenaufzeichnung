@@ -164,7 +164,7 @@ module.exports = function urlaubRouten(api, bt) {
     if (!vorschau) {
       db.transaktion(() => {
         for (const p of personen) {
-          const aid = require('node:crypto').randomBytes(6).toString('hex'); // 12.24: ein Antrag je Person
+          const aid = `a${require('node:crypto').randomBytes(6).toString('hex')}`; // 12.24: ein Antrag je Person
           for (const d of tage) {
             const a = db.eins('SELECT status FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', p.id, d);
             if (a && a.status === 'genehmigt') continue;
@@ -286,7 +286,7 @@ function offeneAntraege(db, bt) {
   const g = new Map();
   for (const a of db.alle("SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.status = 'beantragt' AND a.erfasst < ? ORDER BY a.datum", grenze)) {
     const k = a.antrag_id || `e${a.id}`;
-    if (!g.has(k)) g.set(k, { antragId: k, benutzerId: a.benutzer_id, name: a.name, code: a.code, von: a.datum, bis: a.datum, tage: 0, ersteId: a.id });
+    if (!g.has(k)) g.set(k, { antragId: k, bestand: !a.antrag_id, benutzerId: a.benutzer_id, name: a.name, code: a.code, von: a.datum, bis: a.datum, tage: 0, ersteId: a.id });
     const x = g.get(k); x.bis = a.datum; x.tage++;
   }
   return [...g.values()];
@@ -297,7 +297,7 @@ module.exports.pruefeAntraege = (bt) => {
   const de = (d) => d.split('-').reverse().join('.');
   for (const a of offeneAntraege(db, bt)) {
     // einmal je Antrag (Bestand: Schlüssel wie bisher je Eintrag)
-    const schluessel = a.antragId.startsWith('e') ? `urlaub:antrag:${a.ersteId}` : `urlaub:antrag:${a.antragId}`;
+    const schluessel = a.bestand ? `urlaub:antrag:${a.ersteId}` : `urlaub:antrag:${a.antragId}`;
     for (const e of buero) benachrichtige(db, { benutzerId: e.id, typ: 'urlaub', titel: `Antrag offen: ${a.name}`, text: `Antrag von ${a.name} für ${a.bis !== a.von ? `${de(a.von)}–${de(a.bis)} (${a.tage} Tage)` : de(a.von)} ist seit über 3 Tagen unbearbeitet.`, zeit: bt.uhr().toISOString(), schluessel });
   }
 };

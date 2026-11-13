@@ -14,7 +14,8 @@ const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 /** Antrags-ID (12.24): Bestand ohne Antrag → "e<id>" */
 const antragId = (a) => a.antrag_id || `e${a.id}`;
 const ANTRAG_SQL = "COALESCE(a.antrag_id, 'e' || a.id)";
-const neueAntragId = () => crypto.randomBytes(6).toString('hex');
+// „a“ + Zufall: nie verwechselbar mit Bestands-IDs „e<id>“
+const neueAntragId = () => `a${crypto.randomBytes(6).toString('hex')}`;
 const tagKurz = (d) => `${WT[wochentag(d)]} ${d.slice(8, 10)}.${d.slice(5, 7)}.`;
 
 function json(a) {

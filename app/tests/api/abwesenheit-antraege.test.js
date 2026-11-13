@@ -208,3 +208,16 @@ test('Zeitraum-Anträge', async (t) => {
     assert.equal(s.db.alle("SELECT * FROM benachrichtigung WHERE benutzer_id = ? AND schluessel = ?", U.buero, `urlaub:antrag:${lang.daten.antragId}`).length, 1);
   });
 });
+
+test('Antrags-IDs: neue beginnen mit „a“; offene Anträge einmal je Antrag gemeldet, auch wenn die ID mit „e“ beginnt', async (t) => {
+  const s = await starte();
+  t.after(() => s.stop());
+  const ma = await s.login(U.mitarbeiter);
+  const r = await ma.post('/abwesenheiten/zeitraum', { benutzerId: U.mitarbeiter, von: '2026-12-01', bis: '2026-12-02', code: 'U' });
+  assert.match(r.daten.antragId, /^a[0-9a-f]{12}$/);
+  // früher zufällige Hex-IDs konnten mit „e“ beginnen und wurden als Bestand „e<id>“ behandelt
+  s.db.lauf("INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, antrag_id) VALUES (3, '2026-12-03', 'U', 'beantragt', 3, '2026-11-01T08:00:00Z', 'e0f1a2b3c4d5'), (3, '2026-12-04', 'U', 'beantragt', 3, '2026-11-01T08:00:00Z', 'e0f1a2b3c4d5')");
+  require('../../server/routes/urlaub').pruefeAntraege(s.app.bt);
+  require('../../server/routes/urlaub').pruefeAntraege(s.app.bt);
+  assert.equal(s.db.alle("SELECT * FROM benachrichtigung WHERE benutzer_id = ? AND schluessel = 'urlaub:antrag:e0f1a2b3c4d5'", U.buero).length, 1);
+});

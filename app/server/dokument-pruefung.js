@@ -34,7 +34,11 @@ function zipNamen(buf) {
 function pdfPruefen(buf) {
   if (!buf.subarray(0, 1024).toString('latin1').includes('%PDF-')) throw new DokumentFehler('Keine PDF-Datei.');
   const text = buf.toString('latin1');
-  const pruefe = (t) => { for (const re of PDF_VERBOTEN) if (re.test(t)) throw new DokumentFehler(`PDF abgelehnt: ${re.source.replace(/\\\//g, '/').replace('\\b', '')} (verschlüsselt oder aktive Inhalte).`); };
+  const pruefe = (t) => {
+    // G-08: Namen normalisieren (#xx-Escapes wie /J#61vaScript, Kommentare und Leerraum als Trenner) – roh UND normalisiert prüfen
+    const n = t.replace(/%[^\r\n]*/g, ' ').replace(/#([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/[\0\t\f\r\n ]+/g, ' ');
+    for (const x of [t, n]) for (const re of PDF_VERBOTEN) if (re.test(x)) throw new DokumentFehler(`PDF abgelehnt: ${re.source.replace(/\\\//g, '/').replace('\\b', '')} (verschlüsselt oder aktive Inhalte).`);
+  };
   pruefe(text);
   // komprimierte Objekt-Streams durchsuchen (begrenzt)
   let gesamt = 0;
@@ -89,4 +93,4 @@ function dokumentPruefen(base64) {
   return { ...r, sha256: crypto.createHash('sha256').update(r.daten).digest('hex') };
 }
 
-module.exports = { dokumentPruefen, DokumentFehler, ENDUNG, MAX_BYTES, zipNamen };
+module.exports = { pdfPruefen, dokumentPruefen, DokumentFehler, ENDUNG, MAX_BYTES, zipNamen };

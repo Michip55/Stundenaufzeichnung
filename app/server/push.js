@@ -54,11 +54,31 @@ function payload(bt, n) {
   return { title: ohneBetraege(n.titel).slice(0, 120), body, url: `${basis}${pfad}`, tag: `bt-${n.id}` };
 }
 
-/** Ein Abo beliefern → 'ok' | 'weg' (410/404) | Fehlertext */
+/**
+ * G-07: Push-Adressen nur bekannter Dienste (kein SSRF/Port-Scan): https, Port 443, keine IP-Literale, kein Benutzerteil,
+ * Host exakt bzw. als Unterdomain der erlaubten Dienste. Im Testbetrieb zusätzlich die reservierten Test-Domains.
+ */
+const PUSH_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', 'push.services.mozilla.com', 'web.push.apple.com'];
+const PUSH_SUFFIXE = ['.push.apple.com', '.notify.windows.com'];
+const TEST_SUFFIXE = ['.example.test', '.example.invalid'];
+function endpointErlaubt(endpoint, { test = false } = {}) {
+  let u;
+  try { u = new URL(String(endpoint)); } catch (_) { return false; }
+  if (u.protocol !== 'https:' || (u.port && u.port !== '443') || u.username || u.password) return false;
+  const h = u.hostname.toLowerCase();
+  if (!h || h.startsWith('[') || require('node:net').isIP(h) || /^[\d.]+$/.test(h) || h.endsWith('.')) return false;
+  if (PUSH_HOSTS.includes(h) || PUSH_SUFFIXE.some((x) => h.endsWith(x) && h.length > x.length)) return true;
+  return Boolean(test) && TEST_SUFFIXE.some((x) => h.endsWith(x));
+}
+/** Fehlermeldung für /push/abos: nie Netzwerkdetails, nur HTTP-Status (G-07) */
+const zustellFehler = (status) => `Zustellung fehlgeschlagen${status ? ` (HTTP ${status})` : ''}`;
+
+/** Ein Abo beliefern → 'ok' | 'weg' (410/404 bzw. unzulässige Adresse) | Fehlertext */
 async function sende(bt, abo, daten) {
+  if (!endpointErlaubt(abo.endpoint, { test: bt.test })) return 'weg'; // Altbestand mit unzulässiger Adresse
   if (bt.test) {
     bt.testAusgang.push.push({ benutzerId: abo.benutzer_id, endpoint: abo.endpoint, ...daten, zeit: bt.uhr().toISOString() });
-    return abo.endpoint.includes('gone') ? 'weg' : 'ok';
+    return abo.endpoint.includes('gone') ? 'weg' : abo.endpoint.includes('fehler500') ? zustellFehler(500) : 'ok';
   }
   const k = vapid(bt);
   if (!k.privateKey) return 'VAPID-Schlüssel nicht lesbar (BAUTAG_SCHLUESSEL geändert?)';
@@ -70,7 +90,7 @@ async function sende(bt, abo, daten) {
     return 'ok';
   } catch (e) {
     if (e && (e.statusCode === 404 || e.statusCode === 410)) return 'weg';
-    return String((e && (e.body || e.message)) || e).slice(0, 200);
+    return zustellFehler(e && Number.isInteger(e.statusCode) ? e.statusCode : null);
   }
 }
 
@@ -120,4 +140,4 @@ function anstossen(bt) {
   setImmediate(() => { verteilen(bt).catch(() => {}); });
 }
 
-module.exports = { TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, verteilen, anstossen };
+module.exports = { endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, verteilen, anstossen };

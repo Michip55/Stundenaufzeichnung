@@ -22,6 +22,8 @@ module.exports = function diensteRouten(api, bt) {
     const body = v.objekt(req.body);
     const endpoint = v.text(body.endpoint, 'endpoint', { max: 1000 });
     if (!/^https:\/\/[^\s]+$/.test(endpoint)) throw ungueltig('endpoint muss eine https-Adresse sein.');
+    // G-07: nur bekannte Push-Dienste (Google, Mozilla, Apple, Microsoft) – kein Zugriff auf interne Adressen
+    if (!require('../push').endpointErlaubt(endpoint, { test: bt.test })) throw ungueltig('endpoint: nur Adressen bekannter Push-Dienste (Google, Mozilla, Apple, Microsoft) über https auf Port 443.');
     const k = v.objekt(body.keys, 'keys');
     const p256dh = v.text(k.p256dh, 'keys.p256dh', { max: 200 });
     const auth = v.text(k.auth, 'keys.auth', { max: 100 });
@@ -44,7 +46,9 @@ module.exports = function diensteRouten(api, bt) {
     db.lauf('DELETE FROM push_abo WHERE endpoint = ? AND benutzer_id = ?', String(body.endpoint || ''), req.ctx.benutzer.id);
     res.json({ ok: true });
   });
-  api.get('/push/abos', (req, res) => res.json(db.alle('SELECT id, geraet, erstellt, zuletzt, fehler FROM push_abo WHERE benutzer_id = ? ORDER BY erstellt', req.ctx.benutzer.id)));
+  // G-07: nie rohe Netzwerkfehler zurückgeben (auch nicht aus Altbestand)
+  api.get('/push/abos', (req, res) => res.json(db.alle('SELECT id, geraet, erstellt, zuletzt, fehler FROM push_abo WHERE benutzer_id = ? ORDER BY erstellt', req.ctx.benutzer.id)
+    .map((a) => ({ ...a, fehler: a.fehler == null ? null : /^Zustellung fehlgeschlagen( \(HTTP \d{3}\))?$/.test(a.fehler) ? a.fehler : 'Zustellung fehlgeschlagen' }))));
   api.delete('/push/abos/:aid', (req, res) => {
     const r = db.lauf('DELETE FROM push_abo WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.aid), req.ctx.benutzer.id);
     if (!r.changes) throw nichtGefunden('Abo nicht gefunden.');
