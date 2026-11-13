@@ -31,6 +31,7 @@ import positionen from './views/positionen.js';
 import { fuhrpark } from './views/fuhrpark.js';
 import { anlage } from './views/anlage.js';
 import { schadenNachsenden, schadenUngesendet } from './schaden-offline.js';
+import { stammVergessen } from './views/fuhren.js';
 
 const root = document.getElementById('root');
 
@@ -350,6 +351,10 @@ async function ladeIch(nurMitHinweis = false) {
   try {
     ich = await get('/auth/ich');
     ich.rechte = ich.rechte || [];
+    // R-08: Meldet sich an diesem Gerät jemand anderer an, bleibt nichts vom Vorbenutzer zurück
+    const vorher = speicher.lies('bt_geraet_benutzer');
+    if (vorher != null && vorher !== ich.benutzer.id) { speicher.raeumeBenutzer(); stammVergessen(); }
+    speicher.setz('bt_geraet_benutzer', ich.benutzer.id);
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
     speicher.setz('bt_ich', ich);
     setzOnline(true);
@@ -375,7 +380,7 @@ async function abmelden() {
 }
 function lokalAbmelden() {
   ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0;
-  speicher.weg('bt_ich'); speicher.weg('bt_status');
+  speicher.raeumeBenutzer(); stammVergessen(); // R-08: Einsatzplan, Auswahl, Entwürfe … des Benutzers vom Gerät entfernen
   setzBenutzer(null); clearInterval(pollTimer);
   root.innerHTML = '';
   if (location.hash !== '#/login') location.hash = '#/login'; else zeige();

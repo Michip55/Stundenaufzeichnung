@@ -544,8 +544,8 @@ export async function einsatz(el, ctx) {
   const uid = ctx.ich.benutzer.id;
   // Ohne Netz (Fahrer unterwegs): letzter Stand aus dem Gerät – enthält keine Preise
   let d, offlineStand = '';
-  try { d = await get(`/plan/ich?von=${heute}&bis=${fmt.addTage(heute, 6)}`); speicher.setz('bt_einsatz', { uid, heute, zeit: new Date().toISOString(), d }); }
-  catch (x) { const alt = speicher.lies('bt_einsatz'); if (!x.netz || !alt || alt.uid !== uid || alt.heute !== heute) throw x; d = alt.d; offlineStand = alt.zeit; }
+  try { d = await get(`/plan/ich?von=${heute}&bis=${fmt.addTage(heute, 6)}`); speicher.setz(`bt_u${uid}_einsatz`, { uid, heute, zeit: new Date().toISOString(), d }); } // je Benutzer; wird beim Abmelden gelöscht (R-08)
+  catch (x) { const alt = speicher.lies(`bt_u${uid}_einsatz`); if (!x.netz || !alt || alt.uid !== uid || alt.heute !== heute) throw x; d = alt.d; offlineStand = alt.zeit; }
   const tage = d.tage || [];
   fuhrenNachsenden(uid).then((n) => { if (n && ctx.aktuell()) ctx.neuLaden(); });
   const haupt = d.morgen && d.morgen.einsatz ? d.morgen : tage.find((t) => t.datum === heute && t.einsatz) || null;

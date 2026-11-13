@@ -162,6 +162,18 @@ export const speicher = {
   lies(k, d = null) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   setz(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* voll/gesperrt */ } },
   weg(k) { try { localStorage.removeItem(k); } catch (e) { /* egal */ } },
+  // R-08 (geteiltes Gerät): beim Abmelden und beim Benutzerwechsel alles Benutzerbezogene vom Gerät entfernen.
+  // Es bleibt nur, was nichts über eine Person verrät (GERAET) – und noch nicht gesendete Meldungen (WARTEND, M-04):
+  // die gehören genau einem Benutzer, werden nie mit einer fremden Sitzung gesendet und verschwinden nach dem Senden.
+  raeumeBenutzer() {
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer'];
+    const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+    for (const lager of [localStorage, sessionStorage]) {
+      try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
+    }
+    // Der Service Worker speichert nie /api – zur Sicherheit trotzdem alles unter /api aus dem Cache nehmen
+    if (window.caches) caches.keys().then((namen) => Promise.all(namen.map(async (n) => { const c = await caches.open(n); for (const anfrage of await c.keys()) if (new URL(anfrage.url).pathname.startsWith('/api/')) await c.delete(anfrage); }))).catch(() => {});
+  },
 };
 // Nicht angebundene Integration als deaktivierte Schaltfläche mit ehrlichem Hinweis
 // Zusatzdienste (API.md 12.14): echter Zustand je Dienst

@@ -4,6 +4,7 @@ import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, i
 import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
+import { fuhrenWartend } from './fuhren.js';
 
 const INTEG_ICON = { diktat: 'mic', lieferschein: 'scan', papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud', fernunterschrift: 'sign', ki: 'spark', scan_lieferschein: 'scan', scan_papier: 'camera' };
 // Wohin „Einrichten“ führt – je nach Dienst und Recht
@@ -62,8 +63,8 @@ export default async function mehr(el, ctx) {
   $('#sync-jetzt', el).addEventListener('click', async () => { await nachsenden(); if (ctx.aktuell()) ctx.neuLaden(); });
   bindeInstall(el, () => { if (ctx.aktuell()) ctx.neuLaden(); });
   $('#abmelden', el).addEventListener('click', async () => {
-    const offen = syncStatus().ausstehend;
-    if (offen && !(await bestaetigen('Abmelden?', `${offen} Stempelung${offen > 1 ? 'en sind' : ' ist'} noch nicht gesendet. Sie bleiben am Gerät gespeichert und werden nach der nächsten Anmeldung gesendet.`, 'Abmelden'))) return;
+    const offen = syncStatus().ausstehend + fuhrenWartend(u.id).length;
+    if (offen && !(await bestaetigen('Abmelden?', `${offen} Meldung${offen > 1 ? 'en (Stempelungen, Fuhren) sind' : ' ist'} noch nicht gesendet. Sie bleiben am Gerät gespeichert und werden nach Ihrer nächsten Anmeldung gesendet – alles andere wird vom Gerät gelöscht.`, 'Abmelden'))) return;
     ctx.abmelden();
   });
 }

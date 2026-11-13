@@ -1431,6 +1431,56 @@ async function arbeitstag(h) {
   }
 }
 
+/* ================= R-08: geteiltes Gerät – nach dem Abmelden bleibt nichts vom Vorbenutzer ================= */
+async function geteilt(h) {
+  const { page, api, geh, pruef, g, anmelden, context } = h;
+  const lager = () => page.evaluate(async () => {
+    const ls = {}; for (let i = 0; i < localStorage.length; i += 1) ls[localStorage.key(i)] = localStorage.getItem(localStorage.key(i));
+    const ss = {}; for (let i = 0; i < sessionStorage.length; i += 1) ss[sessionStorage.key(i)] = sessionStorage.getItem(sessionStorage.key(i));
+    const cache = []; for (const n of await caches.keys()) { const c = await caches.open(n); for (const k2 of await c.keys()) if (new URL(k2.url).pathname.startsWith('/api/')) cache.push(k2.url); }
+    return { ls, ss, cache, cookie: document.cookie };
+  });
+  const ichP = await anmelden('polier');
+  const P = ichP.benutzer.id, name = ichP.benutzer.name;
+  // der Polier arbeitet: Einsatz, Partie, Stempeluhr, Bericht, Urlaub – und hat eine Fuhren-Meldung ohne Netz in der Warteschlange
+  const entwurf = (await api('GET', '/berichte?status=entwurf')).json[0];
+  for (const r of ['/stempeln', '/einsatz', '/partie', '/berichte', ...(entwurf ? [`/bericht/${entwurf.id}`] : []), '/urlaub', '/fuhrpark', '/baustellen']) await geh(r);
+  await page.evaluate((id) => {
+    localStorage.setItem('bt_fuhren_warten', JSON.stringify([{ nr: 'e2e-geteilt', benutzerId: id, fuhreId: 999999, body: { status: 'unterwegs' }, foto: null, zeit: new Date().toISOString() }]));
+    sessionStorage.setItem('bt_test_sitzung', JSON.stringify({ benutzerId: id }));
+  }, P);
+  const vor = await lager();
+  pruef(Object.keys(vor.ls).some((x) => /einsatz/.test(x)) && 'bt_ich' in vor.ls, `R-08: Vorbedingung fehlt – der Polier hat nichts im Gerätespeicher (${Object.keys(vor.ls).join(',')})`);
+  // abmelden (mit Hinweis auf die wartende Meldung)
+  await geh('/mehr');
+  await page.click('#abmelden');
+  await page.waitForSelector('dialog[open] [data-ok]');
+  pruef(/noch nicht gesendet/.test(await page.locator('dialog[open]').innerText()), 'R-08: kein Hinweis auf wartende Meldungen beim Abmelden');
+  await page.click('dialog[open] [data-ok]');
+  await page.waitForSelector('.login-user');
+  const nach = await lager();
+  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+  const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+  const fremd = Object.keys(nach.ls).filter((x) => !ERLAUBT.includes(x));
+  pruef(fremd.length === 0, `R-08: nach dem Abmelden bleiben Schlüssel im localStorage: ${fremd.join(', ')}`);
+  const mitDaten = Object.entries(nach.ls).filter(([x, w]) => !WARTEND.includes(x) && (w.includes(name) || /"uid":|"benutzer":\{|"einsatz"|"rechte"/.test(w)));
+  pruef(mitDaten.length === 0 && Object.keys(nach.ss).length === 0 && nach.cache.length === 0 && !nach.cookie, `R-08: Daten des Vorbenutzers lesbar (localStorage ${mitDaten.map(([x]) => x).join(',')}, sessionStorage ${Object.keys(nach.ss).join(',')}, Cache ${nach.cache.length}, Cookie „${nach.cookie}“)`);
+  // anderer Benutzer am selben Gerät: sieht nichts vom Polier, dessen Warteschlange wird nicht mit seiner Sitzung gesendet
+  const gesendet = []; const lausche = (req) => { if (/\/api\/plan\/fuhren\/999999\//.test(req.url())) gesendet.push(req.url()); };
+  page.on('request', lausche);
+  await anmelden('mitarbeiter');
+  await geh('/einsatz'); await geh('/stempeln');
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.waitForTimeout(600);
+  page.off('request', lausche);
+  const dann = await lager();
+  pruef(gesendet.length === 0 && JSON.parse(dann.ls.bt_fuhren_warten || '[]').some((w) => w.nr === 'e2e-geteilt' && w.benutzerId === P), 'R-08: wartende Meldung des Poliers wurde mit der Sitzung des Mitarbeiters gesendet oder ging verloren');
+  pruef(!Object.entries(dann.ls).some(([x, w]) => !WARTEND.includes(x) && w.includes(name)) && !(await h.text()).includes(name), 'R-08: Daten oder Name des Poliers beim Mitarbeiter sichtbar');
+  pruef(JSON.parse(dann.ls.bt_geraet_benutzer) !== P, 'R-08: Gerät merkt sich den Benutzerwechsel nicht');
+  await page.evaluate(() => localStorage.removeItem('bt_fuhren_warten'));
+  await h.abmelden();
+}
+
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };
