@@ -37,6 +37,17 @@ function createApp(opt = {}) {
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
   bt.bremse = new LoginBremse(db, uhr);
+  // Ausbaustufe 2: Dienste (API.md 12.3–12.5, 12.18)
+  bt.test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
+  bt.testAusgang = require('./routes/test').leer();
+  bt.testVorgaben = {};
+  bt.url = opt.url || process.env.BAUTAG_URL || '';
+  bt.schluessel = opt.schluessel || process.env.BAUTAG_SCHLUESSEL || '';
+  bt.wetterAn = opt.wetter !== undefined ? Boolean(opt.wetter) : process.env.BAUTAG_WETTER !== '0';
+  if (opt.wetterAbruf) bt.wetterAbruf = opt.wetterAbruf;
+  if (opt.mailTransport) bt.mailTransport = opt.mailTransport;
+  bt.pushAus = Boolean(opt.pushAus);
+  bt.mail = { alarm: (betreff, text) => require('./mail').alarm(bt, betreff, text) };
 
   // Rechte-Matrix beim ersten Start anlegen
   if (!db.eins('SELECT 1 AS x FROM rolle_recht LIMIT 1')) db.transaktion(() => schreibeStandardMatrix(db));
@@ -75,7 +86,9 @@ function createApp(opt = {}) {
   bt.stuendlich = () => {
     preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt);
     sicher('Bauvorhaben', require('./bauvorhaben').pruefeBauvorhaben);
+    require('./push').anstossen(bt);
   };
+  try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }
   bt.stuendlich();
   bt.fuhrparkTimer = setInterval(() => bt.stuendlich(), 60 * 60 * 1000);
   bt.fuhrparkTimer.unref();
@@ -131,6 +144,9 @@ function createApp(opt = {}) {
     next();
   });
   api.use(sitzungMiddleware(bt));
+  // Neue Benachrichtigungen nach jeder Anfrage per Push verteilen (API.md 12.3)
+  api.use((req, res, next) => { res.on('finish', () => require('./push').anstossen(bt)); next(); });
+  if (bt.test) require('./routes/test')(api, bt); // API.md 12.18 – nur Testbetrieb
 
   // Öffentlich (vor dem €-Sicherheitsnetz, damit 'db' nicht als €-Feld entfernt wird)
   api.get('/gesundheit', (req, res) => {
@@ -172,6 +188,7 @@ function createApp(opt = {}) {
   require('./routes/integrationen')(api, bt);
   require('./routes/fuhrpark')(api, bt);
   require('./routes/system')(api, bt);
+  require('./routes/dienste')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
@@ -206,6 +223,7 @@ function createApp(opt = {}) {
 
   app.bt = bt;
   app.schliessen = () => {
+    bt.pushAus = true;
     clearInterval(bt.fuhrparkTimer);
     db.schliessen();
     if (bt.uploadsTemp) { try { fs.rmSync(bt.uploads, { recursive: true, force: true }); } catch (_) { /* egal */ } }

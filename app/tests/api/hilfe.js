@@ -19,6 +19,8 @@ async function starte(opt = {}) {
   const app = createApp({
     dbPath: ':memory:', uhr, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
     pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
+    // Ausbaustufe 2: Attrappen für externe Dienste (API.md 12.18)
+    test: opt.test, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
     // Standard in Tests: lange Sitzungen, damit Uhrsprünge nicht abmelden (eigener Test für Ablaufzeiten)
     sitzung: opt.sitzung || { feldMin: 720, bueroMin: 24 * 60, maxH: 24 * 30 }
   });
@@ -84,6 +86,7 @@ async function starte(opt = {}) {
   }
 
   async function stop() {
+    await Promise.allSettled(app.bt.laufend || []);
     await new Promise((res) => server.close(res));
     app.schliessen();
   }

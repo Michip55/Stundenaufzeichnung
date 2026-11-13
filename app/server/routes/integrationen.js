@@ -1,29 +1,44 @@
 'use strict';
-/** Integrationen ehrlich als „nicht angebunden“ – keine vorgetäuschten Ergebnisse. */
+/** Integrationen mit echtem Zustand (API.md 12.14) – keine vorgetäuschten Ergebnisse. */
 const { nichtAngebunden, nichtGefunden } = require('../fehler');
 
-const INTEGRATIONEN = [
-  { schluessel: 'diktat', name: 'Bericht per Sprache diktieren', hinweis: 'Spracherkennung (Anbieter/Vertrag fehlt) – noch nicht angebunden.' },
-  { schluessel: 'scan_lieferschein', name: 'Lieferschein fotografieren und auslesen', hinweis: 'Texterkennung (Anbieter/Vertrag fehlt) – noch nicht angebunden.' },
-  { schluessel: 'scan_papier', name: 'Papier-Bautagesbericht einscannen', hinweis: 'Formularerkennung (Anbieter/Vertrag fehlt) – noch nicht angebunden.' },
-  { schluessel: 'sms', name: 'Fernunterschrift per SMS-Link', hinweis: 'SMS-Anbieter fehlt – noch nicht angebunden.' },
-  { schluessel: 'push', name: 'Push-Benachrichtigungen', hinweis: 'Web-Push (Schlüssel/Dienst) noch nicht eingerichtet – Benachrichtigungen nur in der App.' },
-  { schluessel: 'email', name: 'E-Mail-Versand', hinweis: 'Mailserver (SMTP) noch nicht eingerichtet – kein automatischer Versand.' },
-  { schluessel: 'wetter', name: 'Wetter automatisch (GeoSphere Austria)', hinweis: 'Wetterdienst noch nicht angebunden – Wetter bitte händisch eintragen.' }
-];
+const NAMEN = {
+  push: 'Push-Benachrichtigungen', wetter: 'Wetter automatisch (GeoSphere Austria)', email: 'E-Mail-Versand',
+  fernunterschrift: 'Fernunterschrift per Link', diktat: 'Bericht per Sprache diktieren', lieferschein: 'Lieferschein fotografieren und auslesen',
+  papier: 'Papier-Bautagesbericht einscannen', ki: 'KI-Unterstützung (Anthropic Claude, optional)', sms: 'Fernunterschrift per SMS'
+};
 
-module.exports = function integrationsRouten(api) {
-  api.get('/integrationen', (req, res) => {
-    res.json(INTEGRATIONEN.map((i) => ({ ...i, angebunden: false })));
-  });
+const versuch = (f, standard) => { try { return f(); } catch (_) { return standard; } };
 
+function stand(bt) {
+  const ki = versuch(() => require('../ki').aktiv(bt), false);
+  const ocr = versuch(() => require('../ocr').verfuegbar(bt), false);
+  const email = versuch(() => require('../mail').eingerichtet(bt), false);
+  const vapid = Boolean(bt.db.einstellung('vapid', null));
+  const z = (zustand, hinweis) => ({ zustand, hinweis });
+  const liste = {
+    push: vapid ? z('aktiv', 'Web-Push eingerichtet – in den Einstellungen je Gerät erlauben.') : z('fehlt', 'Schlüssel werden beim Start erzeugt.'),
+    wetter: bt.wetterAn ? z('aktiv', 'GeoSphere Austria (ohne Schlüssel); Koordinaten je Baustelle nötig.') : z('aus', 'Abgeschaltet (BAUTAG_WETTER=0).'),
+    email: email ? z('aktiv', 'SMTP eingerichtet.') : z('fehlt', 'Mailserver (SMTP) unter Einstellungen → E-Mail eintragen.'),
+    fernunterschrift: z('aktiv', 'Einmal-Link (72 Std.) per WhatsApp/E-Mail teilen.'),
+    diktat: ki ? z('aktiv_mit_ki', 'Mikrofon der Handy-Tastatur → Vorschlag mit KI.') : z('aktiv_ohne_ki', 'Mikrofon der Handy-Tastatur → Vorschlag nach festen Regeln.'),
+    lieferschein: !ocr && !ki ? z('optional', 'Texterkennung braucht die Sprachdaten (deploy/ocr-daten.sh); Foto wird trotzdem gespeichert.') : ki ? z('aktiv_mit_ki', 'Texterkennung mit KI.') : z('aktiv_ohne_ki', 'Texterkennung auf dem Server (Deutsch).'),
+    papier: !ocr && !ki ? z('optional', 'Archivfoto möglich; Erkennung braucht die Sprachdaten (deploy/ocr-daten.sh).') : ki ? z('aktiv_mit_ki', 'Archiv + Erkennung inkl. Handschrift (KI).') : z('aktiv_ohne_ki', 'Archiv + Erkennung gedruckter Teile (Datum, KST).'),
+    ki: ki ? z('aktiv', 'Anthropic Claude – nur Vorschläge, keine €-Daten.') : z('optional', 'Aus. Einschalten unter Einstellungen → KI (API-Schlüssel + Datenschutz-Bestätigung).'),
+    sms: z('optional', 'Anbieter nötig – stattdessen Link per WhatsApp/E-Mail teilen.')
+  };
+  return Object.entries(liste).map(([schluessel, x]) => ({ schluessel, name: NAMEN[schluessel], angebunden: x.zustand.startsWith('aktiv'), zustand: x.zustand, hinweis: x.hinweis }));
+}
+
+module.exports = function integrationsRouten(api, bt) {
+  api.get('/integrationen', (req, res) => res.json(stand(bt)));
   const nichtDa = (req) => {
-    const i = INTEGRATIONEN.find((x) => x.schluessel === req.params.schluessel);
-    if (!i) throw nichtGefunden('Unbekannte Integration.');
-    throw nichtAngebunden(`${i.name} ist noch nicht angebunden (Anbieter/Vertrag fehlt).`);
+    if (!NAMEN[req.params.schluessel]) throw nichtGefunden('Unbekannte Integration.');
+    if (req.params.schluessel === 'sms') throw nichtAngebunden('Fernunterschrift per SMS ist nicht angebunden (SMS-Anbieter nötig) – bitte den Link per WhatsApp/E-Mail teilen.');
+    throw nichtGefunden('Diese Funktion hat eigene Routen (API.md 12).');
   };
   api.post('/integrationen/:schluessel', nichtDa);
   api.post('/integrationen/:schluessel/*rest', nichtDa);
 };
 
-module.exports.INTEGRATIONEN = INTEGRATIONEN;
+module.exports.stand = stand;

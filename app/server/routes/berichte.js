@@ -80,6 +80,15 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
   };
   if (darfPreise(ctx, bs)) o.kostenTag = kostenTagFuer(db, b.id);
   anlagenZumBericht(db, b, o);
+  // API.md 12.4: Schlechtwetter-Vorschlag aus dem Wetter-Zwischenspeicher
+  const w = require('../wetter').wetterAusCache(db, bs, b.datum);
+  if (w) o.wetterVorschlag = w.schlechtwetter;
+  // API.md 12.5: Versandstand der E-Mails an den Auftraggeber
+  if (ctx.hat && (ctx.hat('bericht_freigeben') || ctx.hat('stammdaten'))) {
+    o.emailVersand = db.alle("SELECT id, erstellt, gesendet, an, status, fehler FROM mail_ausgang WHERE bezug = ? ORDER BY id", `bericht:${b.id}`)
+      .map((m) => ({ id: m.id, zeit: m.gesendet || m.erstellt, an: m.an, status: m.status, ...(m.fehler ? { fehler: m.fehler } : {}) }));
+  }
+  if (typeof module.exports.fotosJson === 'function') o.fotos = module.exports.fotosJson(db, b.id);
   return o;
 }
 
@@ -372,7 +381,7 @@ module.exports = function berichtRouten(api, bt) {
       })));
   });
 
-  api.post('/berichte', (req, res) => {
+  api.post('/berichte', async (req, res) => {
     if (!req.ctx.hat('bericht_erstellen')) throw keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.');
     const body = v.objekt(req.body);
     const baustelleId = v.id(body.baustelleId, 'baustelleId');
@@ -393,6 +402,13 @@ module.exports = function berichtRouten(api, bt) {
       speichereUpdate(db, r.id, { personal: personalVorschlag(db, baustelleId, datum, bt.uhr()) }, zeit);
       return r.id;
     });
+    // API.md 12.4: Wetter automatisch (höchstens 4 s warten)
+    if (bs.lat != null && bs.lng != null && bt.wetterAn) {
+      try {
+        const w = await Promise.race([require('../wetter').wetterFuer(bt, bs, datum), new Promise((r) => setTimeout(() => r(null), 4000).unref())]);
+        if (w && w.verfuegbar) db.lauf('UPDATE bericht SET wetter = ? WHERE id = ? AND wetter IS NULL', JSON.stringify(require('../wetter').berichtWetter(w)), id);
+      } catch (_) { /* Wetter ist optional */ }
+    }
     res.status(201).json(berichtJson(db, req.ctx, ladeBerichtRoh(db, id)));
   });
 
@@ -487,10 +503,20 @@ module.exports = function berichtRouten(api, bt) {
     });
     if (neuerStatus === 'unterschrieben') {
       pruefeBudget(bt, b.baustelle_id, { anlass: 'Unterschrift Bautagesbericht', benutzerId: req.ctx.benutzer.id });
+      autoMail(b);
       if (b.geraete.length) require('../fuhrpark-erinnerung').pruefeFuhrparkSicher(bt); // Gerätestunden → Servicebuch
     }
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
+
+  /** API.md 12.5: AG-PDF nach der zweiten Unterschrift automatisch an den Auftraggeber */
+  function autoMail(b) {
+    const bs = ladeBaustelle(db, b.baustelle_id);
+    if (bs && bs.ag_email && bs.bericht_mail === 1 && require('../mail').eingerichtet(bt)) {
+      require('../mail').berichtVersenden(bt, b.id, bs.ag_email, null);
+    }
+  }
+  module.exports.autoMail = autoMail;
 
   /** Unterschrift zurückziehen (nur solange der Bericht noch Entwurf ist) – danach wieder bearbeitbar */
   api.delete('/berichte/:id/unterschrift/:rolle', (req, res) => {
@@ -540,17 +566,34 @@ module.exports = function berichtRouten(api, bt) {
     const b = ladeMitZugriff(req, false);
     const fassung = req.query.fassung === undefined ? 'ag' : v.auswahl(String(req.query.fassung), 'fassung', ['ag', 'intern']);
     if (fassung === 'intern' && !req.ctx.hat('bericht_freigeben') && !req.ctx.hat('stammdaten')) throw keinZugriff('Die interne Fassung ist Bauleitung und Büro vorbehalten.');
-    const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
-    // Bewusst ohne kostenTag: das PDF enthält nie €-Werte
-    const daten = berichtJson(db, { benutzer: req.ctx.benutzer, rechte: new Set(), hat: () => false }, b);
-    const pdf = await erzeugeBerichtPdf(daten, { fassung, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
+    const pdf = await berichtPdf(bt, b, { fassung, benutzer: req.ctx.benutzer, fotos: req.query.fotos === '1' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Bautagesbericht_${b.baustelle.kst}_${b.datum}${fassung === 'intern' ? '_intern' : ''}.pdf"`);
     res.send(pdf);
   });
 };
 
+/** PDF eines Berichts (nie €): Fassung ag|intern, optional Fotoseiten (API.md 12.6) */
+async function berichtPdf(bt, b, { fassung = 'ag', benutzer = null, fotos = false } = {}) {
+  const { db } = bt;
+  const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
+  // Bewusst ohne kostenTag: das PDF enthält nie €-Werte
+  const daten = berichtJson(db, { benutzer: benutzer || { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b);
+  const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id) : null;
+  return erzeugeBerichtPdf(daten, { fassung, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
+}
+
+/** AG-Fassung für E-Mail/Fernunterschrift */
+async function agPdf(bt, berichtId) {
+  return berichtPdf(bt, ladeBerichtRoh(bt.db, berichtId), { fassung: 'ag' });
+}
+
+module.exports.berichtPdf = berichtPdf;
+module.exports.agPdf = agPdf;
 module.exports.ladeBerichtRoh = ladeBerichtRoh;
 module.exports.berichtJson = berichtJson;
 module.exports.speichereUpdate = speichereUpdate;
 module.exports.pruefePersonal = pruefePersonal;
+module.exports.pruefeLesen = pruefeLesen;
+module.exports.pruefeSchreiben = pruefeSchreiben;
+module.exports.GESPERRT_TEXT = GESPERRT_TEXT;

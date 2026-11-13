@@ -759,6 +759,51 @@ DROP INDEX IF EXISTS benachrichtigung_benutzer;
 CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
 CREATE INDEX benachrichtigung_push ON benachrichtigung(push) WHERE push IS NULL;
 `
+  },
+  {
+    version: 13,
+    name: 'Ausbaustufe 2: Push-Abos, Wetter-Zwischenspeicher, E-Mail-Ausgang (12.3–12.5)',
+    sql: `
+CREATE TABLE push_abo (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  geraet TEXT,
+  erstellt TEXT NOT NULL,
+  zuletzt TEXT,
+  fehler TEXT
+);
+CREATE INDEX push_abo_benutzer ON push_abo(benutzer_id);
+CREATE TABLE push_einstellung (
+  benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+  typen TEXT NOT NULL
+);
+CREATE TABLE wetter_cache (
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  datum TEXT NOT NULL,
+  abgerufen TEXT NOT NULL,
+  lat REAL, lng REAL,
+  daten TEXT,
+  fehler TEXT,
+  PRIMARY KEY (baustelle_id, datum)
+);
+CREATE TABLE mail_ausgang (
+  id INTEGER PRIMARY KEY,
+  art TEXT NOT NULL,
+  bezug TEXT,
+  an TEXT NOT NULL,
+  betreff TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('wartet','gesendet','fehler')),
+  fehler TEXT,
+  versuche INTEGER NOT NULL DEFAULT 0,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id),
+  gesendet TEXT
+);
+CREATE INDEX mail_ausgang_bezug ON mail_ausgang(bezug);
+`
   }
 ];
 

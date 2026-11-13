@@ -61,18 +61,21 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'export'").n >= 2);
   });
 
-  await t.test('Integrationen ehrlich „nicht angebunden“ (501)', async () => {
+  await t.test('Integrationen mit echtem Zustand (API.md 12.14); SMS weiter 501', async () => {
     const l = await ma.get('/integrationen');
     assert.equal(l.status, 200);
-    assert.deepEqual(l.daten.map((i) => i.schluessel), ['diktat', 'scan_lieferschein', 'scan_papier', 'sms', 'push', 'email', 'wetter']);
-    assert.ok(l.daten.every((i) => i.angebunden === false && i.hinweis && i.name));
-    for (const p of ['/integrationen/diktat', '/integrationen/diktat/start', '/integrationen/sms/senden/123', '/integrationen/wetter/abrufen']) {
-      const r = await ma.post(p, {});
-      assert.equal(r.status, 501, p);
-      assert.equal(r.daten.code, 'NICHT_ANGEBUNDEN');
-      assert.match(r.daten.fehler, /noch nicht angebunden \(Anbieter\/Vertrag fehlt\)/);
-    }
-    assert.equal((await ma.post('/integrationen/ki/frage', {})).status, 404);
+    assert.deepEqual(l.daten.map((i) => i.schluessel), ['push', 'wetter', 'email', 'fernunterschrift', 'diktat', 'lieferschein', 'papier', 'ki', 'sms']);
+    assert.ok(l.daten.every((i) => i.hinweis && i.name && typeof i.angebunden === 'boolean' && i.zustand));
+    const z = Object.fromEntries(l.daten.map((i) => [i.schluessel, i.zustand]));
+    assert.equal(z.push, 'aktiv');
+    assert.equal(z.sms, 'optional');
+    assert.equal(z.ki, 'optional');
+    assert.equal(z.diktat, 'aktiv_ohne_ki');
+    assert.equal(l.daten.find((i) => i.schluessel === 'sms').angebunden, false);
+    const r = await ma.post('/integrationen/sms/senden/123', {});
+    assert.equal(r.status, 501);
+    assert.equal(r.daten.code, 'NICHT_ANGEBUNDEN');
+    assert.equal((await ma.post('/integrationen/gibtsnicht', {})).status, 404);
   });
 
   await t.test('Preise: lesen und Eingabeprüfung beim Ändern', async () => {
