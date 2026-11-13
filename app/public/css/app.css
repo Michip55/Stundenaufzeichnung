@@ -873,3 +873,10 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
   .pl-zeile { grid-template-columns: 104px minmax(0, 1fr); min-width: 0; } .pl-zeile > .pl-tag:not(.wahl), .pl-zeile > .pl-zelle:not(.wahl) { display: none; }
   .pl-chip { min-height: 40px; font-size: 14px; } .pl-plus { min-height: 40px; border-color: #dfe3e8; } .pl-tag { flex-direction: row; flex-wrap: wrap; align-items: center; }
 }
+
+/* ===== Fernunterschrift: öffentliche Seite ===== */
+.fern { height: 100%; overflow-y: auto; background: var(--bg); } .fern-kopf { display: flex; align-items: center; gap: 12px; padding: 12px 18px; background: var(--graphite); color: #fff; } .fern-kopf b { display: block; font-size: 18px; font-weight: 800; } .fern-kopf small { color: #98a1ad; }
+.fern-inhalt { max-width: 720px; margin: 0 auto; padding: 16px 16px 48px; display: flex; flex-direction: column; gap: 14px; } .fern .sig-pad { height: 190px; } .fern .def-list.tight { margin: 8px 0 12px; }
+.link-box { display: flex; gap: 8px; align-items: center; background: #f6f7f9; border-radius: 10px; padding: 8px 10px; } .link-box code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+
+.integ-zustand { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; } a.link.sm { font-size: 12.5px; }

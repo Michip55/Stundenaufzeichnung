@@ -86,7 +86,7 @@ function neuerBericht(ctx, baustellen, vorwahl) {
 }
 
 /* =================== Unterschriftsfeld (Pointer Events) =================== */
-function signaturFeld(canvas) {
+export function signaturFeld(canvas) {
   const c = canvas.getContext('2d');
   let zeichnet = false, hat = false, letzter = null;
   const groesse = () => {

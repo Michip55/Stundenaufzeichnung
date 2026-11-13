@@ -54,6 +54,7 @@ const IC = {
   send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M5.5 15.5h-1a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
   board: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 4.5v15M15 4.5v15"/><path d="M10.5 12.5h3M4.800 15.500h3" stroke-width="2.6"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.500a5.5 5.5 0 0 1-11 0zM12 17v4"/>',
 };
 export const ic = (n, cls = '') =>
@@ -163,11 +164,22 @@ export const speicher = {
   weg(k) { try { localStorage.removeItem(k); } catch (e) { /* egal */ } },
 };
 // Nicht angebundene Integration als deaktivierte Schaltfläche mit ehrlichem Hinweis
+// Zusatzdienste (API.md 12.14): echter Zustand je Dienst
+export const integVon = (integ, schluessel) => (integ || []).find((x) => x.schluessel === schluessel) || null;
+export const integAktiv = (integ, schluessel) => { const i = integVon(integ, schluessel); return !!(i && (i.angebunden || /^aktiv/.test(i.zustand || ''))); };
+export const integMitKi = (integ, schluessel) => (integVon(integ, schluessel) || {}).zustand === 'aktiv_mit_ki';
+export const integZustand = (i) => {
+  const z = (i && i.zustand) || (i && i.angebunden ? 'aktiv' : 'fehlt');
+  return z === 'aktiv' ? ['Aktiv', 'st-green'] : z === 'aktiv_mit_ki' ? ['Aktiv – mit KI', 'st-green'] : z === 'aktiv_ohne_ki' ? ['Aktiv – ohne KI', 'st-green']
+    : z === 'optional' ? [i && i.schluessel === 'sms' ? 'Optional – Anbieter nötig' : 'Optional', 'st-grey'] : z === 'aus' ? ['Ausgeschaltet', 'st-grey'] : ['Nicht eingerichtet', 'st-amber'];
+};
+// Nicht verfügbare Funktion als deaktivierte Schaltfläche mit ehrlichem Hinweis (aktive Dienste haben eigene Schaltflächen)
 export const integBtn = (integ, schluessel, text, icon, cls = '') => {
-  const i = (integ || []).find((x) => x.schluessel === schluessel);
-  if (i && i.angebunden) return ''; // angebundene Dienste haben (noch) keine Oberfläche
+  const i = integVon(integ, schluessel);
+  if (integAktiv(integ, schluessel)) return '';
   const hinweis = (i && i.hinweis) || 'Anbieter/Vertrag fehlt.';
-  return `<span class="integ ${cls}" data-integ="${esc(schluessel)}"><button type="button" class="btn ghost sm" disabled aria-describedby="ih-${esc(schluessel)}">${ic(icon)}${esc(text)}</button><small id="ih-${esc(schluessel)}"><b>Noch nicht angebunden</b> · ${esc(hinweis)}</small></span>`;
+  const titel = i && i.zustand === 'optional' ? integZustand(i)[0] : 'Noch nicht angebunden';
+  return `<span class="integ ${cls}" data-integ="${esc(schluessel)}"><button type="button" class="btn ghost sm" disabled aria-describedby="ih-${esc(schluessel)}">${ic(icon)}${esc(text)}</button><small id="ih-${esc(schluessel)}"><b>${esc(titel)}</b> · ${esc(hinweis)}</small></span>`;
 };
 
 /* ---------- Betragsfelder: sofort zeigen, wie die Eingabe verstanden wird (B-04) ---------- */

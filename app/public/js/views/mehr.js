@@ -1,18 +1,23 @@
 // Mehr: Konto, alle Bereiche, Einstellungen, Zusatzdienste (ehrlich: noch nicht angebunden), Abmelden.
 import { get } from '../api.js';
-import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, $ } from '../ui.js';
+import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, integZustand, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
 
-const INTEG_ICON = { diktat: 'mic', scan_lieferschein: 'scan', scan_papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud' };
-
-export const integKarte = (integ) => `
-  <section class="card" aria-labelledby="integ-h">
-    <div class="card-h pad-h"><h3 id="integ-h">${ic('plug')}Zusatzdienste</h3><span class="chip ${integ.some((i) => i.angebunden) ? 'st-green' : 'st-grey'}">${integ.filter((i) => i.angebunden).length} von ${integ.length} angebunden</span></div>
-    ${integ.length ? `<ul class="integ-list">${integ.map((i) => `<li class="${i.angebunden ? 'on' : ''}" data-integ="${esc(i.schluessel)}"><span class="integ-ic">${ic(INTEG_ICON[i.schluessel] || 'plug')}</span><span><b>${esc(i.name)}</b><small>${esc(i.hinweis || '')}</small></span><span class="chip xs ${i.angebunden ? 'st-green' : 'st-grey'}">${i.angebunden ? 'Angebunden' : 'Noch nicht angebunden'}</span></li>`).join('')}</ul>`
+const INTEG_ICON = { diktat: 'mic', lieferschein: 'scan', papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud', fernunterschrift: 'sign', ki: 'spark', scan_lieferschein: 'scan', scan_papier: 'camera' };
+// Wohin „Einrichten“ führt – je nach Dienst und Recht
+const einrichten = (i, ctx) => {
+  if (i.schluessel === 'push') return ['#/push', 'Einschalten'];
+  if (ctx && ctx.kann('benutzer') && ['email', 'ki'].includes(i.schluessel) && !/^aktiv/.test(i.zustand || (i.angebunden ? 'aktiv' : ''))) return ['#/benutzer?reiter=dienste', 'Einrichten'];
+  return null;
+};
+export const integKarte = (integ, ctx) => `
+  <section class="card" id="zusatzdienste" aria-labelledby="integ-h">
+    <div class="card-h pad-h"><h3 id="integ-h">${ic('plug')}Zusatzdienste</h3><span class="chip ${integ.some((i) => integAktiv(integ, i.schluessel)) ? 'st-green' : 'st-grey'}">${integ.filter((i) => integAktiv(integ, i.schluessel)).length} von ${integ.length} aktiv</span></div>
+    ${integ.length ? `<ul class="integ-list">${integ.map((i) => { const [t, c] = integZustand(i); const e = einrichten(i, ctx); return `<li class="${integAktiv(integ, i.schluessel) ? 'on' : ''}" data-integ="${esc(i.schluessel)}" data-zustand="${esc(i.zustand || (i.angebunden ? 'aktiv' : 'fehlt'))}"><span class="integ-ic">${ic(INTEG_ICON[i.schluessel] || 'plug')}</span><span><b>${esc(i.name)}</b><small>${esc(i.hinweis || '')}</small></span><span class="integ-zustand"><span class="chip xs ${c}">${esc(t)}</span>${e ? `<a class="link sm" href="${e[0]}" data-einrichten>${e[1]}</a>` : ''}</span></li>`; }).join('')}</ul>`
       : '<div class="state empty small"><p>Liste der Zusatzdienste derzeit nicht abrufbar.</p></div>'}
-    <p class="card-note">Funktionen ohne Anbieter bleiben ausgeschaltet und sind als „Noch nicht angebunden“ gekennzeichnet – es werden keine Ergebnisse vorgetäuscht.</p>
+    <p class="card-note">„Aktiv – ohne KI“ heißt: Die Funktion arbeitet mit festen Regeln bzw. Texterkennung am eigenen Server. Die KI-Unterstützung ist freiwillig und wird von der Geschäftsführung eingerichtet. Es werden nie Ergebnisse vorgetäuscht.</p>
   </section>`;
 
 export default async function mehr(el, ctx) {
@@ -39,7 +44,7 @@ export default async function mehr(el, ctx) {
     </section>
     <nav class="card menu-list" aria-label="Hilfe"><a href="#/hilfe" id="zu-hilfe">${ic('info')}<span>Hilfe &amp; erste Schritte</span>${ic('right')}</a></nav>
     ${installKarte()}
-    ${integKarte(integ)}
+    ${integKarte(integ, ctx)}
     <button type="button" class="btn ghost lg block" id="abmelden">${ic('logout')}Abmelden</button>
     <p class="fineprint">BauTag${gesund && gesund.version ? ' · Version ' + esc(gesund.version) : ''}</p>
   </div>`;

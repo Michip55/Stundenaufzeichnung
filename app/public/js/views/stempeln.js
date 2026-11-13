@@ -4,8 +4,6 @@ import { get, post } from '../api.js';
 import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
 import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
-import { einsatzHtml, meinEinsatz } from './plan.js';
-import { wienHeute } from '../zahl.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
 
 const TYP = {
@@ -44,7 +42,6 @@ export default async function stempeln(el, ctx) {
   let wahl = speicher.lies('bt_baustelle');
   let beschaeftigt = false;
   let timer = null;
-  let einsatz = null; // eigene veröffentlichte Einsätze heute/morgen
 
   async function lade() {
     try {
@@ -78,8 +75,6 @@ export default async function stempeln(el, ctx) {
     const std = new Date().getHours();
     const gruss = std < 10 ? 'Guten Morgen' : std < 17 ? 'Servus' : 'Guten Abend';
     const laeuft = st.status === 'arbeit', pause = st.status === 'pause';
-    // 12.8: Wer heute eingeplant ist, bekommt diese Baustelle vorgeschlagen (einmal je Tag – eine eigene Wahl bleibt)
-    if (st.status === 'aus' && st.geplant && bs(st.geplant.baustelleId) && speicher.lies('bt_plan_vorwahl') !== wienHeute()) { wahl = st.geplant.baustelleId; speicher.setz('bt_plan_vorwahl', wienHeute()); }
     if (st.status === 'aus' && (wahl == null || !bs(wahl))) wahl = (ctx.ich.baustellenIds || []).find((id) => aktive().some((b) => b.id === id)) ?? (aktive()[0] && aktive()[0].id);
     const b = bs(st.status === 'aus' ? wahl : st.baustelleId);
     const buch = st.heute.buchungen || [];
@@ -134,7 +129,6 @@ export default async function stempeln(el, ctx) {
           ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
         <button type="button" class="card pad link-card" id="schaden-kurz" data-akt="schaden">${ic('camera')}<span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span>${ic('right')}</button>
-        <section class="card" id="einsatz-karte" aria-labelledby="h-eins"><div class="card-h pad-h"><h3 id="h-eins">${ic('board')}Mein Einsatz</h3><a class="btn ghost sm" href="#/plan">Plan</a></div><div id="einsatz-inhalt">${einsatz === null ? '<p class="muted sm pad-s">Wird geladen …</p>' : einsatzHtml(einsatz, wienHeute(), { leerText: 'Für heute und morgen ist kein Einsatz veröffentlicht.' })}</div></section>
         <a class="card pad link-card" href="#/woche">${ic('calendar')}<span><b>Meine Woche</b><small>Stunden, Überstunden und Abwesenheiten</small></span>${ic('right')}</a>
       </div>
     </div></div>`;
@@ -216,6 +210,5 @@ export default async function stempeln(el, ctx) {
 
   await lade();
   zeichne();
-  meinEinsatz(wienHeute(), fmt.addTage(wienHeute(), 1)).then((l) => { einsatz = Array.isArray(l) ? l : []; }).catch(() => { einsatz = []; }).then(() => { const box = $('#einsatz-inhalt', el); if (box && ctx.aktuell()) box.innerHTML = einsatzHtml(einsatz, wienHeute(), { leerText: 'Für heute und morgen ist kein Einsatz veröffentlicht.' }); });
   return () => clearInterval(timer);
 }

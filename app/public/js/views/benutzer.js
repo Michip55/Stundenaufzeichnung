@@ -10,7 +10,7 @@ export default async function benutzer(el, ctx) {
   const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter']; // diese Benutzer pflegt das Büro
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [];
-  let tab = !voll ? 'benutzer' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
+  let tab = !voll ? 'benutzer' : ctx.query.get('reiter') === 'dienste' ? 'dienste' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
   const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle);
   const istGesperrt = (m) => !!(m.gesperrt || m.kontoGesperrt || m.sperre || m.gesperrtSeit);
   async function lade() {
