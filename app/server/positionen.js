@@ -109,6 +109,36 @@ function katalogAnpassungenAnwenden(db, jetzt = new Date()) {
   return neuAngewendet;
 }
 
+/**
+ * E-03: einmalige Übernahme für Bestands-Datenbanken.
+ * - Baustellen ohne Projektpositionen erhalten den aktuellen Katalog (Zuordnungen „bitte prüfen“)
+ * - alte Budget-Alarm-Zeilen (Basis interne Kosten) werden gelöscht, damit die Alarme auf der neuen Basis neu greifen
+ * @returns {{kopiert:string[], alarmeGeloescht:number|null}}
+ */
+function bestandUebernehmen(db, jetzt = new Date()) {
+  const t = jetzt.toISOString();
+  const kopiert = [];
+  let alarmeGeloescht = null;
+  db.transaktion(() => {
+    if (!db.einstellung('positionen_bestand', false)) {
+      for (const b of db.alle('SELECT id, kst FROM baustelle ORDER BY kst')) {
+        if (db.eins('SELECT COUNT(*) AS n FROM projektposition WHERE baustelle_id = ?', b.id).n === 0) {
+          katalogKopieren(db, b.id, jetzt);
+          kopiert.push(b.kst);
+        }
+      }
+      db.setzeEinstellung('positionen_bestand', true);
+      if (kopiert.length) db.protokolliere({ zeit: t, benutzerId: null, art: 'nachkalkulation', objekt: 'baustellen', neu: { baustellen: kopiert }, text: `Positionskatalog in ${kopiert.length} bestehende Baustelle(n) übernommen (Zuordnungen bitte prüfen)` });
+    }
+    if (db.einstellung('budget_basis', null) !== 'positionen') {
+      alarmeGeloescht = db.lauf('DELETE FROM budget_alarm').changes;
+      db.setzeEinstellung('budget_basis', 'positionen');
+      if (alarmeGeloescht) db.protokolliere({ zeit: t, benutzerId: null, art: 'budget_alarm', objekt: 'baustellen', text: `Budget-Basis auf Nachkalkulationssumme umgestellt: ${alarmeGeloescht} alte Alarm-Zeile(n) gelöscht, Alarme werden neu bewertet` });
+    }
+  });
+  return { kopiert, alarmeGeloescht };
+}
+
 /** Katalog (aktive Positionen) in eine Baustelle kopieren; nur fehlende (nach katalog_id) */
 function katalogKopieren(db, baustelleId, jetzt = new Date()) {
   const t = jetzt.toISOString();
@@ -212,4 +242,4 @@ function projektPositionen(db, bs, auftragGesamt) {
   return { baustelleId: bs.id, auftragGesamt: auftragGesamt == null ? null : auftragGesamt, ...r, positionenFehlen, hinweise };
 }
 
-module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogAnpassungenAnwenden, katalogKopieren, autoMengen, projektPositionen, positionJson };
+module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogAnpassungenAnwenden, bestandUebernehmen, katalogKopieren, autoMengen, projektPositionen, positionJson };

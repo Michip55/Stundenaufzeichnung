@@ -42,6 +42,10 @@ function createApp(opt = {}) {
   // Positionskatalog (Firmenvorlage, API.md 10) beim ersten Start anlegen
   require('./positionen').katalogAnlegen(db, uhr());
   require('./positionen').katalogAnpassungenAnwenden(db, uhr()); // versionierte Anpassungen (API.md 10d), einmalig
+  // E-03: Bestands-Datenbanken – Positionen übernehmen, Budget-Alarme auf neuer Basis neu bewerten
+  const bestand = require('./positionen').bestandUebernehmen(db, uhr());
+  bt.bestand = bestand;
+  if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
 
   bt.warnungen = [];

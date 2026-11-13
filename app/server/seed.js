@@ -384,6 +384,9 @@ function seed(db, opt = {}) {
     }
   });
 
+  // Demo-Datenbank ist bereits auf der Positions-Basis (E-03: keine Bestandsübernahme nötig)
+  db.setzeEinstellung('positionen_bestand', true);
+  db.setzeEinstellung('budget_basis', 'positionen');
   // Budget-Alarme für den Ausgangsstand auslösen (an Bauleiter/Büro/GF)
   pruefeAlleBudgets({ db, uhr: () => jetzt }, { anlass: 'Einspielen der Testdaten' });
   return { heute, historieTage: historie.length };
