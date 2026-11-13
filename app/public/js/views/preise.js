@@ -3,7 +3,7 @@
 // jede Preisänderung fragt „gültig ab“. € nur mit Preis-Recht; Lohngruppen sind vertraulich (nur mit preise_bearbeiten pflegbar).
 import { get, post, put, del } from '../api.js';
 import { preisDialog, geplantChip } from '../preisstand.js';
-import { ic, esc, fmt, parseZahl, starkOk, leer, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, starkOk, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
 import { katalogTab } from './katalog.js';
 import { dateiBase64 } from './dokumente.js';
@@ -79,7 +79,7 @@ export default async function preise(el, ctx) {
   /* ---------- Anlegen / Bearbeiten ---------- */
   function eintragDialog(t, z) {
     const feld = ([k, text, o]) => {
-      if (o.nurNeu && z) return '';
+      if (o.nurNeu && z) return `<div class="field"><span class="field-label">Code</span><output class="input lg ro" id="st-code-fest">${esc(z.id)}</output><small class="muted">Code fest – Name jederzeit änderbar</small></div>`;
       if (o.ja) return `<label class="check-inline full"><input type="checkbox" name="${k}" ${z && z[k] ? 'checked' : ''}> ${esc(text)}</label>`;
       return `<label class="field${o.breit ? ' full' : ''}"><span class="field-label">${esc(text)}</span><input class="input lg${o.zahl ? ' num' : ''}" name="${k}" ${o.max ? `maxlength="${o.max}"` : ''} ${o.zahl ? 'inputmode="decimal"' : ''} value="${esc(z ? (o.zahl && z[k] != null ? String(z[k]).replace('.', ',') : z[k] ?? '') : o.standard || '')}" ${o.pflicht ? 'required' : ''} autocomplete="off"><small class="price-err" data-fehler="${k}" role="alert" hidden></small></label>`;
     };
@@ -104,12 +104,18 @@ export default async function preise(el, ctx) {
       if (!z && darf) for (const [k, h] of t.preise) { const roh = String(f.get('p_' + k) || '').trim(); if (!roh) continue; const n = parseZahl(roh); if (!(n >= 0)) return zeig(`${h}: „${roh}“ ist unklar – bitte so schreiben: 1.250,00`); body[k] = n; }
       $('#st-ok', dlg.el).disabled = true;
       try {
+        // Code geändert: erst die Vorschau – wie viele Verweise werden mitgezogen? – dann ausdrücklich bestätigen
+        if (z && body.code !== undefined && body.code !== z.code) {
+          const v = await put(`/stammdaten/${t.art}/${encodeURIComponent(z.id)}`, { ...body, version: z.version, vorschau: true });
+          const n = (v.umbenannt && v.umbenannt.referenzen) || 0;
+          if (!(await bestaetigen('Code umbenennen?', `Code „${z.code}“ → „${body.code}“ – ${n} Verweis${n === 1 ? '' : 'e'} in der Nachkalkulation ${n === 1 ? 'wird' : 'werden'} automatisch angepasst. Fortfahren?`, 'Umbenennen'))) { $('#st-ok', dlg.el).disabled = false; return; }
+        }
         if (z) await put(`/stammdaten/${t.art}/${encodeURIComponent(z.id)}`, { ...body, version: z.version }); else await post(`/stammdaten/${t.art}`, body);
         dlg.zu(); toast(z ? 'Gespeichert.' : `${t.ein} angelegt.`); neuLaden();
       } catch (x) {
         $('#st-ok', dlg.el).disabled = false;
         const codeFeld = t.felder.some(([k]) => k === 'code') ? 'code' : z ? null : 'id';
-        if (x.status === 422) return zeig('Code wird verwendet – nicht änderbar.', codeFeld);
+        if (x.status === 422) return zeig(x.message || 'Dieser Wert ist nicht erlaubt.', codeFeld);
         if (x.status === 409 && !(x.daten && x.daten.version != null)) return zeig('Diesen Code gibt es schon.', codeFeld);
         zeig(x.status === 409 ? 'Inzwischen von jemand anderem geändert – bitte schließen und neu laden.' : x.message);
       }
@@ -152,6 +158,7 @@ export default async function preise(el, ctx) {
       ${fehler.length ? `${banner('err', 'Die Datei enthält Fehler – es wird nichts übernommen. Bitte korrigieren und erneut hochladen.')}<ul class="warn-list">${fehler.slice(0, 30).map((x) => `<li>${ic('alert')}<span>Zeile ${x.zeile}: ${esc(x.text)}</span></li>`).join('')}</ul>` : ''}
       ${(v.neu || []).length ? `<h4 class="sub-h">Neu</h4><p class="sm">${v.neu.map((n) => esc(typeof n === 'string' ? n : n.name || n.text || n.code || n.id)).join(', ')}</p>` : ''}
       ${(v.geaendert || []).length ? `<h4 class="sub-h">Geändert</h4><div class="tbl-wrap imp-hoch"><table class="tbl" id="st-imp-geaendert"><thead><tr><th>Code</th><th>Feld</th><th>bisher</th><th>neu</th></tr></thead><tbody>${v.geaendert.map((g) => Object.entries(g.felder || {}).map(([k, w]) => `<tr><td>${esc(g.code)}</td><td>${esc(feldName(k))}</td><td>${wert(k, w.alt)}</td><td><b>${wert(k, w.neu)}</b></td></tr>`).join('')).join('')}</tbody></table></div>` : ''}
+      ${(v.neu || []).length && (v.fehlend || []).length ? `<div id="st-imp-code-hinweis">${banner('info', 'Neue und fehlende Einträge zugleich? Ein in Excel geänderter Code wird als neuer Eintrag angelegt, der alte bleibt bestehen. Codes bitte im Programm umbenennen, nicht in Excel.')}</div>` : ''}
       ${(v.fehlend || []).length ? `<p class="muted sm" id="st-imp-fehlend">Nicht in der Datei: ${v.fehlend.map(esc).join(', ')}. Diese Einträge bleiben unverändert bestehen – beim Hochladen wird nie etwas gelöscht.</p>` : ''}
       ${etwas && mitPreis ? `<div class="form-grid"><label class="field"><span class="field-label">Neue Preise gültig ab</span><input class="input lg" type="date" id="st-imp-ab" value="${heute}"></label><p class="muted sm" id="st-imp-rueck" hidden>Rückwirkend: Bereits erfasste Berichte ab diesem Tag werden mit den neuen Preisen neu bewertet.</p></div>` : ''}</div>`,
       fuss: `<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="button" id="st-imp-ok" ${etwas ? '' : 'disabled'}>Übernehmen</button>` });

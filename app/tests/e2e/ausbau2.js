@@ -232,6 +232,47 @@ async function stammdatenUndLebenslauf(h, z) {
   pruef(await page.locator('[data-imp-neu="0"]').count() === 1 && await page.locator('[data-imp-geaendert="0"]').count() === 1 && await page.locator('#st-imp-ok').isDisabled(), 'A2-Stamm: unveränderte Excel-Datei zeigt Änderungen an');
   await dialogUeberlauf('stammdaten import'); await shot('stammdaten-import');
   await page.click('dialog[open] [data-zu]');
+  // 12.21: Code eines verwendeten Materials umbenennen – Vorschau nennt die Verweise, die Nachkalkulation bleibt gleich; doppelter Code → Feldfehler
+  const posVor = (await api('GET', `/baustellen/${w}/positionen`)).json;
+  const flach = (pz) => (pz.gruppen || []).flatMap((gr) => (gr.positionen || []).map((x) => ({ id: x.id, menge: x.menge, summe: x.summe, quelle: x.quelle })));
+  const stammMat = (await api('GET', '/stammdaten/materialien?inaktiv=1')).json;
+  const mitQuelle = flach(posVor).find((x) => x.quelle && x.quelle.art === 'material' && stammMat.some((m) => m.aktiv !== false && m.code === x.quelle.ref));
+  const umb = mitQuelle ? stammMat.find((m) => m.code === mitQuelle.quelle.ref) : stammMat.find((m) => m.aktiv !== false);
+  const codeAlt = umb.code, codeNeu = `${umb.code}-x`.slice(0, 20), codeFremd = stammMat.find((m) => m.id !== umb.id && m.aktiv !== false).code;
+  await page.uncheck('#stamm-inaktiv');
+  await page.click(`#stamm-tabelle tr[data-id="${umb.id}"] [data-edit]`);
+  await page.waitForSelector('dialog[open] #stf');
+  pruef(await page.locator('#stf [name="code"]').isEditable(), 'A2-Code: Code eines verwendeten Materials ist gesperrt');
+  await page.fill('#stf [name="code"]', codeNeu);
+  await page.click('#st-ok');
+  await page.waitForSelector('dialog[open] [data-ok]');
+  const frage = (await page.locator('dialog[open]').last().innerText()).replace(/\s+/g, ' ');
+  pruef(frage.includes(`„${codeAlt}“ → „${codeNeu}“`) && /\d+ Verweise? in der Nachkalkulation/.test(frage) && (!mitQuelle || !/ 0 Verweise/.test(frage)), `A2-Code: Rückfrage vor dem Umbenennen falsch („${frage.slice(0, 160)}“)`);
+  pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id).code === codeAlt, 'A2-Code: schon vor der Bestätigung umbenannt');
+  await dialogUeberlauf('code umbenennen'); await shot('stammdaten-code');
+  await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForFunction(() => !document.querySelector('dialog[open] #stf'));
+  await toastWeg();
+  const posNach = (await api('GET', `/baustellen/${w}/positionen`)).json;
+  pruef(JSON.stringify(flach(posNach).map((x) => [x.id, x.menge, x.summe])) === JSON.stringify(flach(posVor).map((x) => [x.id, x.menge, x.summe])), 'A2-Code: Mengen/Summen der Nachkalkulation ändern sich durch das Umbenennen');
+  pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id).code === codeNeu && (!mitQuelle || flach(posNach).find((x) => x.id === mitQuelle.id).quelle.ref === codeNeu), 'A2-Code: Code oder Verweis der Position nicht mitgezogen');
+  // doppelter Code → Fehler am Feld, nichts geändert
+  await page.click(`#stamm-tabelle tr[data-id="${umb.id}"] [data-edit]`);
+  await page.waitForSelector('dialog[open] #stf');
+  await page.fill('#stf [name="code"]', codeFremd);
+  await h.absichtlich(async () => { await page.click('#st-ok'); await page.waitForSelector('#stf [data-fehler="code"]:not([hidden])'); });
+  pruef(/schon/.test(await page.locator('#stf [data-fehler="code"]').innerText()) && await page.locator('dialog[open] [data-ok]').count() === 0, 'A2-Code: doppelter Code ohne Feldfehler');
+  await page.click('dialog[open] [data-zu]');
+  const umbJetzt = (await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id);
+  pruef((await api('PUT', `/stammdaten/materialien/${umb.id}`, { version: umbJetzt.version, code: codeAlt })).status === 200, 'A2-Code: Zurückbenennen nicht möglich');
+  // Lohngruppen: Code fest, Name änderbar
+  await page.click('[data-tab="lohngruppen"]');
+  await page.waitForSelector('#stamm-tabelle [data-edit]');
+  await page.locator('#stamm-tabelle [data-edit]').first().click();
+  await page.waitForSelector('dialog[open] #stf');
+  pruef(await page.locator('#st-code-fest').count() === 1 && await page.locator('#stf [name="id"], #stf [name="code"]').count() === 0 && /Code fest – Name jederzeit änderbar/.test(await page.locator('#stf').innerText()), 'A2-Code: Lohngruppen-Code ist änderbar oder der Hinweis fehlt');
+  await page.click('dialog[open] [data-zu]');
+  await page.click('[data-tab="materialien"]'); await page.waitForSelector('#stamm-tabelle');
   // alter Bericht zeigt das Material weiter, ein neuer Entwurf nicht mehr
   if (z.berMat) {
     await geh(`/bericht/${z.berMat}`);
