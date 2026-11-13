@@ -296,7 +296,7 @@ Bezug: `app/PRUEFBERICHT_3.md`. Gilt vor den Abschnitten 6–8.
 
 ### Benutzer / Rollen (D-02, D-11)
 - Büro: anlegen nur Rollen `mitarbeiter`/`polier`; Rollenwechsel nur `mitarbeiter` ↔ `polier`. Bauleiter anlegen oder jemanden zum/vom Bauleiter machen: nur GF. Büro darf bestehende Bauleiter weiter bearbeiten (Name, PIN-Reset, Entsperren, aktiv). Jeder Rollenwechsel durch das Büro → Benachrichtigung an die GF (`typ:"sicherheit"`).
-- Erhält jemand eine Rolle mit PIN-Mindestlänge 6 (Bauleiter/Büro/GF) und ist seine PIN kürzer (oder unbekannt), wird `mussPinAendern` gesetzt. Zusätzlich wird bei jeder Anmeldung mit zu kurzer PIN für die Rolle `mussPinAendern` gesetzt.
+- Erhält jemand eine Rolle mit PIN-Mindestlänge 6 (Bauleiter/Büro/GF) und ist seine PIN kürzer (oder unbekannt), wird `mussPinAendern` gesetzt. Zusätzlich wird bei jeder Anmeldung mit zu kurzer PIN für die Rolle `mussPinAendern` gesetzt (nicht im Demo-Modus `BAUTAG_DEMO=1`, damit die Vorführ-PIN 1234 bleibt).
 - Rollenwechsel räumt unpassende Zuordnungen: wer nicht mehr Bauleiter/GF ist, wird als `bauleiterId`, wer nicht mehr Polier ist, als `polierId` aus allen Baustellen entfernt. `PUT /benutzer/:id` liefert dann `zuordnungenEntfernt:[{baustelleId, kst, feld:"bauleiterId"|"polierId"}]`.
 
 ### Bautagesbericht (D-03, D-04, D-05, D-07, D-10)

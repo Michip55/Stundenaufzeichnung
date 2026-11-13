@@ -33,12 +33,13 @@ function createApp(opt = {}) {
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
+  bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
   bt.bremse = new LoginBremse(db, uhr);
 
   // Rechte-Matrix beim ersten Start anlegen
   if (!db.eins('SELECT 1 AS x FROM rolle_recht LIMIT 1')) db.transaktion(() => schreibeStandardMatrix(db));
-  if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: opt.demo !== undefined ? opt.demo : process.env.BAUTAG_DEMO === '1' });
+  if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
 
   bt.warnungen = [];
   const verwalter = require('./rechte').entsperrKonten(db);

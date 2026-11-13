@@ -128,7 +128,7 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
   await t.test('C-14: Büro legt Mitarbeiter/Polier/Bauleiter an, setzt PINs zurück – nicht Büro/GF', async () => {
     const m = await buero2.post('/benutzer', { name: 'Büro Neu MA', rolle: 'mitarbeiter', pin: '4829', baustelleId: BS.kogler });
     assert.equal(m.status, 201);
-    assert.equal((await buero2.post('/benutzer', { name: 'X', rolle: 'bauleiter', pin: '482915' })).status, 201);
+    assert.equal((await buero2.post('/benutzer', { name: 'X', rolle: 'bauleiter', pin: '482915' })).status, 403); // D-02: Bauleiter nur GF
     assert.equal((await buero2.post('/benutzer', { name: 'X', rolle: 'buero', pin: '482915' })).status, 403);
     assert.equal((await buero2.post('/benutzer', { name: 'X', rolle: 'gf', pin: '482915' })).status, 403);
     assert.equal((await buero2.put(`/benutzer/${m.daten.id}`, { pin: '5829' })).status, 200);
@@ -138,7 +138,7 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal((await buero2.put('/benutzer/103', { name: 'Stefan Aigner' })).status, 200);
     assert.equal((await buero2.get('/benutzer')).status, 200);
     assert.equal((await buero2.get('/rechte')).status, 403);
-    assert.equal((await buero2.post(`/benutzer/${U.gf}/entsperren`)).status, 403);
+    assert.equal((await buero2.post(`/benutzer/${U.gf}/entsperren`)).status, 200); // D-01: Büro darf GF entsperren (nur entsperren)
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art IN ('benutzer','rolle') AND benutzer_id = ?", U.buero).n >= 4);
   });
 });
