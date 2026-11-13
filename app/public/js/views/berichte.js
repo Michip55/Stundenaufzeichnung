@@ -1,7 +1,7 @@
 // Bautagesberichte: Liste und Bearbeitung.
 // Handy: Schritt-für-Schritt-Assistent. Tablet/PC: Formular im Aufbau der Papiervorlage.
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$, integAktiv, integVon } from '../ui.js';
 import { stundenAus, personalFehler, bloecke } from '../zahl.js';
 import { bildVerkleinern } from '../schaden-offline.js';
 import { fernKnopf, fernDialog, fernLinksZeigen, fernWiderrufen, diktatHtml, diktatMikro, diktatVorschlag, lieferscheinKnopf, lieferscheinVorschlag, papierKnopf, papierAnhaengen, papierErkennen } from './bericht-assistent.js';
@@ -389,6 +389,7 @@ export async function bericht(el, ctx) {
   }
   async function wetterGrundLaden() {
     if (b.wetter || !bs.id) return;
+    if (!integAktiv(integ, 'wetter')) { wetterGrund = (integVon(integ, 'wetter') || {}).hinweis || 'Der Wetterabruf ist nicht eingerichtet.'; const g0 = $('#wetter-grund', el); if (g0) g0.textContent = wetterGrund; return; }
     try {
       const r = await get(`/baustellen/${bs.id}/wetter?datum=${b.datum}`);
       wetterGrund = r.verfuegbar ? 'Für diesen Tag gibt es Wetterdaten – mit „Wetter abrufen“ in den Bericht übernehmen.' : [r.hinweis, r.grund].filter(Boolean).join(': ');
