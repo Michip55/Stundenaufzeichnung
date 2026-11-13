@@ -3,13 +3,14 @@
 // PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
 import { get, post, put } from '../api.js';
 import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
+import { diensteTab } from './dienste.js';
 
 export default async function benutzer(el, ctx) {
   const voll = ctx.kann('benutzer');
   const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter']; // diese Benutzer pflegt das Büro
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [];
-  let tab = !voll ? 'benutzer' : ['matrix', 'benutzer', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
+  let tab = !voll ? 'benutzer' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
   const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle);
   const istGesperrt = (m) => !!(m.gesperrt || m.kontoGesperrt || m.sperre || m.gesperrtSeit);
   async function lade() {
@@ -55,10 +56,11 @@ export default async function benutzer(el, ctx) {
       <p class="card-note">Das Protokoll ist unveränderbar – Einträge können weder geändert noch gelöscht werden.</p></section>`;
   }
   function zeichne() {
-    const T = voll ? [['matrix', 'Rechte'], ['benutzer', 'Benutzer'], ['protokoll', 'Protokoll']] : [['benutzer', 'Benutzer']];
+    const T = voll ? [['matrix', 'Rechte'], ['benutzer', 'Benutzer'], ['dienste', 'Dienste & Sicherheit'], ['protokoll', 'Protokoll']] : [['benutzer', 'Benutzer']];
     el.innerHTML = `<div class="page">
       <div class="tabs" role="tablist" aria-label="Bereiche">${T.map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}" data-tab="${k}">${t}</button>`).join('')}</div>
-      <div class="stack" role="tabpanel">${tab === 'matrix' ? matrixHtml() : tab === 'benutzer' ? benutzerHtml() : protokollHtml()}</div></div>`;
+      <div class="stack" role="tabpanel" id="b-panel">${tab === 'matrix' ? matrixHtml() : tab === 'benutzer' ? benutzerHtml() : tab === 'dienste' ? '' : protokollHtml()}</div></div>`;
+    if (tab === 'dienste') { const box = document.createElement('div'); $('#b-panel', el).appendChild(box); diensteTab(box, ctx); }
   }
   const neuLaden = async () => { await lade(); if (ctx.aktuell()) zeichne(); };
 

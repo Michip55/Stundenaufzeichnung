@@ -16,6 +16,7 @@ import monat from './views/monat.js';
 import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import hilfe from './views/hilfe.js';
+import push from './views/push.js';
 import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
@@ -94,6 +95,7 @@ const ROUTEN = [
   { muster: /^\/fuhrpark$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: fuhrpark },
   { muster: /^\/fuhrpark\/anlage\/(\d+)$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: anlage },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
+  { muster: /^\/push$/, nav: 'mehr', titel: 'Push-Benachrichtigungen', view: push },
   { muster: /^\/hilfe$/, nav: 'mehr', titel: 'Hilfe & erste Schritte', view: hilfe },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { muster: /^\/korrektur$/, nav: 'monat', titel: 'Zeiten korrigieren', view: korrektur, darf: eines('stammdaten') },

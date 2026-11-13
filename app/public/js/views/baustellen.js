@@ -23,11 +23,24 @@ function stammDialog(ctx, leute, b) {
     <label class="field full"><span class="field-label">Adresse der Baustelle</span><input class="input lg" name="adresse" maxlength="160" value="${esc((b && b.adresse) || '')}"></label>
     <label class="field"><span class="field-label">Polier</span>${wahl('polierId', ['polier'])}</label>
     <label class="field"><span class="field-label">Bauleiter</span>${wahl('bauleiterId', ['bauleiter', 'gf'])}</label>
+    <fieldset class="field full"><legend class="field-label">Lage der Baustelle (für das Wetter)</legend><div class="form-grid">
+      <label class="field"><span class="field-label">Breitengrad (lat)</span><input class="input lg num" name="lat" inputmode="decimal" value="${b && b.lat != null ? String(b.lat).replace('.', ',') : ''}" placeholder="z. B. 47,7333"></label>
+      <label class="field"><span class="field-label">Längengrad (lng)</span><input class="input lg num" name="lng" inputmode="decimal" value="${b && b.lng != null ? String(b.lng).replace('.', ',') : ''}" placeholder="z. B. 16,1500"></label></div>
+      <small class="muted">Dezimalgrad, z. B. aus der Karte am Handy (Punkt lange drücken). Leer = kein automatisches Wetter.</small></fieldset>
+    <label class="field full"><span class="field-label">E-Mail des Auftraggebers (für den Bautagesbericht)</span><input class="input lg" name="agEmail" maxlength="300" value="${esc((b && b.agEmail) || '')}" placeholder="name@auftraggeber.at, weitere mit Komma"></label>
+    <label class="switch-row flat full"><span><b>Unterschriebene Berichte automatisch senden</b><small>Als PDF ohne Preise – nur wenn der E-Mail-Versand eingerichtet ist.</small></span><input type="checkbox" class="vh" name="berichtMail" ${!b || b.berichtMail !== false ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
     <p class="form-err full" role="alert" hidden></p></form>`,
     fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bsf">Speichern</button>' });
   $('#bsf', d.el).addEventListener('submit', async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
     const body = { kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), status: f.get('status'), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
+    // Koordinaten: Dezimalgrad mit Komma oder Punkt; leer = unbekannt
+    const grad = (k) => { const roh = String(f.get(k) || '').trim().replace(',', '.'); return roh === '' ? null : Number(roh); };
+    body.lat = grad('lat'); body.lng = grad('lng');
+    if ((body.lat === null) !== (body.lng === null) || Number.isNaN(body.lat) || Number.isNaN(body.lng) || (body.lat !== null && (body.lat < 45 || body.lat > 50 || body.lng < 8 || body.lng > 18))) {
+      const err = $('.form-err', d.el); err.hidden = false; err.textContent = 'Koordinaten bitte beide eintragen, als Dezimalgrad in Österreich (lat 45–50, lng 8–18) – oder beide leer lassen.'; return;
+    }
+    body.agEmail = String(f.get('agEmail') || '').trim(); body.berichtMail = f.get('berichtMail') === 'on';
     try {
       const neu = b ? await put(`/baustellen/${b.id}`, { ...body, version: b.version }) : await post('/baustellen', body);
       d.zu(); toast('Baustelle gespeichert.');
@@ -78,7 +91,7 @@ export async function baustelle(el, ctx) {
     <div class="two-col">
       <section class="card" aria-labelledby="h-stamm">
         <div class="card-h pad-h"><h3 id="h-stamm">Stammdaten</h3>${darfStamm ? `<button type="button" class="btn ghost sm" data-akt="stamm">${ic('edit')}Bearbeiten</button>` : ''}</div>
-        <dl class="def-list"><div><dt>Kostenstelle</dt><dd>${esc(b.kst || '–')}</dd></div><div><dt>Bauvorhaben</dt><dd>${esc(b.name || '–')}</dd></div><div><dt>Auftraggeber</dt><dd>${esc(b.auftraggeber || '–')}</dd></div><div><dt>Adresse</dt><dd>${esc(b.adresse || '–')}</dd></div><div><dt>Polier</dt><dd>${esc(b.polierName || name(b.polierId))}</dd></div><div><dt>Bauleiter</dt><dd>${esc(b.bauleiterName || name(b.bauleiterId))}</dd></div></dl>
+        <dl class="def-list"><div><dt>Kostenstelle</dt><dd>${esc(b.kst || '–')}</dd></div><div><dt>Bauvorhaben</dt><dd>${esc(b.name || '–')}</dd></div><div><dt>Auftraggeber</dt><dd>${esc(b.auftraggeber || '–')}</dd></div><div><dt>Adresse</dt><dd>${esc(b.adresse || '–')}</dd></div><div><dt>Polier</dt><dd>${esc(b.polierName || name(b.polierId))}</dd></div><div><dt>Bauleiter</dt><dd>${esc(b.bauleiterName || name(b.bauleiterId))}</dd></div><div><dt>Lage (Wetter)</dt><dd data-koordinaten>${b.lat != null && b.lng != null ? `${String(b.lat).replace('.', ',')} / ${String(b.lng).replace('.', ',')}` : 'nicht eingetragen'}</dd></div>${'agEmail' in b ? `<div><dt>Bericht per E-Mail an</dt><dd>${esc(b.agEmail || '–')}${b.agEmail && b.berichtMail === false ? ' (automatischer Versand aus)' : ''}</dd></div>` : ''}</dl>
         <div class="card-actions"><a class="btn ghost sm" href="#/berichte?baustelleId=${id}">${ic('clipboard')}Bautagesberichte</a>${kalk ? `<a class="btn ghost sm" href="#/kalkulation/${id}">${ic('chart')}Nachkalkulation</a>` : ''}</div>
       </section>
       ${zeigAuftrag ? `<section class="card" aria-labelledby="h-auf">

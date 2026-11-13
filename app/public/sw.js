@@ -44,3 +44,22 @@ self.addEventListener('fetch', (e) => {
     }
   })());
 });
+
+/* ---------- Push-Benachrichtigungen (API.md 12.3) ---------- */
+// Der Server schickt nur neutrale Texte ohne Beträge: {title, body, url, tag}
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (x) { d = { title: 'BauTag', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'BauTag', {
+    body: d.body || '', tag: d.tag || undefined, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', lang: 'de-AT', data: { url: d.url || '/' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const ziel = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil((async () => {
+    const fenster = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const f of fenster) { if ('focus' in f) { await f.focus(); if ('navigate' in f) { try { await f.navigate(ziel); } catch (x) { /* andere Herkunft */ } } return; } }
+    if (self.clients.openWindow) await self.clients.openWindow(ziel);
+  })());
+});

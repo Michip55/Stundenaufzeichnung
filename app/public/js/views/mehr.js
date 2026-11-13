@@ -9,10 +9,10 @@ const INTEG_ICON = { diktat: 'mic', scan_lieferschein: 'scan', scan_papier: 'cam
 
 export const integKarte = (integ) => `
   <section class="card" aria-labelledby="integ-h">
-    <div class="card-h pad-h"><h3 id="integ-h">${ic('plug')}Zusatzdienste</h3><span class="chip st-grey">Noch nicht angebunden</span></div>
+    <div class="card-h pad-h"><h3 id="integ-h">${ic('plug')}Zusatzdienste</h3><span class="chip ${integ.some((i) => i.angebunden) ? 'st-green' : 'st-grey'}">${integ.filter((i) => i.angebunden).length} von ${integ.length} angebunden</span></div>
     ${integ.length ? `<ul class="integ-list">${integ.map((i) => `<li class="${i.angebunden ? 'on' : ''}" data-integ="${esc(i.schluessel)}"><span class="integ-ic">${ic(INTEG_ICON[i.schluessel] || 'plug')}</span><span><b>${esc(i.name)}</b><small>${esc(i.hinweis || '')}</small></span><span class="chip xs ${i.angebunden ? 'st-green' : 'st-grey'}">${i.angebunden ? 'Angebunden' : 'Noch nicht angebunden'}</span></li>`).join('')}</ul>`
       : '<div class="state empty small"><p>Liste der Zusatzdienste derzeit nicht abrufbar.</p></div>'}
-    <p class="card-note">Diese Funktionen brauchen einen externen Anbieter. Solange kein Vertrag besteht, bleiben sie ausgeschaltet – es werden keine Ergebnisse vorgetäuscht.</p>
+    <p class="card-note">Funktionen ohne Anbieter bleiben ausgeschaltet und sind als „Noch nicht angebunden“ gekennzeichnet – es werden keine Ergebnisse vorgetäuscht.</p>
   </section>`;
 
 export default async function mehr(el, ctx) {
@@ -31,6 +31,7 @@ export default async function mehr(el, ctx) {
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
       <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
+      <a class="switch-row link" href="#/push" id="push-link"><span><b>Push-Benachrichtigungen</b><small>Auf diesem Gerät einschalten, Kategorien wählen, Test senden.</small></span>${ic('right')}</a>
       <a class="switch-row link" href="#/pin" id="pin-link"><span><b>PIN ändern</b><small>Eigene PIN neu festlegen. Niemand sonst kennt sie.</small></span>${ic('right')}</a>
       <div class="switch-row"><span><b>Offline-Buchungen</b><small id="sync-info">${s.ausstehend ? `${s.ausstehend} Stempelung${s.ausstehend > 1 ? 'en' : ''} warten auf Verbindung.` : 'Alles gesendet.'}</small></span>
         <button type="button" class="btn ghost sm" id="sync-jetzt" ${s.ausstehend ? '' : 'disabled'}>${ic('sync')}Jetzt senden</button></div>
