@@ -336,6 +336,7 @@ export async function bericht(el, ctx) {
         ${editierbar() ? '<span class="save-state neutral" id="save-state" role="status"></span>' : ''}
       </div>
       ${b.status === 'entwurf' && signiert() ? `<div id="gesperrt-hinweis">${banner('info', '<b>Inhalt gesperrt:</b> Es liegt bereits eine Unterschrift vor. Der Bericht kann nicht mehr geändert werden – es fehlt nur noch die zweite Unterschrift.', 'lock')}</div>` : !editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
+      ${b.selbstfreigabe ? `<div id="selbstfreigabe">${banner('warn', '<b>Selbstfreigabe:</b> Dieser Bericht wurde von derselben Person freigegeben, die die Unterschrift des Auftragnehmers erfasst hat (nur der Geschäftsführung möglich, im Protokoll vermerkt).')}</div>` : ''}
       ${b.geaendertNachUnterschrift ? `<div id="nach-unterschrift">${banner('warn', `<b>Achtung – Unterschrift wurde zurückgezogen:</b> ${b.geaendertNachUnterschrift.zeit ? `am ${esc(fmt.zeitpunkt(b.geaendertNachUnterschrift.zeit))} Uhr` : ''}${b.geaendertNachUnterschrift.rolle ? ` (${b.geaendertNachUnterschrift.rolle === 'bh' ? 'Bauherr' : 'Auftragnehmer'})` : ''}${b.geaendertNachUnterschrift.von ? ` durch ${esc(typeof b.geaendertNachUnterschrift.von === 'object' ? b.geaendertNachUnterschrift.von.name || '' : (mitarbeiter.find((m) => m.id === b.geaendertNachUnterschrift.von) || {}).name || b.geaendertNachUnterschrift.von)}` : ''}. Der Inhalt kann danach geändert worden sein – vor der Freigabe bitte genau prüfen. Der Vermerk steht auch im PDF.`)}</div>` : ''}
       <div class="banner err" id="unsaved" role="alert" hidden>${ic('alert')}<span></span></div>
       ${b.status !== 'entwurf' ? banner(b.status === 'freigegeben' ? 'ok' : 'info', b.status === 'freigegeben' ? 'Dieser Bericht ist freigegeben und abgeschlossen.' : 'Dieser Bericht ist unterschrieben und kann nicht mehr geändert werden.', b.status === 'freigegeben' ? 'check' : 'lock') : ''}
@@ -546,7 +547,7 @@ export async function bericht(el, ctx) {
     if (!(await bestaetigen('Bericht freigeben?', 'Der Bericht fließt damit in Nachkalkulation und Monatsauswertung ein.', 'Freigeben'))) return;
     try {
       const r = await post(`/berichte/${id}/freigeben`);
-      b.status = (r && r.status) || 'freigegeben'; if (r && r.version != null) b.version = r.version;
+      b.status = (r && r.status) || 'freigegeben'; if (r && r.version != null) b.version = r.version; if (r) b.selbstfreigabe = r.selbstfreigabe;
       toast('Bericht freigegeben.'); zeichne(); ctx.meldungenNeu();
     } catch (e) {
       if (e.status === 403) dialog({ titel: 'Freigabe nicht möglich', inhalt: `<p data-freigabe-abgelehnt>${esc(e.message)}</p><p class="muted sm">Vier-Augen-Prinzip: Wer die Unterschrift des Auftragnehmers erfasst hat, gibt den Bericht nicht selbst frei.</p>`, fuss: '<button class="btn primary" type="button" data-zu>Verstanden</button>' });

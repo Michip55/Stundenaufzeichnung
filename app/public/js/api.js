@@ -31,6 +31,8 @@ export async function api(methode, pfad, body) {
   if (!antwort.ok) {
     // 503 vom Service Worker = offline
     if (antwort.status === 503 && daten && daten.code === 'OFFLINE') throw new NetzFehler();
+    const warten = Number(antwort.headers.get('retry-after'));
+    if (warten > 0) daten = { ...(daten || {}), retryAfter: warten }; // Sperrdauer (429/423) für die Anzeige „läuft ab um …“
     const fehler = new ApiFehler(antwort.status, daten);
     if (antwort.status === 403 && fehler.code === 'PIN_AENDERN') window.dispatchEvent(new CustomEvent('bt:pin'));
     if (antwort.status === 401 && !pfad.startsWith('/auth/')) {

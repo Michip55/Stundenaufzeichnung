@@ -258,6 +258,7 @@ async function laufe(browser, g) {
     pruef(ber.status === 'entwurf', `Neuer Bericht hat Status ${ber.status}`);
     pruef(ber.personal.length >= gebucht, `Bericht: Personal nicht automatisch übernommen (${ber.personal.length} statt mind. ${gebucht})`);
     pruef(!('kostenTag' in ber), 'Polier: Bericht enthält kostenTag');
+    let sigNr = 0;
     const schritt = async (n) => { if (g.mobil) { await page.click(`[data-schritt-nr="${n}"]`); await sleep(80); } };
     const gespeichert = async () => { await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }); };
     pruef(await page.locator('.bp-row').count() === ber.personal.length, 'Bericht: Personalzeilen stimmen nicht mit dem Server überein');
@@ -400,7 +401,6 @@ async function laufe(browser, g) {
     pruef(ber.regie.length === 1 && ber.regie[0].stunden === 2, 'Bericht: Regie nicht gespeichert');
     // Unterschriften
     await schritt(6);
-    let sigNr = 0;
     const unterschreibe = async (rolle, name) => {
       const box = page.locator(`.sig-box[data-sig="${rolle}"]`);
       const cv = box.locator('canvas');
@@ -417,7 +417,27 @@ async function laufe(browser, g) {
     };
     pruef(await page.locator('[data-integ="sms"] button[disabled]').count() === 1, 'Bericht: SMS-Fernunterschrift ist nicht als deaktiviert gekennzeichnet');
     await ueberlauf('bericht schritt 6'); await shot('bericht-6-unterschrift-leer');
+    // D-07: unterschrieben wird nur der aktuelle Stand – veraltete Version → Hinweis und Neu-Laden
+    const zeichneNur = async (rolle) => {
+      const cv = page.locator(`.sig-box[data-sig="${rolle}"] canvas`);
+      await cv.evaluate((e) => e.scrollIntoView({ block: 'center' })); await sleep(80);
+      const r = await cv.boundingBox(); sigNr++;
+      await page.mouse.move(r.x + 25, r.y + 30 + sigNr * 3); await page.mouse.down(); await page.mouse.move(r.x + 140, r.y + 80, { steps: 5 }); await page.mouse.up();
+    };
+    akt = await verBer();
+    await api('PUT', `/berichte/${berichtId}`, { version: akt.version, vorkommnisse: 'Keine. (vom Büro ergänzt)' });
+    await zeichneNur('an');
+    await absichtlich(async () => { await page.locator('.sig-box[data-sig="an"] [data-sig-save]').click(); await page.waitForSelector('dialog[open] [data-sig-konflikt="version"]'); });
+    pruef(!(await verBer()).unterschriften.an, 'D-07: Unterschrift auf veraltetem Stand wurde angenommen');
+    await shot('unterschrift-veraltet');
+    await page.click('dialog[open] [data-zu]');
+    await bereit(); await page.waitForSelector('.bform'); await schritt(6);
+    pruef((await page.locator('[data-f="vorkommnisse"]').inputValue()).includes('vom Büro ergänzt'), 'D-07: nach „Neu laden“ fehlt der aktuelle Stand');
     await unterschreibe('an');
+    // D-05: eine vorhandene Unterschrift wird nie überschrieben
+    const png = await page.evaluate((n) => { const c = document.createElement('canvas'); c.width = 200; c.height = 80; const x = c.getContext('2d'); x.strokeStyle = '#123'; x.lineWidth = 2; x.beginPath(); x.moveTo(5, 10 + n); x.lineTo(190, 60 - n); x.lineTo(40, 70); x.stroke(); return c.toDataURL('image/png'); }, 7);
+    const d05 = await absichtlich(async () => api('POST', `/berichte/${berichtId}/unterschrift`, { rolle: 'an', name: 'Jemand anders', bildPng: png, version: (await verBer()).version }));
+    pruef(d05.status === 409 && (await verBer()).unterschriften.an.name === NAME.polier, `D-05: vorhandene Unterschrift wurde überschrieben (Status ${d05.status})`);
     await shot('bericht-6-unterschrift-an');
     // M-02: nach der ersten Unterschrift ist der Inhalt gesperrt – mit klarem Hinweis
     pruef(await page.locator('#gesperrt-hinweis').count() === 1, 'M-02: Hinweis „Inhalt gesperrt“ fehlt nach der ersten Unterschrift');
@@ -458,6 +478,7 @@ async function laufe(browser, g) {
     const belegt = (await api('GET', `/abwesenheiten?von=${heuteWien}&bis=${heuteWien}`)).json.map((a) => String(a.benutzerId));
     const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => !belegt.includes(v));
     pruef(freieIds.length >= 1, 'B-07: in der Partie ist heute niemand ohne Abwesenheit (Testdaten)');
+    pruef(await page.locator(`dialog[open] input[name="wer"][value="${ich.benutzer.id}"]`).count() === 1, 'D-09: Polier kann Schlechtwetter nicht für sich selbst melden');
     await page.locator(`dialog[open] input[name="wer"][value="${freieIds[0]}"]`).check();
     await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
     await page.click('dialog[open] button[type="submit"]');
@@ -751,7 +772,8 @@ async function laufe(browser, g) {
     pruef(await page.locator('[data-tab="matrix"], [data-tab="protokoll"], #matrix').count() === 0, 'C-14: Büro sieht Rechte-Matrix oder Protokoll');
     pruef(await page.locator(`#benutzerliste li:has-text("${NAME.gf}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.mitarbeiter}") [data-bearb]`).count() === 1, 'C-14: Büro kann GF bearbeiten oder Mitarbeiter nicht');
     await page.click('[data-akt="neu"]');
-    pruef((await page.locator('dialog[open] select[name="rolle"] option').evaluateAll((l) => l.map((o) => o.value))).join(',') === 'mitarbeiter,polier,bauleiter', 'C-14: Büro kann Rollen Büro/GF vergeben');
+    pruef((await page.locator('dialog[open] select[name="rolle"] option').evaluateAll((l) => l.map((o) => o.value))).join(',') === 'mitarbeiter,polier', 'D-02: Büro kann andere Rollen als Mitarbeiter/Polier vergeben');
+    pruef((await page.locator('dialog[open] #rolle-hinweis').innerText()).includes('Geschäftsführung'), 'D-02: Hinweis zur Rollenvergabe/GF-Benachrichtigung fehlt');
     await page.fill('dialog[open] input[name="name"]', 'Neu Vom Buero');
     await page.fill('dialog[open] input[name="pin"]', '5913');
     await ueberlauf('dialog benutzer büro'); await shot('buero-benutzer-dialog');
@@ -759,6 +781,16 @@ async function laufe(browser, g) {
     await page.waitForSelector('#benutzerliste li:has-text("Neu Vom Buero")');
     const neuB = (await api('GET', '/benutzer')).json.find((m) => m.name === 'Neu Vom Buero');
     pruef(neuB && neuB.rolle === 'mitarbeiter' && !!neuB.pnr, `C-14: vom Büro angelegter Benutzer fehlt oder ohne Personalnummer (${JSON.stringify(neuB)})`);
+    const d02 = await absichtlich(() => api('PUT', `/benutzer/${neuB.id}`, { rolle: 'bauleiter' }));
+    pruef(d02.status === 403 || d02.status === 400, `D-02: Büro kann jemanden zum Bauleiter machen (Status ${d02.status})`);
+    // D-08: genehmigte Abwesenheit und Arbeitsstunden am selben Tag → Warnung in der Monatsauswertung
+    const gestern = new Date(Date.now() - 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const d08a = await api('POST', '/abwesenheiten', { benutzerId: neuB.id, datum: gestern, code: 'K' });
+    const d08b = await api('POST', '/zeit/schichten', { benutzerId: neuB.id, baustelleId: bsId, datum: gestern, von: '07:00', bis: '09:00', pauseMin: 0, grund: 'E2E D-08' });
+    pruef(d08a.status < 300 && d08b.status < 300, `D-08: Vorbereitung fehlgeschlagen (${d08a.status}/${d08b.status}: ${JSON.stringify(d08b.json).slice(0, 120)})`);
+    await geh(`/monat?monat=${gestern.slice(0, 7)}`, 'monat-abwesenheit-mit-stunden');
+    pruef(await page.locator('li[data-warn-typ="abwesenheit_mit_stunden"]').count() >= 1 && await page.locator('.matrix .mit-std').count() >= 1, 'D-08: Warnung „Abwesenheit mit Stunden“ fehlt in der Monatsauswertung');
+    await geh('/benutzer');
     const c14 = await absichtlich(() => api('GET', '/rechte'));
     pruef(c14.status === 403, `C-14: Büro darf die Rechte-Matrix lesen (Status ${c14.status})`);
     await toastWeg();
@@ -779,6 +811,7 @@ async function laufe(browser, g) {
     await seite2.waitForSelector('.pin-msg.err');
     const sperrText = await seite2.locator('.pin-msg.err').innerText();
     pruef(/Büro/.test(sperrText) && /gesperrt/i.test(sperrText), `C-07: Anmeldeseite zeigt keine klare Sperr-Meldung („${sperrText}“)`);
+    pruef(/läuft ab/.test(sperrText), `D-01: Sperrmeldung nennt kein Ende der Sperre („${sperrText}“)`);
     if (SHOTS) await seite2.screenshot({ path: path.join(SHOTS, `${g.name}-login-gesperrt.png`) });
     await ctxNeu.close();
     await page.reload(); await bereit();
@@ -788,6 +821,23 @@ async function laufe(browser, g) {
     await page.waitForFunction((id) => !document.querySelector(`#gesperrte li[data-benutzer="${id}"]`), opfer.id);
     const nachEntsperren = await versuch(PIN, '10.78.0.1');
     pruef(nachEntsperren === 200, `C-07: Anmeldung nach „Entsperren“ nicht möglich (Status ${nachEntsperren})`);
+    // D-01: auch die Geschäftsführung lässt sich aussperren – das Büro hebt die Sperre auf (ohne PIN-Reset)
+    const gfKonto = (await api('GET', '/benutzer')).json.find((m) => m.name === NAME.gf);
+    const gfVersuch = (pin, ip) => fetch(srv.url + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify({ benutzerId: gfKonto.id, pin }) }).then((r) => r.status);
+    for (let i = 0; i < 24; i++) await gfVersuch('9' + String(100000 + i).slice(1), `10.8.${Math.floor(i / 3)}.7`);
+    pruef(await gfVersuch(PIN, '10.79.0.1') === 423, 'D-01: Test-Vorbedingung – GF-Konto sollte gesperrt sein');
+    await page.reload(); await bereit();
+    const gfZeile = page.locator(`#gesperrte li[data-benutzer="${gfKonto.id}"]`);
+    await gfZeile.waitFor();
+    pruef(await gfZeile.locator('[data-bearb]').count() === 0 && (await gfZeile.locator('[data-entsperren]').innerText()).includes('Anmeldesperre aufheben'), 'D-01: Büro sieht für die GF nicht genau „Anmeldesperre aufheben“');
+    pruef(/bis/.test(await gfZeile.locator('.chip.st-red').innerText()), 'D-01: Ende der Sperre wird in der Benutzerverwaltung nicht angezeigt');
+    await ueberlauf('benutzer gf gesperrt'); await shot('benutzer-gf-gesperrt');
+    await gfZeile.locator('[data-entsperren]').click();
+    await page.waitForFunction((id) => !document.querySelector(`#gesperrte li[data-benutzer="${id}"]`), gfKonto.id);
+    pruef(await gfVersuch(PIN, '10.80.0.1') === 200, 'D-01: GF kann sich nach dem Entsperren durch das Büro nicht anmelden');
+    const d01 = await absichtlich(() => api('PUT', `/benutzer/${gfKonto.id}`, { pin: '739154' }));
+    pruef(d01.status === 403, `D-01: Büro kann die PIN der GF zurücksetzen (Status ${d01.status})`);
+    await toastWeg();
     await toastWeg();
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
     await abmelden();
@@ -809,7 +859,41 @@ async function laufe(browser, g) {
       await geh(`/baustelle/${fremdeBs.id}`, 'baustelle-fremd');
       pruef(await page.locator('#auftrag').count() === 0 && !(await text()).includes('Budget-Alarm'), 'N-07: Auftragsformular bei fremder Baustelle sichtbar');
     } else pruef(false, 'N-07: keine fremde Baustelle für den Bauleiter in den Testdaten');
-    await geh('/abwesenheiten');
+    // D-09: Bauleiter bestätigt Schlechtwetter-Meldungen für die Leute seiner Baustellen
+    await geh('/abwesenheiten', 'bauleiter-abwesenheiten');
+    const swKnopf = page.locator('#abw-offen li:has(.c-SW) [data-entscheid="genehmigt"]').first();
+    pruef(await swKnopf.count() === 1, 'D-09: Bauleiter sieht keine Schlechtwetter-Meldung zur Bestätigung');
+    const swId = await swKnopf.getAttribute('data-id');
+    await swKnopf.click();
+    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), swId);
+    pruef((await api('GET', '/abwesenheiten')).json.find((a) => String(a.id) === swId).status === 'genehmigt', 'D-09: Bestätigung des Bauleiters nicht am Server');
+    await toastWeg();
+    // D-10: wer die Unterschrift des Auftragnehmers erfasst hat, gibt nicht selbst frei – Meldung des Servers wird gezeigt
+    // ein Tag ohne Bericht (Sonntage vor einigen Wochen)
+    let b10 = null;
+    for (let w = 5; w <= 12 && !b10; w++) {
+      const t = new Date(Date.now() - w * 7 * 86400e3); t.setUTCDate(t.getUTCDate() - t.getUTCDay());
+      const r = await absichtlich(() => api('POST', '/berichte', { baustelleId: bsId, datum: t.toISOString().slice(0, 10) }));
+      if (r.status === 201) b10 = r.json;
+    }
+    pruef(!!b10, 'D-10: kein freier Tag für einen Testbericht gefunden');
+    const id10 = b10.id;
+    b10 = (await api('GET', `/berichte/${id10}`)).json;
+    if (b10.status === 'entwurf') {
+      const bild = (n) => page.evaluate((k) => { const c = document.createElement('canvas'); c.width = 220; c.height = 90; const x = c.getContext('2d'); x.strokeStyle = '#17307a'; x.lineWidth = 2; x.beginPath(); x.moveTo(8, 20 + k * 7); x.bezierCurveTo(60, 5 + k * 11, 120, 85 - k * 9, 210, 30 + k * 5); x.stroke(); return c.toDataURL('image/png'); }, n);
+      for (const [rolle, n] of [['an', 3], ['bh', 5]]) {
+        if (b10.unterschriften[rolle]) continue;
+        const r = await api('POST', `/berichte/${id10}/unterschrift`, { rolle, name: rolle === 'an' ? NAME.bauleiter : 'DI Bauherr', bildPng: await bild(n + g.width % 7), version: b10.version });
+        pruef(r.status === 200, `D-10: Vorbereitung Unterschrift ${rolle} fehlgeschlagen (${r.status} ${JSON.stringify(r.json).slice(0, 100)})`);
+        b10 = (await api('GET', `/berichte/${id10}`)).json;
+      }
+    }
+    await geh(`/bericht/${id10}`, 'bericht-vier-augen');
+    await page.click('#freigeben');
+    await absichtlich(async () => { await page.click('dialog[open] [data-ok]'); await page.waitForSelector('dialog[open] [data-freigabe-abgelehnt]'); });
+    pruef((await page.locator('dialog[open] [data-freigabe-abgelehnt]').innerText()).length > 10 && (await api('GET', `/berichte/${id10}`)).json.status === 'unterschrieben', 'D-10: Selbstfreigabe durch den Bauleiter möglich oder ohne Erklärung abgelehnt');
+    await ueberlauf('freigabe abgelehnt'); await shot('freigabe-abgelehnt');
+    await page.click('dialog[open] [data-zu]');
     await abmelden();
 
     /* ============ 5. Polier: bekommt keinen Budget-Alarm ============ */
@@ -871,6 +955,20 @@ async function laufe(browser, g) {
     await page.click('dialog[open] button[type="submit"]');
     await page.waitForSelector('#benutzerliste li:has-text("Test Probe")');
     await page.click('[data-tab="matrix"]');
+    await toastWeg();
+    // D-11: Rollenwechsel löst unpassende Baustellen-Zuordnungen – das wird angezeigt
+    const alleBs = (await api('GET', '/baustellen')).json;
+    const polierWeg = (await api('GET', '/benutzer')).json.find((m) => m.rolle === 'polier' && m.name !== NAME.polier && alleBs.some((x) => x.polierId === m.id));
+    pruef(!!polierWeg, 'D-11: kein zweiter Polier mit Baustelle in den Testdaten');
+    await page.click('[data-tab="benutzer"]'); await page.waitForSelector('#benutzerliste li');
+    await page.click(`#benutzerliste li[data-benutzer="${polierWeg.id}"] [data-bearb]`);
+    await page.selectOption('dialog[open] select[name="rolle"]', 'mitarbeiter');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('dialog[open] #folgen [data-geloest] li');
+    pruef((await page.locator('dialog[open] #folgen').innerText()).includes('Polier') && !(await api('GET', '/baustellen')).json.some((x) => x.polierId === polierWeg.id), 'D-11: gelöste Zuordnung nicht angezeigt oder nicht gelöst');
+    await ueberlauf('dialog zuordnungen'); await shot('zuordnungen-geloest');
+    await page.click('dialog[open] [data-zu]');
+    await page.click('[data-tab="matrix"]'); await page.waitForSelector('#matrix');
     await toastWeg();
     pruef(await page.locator('#matrix td[data-rolle="polier"][data-recht="benutzer"][data-gesperrt]').count() === 1 && await page.locator('#matrix td[data-rolle="buero"][data-recht="benutzer"][data-gesperrt]').count() === 1, 'B-01: Recht „benutzer“ ist in der Matrix nicht für alle außer GF gesperrt');
     for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
@@ -996,6 +1094,8 @@ async function laufe(browser, g) {
     try {
       await absichtlich(async () => { await page.goto(srv2.url + '/#/login'); await page.waitForSelector('#pnr'); });
       pruef(await page.locator('.login-user').count() === 0, 'B-03: Namensliste trotz Abschaltung sichtbar');
+      const d12 = await fetch(srv2.url + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benutzerId: 2, pin: PIN }) });
+      pruef(d12.status === 400, `D-12: Anmeldung mit benutzerId trotz abgeschalteter Liste möglich (Status ${d12.status})`);
       await ueberlauf('login personalnummer'); await shot('login-personalnummer');
       await page.fill('#pnr', '1002');
       await page.click('#pnr-form button[type="submit"]');

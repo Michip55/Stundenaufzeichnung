@@ -42,10 +42,10 @@ export default async function benutzer(el, ctx) {
   function benutzerHtml() {
     const gesperrte = leute.filter(istGesperrt);
     const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
-      ${istGesperrt(m) ? `<span class="chip st-red">${ic('lock')}Gesperrt</span><button type="button" class="btn primary sm" data-entsperren="${m.id}">${darfBearbeiten(m) ? 'Entsperren' : 'Anmeldesperre aufheben'}</button>` : ''}
+      ${istGesperrt(m) ? `<span class="chip st-red" title="${m.gesperrtBis ? 'läuft ab am ' + esc(fmt.zeitpunkt(m.gesperrtBis)) + ' Uhr' : ''}">${ic('lock')}Gesperrt${m.gesperrtBis ? ` bis ${esc(fmt.zeitpunkt(m.gesperrtBis).slice(0, 6))} ${esc(fmt.uhr(m.gesperrtBis))}` : ''}</span><button type="button" class="btn primary sm" data-entsperren="${m.id}">${darfBearbeiten(m) ? 'Entsperren' : 'Anmeldesperre aufheben'}</button>` : ''}
       ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : '<span class="muted sm nw">Bearbeiten nur durch GF</span>'}</li>`;
     return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter, Poliere und Bauleiter an, setzen PINs zurück und entsperren Konten. Rollen Büro/Geschäftsführung und die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
-      ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto gesperrt. „Entsperren“ hebt die Sperre auf; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben.</p></section>` : ''}
+      ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto befristet gesperrt (24 Std., dann länger). „Entsperren“ hebt die Sperre sofort auf – das Büro auch für Konten von Büro und Geschäftsführung; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben.</p></section>` : ''}
       <div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
       <section class="card">${leute.length ? `<ul class="plain rows" id="benutzerliste">${leute.map(zeile).join('')}</ul>` : leer('Keine Benutzer.', 'users')}</section>`;
   }
@@ -104,7 +104,7 @@ export default async function benutzer(el, ctx) {
   // D-11: Nach einem Rollenwechsel meldet der Server gelöste Baustellen-Zuordnungen; D-02: Hinweis auf die Meldung an die GF
   function zeigeFolgen(a) {
     if (!a || typeof a !== 'object') return;
-    const roh = a.geloesteZuordnungen || a.zuordnungenGeloest || a.geloest || a.entfernteZuordnungen || [];
+    const roh = a.zuordnungenEntfernt || [];
     const liste = Array.isArray(roh) ? roh : [];
     const hinweis = a.hinweis || (a.gfBenachrichtigt ? 'Die Geschäftsführung wurde benachrichtigt.' : '');
     if (!liste.length && !hinweis) return;
