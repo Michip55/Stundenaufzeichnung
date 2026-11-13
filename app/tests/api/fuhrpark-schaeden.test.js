@@ -98,7 +98,7 @@ test('Schäden mit Fotos', async (t) => {
     assert.equal(g.headers.get('content-type'), 'image/jpeg');
     assert.equal(g.headers.get('x-content-type-options'), 'nosniff');
     assert.equal(g.headers.get('content-disposition'), `inline; filename="schaden-${schaden.id}-${fotos[0].id}.jpg"`);
-    assert.match(g.headers.get('cache-control'), /private/);
+    assert.equal(g.headers.get('cache-control'), 'no-store');
     const bytes = Buffer.from(await (await fetch(`${s.basis}/api/fuhrpark/schaeden/${schaden.id}/fotos/${fotos[0].id}`, { headers: { cookie: ma.cookie } })).arrayBuffer());
     assert.equal(bytes[0], 0xff);
     assert.ok(!bytes.includes(Buffer.from('<script')) && !bytes.includes(Buffer.from('GPS')));
