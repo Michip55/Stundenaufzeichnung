@@ -2,7 +2,8 @@
 // Geschäftsführung: alles. Büro (Prüfbericht 2, C-14): nur Benutzer der Rollen Mitarbeiter/Polier/Bauleiter anlegen,
 // PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { wienHeute } from '../zahl.js';
 import { diensteTab } from './dienste.js';
 
 export default async function benutzer(el, ctx) {
@@ -72,6 +73,7 @@ export default async function benutzer(el, ctx) {
       <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle" ${!voll && m && m.rolle === 'bauleiter' ? 'disabled' : ''} aria-describedby="rolle-hinweis">${rollen(m).map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (mit Einsicht in Preise der eigenen Baustellen) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
       <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
+      ${m && lohngruppen.length ? `<div class="field" id="lg-ab-box" hidden><label><span class="field-label">Neue Lohngruppe gültig ab</span><input class="input lg" type="date" name="lohngruppeGueltigAb" id="lg-ab" value="${wienHeute()}" min="2000-01-01"></label><small class="price-err" id="lg-rueck" hidden>Ändert die Kosten bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}
       <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label>
       <label class="field"><span class="field-label">Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc((m && m.telefon) || '')}" placeholder="+43 664 …"></label></div>
       <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
@@ -94,15 +96,44 @@ export default async function benutzer(el, ctx) {
       try { await post(`/benutzer/${m.id}/entsperren`); toast('Konto entsperrt – Anmeldung ist wieder möglich.'); lade(); }
       catch (x) { toast(x.message, 'warn'); entB.disabled = false; }
     });
+    const lgWahl = $('#bf [name="lohngruppe"]', d.el);
+    const lgAlt = lgWahl ? lgWahl.value : '';
+    const lgBox = $('#lg-ab-box', d.el);
+    if (lgBox) {
+      const zeig = () => { lgBox.hidden = lgWahl.value === lgAlt; $('#lg-rueck', d.el).hidden = !($('#lg-ab', d.el).value && $('#lg-ab', d.el).value < wienHeute()); };
+      lgWahl.addEventListener('change', zeig); $('#lg-ab', d.el).addEventListener('input', zeig);
+      // Verlauf (vertraulich – nur wer die Lohngruppe sieht)
+      const verlaufZeigen = (liste) => {
+        let box = $('#lg-verlauf', d.el);
+        if (!box) { box = document.createElement('div'); box.id = 'lg-verlauf'; box.className = 'stack-s'; $('#bf', d.el).appendChild(box); }
+        box.innerHTML = `<h4 class="sub-h">Lohngruppen-Verlauf <span class="count">${liste.length}</span></h4><ul class="plain rows">${liste.slice().reverse().map((v) => `<li data-lg-stand="${v.id ?? ''}" class="${v.kuenftig ? 'geplant' : ''}"><span class="grow"><b>${esc(v.name || (v.lohngruppeId ? v.lohngruppeId : 'keine Lohngruppe'))}</b><small>${v.gueltigAb <= '2000-01-01' ? 'von Anfang an' : 'ab ' + esc(fmt.datum(v.gueltigAb))}${v.erstelltVon ? ' · ' + esc(v.erstelltVon.name) : ''}</small></span>${v.aktuell ? '<span class="chip xs st-green">gilt jetzt</span>' : v.kuenftig ? '<span class="chip xs st-blue">künftig</span>' : ''}${v.kuenftig && v.id != null ? `<button type="button" class="btn ghost sm" data-lg-weg="${v.id}">Zurücknehmen</button>` : ''}</li>`).join('')}</ul>`;
+      };
+      get(`/benutzer/${m.id}/lohngruppen-verlauf`).then(verlaufZeigen).catch(() => {});
+      d.el.addEventListener('click', async (ev) => {
+        const w = ev.target.closest('[data-lg-weg]'); if (!w) return;
+        if (!(await bestaetigen('Künftige Lohngruppe zurücknehmen?', 'Der geplante Wechsel wird gelöscht; die bisherige Lohngruppe gilt weiter.', 'Zurücknehmen', 'danger'))) return;
+        try { const r = await del(`/benutzer/${m.id}/lohngruppen-verlauf/${w.dataset.lgWeg}`); verlaufZeigen(r.lohngruppeVerlauf || []); toast('Geplanter Wechsel zurückgenommen.'); } catch (x) { toast(x.message, 'warn'); }
+      });
+    }
     $('#bf', d.el).addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      const body = { name: f.get('name').trim(), rolle: f.get('rolle') || (m && m.rolle), lohngruppe: f.get('lohngruppe') || null, baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null, telefon: String(f.get('telefon') || '').trim() };
+      const lgNeu = f.get('lohngruppe') || null;
+      const lgGeaendert = !m || (lgNeu || '') !== (lgAlt || '');
+      const body = { name: f.get('name').trim(), rolle: f.get('rolle') || (m && m.rolle), ...(lgGeaendert ? { lohngruppe: lgNeu } : {}), baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null, telefon: String(f.get('telefon') || '').trim() };
       if (f.get('pnr')) body.pnr = Number(f.get('pnr'));
       if (m && m.id === ctx.ich.benutzer.id) { delete body.rolle; } // eigene Rolle ändert niemand selbst
       if (f.get('pin')) body.pin = f.get('pin');
       if (m && m.id !== ctx.ich.benutzer.id) body.aktiv = f.get('aktiv') === 'on';
       if (m && body.rolle === m.rolle) delete body.rolle;
+      // 12.22: Lohngruppe gilt ab einem Stichtag; ein Datum in der Vergangenheit ändert schon gerechnete Tage → ausdrücklich bestätigen
+      if (m && lgGeaendert && f.get('lohngruppeGueltigAb')) {
+        body.lohngruppeGueltigAb = f.get('lohngruppeGueltigAb');
+        if (body.lohngruppeGueltigAb < wienHeute()) {
+          if (!(await bestaetigen('Lohngruppe rückwirkend ändern?', `Ändert die Kosten bereits erfasster Tage ab diesem Datum (${fmt.datum(body.lohngruppeGueltigAb)}): Nachkalkulation, interne Kosten und Lohn-Auswertung werden neu gerechnet. Das wird protokolliert.`, 'Ja, rückwirkend ändern', 'danger'))) return;
+          body.lohngruppeRueckwirkend = true;
+        }
+      }
       try {
         const antwort = m ? await put(`/benutzer/${m.id}`, body) : await post('/benutzer', body);
         d.zu(); toast(m ? 'Benutzer gespeichert.' : 'Benutzer angelegt.'); neuLaden();

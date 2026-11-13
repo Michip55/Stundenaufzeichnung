@@ -66,6 +66,34 @@ async function stammdatenUndLebenslauf(h, z) {
   pruef(Math.abs((await api('GET', '/preise')).json.materialien.find((m) => m.id === mat.id).vk - 15.5) < 0.001, 'A2-Stamm: geplanter Preis gilt schon heute');
   await toastWeg();
 
+  // 12.22 Lohngruppe stichtaggenau: Wechsel mit „gültig ab“ (künftig) erscheint im Verlauf und lässt sich zurücknehmen
+  const lgPerson = (await api('GET', '/mitarbeiter')).json.filter((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false).pop();
+  await geh('/benutzer');
+  await page.locator(`[data-bearb="${lgPerson.id}"]`).first().click();
+  await page.waitForSelector('dialog[open] #bf');
+  await page.waitForSelector('#lg-verlauf li');
+  pruef(await page.locator('#lg-ab-box').isHidden(), 'A2-Lohn: „gültig ab“ erscheint, obwohl die Lohngruppe nicht geändert wurde');
+  const lgAlt = await page.locator('#bf [name="lohngruppe"]').inputValue();
+  const lgNeu = (await page.locator('#bf [name="lohngruppe"] option').evaluateAll((o) => o.map((x) => x.value))).find((v) => v && v !== lgAlt);
+  await page.selectOption('#bf [name="lohngruppe"]', lgNeu);
+  pruef(await page.locator('#lg-ab').inputValue() === heute, 'A2-Lohn: „gültig ab“ nicht mit heute vorbelegt');
+  await page.fill('#lg-ab', plusTage(heute, -10));
+  pruef(await page.locator('#lg-rueck').isVisible(), 'A2-Lohn: Warnung bei Datum in der Vergangenheit fehlt');
+  await page.fill('#lg-ab', plusTage(heute, 20));
+  await dialogUeberlauf('benutzer lohngruppe'); await shot('lohngruppe-gueltig-ab');
+  await page.click('dialog[open] button[type="submit"]');
+  await page.waitForFunction(() => !document.querySelector('dialog[open] #bf'));
+  await toastWeg();
+  const verl = (await api('GET', `/benutzer/${lgPerson.id}/lohngruppen-verlauf`)).json;
+  pruef(verl.some((v) => v.kuenftig && v.gueltigAb === plusTage(heute, 20) && v.lohngruppeId === lgNeu) && verl.some((v) => v.aktuell && v.lohngruppeId === (lgAlt || null)), `A2-Lohn: Verlauf nach dem Wechsel falsch (${JSON.stringify(verl).slice(0, 200)})`);
+  await page.locator(`[data-bearb="${lgPerson.id}"]`).first().click();
+  await page.waitForSelector('#lg-verlauf [data-lg-weg]');
+  pruef(await page.locator('#lg-verlauf [data-lg-weg]').count() === 1 && await page.locator('#bf [name="lohngruppe"]').inputValue() === lgAlt, 'A2-Lohn: nur der künftige Eintrag darf löschbar sein; heute gilt noch die alte Lohngruppe');
+  await page.click('#lg-verlauf [data-lg-weg]');
+  await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForFunction(() => !document.querySelector('#lg-verlauf [data-lg-weg]'));
+  await toastWeg();
+  await page.locator('dialog[open] [data-zu]').first().click();
   // Bauvorhaben Y für den Lebenslauf (Bauleiter zugeteilt)
   const leute = (await api('GET', '/mitarbeiter')).json;
   const bl = leute.find((m) => m.name === 'Stefan Aigner');
@@ -233,6 +261,7 @@ async function planer(h, z) {
   const entwurf = ber.status === 'entwurf' && !(ber.unterschriften.an || ber.unterschriften.bh);
   await geh('/partie');
   pruef(await page.locator('#partie-leer').count() === 1, 'A2-Plan: Polier sieht eine Partie, obwohl nichts veröffentlicht ist');
+  pruef(await page.locator('#partie-druck').count() === 0 && (await h.absichtlich(() => api('GET', `/plan/tag.pdf?datum=${morgen}`))).status === 404, 'A2-Druck: Polier kann einen nicht veröffentlichten Tag drucken');
   await abmelden();
 
   /* ---- Mitarbeiter: noch kein Einsatz, Push-Abo (Attrappe) ---- */
@@ -330,6 +359,15 @@ async function planer(h, z) {
   await ueberlauf('plan morgen'); await shot('plan-morgen');
   await keinEuro('plan morgen');
 
+  // Drucken (12.23): Entwurf → Hinweis auf das Wasserzeichen; PDF kommt vom Server
+  await page.click('#wp-druck');
+  await page.waitForSelector('dialog[open] [data-ok]');
+  pruef(/Entwurf – wird mit Wasserzeichen gedruckt/.test(await page.locator('dialog[open]').innerText()), 'A2-Druck: Hinweis „Entwurf – wird mit Wasserzeichen gedruckt“ fehlt');
+  await page.click('dialog[open] [data-zu]');
+  for (const [name, pfad] of [['Tagesplan', `/api/plan/tag.pdf?datum=${morgen}`], ['Wochenplan', `/api/plan/woche.pdf?von=${morgen}`]]) {
+    const pdf = await context.request.get(h.srv.url + pfad); const inhalt = await pdf.body();
+    pruef(pdf.ok() && /application\/pdf/.test(pdf.headers()['content-type'] || '') && inhalt.length > 800 && inhalt.subarray(0, 5).toString() === '%PDF-', `A2-Druck: ${name} liefert kein PDF (${pdf.status()}, ${inhalt.length} Bytes)`);
+  }
   // 6) Veröffentlichen: vorher keine Meldung; Abbrechen sendet nichts; erste Veröffentlichung → alle
   pruef((await ausgang()).push.filter((p) => p.benutzerId === L).length === pushVorher, 'A2-Plan: Meldung an den Mitarbeiter, bevor veröffentlicht wurde');
   await page.click('#tg-pub');
@@ -455,6 +493,7 @@ async function planer(h, z) {
   pruef(/Fahrerkarte/.test(await page.locator('#me-meine-notiz').innerText()) && /Rüttelplatte/.test(await page.locator('#me-benoetigt').innerText()) && /Vorher tanken/.test(await page.locator('#me-fahrzeug').innerText()), 'A2-Plan: Meine Notiz, Benötigt oder Mein Fahrzeug fehlen');
   pruef(!(await h.text()).includes(`NUR-FUER-P2-${k}`), 'A2-Plan: Mitarbeiter sieht die Notiz einer anderen Person');
   pruef(await page.locator('#me-route').count() === 1 && /^https:\/\/www\.google\.com\/maps\/dir\//.test(await page.locator('#me-route').getAttribute('href')), 'A2-Plan: „Route öffnen“ fehlt');
+  pruef(await page.locator('#wp-druck, #partie-druck').count() === 0 && (await h.absichtlich(() => api('GET', `/plan/tag.pdf?datum=${morgen}`))).status === 403, 'A2-Druck: Mitarbeiter hat einen Druck-Knopf oder Zugriff auf das PDF');
   await keinEuro('mein einsatz'); await ueberlauf('mein einsatz'); await shot('mein-einsatz');
   // Meine Fuhren
   const fz = page.locator(`#meine-fuhren li[data-fuhre="${fuhre.id}"]`);
@@ -496,6 +535,9 @@ async function planer(h, z) {
   pruef(await page.locator(`[data-partie-personen] li[data-person="${L}"] [data-lesestand="gelesen"], [data-partie-personen] li[data-person="${L}"] [data-lesestand="bestaetigt"]`).count() === 1, 'A2-Plan: Polier sieht nicht, dass der Mitarbeiter gelesen hat');
   const pt = await h.text();
   pruef(pt.includes(`NUR-FUER-P2-${k}`) && /Fahrerkarte/.test(pt) && /Vorher tanken/.test(pt) && /Rüttelplatte/.test(pt), 'A2-Plan: Polier sieht nicht alle Notizen');
+  pruef(await page.locator('#partie-druck').count() === 1, 'A2-Druck: „Partie drucken“ fehlt am veröffentlichten Tag');
+  const ppdf = await context.request.get(h.srv.url + await page.locator('#partie-druck').getAttribute('href'));
+  pruef(ppdf.ok() && /application\/pdf/.test(ppdf.headers()['content-type'] || '') && (await ppdf.body()).length > 800, `A2-Druck: Partie-PDF → ${ppdf.status()}`);
   await keinEuro('partie'); await ueberlauf('partie'); await shot('partie-morgen');
   await page.locator('[data-anfrage]').first().click();
   await page.waitForSelector('dialog[open] #anf');
@@ -840,7 +882,7 @@ async function urlaub(h, z) {
     await page.fill('#ukf [name="buakStand"]', '20'); await page.fill('#ukf [name="buakDatum"]', heute); await page.fill('#ukf [name="uebertrag"]', '2');
     await dialogUeberlauf('urlaubskonto');
     await page.click('dialog[open] button[type="submit"]');
-    await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]:has-text("laut BUAK-Kontoauszug")`);
+    await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]:has-text("laut BUAK-Kontoauszug vom")`);
     const konto = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
     pruef(konto.art === 'buak' && konto.anspruch === 20 && konto.geplant >= 1 && (await page.locator(`#ur-konten tr[data-konto="${L}"] [data-rest]`).innerText()).replace(',', '.') === String(konto.rest), `A2-Url: Konto/Rest weicht vom Server ab (${JSON.stringify(konto)})`);
     pruef(await page.locator('#ur-csv').count() === 1, 'A2-Url: CSV für die Lohnverrechnung fehlt');
@@ -904,6 +946,9 @@ async function dienste(h, z) {
   const haken = (pfad, body) => context.request.post(h.srv.url + '/api/test/' + pfad, { data: body || {} });
   const bild = async (zeilen) => ({ name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from((await page.evaluate((zl) => { const c = document.createElement('canvas'); c.width = 900; c.height = 600; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 900, 600); x.fillStyle = '#000'; x.font = '34px sans-serif'; zl.forEach((t, i) => x.fillText(t, 30, 70 + i * 60)); return c.toDataURL('image/png'); }, zeilen)).split(',')[1], 'base64') });
 
+  // Handy: der Bericht ist in Schritte geteilt – zum Schritt blättern, in dem das Element liegt
+  const sichtbar = async (sel) => { for (let n = 1; n <= 6; n += 1) { if (await page.locator(sel).first().isVisible().catch(() => false)) return; if (!g.mobil) break; await page.click(`[data-schritt-nr="${n}"]`); await page.waitForTimeout(80); } };
+
   /* ---- Geschäftsführung: E-Mail-Test, KI einrichten (Schlüssel nie wieder sichtbar), Zustände ---- */
   await anmelden('gf');
   const W = z.w || 1;
@@ -940,12 +985,13 @@ async function dienste(h, z) {
   pruef(!!ber, 'A2-Dienst: kein neuer Berichtsentwurf möglich');
   await geh(`/bericht/${ber.id}`);
   await page.waitForSelector('#wetter-karte', { state: 'attached' });
+  await sichtbar('#wetter-karte');
   pruef(/°C/.test(await page.locator('#wetter-karte').innerText()), `A2-Wetter: Wetterkarte ohne Werte (${(await page.locator('#wetter-karte').innerText()).slice(0, 80)})`);
   // Ausfall des Wetterdienstes: ein neuer Bericht zeigt ehrlich „Wetter nicht verfügbar“ (nichts wird erfunden)
   await haken('wetter', { verfuegbar: false });
   let ber2 = null;
   for (let i = 81; i < 100 && !ber2; i += 1) { const r = await api('POST', '/berichte', { baustelleId: W, datum: plusTage(heute, -i) }); if (r.status === 201) ber2 = r.json; }
-  await h.absichtlich(async () => { await geh(`/bericht/${ber2.id}`); await page.waitForFunction(() => /nicht verfügbar/i.test((document.querySelector('#wetter-karte') || { innerText: '' }).innerText), null, { timeout: 8000 }).catch(() => {}); });
+  await h.absichtlich(async () => { await geh(`/bericht/${ber2.id}`); await sichtbar('#wetter-karte'); await page.waitForFunction(() => /nicht verfügbar/i.test((document.querySelector('#wetter-karte') || { innerText: '' }).innerText), null, { timeout: 8000 }).catch(() => {}); });
   pruef(/nicht verfügbar/i.test(await page.locator('#wetter-karte').innerText()) && !/°C/.test(await page.locator('#wetter-karte').innerText()), `A2-Wetter: Ausfall wird nicht als „Wetter nicht verfügbar“ gezeigt (${(await page.locator('#wetter-karte').innerText()).slice(0, 100)})`);
   await haken('wetter', { verfuegbar: true });
   await geh(`/bericht/${ber.id}`);
@@ -953,11 +999,13 @@ async function dienste(h, z) {
   // Fotos (bis 10), Beschreibung, danach lässt sich der Bericht weiter speichern
   await page.setInputFiles('#foto-datei', [await bild(['Foto 1']), await bild(['Foto 2'])]);
   await page.waitForFunction(() => document.querySelectorAll('#fotos [data-foto]').length === 2);
+  await sichtbar('#fotos [data-foto-text]');
   await page.locator('#fotos [data-foto-text]').first().fill('Künette Achse 3'); await page.locator('#fotos [data-foto-text]').first().blur();
   await toastWeg();
   pruef((await api('GET', `/berichte/${ber.id}`)).json.fotos.some((f) => f.beschreibung === 'Künette Achse 3'), 'A2-Foto: Beschreibung nicht gespeichert');
   // Diktat: Vorschlag mit markierten Feldern – mit aktiver KI als „mit KI verbessert“
   await haken('ki', { antwort: { geraete: [], material: [], personal: [], regie: [], arbeitsleistung: 'Schotter eingebaut und verdichtet', vorkommnisse: '' } });
+  await sichtbar('#diktat-text');
   await page.fill('#diktat-text', 'Heute Schotter eingebaut und verdichtet, Wetter sonnig.');
   await page.click('#diktat-los');
   await page.waitForSelector('dialog[open] #vorschlag');
@@ -981,7 +1029,8 @@ async function dienste(h, z) {
   await page.click('#vs-ok');
   await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 10000 });
   await toastWeg();
-  const mengeNach = (((await api('GET', `/berichte/${ber.id}`)).json.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0;
+  let mengeNach = mengeVor;
+  for (let i = 0; i < 40 && Math.abs(mengeNach - mengeVor) < 0.001; i += 1) { mengeNach = (((await api('GET', `/berichte/${ber.id}`)).json.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0; if (Math.abs(mengeNach - mengeVor) < 0.001) await page.waitForTimeout(250); } // das automatische Speichern läuft kurz nach der Übernahme
   pruef(Math.abs(mengeNach - mengeVor - 12.5) < 0.001, `A2-Liefer: bestätigte Menge nicht übernommen (${mengeVor} → ${mengeNach})`);
   // Papierbericht: Foto als Anhang
   await page.setInputFiles('#pp-datei', await bild(['Bautagesbericht', 'Papierformular']));
@@ -990,6 +1039,7 @@ async function dienste(h, z) {
   await page.locator('dialog[open] [data-zu]').first().click().catch(() => {});
   await toastWeg();
   // Unterschrift des Auftragnehmers, dann Bauherr per Link
+  await sichtbar('[data-fern-anfordern]');
   await page.locator('[data-fern-anfordern]').first().scrollIntoViewIfNeeded();
   await page.locator('[data-fern-anfordern]').first().click();
   await page.waitForSelector('dialog[open] #fl-form');

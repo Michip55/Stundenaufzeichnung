@@ -334,7 +334,7 @@ export default async function plan(el, ctx) {
     const n = d.unveroeffentlicht || 0;
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
-        ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
+        ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
       <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', 'Morgen'], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
       ${fehler ? banner('err', esc(fehler)) : ''}
       <div id="wp-inhalt">${ansicht === 'woche' ? wocheHtml() : ansicht === 'tag' ? tagHtml() : ansicht === 'geraete' ? geraeteHtml() : zp ? zeitplanHtml(zp, ctx) : '<div class="state">Lädt …</div>'}</div>
@@ -461,6 +461,17 @@ export default async function plan(el, ctx) {
     const tw2 = e.target.closest('[data-tag-weiter]') || e.target.closest('[data-tag-morgen]');
     if (tw2) { tagWahl = tw2.dataset.tagWeiter ? naechsterTag(tagWahl, Number(tw2.dataset.tagWeiter)) : morgen; wahl.clear(); if (!d.tage.some((t) => t.datum === tagWahl)) { von = montag(tagWahl); return neu(); } return zeichne(); }
     if (e.target.closest('#tg-pub')) return pubVorschau(tagWahl);
+    const dr = e.target.closest('#wp-druck');
+    if (dr) {
+      // Entwurf: der Server druckt mit Wasserzeichen – vorher darauf hinweisen
+      const tagArt = dr.dataset.art === 'tag';
+      const betroffen = d.einsaetze.filter((x) => (tagArt ? x.datum === tagWahl : true));
+      const entwurf = betroffen.some((x) => x.vorschau || !x.veroeffentlicht || x.geaendertNachVeroeffentlichung);
+      const url = tagArt ? `/api/plan/tag.pdf?datum=${tagWahl}` : `/api/plan/woche.pdf?von=${von}`;
+      if (entwurf && !(await bestaetigen('Entwurf drucken?', 'Entwurf – wird mit Wasserzeichen gedruckt. Die Einteilung ist noch nicht (oder nicht in diesem Stand) veröffentlicht.', 'Trotzdem drucken'))) return;
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
     const tu = e.target.closest('#tg-uebernehmen');
     if (tu) { try { const r = await post('/plan/tag/uebernehmen', { datum: tu.dataset.datum }); toast(`Tag übernommen – ${r.angelegt ?? 0} Einsätze gespeichert.`); } catch (x) { toast(x.message, 'warn'); } return neu(); }
     const vn = e.target.closest('[data-vortag-notizen]');
@@ -586,6 +597,7 @@ export async function partie(el, ctx) {
           <button type="button" class="btn ghost lg" data-anfrage="${e.id}">Änderung beim Büro anfragen</button></div>
       </div>`).join('') : `<section class="card pad" id="partie-leer">${leer(`Für ${wort} ist noch kein Plan veröffentlicht.`, 'calendar')}<button type="button" class="btn ghost" data-anfrage="">Änderung beim Büro anfragen</button></section>`}
       ${partieFuhrenHtml(d.fuhren)}
+      ${d.einsaetze.length ? `<a class="btn ghost lg" id="partie-druck" href="/api/plan/tag.pdf?datum=${datum}" target="_blank" rel="noopener">${ic('file')}Partie drucken (PDF)</a>` : ''}
     </div>`;
   }
   // Status der Fuhren laufend nachladen (geplant → unterwegs → abgeladen), solange nichts offen ist

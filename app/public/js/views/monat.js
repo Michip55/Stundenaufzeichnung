@@ -26,6 +26,7 @@ export default async function monat(el, ctx) {
         <a class="btn ghost" id="lohn-vorlagen-link" href="#/lohn-vorlagen?monat=${ym}">${ic('table')}BMD-Export (Vorlagen)</a>
         <a class="btn ghost" id="csv-buak" href="/api/monat/buak.csv?monat=${ym}" download="buak-${ym}.csv">${ic('download')}CSV BUAK-Grundlage</a>
       </div>
+      ${ma.some((m) => (m.lohngruppen || []).length) ? `<section class="card pad" id="lohngruppen-wechsel" aria-label="Lohngruppenwechsel im Monat"><h3 class="sub-h">Lohngruppenwechsel in diesem Monat</h3><ul class="plain rows">${ma.filter((m) => (m.lohngruppen || []).length).map((m) => `<li><span class="grow"><b>${esc(m.name)}</b><small>${m.lohngruppen.map((l) => `${esc(l.lohngruppe || 'keine')}: ${esc(fmt.datum(l.von).slice(0, 6))}–${esc(fmt.datum(l.bis).slice(0, 6))} · ${fmt.zahl(l.stunden, 2)} Std.`).join(' → ')}</small></span></li>`).join('')}</ul></section>` : ''}
       <div class="kpi-row four">
         <div class="kpi sm"><small>Stunden gesamt</small><b>${fmt.zahl(sum('summe'), 1)}</b></div>
         <div class="kpi sm"><small>Überstunden</small><b>${fmt.zahl(sum('ueberstunden'), 1)}</b></div>
