@@ -324,3 +324,33 @@ test('Baustellenplaner', async (t) => {
     } finally { s.db.lauf('UPDATE material SET aktiv = 1 WHERE id IN (1, 2)'); }
   });
 });
+
+test('Regression: POST /plan/einsaetze auf eine vorhandene Vorschau-Zelle → 409 mit nutzbarer id', async (t) => {
+  const s = await starte({ test: true });
+  t.after(() => s.stop());
+  const buero = await s.login(U.buero);
+  assert.equal((await buero.post('/plan/einsaetze', { datum: FR, baustelleId: BS.pitten, beginn: '06:30', benutzerIds: [U.polier] })).status, 201);
+  const w0 = (await buero.get(`/plan/woche?von=${MO}`)).daten;
+  assert.equal(w0.tage.find((x) => x.datum === MO).vorschau, true);
+  assert.ok(w0.einsaetze.some((e) => e.datum === MO && e.baustelleId === BS.pitten && e.vorschau));
+  const r = await buero.post('/plan/einsaetze', { datum: MO, baustelleId: BS.pitten, benutzerIds: [8] });
+  assert.equal(r.status, 409);
+  assert.ok(Number.isInteger(r.daten.id));
+  // der Einsatz der id existiert wirklich, der Tag ist gespeichert (keine Vorschau mehr)
+  const e = s.db.eins('SELECT * FROM plan_einsatz WHERE id = ? AND geloescht = 0', r.daten.id);
+  assert.ok(e);
+  assert.equal(e.datum, MO);
+  assert.equal(e.baustelle_id, BS.pitten);
+  assert.equal(e.uebernommen, 1);
+  const w1 = (await buero.get(`/plan/woche?von=${MO}`)).daten;
+  assert.equal(w1.tage.find((x) => x.datum === MO).vorschau, false);
+  // mit der id weiterarbeiten
+  const p = await buero.post(`/plan/einsaetze/${r.daten.id}/personen`, { benutzerIds: [8] });
+  assert.ok([200, 201].includes(p.status), `Status ${p.status}`);
+  assert.ok(s.db.eins('SELECT 1 AS x FROM plan_person WHERE einsatz_id = ? AND benutzer_id = 8', r.daten.id));
+  // erneuter POST: gleicher Einsatz, Tag nur einmal übernommen
+  const r2 = await buero.post('/plan/einsaetze', { datum: MO, baustelleId: BS.pitten });
+  assert.equal(r2.status, 409);
+  assert.equal(r2.daten.id, r.daten.id);
+  assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM plan_einsatz WHERE datum = ? AND baustelle_id = ? AND geloescht = 0', MO, BS.pitten).n, 1);
+});

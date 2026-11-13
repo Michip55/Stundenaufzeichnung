@@ -69,6 +69,34 @@ test('Urlaub', async (t) => {
     assert.equal(s.db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = '2026-12-23'", U.mitarbeiter).code, 'K'); // bleibt
     const k = (await c.buero.get('/urlaub/kalender?von=2026-12-21&bis=2026-12-31')).daten;
     assert.equal(k.personen.find((p) => p.benutzerId === U.mitarbeiter).tage['2026-12-22'].code, 'BU');
+    assert.equal(k.personen.find((p) => p.benutzerId === U.mitarbeiter).tage['2026-12-22'].art, 'betriebsurlaub');
+  });
+
+  await t.test('Regression: Betriebsurlaub bleibt U (Konto/Monat/Lohn), ist aber als art:"betriebsurlaub" erkennbar', async () => {
+    const liste = (await c.buero.get(`/abwesenheiten?benutzerId=${U.mitarbeiter}&von=2026-12-21&bis=2026-12-31`)).daten;
+    const bu = liste.find((a) => a.datum === '2026-12-22');
+    assert.equal(bu.code, 'U');
+    assert.equal(bu.art, 'betriebsurlaub');
+    assert.ok(!('art' in liste.find((a) => a.datum === '2026-12-23'))); // K bleibt ohne Kennzeichen
+    const eigen = (await c.mitarbeiter.get('/abwesenheiten?von=2026-12-21&bis=2026-12-31')).daten;
+    assert.equal(eigen.find((a) => a.datum === '2026-12-22').art, 'betriebsurlaub');
+    // Monat/Lohn unverändert: zählt als U
+    const m = (await c.buero.get('/monat?monat=2026-12')).daten.mitarbeiter.find((x) => x.id === U.mitarbeiter);
+    assert.equal(m.tage['2026-12-22'].code, 'U');
+    assert.ok(m.u >= 6);
+    const csv = await c.buero.get('/monat/export.csv?monat=2026-12');
+    assert.equal(csv.status, 200);
+    assert.ok(!String(csv.daten).includes('BU'));
+    // Urlaubskonto zieht die Tage ab
+    const konto = (await c.buero.get(`/urlaub/konto?jahr=2026&benutzerId=${U.mitarbeiter}`)).daten[0];
+    assert.ok(konto.geplant + konto.genommen >= 6);
+    // Büro überschreibt einen Betriebsurlaubstag mit K → Kennzeichen weg
+    assert.equal((await c.buero.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2026-12-29', code: 'K' })).status, 200);
+    const neu = (await c.buero.get(`/abwesenheiten?benutzerId=${U.mitarbeiter}&von=2026-12-29&bis=2026-12-29`)).daten[0];
+    assert.equal(neu.code, 'K');
+    assert.ok(!('art' in neu));
+    const k = (await c.buero.get('/urlaub/kalender?von=2026-12-29&bis=2026-12-29')).daten;
+    assert.equal(k.personen.find((p) => p.benutzerId === U.mitarbeiter).tage['2026-12-29'].code, 'K');
   });
 
   await t.test('Warnungen: Partie, Plan-Konflikt, Antrag offen > 3 Tage', async () => {

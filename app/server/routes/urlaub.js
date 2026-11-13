@@ -59,7 +59,7 @@ module.exports = function urlaubRouten(api, bt) {
     const map = new Map(personen.map((p) => [p.benutzerId, p]));
     for (const a of db.alle('SELECT * FROM abwesenheit WHERE datum >= ? AND datum <= ?', von, bis)) {
       const p = map.get(a.benutzer_id);
-      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: a.id };
+      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: a.id, ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
     }
     res.json({ tage, personen, warnungen: warnungen(req.ctx, von, bis, ids) });
   });

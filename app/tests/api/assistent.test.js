@@ -142,8 +142,12 @@ test('Assistent und KI', async (t) => {
   await t.test('Lieferschein mit KI: Bild als Base64-Block', async () => {
     await gf.put('/einstellungen/ki', { aktiv: true, tagesLimit: 100 });
     ki.antwort = { lieferant: 'Kieswerk', lieferscheinNr: 'A-17', datum: '2026-11-04', positionen: [{ material: 'Splitt', menge: 12, einheit: 't' }] };
+    const v0 = (await pol.get(`/berichte/${b.id}`)).daten.version;
     const r = await pol.post(`/berichte/${b.id}/lieferschein`, { bildBase64: pngGrau(6, 6, Array(36).fill(200)).toString('base64'), dateiname: 'x.png' });
     assert.equal(r.daten.quelle, 'ki');
+    // Regression: Lieferschein erhöht die Berichtsversion und liefert sie mit
+    assert.equal(r.daten.berichtVersion, v0 + 1);
+    assert.equal((await pol.get(`/berichte/${b.id}`)).daten.version, r.daten.berichtVersion);
     assert.deepEqual(r.daten.vorschlag.material.map((m) => [m.code, m.menge]), [['splitt', 12]]);
     const c = ki.aufrufe[ki.aufrufe.length - 1].params.messages[0].content;
     assert.deepEqual([c[0].type, c[0].source.type, c[0].source.media_type], ['image', 'base64', 'image/png']);
@@ -155,6 +159,8 @@ test('Assistent und KI', async (t) => {
     const r = await pol.post(`/berichte/${b.id}/papier`, { bildBase64: pngGrau(5, 5, Array(25).fill(90)).toString('base64'), dateiname: 'seite1.png' });
     assert.equal(r.status, 201, JSON.stringify(r.daten));
     assert.equal(r.daten.foto.art, 'papier');
+    // Regression: Papierbericht ist nur Archivanhang – Version bleibt, wird aber mitgeliefert
+    assert.equal(r.daten.berichtVersion, (await pol.get(`/berichte/${b.id}`)).daten.version);
     for (let i = 0; i < 4; i++) assert.equal((await pol.post(`/berichte/${b.id}/papier`, { bildBase64: pngGrau(5, 5, Array(25).fill(100 + i)).toString('base64') })).status, 201);
     assert.equal((await pol.post(`/berichte/${b.id}/papier`, { bildBase64: pngGrau(5, 5, Array(25).fill(150)).toString('base64') })).status, 400);
     assert.equal((await pol.del(`/berichte/${b.id}/fotos/${r.daten.foto.id}`)).status, 403);

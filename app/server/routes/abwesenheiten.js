@@ -11,6 +11,8 @@ const CODE_TEXT = { K: 'Krankenstand', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Z
 
 function json(a) {
   const o = { id: a.id, benutzerId: a.benutzer_id, name: a.name, datum: a.datum, code: a.code, status: a.status, erfasst: a.erfasst, erfasstVon: a.erfasst_von };
+  // Betriebsurlaub: zählt (Konto, Monat, Lohn, BUAK) als U, ist aber eigens gekennzeichnet (API.md 12.19)
+  if (a.betriebsurlaub) o.art = 'betriebsurlaub';
   if (a.entschieden) { o.entschieden = a.entschieden; o.entschiedenVon = a.entschieden_von; }
   return o;
 }
@@ -80,7 +82,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     let id;
     db.transaktion(() => {
       if (vorhanden) {
-        db.lauf('UPDATE abwesenheit SET code = ?, status = ?, erfasst_von = ?, erfasst = ?, entschieden = NULL, entschieden_von = NULL WHERE id = ?', code, status, ich.id, zeit, vorhanden.id);
+        db.lauf('UPDATE abwesenheit SET code = ?, status = ?, erfasst_von = ?, erfasst = ?, entschieden = NULL, entschieden_von = NULL, betriebsurlaub = 0, notiz = NULL WHERE id = ?', code, status, ich.id, zeit, vorhanden.id);
         id = vorhanden.id;
       } else {
         id = db.lauf('INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst) VALUES (?, ?, ?, ?, ?, ?)', benutzerId, datum, code, status, ich.id, zeit).id;

@@ -57,6 +57,25 @@ test('Fotos im Bautagesbericht', async (t) => {
     assert.equal((await c.polier.get(`/berichte/${b.id}`)).daten.fotos.length, 9);
   });
 
+  await t.test('Regression: Foto-Routen liefern die neue berichtVersion (direkt für PUT /berichte/:id nutzbar)', async () => {
+    const ver = async () => (await c.polier.get(`/berichte/${b.id}`)).daten.version;
+    const v0 = await ver();
+    const liste = (await c.polier.get(`/berichte/${b.id}`)).daten.fotos;
+    let r = await c.polier.put(`${url}/${liste[0].id}`, { beschreibung: 'neu' });
+    assert.equal(r.daten.berichtVersion, v0 + 1);
+    assert.equal(r.daten.berichtVersion, await ver());
+    r = await c.polier.del(`${url}/${liste[8].id}`);
+    assert.deepEqual(r.daten, { ok: true, berichtVersion: v0 + 2 });
+    r = await c.polier.post(url, { bildBase64: b64(pngGrau(4, 4, Array(16).fill(77))), dateiname: 'v.png' });
+    assert.equal(r.status, 201);
+    assert.equal(r.daten.berichtVersion, v0 + 3);
+    r = await c.polier.post(url, { bildBase64: b64(pngGrau(4, 4, Array(16).fill(77))), dateiname: 'v.png' }); // Duplikat: keine Änderung
+    assert.equal(r.status, 200);
+    assert.equal(r.daten.berichtVersion, v0 + 3);
+    // mit der gelieferten Version sofort speichern (kein 409)
+    assert.equal((await c.polier.put(`/berichte/${b.id}`, { version: r.daten.berichtVersion, arbeitsleistung: 'Pflaster verlegt' })).status, 200);
+  });
+
   await t.test('PDF mit Fotoseiten (?fotos=1), ohne Fotos Standard', async () => {
     const ohne = await c.polier.anfrage('GET', `/berichte/${b.id}/pdf`);
     const mit = await c.polier.anfrage('GET', `/berichte/${b.id}/pdf?fotos=1`);

@@ -100,27 +100,29 @@ module.exports = function assistentRouten(api, bt) {
   api.post('/berichte/:id/lieferschein', async (req, res) => {
     const b = bericht(req);
     const body = v.objekt(req.body);
-    const r = db.transaktion(() => Foto.fotoSpeichern(bt, req, b, body, 'lieferschein'));
+    // Lieferschein ist ein Berichtsfoto (zählt zu den 10, steht im PDF) → Version +1 wie POST …/fotos
+    const r = db.transaktion(() => { const x = Foto.fotoSpeichern(bt, req, b, body, 'lieferschein'); if (x.neu) Foto.berichtGeaendert(bt, b.id); return x; });
     const foto = Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name])));
+    const berichtVersion = Foto.berichtVersion(db, b.id);
     const daten = r.bild ? r.bild.daten : require('node:fs').readFileSync(require('node:path').join(Foto.ordner(bt), r.foto.datei));
     const s = stamm();
     if (KI.aktiv(bt)) {
       try {
         const k = await KI.anfrage(bt, { zweck: 'lieferschein', benutzerId: req.ctx.benutzer.id, system: KI.SYSTEM.lieferschein, inhalt: [KI.bildBlock(r.foto.mime, daten), { type: 'text', text: 'Bitte diesen Lieferschein auslesen.' }], schema: KI.SCHEMA.lieferschein });
         const z = kiZuordnen({ material: k.daten.positionen.map((p) => ({ name: p.material, menge: p.menge, einheit: p.einheit })) }, s, []);
-        return res.status(r.neu ? 201 : 200).json({ foto, text: null, vorschlag: { lieferant: k.daten.lieferant, lieferscheinNr: k.daten.lieferscheinNr, datum: k.daten.datum, material: z.vorschlag.material }, unklar: z.unklar, quelle: 'ki' });
+        return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: { lieferant: k.daten.lieferant, lieferscheinNr: k.daten.lieferscheinNr, datum: k.daten.datum, material: z.vorschlag.material }, unklar: z.unklar, quelle: 'ki' });
       } catch (e) {
-        if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, text: null, vorschlag: null, unklar: [], hinweis: `${kiFehler(e)}; Texterkennung nicht verfügbar – Foto gespeichert.` });
+        if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: `${kiFehler(e)}; Texterkennung nicht verfügbar – Foto gespeichert.` });
       }
     }
-    if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, text: null, vorschlag: null, unklar: [], hinweis: 'Texterkennung nicht verfügbar (Sprachdaten fehlen) – Foto gespeichert.' });
+    if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: 'Texterkennung nicht verfügbar (Sprachdaten fehlen) – Foto gespeichert.' });
     let text;
     try { text = await OCR.erkennen(bt, daten); } catch (e) {
-      return res.status(r.neu ? 201 : 200).json({ foto, text: null, vorschlag: null, unklar: [], hinweis: `Texterkennung fehlgeschlagen: ${e.message}` });
+      return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: `Texterkennung fehlgeschlagen: ${e.message}` });
     }
     db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', text.slice(0, 20000), r.foto.id);
     const a = lieferscheinAuswerten(text, s);
-    res.status(r.neu ? 201 : 200).json({ foto, text, vorschlag: a.vorschlag, unklar: a.unklar, quelle: 'ocr' });
+    res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text, vorschlag: a.vorschlag, unklar: a.unklar, quelle: 'ocr' });
   });
 
   /* ---------- Papierbericht (12.12) ---------- */
@@ -145,7 +147,7 @@ module.exports = function assistentRouten(api, bt) {
     const e = await papierErkennen(req, r.foto.mime, daten);
     if (e.text) db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', e.text.slice(0, 20000), r.foto.id);
     if (e.vorschlag) e.vorschlag.passt = e.vorschlag.datum === b.datum && (!e.vorschlag.kst || e.vorschlag.kst === b.baustelle.kst);
-    res.status(r.neu ? 201 : 200).json({ foto: Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]))), ...e });
+    res.status(r.neu ? 201 : 200).json({ foto: Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]))), ...e, berichtVersion: Foto.berichtVersion(db, b.id) });
   });
   api.post('/berichte/papier', async (req, res) => {
     if (!req.ctx.hat('bericht_erstellen')) throw keinZugriff();

@@ -281,8 +281,10 @@ module.exports = function planerRouten(api, bt) {
     const anl = body.anlageIds ? anlagenPruefen(body.anlageIds, 'anlageIds') : [];
     const notizen = notizMap(body, 'notizen');
     const fahrer = fahrerMap(body);
+    // Vorschau-Tag zuerst in einem eigenen, festgeschriebenen Schritt speichern: ein 409 nennt dann
+    // immer die ID eines tatsächlich vorhandenen Einsatzes (API.md 12.8c)
+    db.transaktion(() => P.materialisieren(bt, datum, req.ctx.benutzer.id));
     const id = db.transaktion(() => {
-      P.materialisieren(bt, datum, req.ctx.benutzer.id);
       const vorhanden = db.eins('SELECT id FROM plan_einsatz WHERE datum = ? AND baustelle_id = ? AND geloescht = 0', datum, bsId);
       if (vorhanden) throw konflikt('Für diese Baustelle gibt es an diesem Tag schon einen Einsatz.', { id: vorhanden.id });
       const r = db.lauf(`INSERT INTO plan_einsatz (datum, baustelle_id, beginn, treffpunkt, fahrzeug_anlage_id, fahrzeug_text, arbeit, notiz, benoetigt, erstellt, erstellt_von, geaendert)
