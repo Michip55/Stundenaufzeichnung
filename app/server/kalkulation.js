@@ -52,6 +52,15 @@ function istKritisch(verbrauch, leistungsstand) {
   return leistungsstand != null && leistungsstand >= KRITISCH_AB_LEISTUNG && verbrauch - leistungsstand > KRITISCH_PP;
 }
 
+/** Budget-Hinweise (typ alarm/kritisch/warnung, budget:true) */
+function budgetHinweise(verbrauch, leistungsstand, schwellen = STANDARD_SCHWELLEN, was = 'Die Kosten') {
+  const status = budgetStatus(verbrauch, leistungsstand, schwellen);
+  if (verbrauch != null && verbrauch >= 100) return [{ typ: 'alarm', budget: true, text: `${was} haben die Auftragssumme erreicht – jede weitere Stunde ist Verlust, außer es kommt ein Nachtrag.` }];
+  if (istKritisch(verbrauch, leistungsstand)) return [{ typ: 'kritisch', budget: true, text: `Budget-Verbrauch liegt ${r1(verbrauch - leistungsstand).toLocaleString('de-AT')} Prozentpunkte über dem Leistungsstand – die Kosten laufen der Leistung davon.` }];
+  if (status === 'warnung') return [{ typ: 'warnung', budget: true, text: `Budget-Schwelle ${Math.max(...erreichteSchwellen(verbrauch, schwellen))} % erreicht – Restleistung und Restbudget prüfen.` }];
+  return [];
+}
+
 function budgetStatus(verbrauch, leistungsstand, schwellen = STANDARD_SCHWELLEN) {
   if (verbrauch == null) return 'ok';
   if (istKritisch(verbrauch, leistungsstand)) return 'kritisch';
@@ -150,9 +159,7 @@ function berechneKalkulation(e) {
 
   const hinweise = [];
   if (!basisOk) hinweise.push({ typ: 'info', text: 'Keine Auftragssumme erfasst – Budget-Verbrauch und Leistungsstand können nicht berechnet werden.' });
-  if (verbrauch != null && verbrauch >= 100) hinweise.push({ typ: 'alarm', text: 'Die Kosten haben die Auftragssumme erreicht – jede weitere Stunde ist Verlust, außer es kommt ein Nachtrag.' });
-  else if (istKritisch(verbrauch, leistungsstand)) hinweise.push({ typ: 'kritisch', text: `Budget-Verbrauch liegt ${r1(verbrauch - leistungsstand).toLocaleString('de-AT')} Prozentpunkte über dem Leistungsstand – die Kosten laufen der Leistung davon.` });
-  else if (status === 'warnung') hinweise.push({ typ: 'warnung', text: `Budget-Schwelle ${Math.max(...erreichteSchwellen(verbrauch, schwellen))} % erreicht – Restleistung und Restbudget prüfen.` });
+  hinweise.push(...budgetHinweise(verbrauch, leistungsstand, schwellen));
   const ungeprueft = gezaehlt.filter((b) => b.status !== 'freigegeben').length;
   if (ungeprueft) hinweise.push({ typ: 'info', text: `${ungeprueft} Bericht(e) unterschrieben, aber noch nicht freigegeben (ungeprüft).` });
   const entwuerfe = (e.berichte || []).length - gezaehlt.length;
@@ -196,4 +203,4 @@ function berechneKalkulation(e) {
   };
 }
 
-module.exports = { berechneKalkulation, kostenBericht, budgetStatus, erreichteSchwellen, istKritisch, STANDARD_SCHWELLEN, KRITISCH_PP, KRITISCH_AB_LEISTUNG, r2, r1 };
+module.exports = { berechneKalkulation, kostenBericht, budgetStatus, budgetHinweise, erreichteSchwellen, istKritisch, STANDARD_SCHWELLEN, KRITISCH_PP, KRITISCH_AB_LEISTUNG, r2, r1 };

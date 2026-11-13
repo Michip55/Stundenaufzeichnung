@@ -16,6 +16,7 @@ const { personalVorschlag, kalkulationFuer, ladeBaustelle } = require('./daten')
 const { speichereUpdate } = require('./routes/berichte');
 const { pruefeAlleBudgets } = require('./budget');
 const { demoUnterschrift, zufall, hash } = require('./png');
+const { katalogAnlegen, katalogKopieren } = require('./positionen');
 
 const DEMO_PIN = '1234';
 const PROTOTYP_HEUTE = '2026-11-12';
@@ -338,14 +339,34 @@ function seed(db, opt = {}) {
       }
     }
 
-    /* ---- Auftragssumme, Nachträge, Leistungsmeldungen (kalibriert auf Zielwerte) ---- */
+    /* ---- Nachkalkulation nach Positionen: Katalog kopieren, manuelle Mengen (Rechnungen, Maut, Abgaben) ---- */
+    katalogAnlegen(db, jetzt);
+    const posId = (bs, bez, eh) => (db.eins('SELECT id FROM projektposition WHERE baustelle_id = ? AND bezeichnung = ? AND einheit = ?', bs, bez, eh) || {}).id;
+    for (const b of BAUSTELLEN) {
+      const id = bsId[b.kst];
+      katalogKopieren(db, id, jetzt);
+      if (b.intern) continue;
+      const r = zufall(hash('pos' + b.kst));
+      const tage = historie.filter((x) => x >= d(b.start));
+      const eintrag = (bez, eh, menge, notiz, datum) => {
+        const pid = posId(id, bez, eh);
+        if (pid && menge > 0) db.lauf('INSERT INTO projektposition_menge (position_id, datum, menge, notiz, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?, 101)', pid, datum, Math.round(menge * 100) / 100, notiz, jetztIso);
+      };
+      for (const [i, tag] of tage.entries()) if (i % 5 === 4) eintrag('Maut', 'VE', 40 + Math.round(r() * 80), 'Maut-Abrechnung Woche', tag);
+      if (tage.length) {
+        eintrag('Landschaftsabgabe', 'PA', 300 + Math.round(r() * 400), 'Landschaftsabgabe laut Deponieschein', tage[tage.length - 1]);
+        eintrag('Lagerhaus', 'PA', 250 + Math.round(r() * 500), 'Lagerhaus-Rechnung Kleinmaterial', tage[Math.floor(tage.length / 2)]);
+      }
+    }
+
+    /* ---- Auftragssumme, Nachträge, Leistungsmeldungen (kalibriert auf Zielwerte der Nachkalkulation) ---- */
     for (const b of BAUSTELLEN) {
       if (b.intern) continue;
       const id = bsId[b.kst];
       const k = kalkulationFuer(db, ladeBaustelle(db, id));
       const [zielVerbrauch, zielLeistung] = b.ziel;
       const nachtragSumme = (b.nachtraege || []).reduce((a, [, x]) => a + x, 0);
-      const basis = Math.max(5000, Math.round(k.kosten.gesamt / zielVerbrauch / 100) * 100);
+      const basis = Math.max(5000, Math.round(k.positionen.gesamtsumme / zielVerbrauch / 100) * 100);
       db.lauf('UPDATE baustelle SET auftragssumme = ? WHERE id = ?', basis - nachtragSumme, id);
       for (const [text, betrag] of b.nachtraege || []) db.lauf('INSERT INTO nachtrag (baustelle_id, text, betrag, erstellt, erstellt_von) VALUES (?, ?, ?, ?, 101)', id, text, betrag, jetztIso);
       const erloesZiel = basis * zielLeistung;

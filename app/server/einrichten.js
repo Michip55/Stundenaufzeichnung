@@ -36,6 +36,7 @@ function einrichten(db, { name, pnr, pin, firma }, jetzt = new Date()) {
       name.trim(), 'gf', pnr, hashPinSync(String(pin)), t, String(pin).length);
     db.protokolliere({ zeit: t, benutzerId: r.id, art: 'benutzer', objekt: `benutzer:${r.id}`, text: `Inbetriebnahme: erste Geschäftsführung ${name.trim()} angelegt` });
   });
+  require('./positionen').katalogAnlegen(db, jetzt); // Positionskatalog aus der Firmenvorlage (mit EP)
   return db.eins("SELECT id, name, pnr FROM benutzer WHERE rolle = 'gf'");
 }
 

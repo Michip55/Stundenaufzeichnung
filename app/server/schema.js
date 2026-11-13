@@ -403,6 +403,52 @@ ALTER TABLE benutzer ADD COLUMN pin_laenge INTEGER;
 ALTER TABLE bericht ADD COLUMN selbstfreigabe INTEGER NOT NULL DEFAULT 0;
 UPDATE unterschrift SET bild_hash = NULL;
 `
+  },
+  {
+    version: 6,
+    name: 'Nachkalkulation nach Positionen (Firmenvorlage, Projektpositionen, Mengen)',
+    sql: `
+CREATE TABLE katalog (
+  id INTEGER PRIMARY KEY,
+  gruppe TEXT NOT NULL CHECK (gruppe IN ('arbeit','transport','geraete','eigenmaterial','fremdmaterial','abgaben')),
+  bezeichnung TEXT NOT NULL,
+  einheit TEXT NOT NULL,
+  ep REAL NOT NULL DEFAULT 0 CHECK (ep >= 0),
+  sortierung INTEGER NOT NULL DEFAULT 0,
+  quelle TEXT,
+  zuordnung_pruefen INTEGER NOT NULL DEFAULT 0,
+  aktiv INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1,
+  geaendert TEXT
+);
+CREATE TABLE projektposition (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  katalog_id INTEGER REFERENCES katalog(id),
+  gruppe TEXT NOT NULL CHECK (gruppe IN ('arbeit','transport','geraete','eigenmaterial','fremdmaterial','abgaben')),
+  bezeichnung TEXT NOT NULL,
+  einheit TEXT NOT NULL,
+  ep REAL NOT NULL DEFAULT 0 CHECK (ep >= 0),
+  sortierung INTEGER NOT NULL DEFAULT 0,
+  quelle TEXT,
+  zuordnung_pruefen INTEGER NOT NULL DEFAULT 0,
+  aktiv INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1,
+  erstellt TEXT NOT NULL,
+  geaendert TEXT NOT NULL
+);
+CREATE INDEX projektposition_bs ON projektposition(baustelle_id, gruppe, sortierung);
+CREATE TABLE projektposition_menge (
+  id INTEGER PRIMARY KEY,
+  position_id INTEGER NOT NULL REFERENCES projektposition(id) ON DELETE CASCADE,
+  datum TEXT NOT NULL,
+  menge REAL NOT NULL,
+  notiz TEXT,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX projektposition_menge_pos ON projektposition_menge(position_id);
+`
   }
 ];
 

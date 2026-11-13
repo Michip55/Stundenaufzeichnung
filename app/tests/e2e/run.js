@@ -20,17 +20,20 @@ const GROESSEN = [
   { name: 'pc', width: 1440, height: 900, mobil: false },
 ].filter((g) => !process.env.E2E_NUR || process.env.E2E_NUR.split(',').includes(g.name));
 
+// Feste Uhr für reproduzierbare Läufe: Server (BAUTAG_UHR), Testdaten und Browser laufen ab diesem Zeitpunkt in Echtzeit weiter.
+// Standard: Donnerstag, 12.11.2026, 09:15 Wiener Zeit. Andere Tageszeit zum Prüfen: E2E_UHR=2026-11-12T23:30:00+01:00
+const UHR = process.env.E2E_UHR || '2026-11-12T09:15:00+01:00';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freierPort = () => new Promise((ok, nok) => { const s = net.createServer(); s.unref(); s.on('error', nok); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
 
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', ...extra };
-  delete env.BAUTAG_UHR;
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, ...extra };
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
+  const t0 = Date.now(); // ab hier läuft die Server-Uhr
   const proc = spawn(process.execPath, ['server/index.js'], { cwd: APP, env: { ...env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   proc.stdout.on('data', (d) => { log += d; });
@@ -38,7 +41,7 @@ async function starteServer(extra = {}) {
   const url = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100; i++) {
     if (proc.exitCode != null) throw new Error('Server beendet:\n' + log);
-    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
+    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, jetzt: () => new Date(UHR).getTime() + (Date.now() - t0), stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
     await sleep(100);
   }
   proc.kill();
@@ -51,7 +54,10 @@ async function laufe(browser, g) {
   const fehler = [];
   let schritte = 0;
   const pruef = (ok, text) => { schritte++; if (!ok) { fehler.push(text); console.log(`    ✗ ${text}`); } };
-  const context = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, isMobile: false, acceptDownloads: true });
+  const jetzt = () => srv.jetzt();
+  // Browser-Uhr = Server-Uhr (läuft in Echtzeit weiter)
+  const neuerKontext = async (opt) => { const c = await browser.newContext(opt); await c.clock.install({ time: new Date(jetzt()) }); return c; };
+  const context = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, isMobile: false, acceptDownloads: true });
   context.setDefaultTimeout(10000);
   const page = await context.newPage();
   // Konsolenfehler: alles zählt, außer Netz-Fehlermeldungen des Browsers in Schritten, die der Test absichtlich auslöst
@@ -192,7 +198,7 @@ async function laufe(browser, g) {
     await stelleAntrag();
     pruef(await page.locator('#abw-eigene li[data-status="beantragt"] [data-abw-status="beantragt"]').count() >= 1, 'B-07: eigener Antrag zeigt nicht den Status „beantragt“');
     await ueberlauf('abwesenheiten mitarbeiter'); await shot('abwesenheiten-mitarbeiter');
-    const morgen = new Date(Date.now() + 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const morgen = new Date(jetzt() + 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const eigenerAntrag = async () => (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === ich.benutzer.id && a.datum === morgen);
     const ersterAntrag = await eigenerAntrag();
     pruef(ersterAntrag && ersterAntrag.status === 'beantragt', `B-07: Antrag am Server nicht „beantragt“ (${JSON.stringify(ersterAntrag)})`);
@@ -340,7 +346,7 @@ async function laufe(browser, g) {
     await page.selectOption('#p-neu', gastId);
     await page.waitForSelector('.bp-row [data-gast]');
     const gi = (await page.locator('.bp-row').count()) - 1;
-    await zeit(gi, 'von1', '07:00'); await zeit(gi, 'bis1', '09:00');
+    await zeit(gi, 'von1', '01:00'); await zeit(gi, 'bis1', '02:00'); // Nachtstunde: kollidiert mit keiner Stempelung der Testdaten
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
     akt = await verBer();
     const gastZeile = akt.personal.find((x) => String(x.benutzerId) === gastId);
@@ -474,7 +480,7 @@ async function laufe(browser, g) {
     await page.waitForSelector('dialog[open] #abw-e');
     pruef((await page.locator('dialog[open] select[name="code"] option').allInnerTexts()).join('|').startsWith('SW') && await page.locator('dialog[open] select[name="code"] option').count() === 1, 'B-07: Polier kann andere Kürzel als SW wählen');
     pruef(await page.locator('dialog[open] input[name="wer"]').count() >= 1, 'B-07: Polier hat niemanden aus der Partie zur Auswahl');
-    const heuteWien = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const heuteWien = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const belegt = (await api('GET', `/abwesenheiten?von=${heuteWien}&bis=${heuteWien}`)).json.map((a) => String(a.benutzerId));
     const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => !belegt.includes(v));
     pruef(freieIds.length >= 1, 'B-07: in der Partie ist heute niemand ohne Abwesenheit (Testdaten)');
@@ -547,7 +553,7 @@ async function laufe(browser, g) {
     pruef(await page.locator('dialog[open] select[name="code"] option').count() === 4, 'B-07: Büro kann nicht alle Kürzel eintragen');
     await page.selectOption('dialog[open] select[name="code"]', 'K');
     // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – der Polier kann sie danach nicht einstempeln
-    const heuteW = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const heuteW = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const daHeute = (await api('GET', '/zeit/anwesend')).json.map((x) => x.benutzerId);
     const abwHeute = (await api('GET', `/abwesenheiten?von=${heuteW}&bis=${heuteW}`)).json.map((x) => x.benutzerId);
     const kranker = (await api('GET', '/benutzer')).json.find((m) => m.rolle === 'mitarbeiter' && m.aktiv && m.baustelleId === bsId && !daHeute.includes(m.id) && !abwHeute.includes(m.id));
@@ -736,11 +742,11 @@ async function laufe(browser, g) {
     const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('#csv-buak')]);
     pruef(fs.readFileSync(await dl2.path(), 'utf8').includes(';'), 'CSV-Download BUAK leer');
     // B-05: Büro trägt das vergessene Ausstempeln nach (mit Grund), ändert und sieht die Korrektur
-    const offenLang = (await api('GET', '/zeit/anwesend')).json.filter((x) => Date.now() - new Date(x.seit).getTime() > 12 * 3600e3).sort((x, y) => (x.seit < y.seit ? -1 : 1))[0];
+    const offenLang = (await api('GET', '/zeit/anwesend')).json.filter((x) => jetzt() - new Date(x.seit).getTime() > 12 * 3600e3).sort((x, y) => (x.seit < y.seit ? -1 : 1))[0];
     if (offenLang) {
       const lokalZeit = (ms) => new Date(ms).toLocaleString('sv-SE', { timeZone: 'Europe/Vienna' }).slice(0, 16).replace(' ', 'T');
       const tag = lokalZeit(new Date(offenLang.seit).getTime()).slice(0, 10);
-      await geh(`/korrektur?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`, 'korrektur');
+      await geh(`/korrektur?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(jetzt()).slice(0, 10)}`, 'korrektur');
       await page.waitForSelector('#k-liste li[data-buchung]');
       const nVor = await page.locator('#k-liste li[data-buchung]').count();
       await page.click('#k-neu');
@@ -753,7 +759,7 @@ async function laufe(browser, g) {
       await page.click('dialog[open] button[type="submit"]');
       await page.waitForFunction((n) => !document.querySelector('dialog[open]') && document.querySelectorAll('#k-liste li[data-buchung]').length === n + 1, nVor);
       pruef(!(await api('GET', '/zeit/anwesend')).json.some((x) => x.benutzerId === offenLang.benutzerId), 'B-05: Person nach nachgetragenem „Gehen“ noch eingestempelt');
-      const buchungen = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`)).json;
+      const buchungen = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(jetzt()).slice(0, 10)}`)).json;
       const neuB = buchungen.find((x) => x.quelle === 'buero' && x.typ === 'gehen');
       pruef(!!neuB, 'B-05: nachgetragene Buchung nicht mit Quelle „buero“ am Server');
       await toastWeg();
@@ -762,7 +768,7 @@ async function laufe(browser, g) {
       await page.fill('dialog[open] input[name="grund"]', 'laut Polier 15:30 (E2E)');
       await page.click('dialog[open] button[type="submit"]');
       await page.waitForFunction(() => !document.querySelector('dialog[open]'));
-      const geaendert = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(Date.now()).slice(0, 10)}`)).json.find((x) => x.id === neuB.id);
+      const geaendert = (await api('GET', `/zeit/buchungen?benutzerId=${offenLang.benutzerId}&von=${tag}&bis=${lokalZeit(jetzt()).slice(0, 10)}`)).json.find((x) => x.id === neuB.id);
       pruef(Math.abs(new Date(geaendert.zeit).getTime() - (new Date(offenLang.seit).getTime() + 8.5 * 3600e3)) < 61e3, 'B-05: geänderte Zeit nicht am Server');
       await ueberlauf('korrektur nach änderung'); await shot('korrektur-liste');
       await toastWeg();
@@ -784,7 +790,7 @@ async function laufe(browser, g) {
     const d02 = await absichtlich(() => api('PUT', `/benutzer/${neuB.id}`, { rolle: 'bauleiter' }));
     pruef(d02.status === 403 || d02.status === 400, `D-02: Büro kann jemanden zum Bauleiter machen (Status ${d02.status})`);
     // D-08: genehmigte Abwesenheit und Arbeitsstunden am selben Tag → Warnung in der Monatsauswertung
-    const gestern = new Date(Date.now() - 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const gestern = new Date(jetzt() - 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const d08a = await api('POST', '/abwesenheiten', { benutzerId: neuB.id, datum: gestern, code: 'K' });
     const d08b = await api('POST', '/zeit/schichten', { benutzerId: neuB.id, baustelleId: bsId, datum: gestern, von: '07:00', bis: '09:00', pauseMin: 0, grund: 'E2E D-08' });
     pruef(d08a.status < 300 && d08b.status < 300, `D-08: Vorbereitung fehlgeschlagen (${d08a.status}/${d08b.status}: ${JSON.stringify(d08b.json).slice(0, 120)})`);
@@ -801,7 +807,7 @@ async function laufe(browser, g) {
     const gesperrtStatus = await versuch(PIN, '10.77.0.1');
     pruef(gesperrtStatus === 423, `C-07: Konto nach 24 Fehlversuchen nicht gesperrt (Status ${gesperrtStatus} mit richtiger PIN)`);
     // Anmeldeseite (frisches Gerät): klare Meldung „bitte im Büro melden“
-    const ctxNeu = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna' });
+    const ctxNeu = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna' });
     const seite2 = await ctxNeu.newPage();
     await seite2.goto(srv.url + '/#/login'); await seite2.waitForSelector('.login-user');
     await seite2.fill('#login-suche', opfer.name.split(' ')[1]);
@@ -872,7 +878,7 @@ async function laufe(browser, g) {
     // ein Tag ohne Bericht (Sonntage vor einigen Wochen)
     let b10 = null;
     for (let w = 5; w <= 12 && !b10; w++) {
-      const t = new Date(Date.now() - w * 7 * 86400e3); t.setUTCDate(t.getUTCDate() - t.getUTCDay());
+      const t = new Date(jetzt() - w * 7 * 86400e3); t.setUTCDate(t.getUTCDate() - t.getUTCDay());
       const r = await absichtlich(() => api('POST', '/berichte', { baustelleId: bsId, datum: t.toISOString().slice(0, 10) }));
       if (r.status === 201) b10 = r.json;
     }
@@ -1031,7 +1037,7 @@ async function laufe(browser, g) {
 
     /* ============ 7b. C-04 / C-15: ganze Schicht nachtragen und löschen – am Gerät mit Zeitzone New York ============ */
     {
-      const ctxNy = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'America/New_York' });
+      const ctxNy = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'America/New_York' });
       const ny = await ctxNy.newPage();
       const nyFehler = [];
       ny.on('console', (m) => { if (m.type() === 'error') nyFehler.push(m.text()); });
@@ -1045,7 +1051,7 @@ async function laufe(browser, g) {
       await ny.waitForSelector('#view');
       const person = (await nyApi('/benutzer')).find((m) => m.name === 'Neu Vom Buero');
       // ein Sonntag vor drei bis vier Wochen (Wiener Datum), dort gibt es keine Schicht
-      const basis = new Date(Date.now() - 21 * 86400e3);
+      const basis = new Date(jetzt() - 21 * 86400e3);
       const tagWien = new Date(basis.getTime() - ((new Date(basis.toLocaleString('en-US', { timeZone: 'Europe/Vienna' })).getDay()) % 7) * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       await ny.evaluate((h) => { location.hash = h; }, `#/korrektur?benutzerId=${person.id}&von=${tagWien}&bis=${tagWien}`);
       await ny.waitForSelector('#k-schichten .state, #k-schichtliste');
@@ -1053,7 +1059,7 @@ async function laufe(browser, g) {
       // C-15: Vorbelegung des Einzelbuchungs-Dialogs ist Wiener Zeit, nicht New York
       await ny.click('#k-neu');
       const vorbelegt = await ny.locator('dialog[open] input[name="zeit"]').inputValue();
-      const wienJetzt = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Vienna' }).slice(0, 16).replace(' ', 'T');
+      const wienJetzt = new Date(jetzt()).toLocaleString('sv-SE', { timeZone: 'Europe/Vienna' }).slice(0, 16).replace(' ', 'T');
       pruef(Math.abs(new Date(vorbelegt + ':00Z').getTime() - new Date(wienJetzt + ':00Z').getTime()) < 3 * 60e3, `C-15: Dialog rechnet mit der Geräte-Zeitzone (vorbelegt ${vorbelegt}, Wien ${wienJetzt})`);
       await ny.click('dialog[open] .dlg-foot [data-zu]');
       // C-04: ganze Schicht 07:00–15:30, Pause 30

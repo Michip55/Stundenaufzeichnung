@@ -39,6 +39,8 @@ function createApp(opt = {}) {
 
   // Rechte-Matrix beim ersten Start anlegen
   if (!db.eins('SELECT 1 AS x FROM rolle_recht LIMIT 1')) db.transaktion(() => schreibeStandardMatrix(db));
+  // Positionskatalog (Firmenvorlage, API.md 10) beim ersten Start anlegen
+  require('./positionen').katalogAnlegen(db, uhr());
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
 
   bt.warnungen = [];

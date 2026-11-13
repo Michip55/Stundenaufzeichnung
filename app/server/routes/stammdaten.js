@@ -108,7 +108,11 @@ module.exports = function stammdatenRouten(api, bt) {
     if (db.eins('SELECT id FROM baustelle WHERE kst = ?', f.kst)) throw konflikt(`Die Kostenstelle ${f.kst} gibt es bereits.`);
     f.erstellt = jetzt();
     const spalten = Object.keys(f);
-    const r = db.lauf(`INSERT INTO baustelle (${spalten.join(', ')}) VALUES (${spalten.map(() => '?').join(', ')})`, ...spalten.map((k) => f[k]));
+    const r = db.transaktion(() => {
+      const ins = db.lauf(`INSERT INTO baustelle (${spalten.join(', ')}) VALUES (${spalten.map(() => '?').join(', ')})`, ...spalten.map((k) => f[k]));
+      require('../positionen').katalogKopieren(db, ins.id, bt.uhr()); // API.md 10: Katalog wird kopiert
+      return ins;
+    });
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `baustelle:${r.id}`, neu: f, text: `Baustelle ${f.kst} angelegt` });
     res.status(201).json(baustelleJson(db, req.ctx, db.eins('SELECT * FROM baustelle WHERE id = ?', r.id), { detail: true }));
   });

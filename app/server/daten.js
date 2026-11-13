@@ -47,9 +47,13 @@ function ladeBerichteFuerKalk(db, baustelleId) {
   return [...nachId.values()];
 }
 
-/** Nachkalkulation einer Baustelle (Rohdaten mit €-Werten – nur nach Rechteprüfung ausliefern!) */
+/**
+ * Nachkalkulation einer Baustelle (Rohdaten mit €-Werten – nur nach Rechteprüfung ausliefern!).
+ * Budget-Verbrauch und Status beziehen sich auf die Nachkalkulation nach Positionen (API.md 10):
+ * Nachkalkulationssumme ÷ Auftragssumme gesamt. Die interne Kostenrechnung bleibt als `interneKosten` erhalten.
+ */
 function kalkulationFuer(db, bs, preise) {
-  return berechneKalkulation({
+  const k = berechneKalkulation({
     auftragssumme: bs.auftragssumme,
     nachtraege: db.alle('SELECT id, text, betrag FROM nachtrag WHERE baustelle_id = ? ORDER BY id', bs.id),
     schwellen: parseJson(bs.schwellen, [80, 90, 100]),
@@ -59,6 +63,19 @@ function kalkulationFuer(db, bs, preise) {
     leistungsmeldungen: db.alle('SELECT leistung_id AS leistungId, menge, datum FROM leistungsmeldung WHERE baustelle_id = ? ORDER BY datum, id', bs.id),
     regieLohngruppe: 'fa'
   });
+  const { projektPositionen } = require('./positionen');
+  const { budgetStatus, budgetHinweise } = require('./kalkulation');
+  const pos = projektPositionen(db, bs, k.auftragGesamt);
+  k.interneKosten = { kosten: k.kosten, budgetVerbrauchProzent: k.budgetVerbrauchProzent, db: k.db, dbProzent: k.dbProzent, status: k.status };
+  k.budgetVerbrauchProzent = pos.budgetVerbrauchProzent;
+  k.status = budgetStatus(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen);
+  k.hinweise = [...budgetHinweise(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen, 'Die Nachkalkulationssumme'), ...k.hinweise.filter((h) => !h.budget), ...pos.hinweise];
+  k.positionen = {
+    ...k.positionen,
+    gesamtsumme: pos.gesamtsumme, ergebnis: pos.ergebnis, ergebnisProzent: pos.ergebnisProzent,
+    gruppen: pos.gruppen.map((g) => ({ schluessel: g.schluessel, name: g.name, summe: g.summe, anteilProzent: g.anteilProzent }))
+  };
+  return k;
 }
 
 /** Kosten eines Berichts (kostenTag) */

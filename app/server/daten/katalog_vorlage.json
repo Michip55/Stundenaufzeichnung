@@ -1,0 +1,727 @@
+{
+ "stand": "2026-04-01",
+ "quelle": "Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx",
+ "positionen": [
+  {
+   "bezeichnung": "Facharbeiter",
+   "einheit": "Std.",
+   "ep": 72.5,
+   "gruppe": "arbeit",
+   "zeile": 2
+  },
+  {
+   "bezeichnung": "LKW 2A",
+   "einheit": "Std.",
+   "ep": 75,
+   "gruppe": "transport",
+   "zeile": 5
+  },
+  {
+   "bezeichnung": "LKW 3A",
+   "einheit": "Std.",
+   "ep": 77.3,
+   "gruppe": "transport",
+   "zeile": 6
+  },
+  {
+   "bezeichnung": "LKW 4A",
+   "einheit": "Std.",
+   "ep": 87.6,
+   "gruppe": "transport",
+   "zeile": 7
+  },
+  {
+   "bezeichnung": "3A-Kran",
+   "einheit": "Std.",
+   "ep": 102.2,
+   "gruppe": "transport",
+   "zeile": 8
+  },
+  {
+   "bezeichnung": "LKW 4A Mulde und Kran",
+   "einheit": "Std.",
+   "ep": 117,
+   "gruppe": "transport",
+   "zeile": 9
+  },
+  {
+   "bezeichnung": "LKW Zug",
+   "einheit": "Std.",
+   "ep": 94.4,
+   "gruppe": "transport",
+   "zeile": 10
+  },
+  {
+   "bezeichnung": "LKW Sattel",
+   "einheit": "Std.",
+   "ep": 94.4,
+   "gruppe": "transport",
+   "zeile": 11
+  },
+  {
+   "bezeichnung": "LKW Tieflader",
+   "einheit": "Std.",
+   "ep": 120.4,
+   "gruppe": "transport",
+   "zeile": 12
+  },
+  {
+   "bezeichnung": "Bagger 1,8 to.",
+   "einheit": "Std.",
+   "ep": 74,
+   "gruppe": "geraete",
+   "zeile": 15
+  },
+  {
+   "bezeichnung": "Komatsu PC27 3 to",
+   "einheit": "Std.",
+   "ep": 78.4,
+   "gruppe": "geraete",
+   "zeile": 16
+  },
+  {
+   "bezeichnung": "Mobilbagger 9-11 to",
+   "einheit": "Std.",
+   "ep": 94.4,
+   "gruppe": "geraete",
+   "zeile": 17
+  },
+  {
+   "bezeichnung": "Kettenbagger 23 to",
+   "einheit": "Std.",
+   "ep": 103.4,
+   "gruppe": "geraete",
+   "zeile": 18
+  },
+  {
+   "bezeichnung": "Minilader Bobcat  3,3 to",
+   "einheit": "Std.",
+   "ep": 77.3,
+   "gruppe": "geraete",
+   "zeile": 19
+  },
+  {
+   "bezeichnung": "Radlader Case 2,5 m3",
+   "einheit": "Std.",
+   "ep": 102.2,
+   "gruppe": "geraete",
+   "zeile": 20
+  },
+  {
+   "bezeichnung": "Radlader Cat 3,5 m3",
+   "einheit": "Std.",
+   "ep": 112.5,
+   "gruppe": "geraete",
+   "zeile": 21
+  },
+  {
+   "bezeichnung": "Walze Hamm 3,0 to",
+   "einheit": "Std.",
+   "ep": 71.6,
+   "gruppe": "geraete",
+   "zeile": 22
+  },
+  {
+   "bezeichnung": "Walze Bomag 7,0 to",
+   "einheit": "Std.",
+   "ep": 81.8,
+   "gruppe": "geraete",
+   "zeile": 23
+  },
+  {
+   "bezeichnung": "Mobilbrecher RM 100",
+   "einheit": "Std.",
+   "ep": 290,
+   "gruppe": "geraete",
+   "zeile": 24
+  },
+  {
+   "bezeichnung": "Grabenwalze",
+   "einheit": "Std.",
+   "ep": 45,
+   "gruppe": "geraete",
+   "zeile": 25
+  },
+  {
+   "bezeichnung": "Dumper",
+   "einheit": "Std.",
+   "ep": 45,
+   "gruppe": "geraete",
+   "zeile": 26
+  },
+  {
+   "bezeichnung": "Kleingeräte",
+   "einheit": "Std.",
+   "ep": 45,
+   "gruppe": "geraete",
+   "zeile": 27
+  },
+  {
+   "bezeichnung": "Sand RK 0/4 Estrichsand",
+   "einheit": "t",
+   "ep": 17.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 30
+  },
+  {
+   "bezeichnung": "Sand RK 0/8 gewaschen",
+   "einheit": "t",
+   "ep": 17.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 31
+  },
+  {
+   "bezeichnung": "Sand RK 0/16 gewaschen",
+   "einheit": "t",
+   "ep": 17.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 32
+  },
+  {
+   "bezeichnung": "Sand RK 0/16 od. 0/32",
+   "einheit": "t",
+   "ep": 10.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 33
+  },
+  {
+   "bezeichnung": "Kies RK 4/8",
+   "einheit": "t",
+   "ep": 17.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 34
+  },
+  {
+   "bezeichnung": "Kies RK 8/16",
+   "einheit": "t",
+   "ep": 17.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 35
+  },
+  {
+   "bezeichnung": "Rollschotter RK 16/32",
+   "einheit": "t",
+   "ep": 15.8,
+   "gruppe": "eigenmaterial",
+   "zeile": 36
+  },
+  {
+   "bezeichnung": "Rollschotter RK 32/63",
+   "einheit": "t",
+   "ep": 14.5,
+   "gruppe": "eigenmaterial",
+   "zeile": 37
+  },
+  {
+   "bezeichnung": "Rollschotter RK 16/63",
+   "einheit": "t",
+   "ep": 14.5,
+   "gruppe": "eigenmaterial",
+   "zeile": 38
+  },
+  {
+   "bezeichnung": "Bruchsand KK 0/2",
+   "einheit": "t",
+   "ep": 19.1,
+   "gruppe": "eigenmaterial",
+   "zeile": 39
+  },
+  {
+   "bezeichnung": "Bruchsand KK 0/4",
+   "einheit": "t",
+   "ep": 19.1,
+   "gruppe": "eigenmaterial",
+   "zeile": 40
+  },
+  {
+   "bezeichnung": "Splitt KK 2/4 oder KK 4/8",
+   "einheit": "t",
+   "ep": 21.2,
+   "gruppe": "eigenmaterial",
+   "zeile": 41
+  },
+  {
+   "bezeichnung": "Wandschotter FSM 0/63",
+   "einheit": "t",
+   "ep": 6.8,
+   "gruppe": "eigenmaterial",
+   "zeile": 42
+  },
+  {
+   "bezeichnung": "Grädermaterial KK 0/32",
+   "einheit": "t",
+   "ep": 13.4,
+   "gruppe": "eigenmaterial",
+   "zeile": 43
+  },
+  {
+   "bezeichnung": "RB 0/32, U-A",
+   "einheit": "t",
+   "ep": 10.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 44
+  },
+  {
+   "bezeichnung": "RB 0/63, U-A",
+   "einheit": "t",
+   "ep": 10.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 45
+  },
+  {
+   "bezeichnung": "RB 32/63, U-A",
+   "einheit": "t",
+   "ep": 10.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 46
+  },
+  {
+   "bezeichnung": "RA 0/32, U-A",
+   "einheit": "t",
+   "ep": 10.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 47
+  },
+  {
+   "bezeichnung": "RG 0/63",
+   "einheit": "t",
+   "ep": 5.4,
+   "gruppe": "eigenmaterial",
+   "zeile": 48
+  },
+  {
+   "bezeichnung": "RMH 0/8, U-A",
+   "einheit": "t",
+   "ep": 1.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 49
+  },
+  {
+   "bezeichnung": "RMH 8/16, U-A",
+   "einheit": "t",
+   "ep": 1.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 50
+  },
+  {
+   "bezeichnung": "RMH 16/63, U-A",
+   "einheit": "t",
+   "ep": 1.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 51
+  },
+  {
+   "bezeichnung": "RMH 0/63, U-A",
+   "einheit": "t",
+   "ep": 1.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 52
+  },
+  {
+   "bezeichnung": "Erde ungesiebt",
+   "einheit": "t",
+   "ep": 8.3,
+   "gruppe": "eigenmaterial",
+   "zeile": 53
+  },
+  {
+   "bezeichnung": "Erde gesiebt",
+   "einheit": "t",
+   "ep": 20.1,
+   "gruppe": "eigenmaterial",
+   "zeile": 54
+  },
+  {
+   "bezeichnung": "Bodenaushub, Kleinmenge bis 2000 to",
+   "einheit": "m³",
+   "ep": 14.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 55
+  },
+  {
+   "bezeichnung": "Bodenaushub mit BN",
+   "einheit": "m³",
+   "ep": 12.8,
+   "gruppe": "eigenmaterial",
+   "zeile": 56
+  },
+  {
+   "bezeichnung": "Bodenaushub, Kleinmenge bis 2000 to",
+   "einheit": "t",
+   "ep": 8.1,
+   "gruppe": "eigenmaterial",
+   "zeile": 57
+  },
+  {
+   "bezeichnung": "Bodenaushub mit BN",
+   "einheit": "t",
+   "ep": 7.1,
+   "gruppe": "eigenmaterial",
+   "zeile": 58
+  },
+  {
+   "bezeichnung": "Betonbruch bis 80cm",
+   "einheit": "t",
+   "ep": 12.6,
+   "gruppe": "eigenmaterial",
+   "zeile": 59
+  },
+  {
+   "bezeichnung": "Betonbruch großformatig",
+   "einheit": "t",
+   "ep": 23.7,
+   "gruppe": "eigenmaterial",
+   "zeile": 60
+  },
+  {
+   "bezeichnung": "Bauschutt",
+   "einheit": "t",
+   "ep": 49.5,
+   "gruppe": "eigenmaterial",
+   "zeile": 61
+  },
+  {
+   "bezeichnung": "Asphaltbruch rein",
+   "einheit": "t",
+   "ep": 19.3,
+   "gruppe": "eigenmaterial",
+   "zeile": 62
+  },
+  {
+   "bezeichnung": "Holz, Baum- und Strauchschnitt",
+   "einheit": "t",
+   "ep": 86.3,
+   "gruppe": "eigenmaterial",
+   "zeile": 63
+  },
+  {
+   "bezeichnung": "Wurzelstöcke",
+   "einheit": "t",
+   "ep": 168.2,
+   "gruppe": "eigenmaterial",
+   "zeile": 64
+  },
+  {
+   "bezeichnung": "Beton C 16/20",
+   "einheit": "m3",
+   "ep": 100,
+   "gruppe": "fremdmaterial",
+   "zeile": 67
+  },
+  {
+   "bezeichnung": "Trockenbeton",
+   "einheit": "Stk",
+   "ep": 9,
+   "gruppe": "fremdmaterial",
+   "zeile": 68
+  },
+  {
+   "bezeichnung": "Zement",
+   "einheit": "Stk",
+   "ep": 9.2,
+   "gruppe": "fremdmaterial",
+   "zeile": 69
+  },
+  {
+   "bezeichnung": "Trass Zement",
+   "einheit": "Stk",
+   "ep": 13.2,
+   "gruppe": "fremdmaterial",
+   "zeile": 70
+  },
+  {
+   "bezeichnung": "Steinkleber",
+   "einheit": "Stk",
+   "ep": 40.5,
+   "gruppe": "fremdmaterial",
+   "zeile": 71
+  },
+  {
+   "bezeichnung": "Fugensand",
+   "einheit": "Stk",
+   "ep": 4.6,
+   "gruppe": "fremdmaterial",
+   "zeile": 72
+  },
+  {
+   "bezeichnung": "Pflasterfuge Murexin",
+   "einheit": "Stk",
+   "ep": 55.05,
+   "gruppe": "fremdmaterial",
+   "zeile": 73
+  },
+  {
+   "bezeichnung": "Pflaster",
+   "einheit": "m2",
+   "ep": 35,
+   "gruppe": "fremdmaterial",
+   "zeile": 74
+  },
+  {
+   "bezeichnung": "Vlies",
+   "einheit": "m2",
+   "ep": 1.6,
+   "gruppe": "fremdmaterial",
+   "zeile": 75
+  },
+  {
+   "bezeichnung": "Schachtdeckel DN60,400 KN",
+   "einheit": "Stk",
+   "ep": 370,
+   "gruppe": "fremdmaterial",
+   "zeile": 76
+  },
+  {
+   "bezeichnung": "Ausgleichsring 5 cm",
+   "einheit": "Stk",
+   "ep": 35,
+   "gruppe": "fremdmaterial",
+   "zeile": 77
+  },
+  {
+   "bezeichnung": "Ausgleichsring 10 cm",
+   "einheit": "Stk",
+   "ep": 40,
+   "gruppe": "fremdmaterial",
+   "zeile": 78
+  },
+  {
+   "bezeichnung": "MatecII V200-Rinne +Stirnwand",
+   "einheit": "lfm",
+   "ep": 75.2,
+   "gruppe": "fremdmaterial",
+   "zeile": 79
+  },
+  {
+   "bezeichnung": "Drainageschlauch",
+   "einheit": "lfm",
+   "ep": 3.2,
+   "gruppe": "fremdmaterial",
+   "zeile": 80
+  },
+  {
+   "bezeichnung": "PVC DN150",
+   "einheit": "lfm",
+   "ep": 38.5,
+   "gruppe": "fremdmaterial",
+   "zeile": 81
+  },
+  {
+   "bezeichnung": "Abzweiger 150/150",
+   "einheit": "Stk",
+   "ep": 36.3,
+   "gruppe": "fremdmaterial",
+   "zeile": 82
+  },
+  {
+   "bezeichnung": "Abzweiger 150/100",
+   "einheit": "Stk",
+   "ep": 31.3,
+   "gruppe": "fremdmaterial",
+   "zeile": 83
+  },
+  {
+   "bezeichnung": "Putzstück DN 150",
+   "einheit": "Stk",
+   "ep": 191.4,
+   "gruppe": "fremdmaterial",
+   "zeile": 84
+  },
+  {
+   "bezeichnung": "Doppelrückstauklappe ACO DN 150",
+   "einheit": "Stk",
+   "ep": 407,
+   "gruppe": "fremdmaterial",
+   "zeile": 85
+  },
+  {
+   "bezeichnung": "Reduktion 150/100",
+   "einheit": "Stk",
+   "ep": 14.8,
+   "gruppe": "fremdmaterial",
+   "zeile": 86
+  },
+  {
+   "bezeichnung": "Bögen DN150",
+   "einheit": "Stk",
+   "ep": 16.7,
+   "gruppe": "fremdmaterial",
+   "zeile": 87
+  },
+  {
+   "bezeichnung": "Muffe DN 150",
+   "einheit": "Stk",
+   "ep": 14.8,
+   "gruppe": "fremdmaterial",
+   "zeile": 88
+  },
+  {
+   "bezeichnung": "PVC DN100",
+   "einheit": "lfm",
+   "ep": 21.6,
+   "gruppe": "fremdmaterial",
+   "zeile": 89
+  },
+  {
+   "bezeichnung": "Abzweiger 100/100",
+   "einheit": "Stk",
+   "ep": 15.6,
+   "gruppe": "fremdmaterial",
+   "zeile": 90
+  },
+  {
+   "bezeichnung": "Bögen DN100",
+   "einheit": "Stk",
+   "ep": 7.3,
+   "gruppe": "fremdmaterial",
+   "zeile": 91
+  },
+  {
+   "bezeichnung": "Muffe DN100",
+   "einheit": "Stk",
+   "ep": 9.2,
+   "gruppe": "fremdmaterial",
+   "zeile": 92
+  },
+  {
+   "bezeichnung": "Regensinkkasten HL600",
+   "einheit": "Stk",
+   "ep": 54.5,
+   "gruppe": "fremdmaterial",
+   "zeile": 93
+  },
+  {
+   "bezeichnung": "Schachtring 100/25",
+   "einheit": "Stk",
+   "ep": 74,
+   "gruppe": "fremdmaterial",
+   "zeile": 94
+  },
+  {
+   "bezeichnung": "Schachtring 100/50",
+   "einheit": "Stk",
+   "ep": 84,
+   "gruppe": "fremdmaterial",
+   "zeile": 95
+  },
+  {
+   "bezeichnung": "Konus 100/60/60",
+   "einheit": "Stk",
+   "ep": 123,
+   "gruppe": "fremdmaterial",
+   "zeile": 96
+  },
+  {
+   "bezeichnung": "Auflagerahmen+Deckel",
+   "einheit": "Stk",
+   "ep": 120,
+   "gruppe": "fremdmaterial",
+   "zeile": 97
+  },
+  {
+   "bezeichnung": "Einlaufgitter 45/45, 400 KN",
+   "einheit": "Stk",
+   "ep": 165,
+   "gruppe": "fremdmaterial",
+   "zeile": 98
+  },
+  {
+   "bezeichnung": "Classic Bodenplatten 50/50/4",
+   "einheit": "m2",
+   "ep": 9.6,
+   "gruppe": "fremdmaterial",
+   "zeile": 99
+  },
+  {
+   "bezeichnung": "Raseneinfassung 5/20/100",
+   "einheit": "Stk",
+   "ep": 2.5,
+   "gruppe": "fremdmaterial",
+   "zeile": 100
+  },
+  {
+   "bezeichnung": "Raseneinfassung 5/30/100",
+   "einheit": "Stk",
+   "ep": 2.4,
+   "gruppe": "fremdmaterial",
+   "zeile": 101
+  },
+  {
+   "bezeichnung": "Hochbordstein 100/18/20",
+   "einheit": "Stk",
+   "ep": 6.9,
+   "gruppe": "fremdmaterial",
+   "zeile": 102
+  },
+  {
+   "bezeichnung": "Leistenstein 100/10/20",
+   "einheit": "Stk",
+   "ep": 3.3,
+   "gruppe": "fremdmaterial",
+   "zeile": 103
+  },
+  {
+   "bezeichnung": "Maleiner",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 104
+  },
+  {
+   "bezeichnung": "Pehofer",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 105
+  },
+  {
+   "bezeichnung": "Quester",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 106
+  },
+  {
+   "bezeichnung": "Wallner & Neubert",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 107
+  },
+  {
+   "bezeichnung": "Schily",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 108
+  },
+  {
+   "bezeichnung": "Lagerhaus",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 109
+  },
+  {
+   "bezeichnung": "Asphalt",
+   "einheit": "PA",
+   "ep": 1.15,
+   "gruppe": "fremdmaterial",
+   "zeile": 110
+  },
+  {
+   "bezeichnung": "Landschaftsabgabe",
+   "einheit": "PA",
+   "ep": 0.25,
+   "gruppe": "abgaben",
+   "zeile": 113
+  },
+  {
+   "bezeichnung": "Maut",
+   "einheit": "VE",
+   "ep": 1.05,
+   "gruppe": "abgaben",
+   "zeile": 114
+  }
+ ]
+}
