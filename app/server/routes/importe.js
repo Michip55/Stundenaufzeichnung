@@ -108,7 +108,9 @@ module.exports = function importRouten(api, bt) {
         if (!doppelt) buchungen.push({ r, betrag: R.r2(betrag), datum: zd, schluessel: schl });
       }
     });
-    const uebernehmen = !vorschau && !fehler.length;
+    // G-04: Übernahme mit Fehlerzeilen → 400 im Standardformat, nichts gespeichert (wie E-05/Katalog-Import)
+    if (!vorschau && fehler.length) throw ungueltig(`Die Datei enthält ${fehler.length} fehlerhafte Zeile(n) – nichts übernommen. Bitte die Zeilen korrigieren und erneut importieren.`, { zeilenFehler: fehler });
+    const uebernehmen = !vorschau;
     if (uebernehmen && buchungen.length) {
       db.transaktion(() => {
         for (const b of buchungen) {
@@ -311,7 +313,8 @@ module.exports = function importRouten(api, bt) {
       }
     }
     const trenn = vl.trennzeichen === '\\t' ? '\t' : vl.trennzeichen;
-    const text = zeilen.map((z) => z.map((x) => { const s = feld(typeof x === 'number' ? String(x) : x); return trenn === ';' ? s : /[",\t\r\n]/.test(String(x)) ? `"${String(x).replace(/"/g, '""')}"` : String(x); }).join(trenn)).join('\r\n') + '\r\n';
+    // G-13: gemeinsamer Helfer – Formel-Schutz für jedes Trennzeichen
+    const text = require('../export').csvText(zeilen.map((z) => z.map((x) => (typeof x === 'number' ? String(x) : x))), trenn);
     return { buf: vl.kodierung === 'windows-1252' ? Buffer.from(text.replace(/[^\x00-\xff]/g, '?'), 'latin1') : Buffer.from(`﻿${text}`, 'utf8'), kodierung: vl.kodierung, name: vl.name };
   };
 };

@@ -7,17 +7,25 @@ const { deDatum, WT_KURZ, wochentag } = require('./datum');
 
 const BOM = '﻿';
 
-function feld(x) {
+/**
+ * Ein CSV-Feld – gemeinsamer Helfer für ALLE CSV-Exporte (G-13): Formel-Schutz (', =, +, -, @, Tab, CR am Anfang
+ * → mit ' entschärft) unabhängig vom Trennzeichen, danach Anführungszeichen, wenn Trennzeichen/"/Zeilenumbruch vorkommen.
+ */
+function feld(x, trenn = ';') {
   if (x === null || x === undefined) return '';
-  let s = typeof x === 'number' ? String(x).replace('.', ',') : String(x);
-  // Schutz vor Formel-Injektion in Tabellenprogrammen
-  if (/^[=+\-@\t\r]/.test(s) && typeof x !== 'number') s = "'" + s;
-  if (/[;"\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  let s = typeof x === 'number' ? String(x).replace('.', trenn === ',' ? '.' : ',') : String(x);
+  if (typeof x !== 'number' && /^[=+\-@\t\r']/.test(s)) s = "'" + s;
+  if (s.includes(trenn) || /["\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
   return s;
 }
 
+/** Zeilen → CSV-Text (ohne BOM) mit beliebigem Trennzeichen */
+function csvText(zeilen, trenn = ';') {
+  return zeilen.map((z) => z.map((x) => feld(x, trenn)).join(trenn)).join('\r\n') + '\r\n';
+}
+
 function csv(zeilen) {
-  return BOM + zeilen.map((z) => z.map(feld).join(';')).join('\r\n') + '\r\n';
+  return BOM + csvText(zeilen, ';');
 }
 
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -77,4 +85,4 @@ function buakCsv(m) {
   return csv(z);
 }
 
-module.exports = { csv, feld, lohnCsv, buakCsv, BOM };
+module.exports = { csv, csvText, feld, lohnCsv, buakCsv, BOM };

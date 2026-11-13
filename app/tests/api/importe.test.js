@@ -37,9 +37,18 @@ test('Importe und Exporte BMD/Auer', async (t) => {
     r = await c.buero.post('/import/bmd-op', { dateiBase64: b64(datei, 'latin1'), vorschau: false });
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM rechnung_zahlung').n, 1); // idempotent
     // höherer offener Betrag → Fehler, nichts übernommen
-    r = await c.buero.post('/import/bmd-op', { dateiBase64: b64(datei.replace('400,00', '900,00'), 'latin1'), vorschau: false });
-    assert.equal(r.daten.uebernommen, false);
+    const vor = s.db.eins('SELECT COUNT(*) AS n FROM rechnung_zahlung').n;
+    r = await c.buero.post('/import/bmd-op', { dateiBase64: b64(datei.replace('400,00', '900,00'), 'latin1'), vorschau: true });
     assert.match(r.daten.fehler[0].text, /höher/);
+    // G-04: Übernahme mit Fehlerzeilen → 400 im Standardformat mit zeilenFehler, nichts gebucht (auch nicht die gültigen Zeilen)
+    r = await c.buero.post('/import/bmd-op', { dateiBase64: b64(datei.replace('400,00', '900,00').replace('600,00;04.11', '100,00;04.11'), 'latin1'), vorschau: false });
+    assert.equal(r.status, 400);
+    assert.equal(r.daten.code, 'UNGUELTIG');
+    assert.match(r.daten.fehler, /fehlerhafte Zeile\(n\) – nichts übernommen/);
+    assert.equal(r.daten.zeilenFehler.length, 1);
+    assert.match(r.daten.zeilenFehler[0].text, /höher/);
+    assert.equal(r.daten.zeilenFehler[0].zeile, 2);
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM rechnung_zahlung').n, vor);
     assert.equal((await c.bauleiter.post('/import/bmd-op', { dateiBase64: b64(datei) })).status, 403);
     // Zuordnung ändern (Spaltennummern)
     const z2 = await c.buero.put('/import/bmd-op/zuordnung', { spalten: { belegnr: 1, offen: 5 }, kodierung: 'utf-8' });
@@ -115,5 +124,27 @@ test('Importe und Exporte BMD/Auer', async (t) => {
     assert.equal(neu.status, 201);
     const t2 = (await c.buero.get(`/monat/export.csv?monat=2026-11&vorlage=${neu.daten.id}`)).daten.toString('latin1');
     assert.match(t2, /\r\n1\d{3};\d{2}\.11\.2026;N;\d/);
+  });
+
+  await t.test('G-13: Formel-Schutz in jedem Export, auch mit Komma/Tab als Trennzeichen', async () => {
+    s.db.lauf("UPDATE benutzer SET name = '=HYPERLINK(\"http://x\")' WHERE id = ?", U.mitarbeiter);
+    for (const trenn of [',', '\\t', ';']) {
+      const v = await c.buero.post('/lohn-vorlagen', { name: `Formel ${trenn}`, trennzeichen: trenn, kodierung: 'utf-8', spalten: [{ feld: 'pnr' }, { feld: 'name' }, { feld: 'fest', wert: '+SUMME(A1)' }, { feld: 'fest', wert: '@x' }, { feld: 'stunden' }], lohnarten: { normal: '-1' } });
+      assert.equal(v.status, 201, JSON.stringify(v.daten));
+      const text = (await c.buero.get(`/monat/export.csv?monat=2026-11&vorlage=${v.daten.id}`)).daten.toString('utf8');
+      const t = trenn === '\\t' ? '\t' : trenn;
+      const zeilen = text.replace(/^\uFEFF/, '').trim().split('\r\n').map((z) => z.split(t));
+      const felder = zeilen.flat();
+      assert.ok(!felder.some((f) => /^"?[=+@]/.test(f) || /^"?-1$/.test(f)), `${trenn}: ${text.slice(0, 300)}`);
+      assert.ok(felder.some((f) => f.includes("'=HYPERLINK")), `${trenn}: Name entschärft`);
+      assert.ok(felder.includes("'+SUMME(A1)") && felder.includes("'@x"));
+    }
+    // Standard-Lohn-CSV und Offene Posten ebenfalls
+    const lohn = (await c.buero.get('/monat/export.csv?monat=2026-11')).daten.toString('utf8');
+    assert.ok(lohn.includes("'=HYPERLINK") && !/;=HYPERLINK/.test(lohn));
+    const { feld, csvText } = require('../../server/export');
+    for (const x of ['=1+1', '+1', '-1', '@a', '\t=1', '\r=1', "'=1"]) assert.ok(feld(x, ',').replace(/^"/, '').startsWith("'"), JSON.stringify(x));
+    assert.equal(csvText([['a,b', 'c']], ','), '"a,b",c\r\n');
+    assert.equal(csvText([['a\tb', 'c']], '\t'), '"a\tb"\tc\r\n');
   });
 });
