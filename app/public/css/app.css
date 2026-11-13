@@ -1027,3 +1027,9 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 }
 
 .fuhr-vorschlag { background: #fff8e6; border: 1px solid #f2d7ae; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; } .fuhr-vorschlag > b { display: flex; gap: 8px; align-items: center; } .fuhr-vorschlag li { display: flex; padding: 4px 0; font-size: 14px; } .fuhr-vorschlag small { display: block; color: var(--muted); } .mat-row .chip { font-style: normal; margin-left: 6px; }
+.wp-frei > span { min-width: 0; overflow-wrap: anywhere; } .wp-frei small { flex: 0 1 auto; min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .wp-pool { overflow: hidden; }
+.wp-gitter { min-width: calc(200px + var(--sp, 5) * 126px); } .wp-zeile { grid-template-columns: 200px repeat(var(--sp, 5), minmax(0, 1fr)); } .fu-tag .wp-zeile { grid-template-columns: 200px minmax(0, 1fr); }
+@media (max-width: 719px) { .wp-gitter { min-width: 0; } .wp-zeile, .fu-tag .wp-zeile { grid-template-columns: 104px minmax(0, 1fr); } }
+@media (min-width: 1000px) { .wp-wrap > .wp-pool { position: sticky; top: 8px; max-height: calc(100vh - 110px); overflow-y: auto; } }
+
+.dok-pdf-karte { display: flex; gap: 14px; align-items: center; padding: 22px; width: 100%; color: inherit; } .dok-pdf-karte .ic { width: 34px; height: 34px; flex: none; } .dok-pdf-karte span { display: flex; flex-direction: column; gap: 2px; } .dok-pdf-karte small { color: var(--muted); } .dok-pdf-karte:hover { background: #e8ebee; }

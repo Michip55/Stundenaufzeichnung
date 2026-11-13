@@ -1,0 +1,703 @@
+'use strict';
+// Ausbaustufe 2 – Prüfungen der neuen Bereiche (API.md 12): Stammdaten & Preise, Bauvorhaben-Lebenslauf/Archiv,
+// Dokumente, Rechnungen/Offene Posten, Baustellenplaner (Woche, Morgen, Notizen, Fortschreiben, Fuhren), Urlaub.
+// Läuft am Ende von run.js je Bildschirmgröße; externe Dienste sind Attrappen des Servers (BAUTAG_TEST=1, 12.18).
+const KENN = (g) => ({ handy: 'H', tablet: 'T', pc: 'P' }[g.name] || 'X');
+
+// Ziehen mit der Maus (Zeigerereignisse) – wie ein Mensch: drücken, ein Stück bewegen, zum Ziel, loslassen
+async function zieh(page, von, nach, { oben = 40 } = {}) {
+  await nach.scrollIntoViewIfNeeded();
+  await von.scrollIntoViewIfNeeded();
+  const a = await von.boundingBox();
+  await page.mouse.move(a.x + Math.min(a.width / 2, 30), a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + Math.min(a.width / 2, 30) + 12, a.y + a.height / 2 + 12, { steps: 4 });
+  const b = await nach.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height / 2, oben), { steps: 10 });
+  await page.waitForTimeout(80);
+  await page.mouse.up();
+}
+const naechsterArbeitstag = (iso, n = 1) => { const d = new Date(iso + 'T12:00:00Z'); let rest = n; while (rest > 0) { d.setUTCDate(d.getUTCDate() + 1); if (![0, 6].includes(d.getUTCDay())) rest -= 1; } return d.toISOString().slice(0, 10); };
+const plusTage = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+/* ================= Stammdaten & Preise (12.21) + Lebenslauf (12.15) ================= */
+async function stammdatenUndLebenslauf(h, z) {
+  const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg } = h;
+  const k = KENN(g), heute = h.heute();
+  const matName = `E2E Splitt ${k}`;
+  const kstY = `99-9${{ H: 1, T: 2, P: 3 }[k] || 9}1`;
+
+  /* ---- Büro: Material anlegen, Bauvorhaben Y anlegen ---- */
+  await anmelden('buero');
+  let nav = await h.navIds();
+  pruef(nav.includes('plan') && nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Offene Posten/Urlaub (${nav})`);
+  await geh('/preise');
+  pruef(await page.locator('[data-tab]').count() === 5 && await page.locator('#stamm-links a').count() >= 2, 'A2-Stamm: Reiter (Katalog, Geräte, Material, Lohngruppen, Leistungen) oder Verweise fehlen');
+  await page.click('[data-tab="materialien"]');
+  await page.waitForSelector('#stamm-neu');
+  await ueberlauf('stammdaten material'); await shot('stammdaten-material');
+  await page.click('#stamm-neu');
+  await page.waitForSelector('dialog[open] #stf');
+  await page.fill('#stf [name="code"]', `e2e-${k.toLowerCase()}`);
+  await page.fill('#stf [name="name"]', matName);
+  await page.fill('#stf [name="einheit"]', 't');
+  await page.fill('#stf [name="p_ek"]', '10,00');
+  await page.fill('#stf [name="p_vk"]', '15,50');
+  await dialogUeberlauf('stammdaten neu');
+  await page.click('#st-ok');
+  await page.waitForSelector(`#stamm-tabelle tr:has-text("${matName}")`);
+  const mat = (await api('GET', '/materialien')).json.find((m) => m.name === matName);
+  pruef(!!mat, 'A2-Stamm: neues Material fehlt in /materialien');
+  z.mat = mat;
+  // Code doppelt → Feldfehler, nichts gespeichert
+  await page.click('#stamm-neu');
+  await page.waitForSelector('dialog[open] #stf');
+  await page.fill('#stf [name="code"]', `e2e-${k.toLowerCase()}`); await page.fill('#stf [name="name"]', 'Doppelt'); await page.fill('#stf [name="einheit"]', 't');
+  await h.absichtlich(async () => { await page.click('#st-ok'); await page.waitForSelector('#stf [data-fehler="code"]:not([hidden])'); });
+  pruef(/gibt es schon/.test(await page.locator('#stf [data-fehler="code"]').innerText()), 'A2-Stamm: doppelter Code ohne Feldfehler');
+  await page.click('dialog[open] [data-zu]');
+  // Preis mit „gültig ab“ in der Zukunft → als geplant markiert
+  const vk = page.locator(`#stamm-tabelle tr[data-id="${mat.id}"] input[data-feld="vk"]`);
+  await vk.fill('17,00'); await vk.press('Enter');
+  await page.waitForSelector('dialog[open] #pa-form');
+  await page.fill('#pa-ab', plusTage(heute, 30));
+  await page.click('#pa-ok');
+  await page.waitForSelector(`#stamm-tabelle tr[data-id="${mat.id}"] [data-geplant]`);
+  pruef(Math.abs((await api('GET', '/preise')).json.materialien.find((m) => m.id === mat.id).vk - 15.5) < 0.001, 'A2-Stamm: geplanter Preis gilt schon heute');
+  await toastWeg();
+
+  // Bauvorhaben Y für den Lebenslauf (Bauleiter zugeteilt)
+  const leute = (await api('GET', '/mitarbeiter')).json;
+  const bl = leute.find((m) => m.name === 'Stefan Aigner');
+  const neuY = await api('POST', '/baustellen', { kst: kstY, name: `E2E Lebenslauf ${k}`, auftraggeber: `E2E Auftraggeber ${k}`, adresse: '2620 Neunkirchen, Testweg 1', status: 'aktiv', bauleiterId: bl ? bl.id : null });
+  pruef(neuY.status === 201 || neuY.status === 200, `A2-Leben: Baustelle anlegen → ${neuY.status} ${JSON.stringify(neuY.json).slice(0, 200)}`);
+  z.y = neuY.json;
+  await abmelden();
+
+  /* ---- Polier: Material im Bericht, Fertigmeldung, keine € ---- */
+  const ichP = await anmelden('polier');
+  nav = await h.navIds();
+  pruef(nav.includes('partie') && nav.includes('baustellen') && !nav.includes('plan') && !nav.includes('offeneposten') && !nav.includes('preise'), `A2: Polier-Navigation falsch (${nav})`);
+  const w = ichP.baustellenIds[0]; z.w = w;
+  let ber = null;
+  for (let i = 40; i < 60 && !ber; i += 1) { const r = await api('POST', '/berichte', { baustelleId: w, datum: plusTage(heute, -i) }); if (r.status === 201) ber = r.json; }
+  pruef(!!ber, 'A2-Stamm: kein neuer Berichtsentwurf möglich');
+  if (ber) {
+    await geh(`/bericht/${ber.id}`);
+    pruef(await page.locator(`.mat-row[data-m="${mat.id}"]`).count() === 1, 'A2-Stamm: neues Material fehlt in der Materialliste des Berichts');
+    const frisch = (await api('GET', `/berichte/${ber.id}`)).json;
+    const r = await api('PUT', `/berichte/${ber.id}`, { version: frisch.version, material: [{ materialId: mat.id, menge: 3 }] });
+    pruef(r.status === 200, `A2-Stamm: Material im Bericht speichern → ${r.status}`);
+    z.berMat = ber.id;
+  }
+  for (const r of ['/plan', '/offene-posten', '/preise', '/lohn-vorlagen']) await h.keinZugriff(r);
+  await geh('/baustellen'); await keinEuro('polier baustellen');
+  await geh(`/baustelle/${w}`); await keinEuro('polier baustelle');
+  pruef(await page.locator('#lebenslauf').count() === 1 && await page.locator('#phase-weiter').count() === 0, 'A2-Leben: Polier sieht den Status nicht oder darf ihn ändern');
+  pruef(await page.locator('[data-reiter="rechnungen"]').count() === 0 && await page.locator('#auftrag').count() === 0, 'A2-Leben: Polier sieht Rechnungen oder Auftragssumme');
+  await page.click('#fertig-melden');
+  await page.waitForSelector('dialog[open] #fmf');
+  await page.fill('#fmf [name="notiz"]', 'Restarbeiten: Bankett');
+  await page.click('dialog[open] button[type="submit"]');
+  await page.waitForSelector('#fertigmeldung');
+  await ueberlauf('polier fertigmeldung'); await shot('lebenslauf-polier');
+  await abmelden();
+
+  /* ---- Bauleiter: nur erlaubte Ziele, Fertiggestellt → Abgenommen ---- */
+  await anmelden('bauleiter');
+  await geh(`/baustelle/${z.y.id}`);
+  await page.click('#phase-andere');
+  await page.waitForSelector('dialog[open] #phf');
+  const ziele = await page.locator('#ph-ziel option').evaluateAll((o) => o.map((x) => x.value));
+  pruef(ziele.includes('fertiggestellt') && ziele.includes('pausiert') && !ziele.includes('storniert') && !ziele.includes('schlussrechnung'), `A2-Leben: Bauleiter-Ziele falsch (${ziele})`);
+  await page.selectOption('#ph-ziel', 'fertiggestellt');
+  await page.click('#ph-ok');
+  await page.waitForSelector('#lebenslauf[data-phase="fertiggestellt"]');
+  await toastWeg();
+  await page.click('#phase-weiter');
+  await page.waitForSelector('dialog[open] #phf');
+  pruef(await page.locator('#ph-ziel').inputValue() === 'abgenommen' && await page.locator('#phf [name="abnahmeDatum"]').isVisible(), 'A2-Leben: „Nächster Schritt“ schlägt nicht Abgenommen mit Abnahmedatum vor');
+  pruef(await page.locator('#phf [name="gewaehrleistungBis"]').inputValue() === `${Number(heute.slice(0, 4)) + 3}${heute.slice(4)}`, 'A2-Leben: Gewährleistung nicht mit Abnahme + 3 Jahren vorbelegt');
+  await dialogUeberlauf('phase abgenommen'); await shot('lebenslauf-dialog');
+  await page.click('#ph-ok');
+  await page.waitForSelector('#lebenslauf[data-phase="abgenommen"]');
+  pruef(await page.locator('#abschluss [data-wert="gewaehrleistung"]').count() === 1 && await page.locator('#phase-weiter').count() === 0, 'A2-Leben: Gewährleistungs-Karte fehlt oder Bauleiter darf zur Schlussrechnung');
+  await ueberlauf('bauleiter lebenslauf');
+  await abmelden();
+
+  /* ---- Büro: bestätigen, Tafel (Ziehen bzw. Knopf), Archiv, Material deaktivieren ---- */
+  await anmelden('buero');
+  await geh(`/baustelle/${w}`);
+  await page.click('#fertigmeldung [data-phase-ziel="fertiggestellt"]');
+  await page.waitForSelector('dialog[open] #phf');
+  await page.click('#ph-ok');
+  await page.waitForSelector('#lebenslauf[data-phase="fertiggestellt"]');
+  pruef(await page.locator('#phasen-verlauf li').count() >= 1, 'A2-Leben: Verlauf der Phasen fehlt');
+  // zurück auf „In Arbeit“, damit die Baustelle für die weiteren Prüfungen läuft
+  const wb = (await api('GET', `/baustellen/${w}`)).json;
+  pruef((await api('POST', `/baustellen/${w}/phase`, { phase: 'in_arbeit', version: wb.version })).status === 200, 'A2-Leben: Fertiggestellt → In Arbeit nicht möglich');
+  await toastWeg();
+  await geh('/baustellen');
+  pruef(await page.locator('#bs-filter [data-filter]').count() >= 3 && await page.locator('#zum-archiv').count() === 1, 'A2-Leben: Filter-Chips oder Archiv-Verweis fehlen');
+  await page.click('[data-ansicht="tafel"]');
+  await page.waitForSelector('#bv-tafel');
+  pruef(await page.locator('.ll-spalte').count() === 7, 'A2-Leben: Tafel ohne Spalten je Status');
+  await ueberlauf('baustellen tafel'); await shot('baustellen-tafel');
+  const karte = page.locator(`.ll-karte[data-bv="${z.y.id}"]`);
+  pruef(await page.locator(`.ll-spalte[data-spalte="abgenommen"] .ll-karte[data-bv="${z.y.id}"]`).count() === 1, 'A2-Leben: Karte steht nicht in der Spalte Abgenommen');
+  if (g.mobil) await karte.locator('[data-bv-weiter]').click(); // Handy: Knopf statt Ziehen
+  else {
+    // nicht erlaubtes Ziel (Bezahlt) nimmt die Karte nicht an …
+    await zieh(page, karte, page.locator('.ll-spalte[data-spalte="bezahlt"]'));
+    await page.waitForTimeout(250);
+    pruef(await page.locator('dialog[open]').count() === 0, 'A2-Leben: Ziehen auf einen nicht erlaubten Status öffnet den Dialog');
+    await zieh(page, karte, page.locator('.ll-spalte[data-spalte="schlussrechnung"]'));
+  }
+  await page.waitForSelector('dialog[open] #phf');
+  pruef(await page.locator('#ph-ziel').inputValue() === 'schlussrechnung', 'A2-Leben: Ablegen/Knopf wählt nicht „Schlussrechnung“');
+  await page.fill('#phf [name="srNr"]', `SR-${k}-1`);
+  await page.fill('#phf [name="srBetrag"]', '12.500,00');
+  await page.click('#ph-ok');
+  await page.waitForSelector(`.ll-spalte[data-spalte="schlussrechnung"] .ll-karte[data-bv="${z.y.id}"]`);
+  await toastWeg();
+  // Übersicht: Kacheln
+  await geh('/dashboard');
+  pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 1 && Number(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"] b').innerText()) >= 1, 'A2-Leben: Kachel „Offene Schlussrechnungen“ fehlt oder zählt nicht');
+  pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Kacheln Abnahme/Gewährleistung fehlen');
+  await ueberlauf('dashboard kacheln'); await shot('dashboard-bauvorhaben');
+  // bezahlt → archiviert (über die Schnittstelle), dann Archiv-Ansicht
+  for (const phase of ['bezahlt', 'archiviert']) { const yb = (await api('GET', `/baustellen/${z.y.id}`)).json; const r = await api('POST', `/baustellen/${z.y.id}/phase`, { phase, version: yb.version }); pruef(r.status === 200, `A2-Leben: Phase ${phase} → ${r.status}`); }
+  pruef(!(await api('GET', '/baustellen')).json.some((b) => b.id === z.y.id), 'A2-Leben: archivierte Baustelle steht noch in der Auswahl (GET /baustellen)');
+  await geh('/baustellen');
+  pruef(await page.locator(`[data-bv="${z.y.id}"], [data-bs="${z.y.id}"]`).count() === 0, 'A2-Leben: archivierte Baustelle in der laufenden Liste');
+  await geh('/baustellen/archiv');
+  await page.waitForSelector(`#archiv-tabelle tr[data-bv="${z.y.id}"]`);
+  await page.fill('#ar-suche', 'gibt-es-nicht-xyz');
+  await page.waitForSelector('#archiv-liste .state');
+  await page.fill('#ar-suche', kstY);
+  await page.waitForSelector(`#archiv-tabelle tr[data-bv="${z.y.id}"]`);
+  await ueberlauf('archiv'); await shot('archiv');
+  await geh(`/baustelle/${z.y.id}`);
+  pruef(await page.locator('#lebenslauf[data-phase="archiviert"]').count() === 1 && await page.locator('#archiv-auf').count() === 0, 'A2-Leben: Archiv-Detail falsch oder Büro darf das Archiv aufheben (nur GF)');
+
+  // Material: verwendet → Löschen bietet Deaktivieren an
+  await geh('/preise'); await page.click('[data-tab="materialien"]');
+  await page.waitForSelector(`#stamm-tabelle tr[data-id="${mat.id}"]`);
+  await page.click(`#stamm-tabelle tr[data-id="${mat.id}"] [data-weg]`);
+  await page.waitForSelector('dialog[open] #st-weg-ok');
+  await h.absichtlich(async () => { await page.click('#st-weg-ok'); await page.waitForSelector('#st-verwendet .banner'); });
+  pruef(/1 Bericht\b/.test(await page.locator('#st-verwendet').innerText()), `A2-Stamm: Hinweis „Wird in 1 Bericht verwendet“ fehlt (${(await page.locator('#st-verwendet').innerText()).slice(0, 80)})`);
+  await dialogUeberlauf('stammdaten löschen'); await shot('stammdaten-verwendet');
+  await page.click('#st-deaktiv');
+  await page.waitForSelector(`#stamm-tabelle tr[data-id="${mat.id}"][data-aktiv="false"]`);
+  pruef(!(await api('GET', '/materialien')).json.some((m) => m.id === mat.id), 'A2-Stamm: deaktiviertes Material steht noch in der Auswahl');
+  await page.uncheck('#stamm-inaktiv');
+  pruef(await page.locator(`#stamm-tabelle tr[data-id="${mat.id}"]`).count() === 0, 'A2-Stamm: Filter „Inaktive anzeigen“ wirkt nicht');
+  await page.check('#stamm-inaktiv');
+  pruef(await page.locator(`#stamm-tabelle tr[data-id="${mat.id}"] [data-reaktiv]`).count() === 1, 'A2-Stamm: „Wieder aktivieren“ fehlt');
+  await ueberlauf('stammdaten inaktiv');
+  // Excel: Download vorhanden; hochladen derselben Datei → Vorschau „nichts geändert“
+  const dl = await h.context.request.get(new URL(await page.locator('#stamm-export').getAttribute('href'), page.url()).toString());
+  pruef(dl.ok() && /spreadsheetml/.test(dl.headers()['content-type'] || ''), `A2-Stamm: Excel-Export → ${dl.status()}`);
+  await page.setInputFiles('#stamm-datei', { name: 'material.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await dl.body() });
+  await page.waitForSelector('dialog[open] #st-import');
+  pruef(await page.locator('[data-imp-neu="0"]').count() === 1 && await page.locator('[data-imp-geaendert="0"]').count() === 1 && await page.locator('#st-imp-ok').isDisabled(), 'A2-Stamm: unveränderte Excel-Datei zeigt Änderungen an');
+  await dialogUeberlauf('stammdaten import'); await shot('stammdaten-import');
+  await page.click('dialog[open] [data-zu]');
+  // alter Bericht zeigt das Material weiter, ein neuer Entwurf nicht mehr
+  if (z.berMat) {
+    await geh(`/bericht/${z.berMat}`);
+    pruef(await page.locator(`.mat-row[data-m="${mat.id}"]`).count() === 1, 'A2-Stamm: alter Bericht zeigt das deaktivierte Material nicht mehr');
+    const b2 = (await api('GET', `/berichte/${z.berMat}`)).json;
+    pruef((b2.material || []).some((m) => m.materialId === mat.id && m.menge === 3), 'A2-Stamm: Menge im alten Bericht verloren');
+  }
+  await abmelden();
+}
+
+/* ================= Baustellenplaner (12.8–12.8d): Einteilen, Notizen, Veröffentlichen, Fortschreiben, Fuhren ================= */
+async function planer(h, z) {
+  const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg, context } = h;
+  const k = KENN(g), heute = h.heute();
+  const morgen = naechsterArbeitstag(heute);
+  const POLIER2 = 'Thomas Riegler';
+  const ausgang = async () => (await context.request.get(h.srv.url + '/api/test/ausgang')).json();
+  const zelle = (datum, bs) => page.locator(`.wp-gitter [data-zelle][data-datum="${datum}"][data-bs="${bs}"]`);
+  const karte = (bs) => page.locator(`.tg-karte[data-bs="${bs}"]`);
+
+  /* ---- Polier der Zielbaustelle: Berichtsentwurf für heute (für die Fuhre) ---- */
+  const ichR = await anmelden('polier', POLIER2);
+  const B = ichR.baustellenIds[0];
+  let ber = await api('POST', '/berichte', { baustelleId: B, datum: heute });
+  const berId = ber.status === 201 ? ber.json.id : ber.json && ber.json.id;
+  ber = (await api('GET', `/berichte/${berId}`)).json;
+  const entwurf = ber.status === 'entwurf' && !(ber.unterschriften.an || ber.unterschriften.bh);
+  await geh('/partie');
+  pruef(await page.locator('#partie-leer').count() === 1, 'A2-Plan: Polier sieht eine Partie, obwohl nichts veröffentlicht ist');
+  await abmelden();
+
+  /* ---- Mitarbeiter: noch kein Einsatz, Push-Abo (Attrappe) ---- */
+  const ichM = await anmelden('mitarbeiter');
+  const L = ichM.benutzer.id;
+  pruef((await api('POST', '/push/abo', { endpoint: `https://push.example.test/e2e-${k}-${L}`, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' }, geraet: 'E2E' })).status < 300, 'A2-Plan: Push-Abo (Attrappe) nicht möglich');
+  const st = (await api('GET', '/zeit/status')).json;
+  if (st.status !== 'aus') { if (st.status === 'pause') await api('POST', '/zeit/stempeln', { typ: 'pause_ende' }); await api('POST', '/zeit/stempeln', { typ: 'gehen' }); }
+  await geh('/einsatz');
+  pruef(await page.locator('#einsatz-leer').count() === 1, 'A2-Plan: „Mein Einsatz“ zeigt etwas, obwohl nichts veröffentlicht ist');
+  await keinEuro('einsatz leer');
+  await h.keinZugriff('/plan'); await h.keinZugriff('/partie');
+  const planMeldungen = async () => (await api('GET', '/benachrichtigungen')).json.filter((n) => n.typ === 'plan');
+  const meldVorher = (await planMeldungen()).length;
+  await abmelden();
+
+  /* ---- Büro: einteilen (Ziehen, Tastatur, Dialog), Konflikt, Notizen, Veröffentlichen ---- */
+  await anmelden('buero');
+  const woche0 = (await api('GET', `/plan/woche?von=${morgen}&tage=5`)).json;
+  pruef(Array.isArray(woche0.baustellen) && woche0.baustellen.some((b) => b.id === B), 'A2-Plan: /plan/woche ohne die Baustelle des Poliers');
+  const B2 = woche0.baustellen.find((b) => b.id !== B).id;
+  const frei = woche0.frei[morgen];
+  const andere = frei.personen.filter((p) => p.status === 'frei' && p.rolle === 'mitarbeiter' && p.benutzerId !== L);
+  const [P2, P3, P4, P5] = andere;
+  const lkw = frei.anlagen.find((a) => !a.gesperrt && a.kennzeichen);
+  pruef(!!(P2 && P3 && P4 && P5 && lkw), 'A2-Plan: zu wenige freie Personen oder kein freier LKW in den Testdaten');
+  const pushVorher = (await ausgang()).push.filter((p) => p.benutzerId === L).length;
+
+  await geh(`/plan?ansicht=woche&datum=${morgen}`);
+  await page.waitForSelector('.wp-gitter');
+  pruef(await page.locator('.wp-kachel').count() === 4 && await page.locator('#wp-vorwoche').count() === 1 && await page.locator('#wp-pub').count() === 1, 'A2-Plan: Kacheln, „Vorwoche übernehmen“ oder „Plan veröffentlichen“ fehlen');
+  await ueberlauf('plan woche leer'); await shot('plan-woche-leer');
+  const poolP = (id) => page.locator(`.wp-pool [data-pool][data-chip="p"][data-id="${id}"]`);
+  // 1) Ziehen (Tablet/PC) bzw. Auswählen + „Einteilen“ (Handy)
+  if (g.mobil) { await poolP(L).click(); await zelle(morgen, B).locator('[data-hier]').click(); }
+  else await zieh(page, poolP(L), zelle(morgen, B));
+  await zelle(morgen, B).locator(`[data-chip="p"][data-id="${L}"]`).waitFor();
+  await toastWeg();
+  // 2) Tastatur: Chip mit Enter auswählen, in der Zelle „Einteilen“ mit Enter
+  await poolP(P2.benutzerId).focus(); await page.keyboard.press('Enter');
+  await page.waitForSelector(`.wp-pool [data-pool][data-id="${P2.benutzerId}"][aria-pressed="true"]`);
+  pruef(await page.locator('#wp-auswahl').count() === 1, 'A2-Plan: Auswahl-Hinweis fehlt');
+  await zelle(morgen, B).locator('[data-hier]').focus(); await page.keyboard.press('Enter');
+  await zelle(morgen, B).locator(`[data-chip="p"][data-id="${P2.benutzerId}"]`).waitFor();
+  await toastWeg();
+  // 3) „+“-Dialog: LKW
+  await zelle(morgen, B).locator('[data-plus]').click();
+  await page.waitForSelector('dialog[open] #plf');
+  await page.check(`#plf input[name="a"][value="${lkw.anlageId}"]`);
+  await dialogUeberlauf('plan plus');
+  await page.click('dialog[open] button[type="submit"]');
+  await zelle(morgen, B).locator(`[data-chip="a"][data-id="${lkw.anlageId}"]`).waitFor();
+  await toastWeg();
+  // 4) Konflikt: dieselbe Person am selben Tag auf zweiter Baustelle
+  pruef((await api('POST', '/plan/einsaetze', { datum: morgen, baustelleId: B2, benutzerIds: [L] })).status === 201, 'A2-Plan: zweiter Einsatz (Konflikt) nicht anlegbar');
+  await geh('/plan?ansicht=geraete'); await geh(`/plan?ansicht=woche&datum=${morgen}`); // neu laden (gleiche Adresse lädt nicht neu)
+  await page.waitForSelector('.wp-chip.konflikt[data-konflikt="person_doppelt"]');
+  pruef(await page.locator('#wp-konflikte [data-konflikt-zeile="person_doppelt"]').count() >= 1 && Number(await page.locator('[data-kachel="konflikte"] b').innerText()) >= 1, 'A2-Plan: Konflikt fehlt in Liste oder Kachel');
+  await ueberlauf('plan konflikt'); await shot('plan-woche-konflikt');
+  await keinEuro('plan woche');
+  // Konflikt lösen: Chip öffnen → Entfernen
+  await zelle(morgen, B2).locator(`[data-chip="p"][data-id="${L}"] [data-chip-auf]`).click();
+  await page.waitForSelector('dialog[open] #chip-weg');
+  await page.click('#chip-weg');
+  await page.waitForFunction(() => !document.querySelector('.wp-chip.konflikt[data-konflikt="person_doppelt"]'));
+  await toastWeg();
+
+  // 5) Tagesansicht „Morgen“: Angaben, Notizen, Fahrer
+  await geh('/plan?ansicht=tag');
+  await page.waitForSelector(`.tg-karte[data-bs="${B}"]`);
+  pruef((await page.locator('#tg-tag').getAttribute('data-datum')) === morgen && await page.locator('#tg-stand[data-zustand="offen"]').count() === 1, 'A2-Plan: Tagesansicht zeigt nicht „morgen – noch nicht veröffentlicht“');
+  await karte(B).locator('[data-details]').click();
+  await page.waitForSelector('dialog[open] #edf');
+  await page.fill('#edf [name="beginn"]', '06:30'); await page.fill('#edf [name="treffpunkt"]', 'Bauhof');
+  await page.fill('#edf [name="arbeit"]', 'Pflaster verlegen'); await page.fill('#edf [name="benoetigt"]', 'Rüttelplatte, Absperrgitter');
+  await dialogUeberlauf('plan einsatz');
+  await page.click('dialog[open] button[type="submit"]');
+  await page.waitForSelector(`.tg-karte[data-bs="${B}"] .benoetigt dd:has-text("Rüttelplatte")`);
+  await toastWeg();
+  const notiz = async (art, id, text, fahrer) => {
+    await karte(B).locator(`[data-chip="${art}"][data-id="${id}"] [data-notiz-auf]`).click();
+    await page.waitForSelector('.wp-notiz-ed');
+    await page.fill('.wp-notiz-ed [name="notiz"]', text);
+    if (fahrer) await page.selectOption('.wp-notiz-ed [name="fahrerId"]', String(fahrer));
+    await page.click('.wp-notiz-ed button[type="submit"]');
+    await page.waitForSelector(`.tg-karte[data-bs="${B}"] [data-chip="${art}"][data-id="${id}"][data-notiz="${text}"]`);
+    await toastWeg();
+  };
+  await notiz('p', L, 'Führerschein C mitnehmen');
+  await notiz('p', P2.benutzerId, `NUR-FUER-P2-${k}`);
+  await notiz('a', lkw.anlageId, 'Vorher tanken', L);
+  pruef(await karte(B).locator(`[data-chip="a"] .wp-fahrer[data-fahrer="${L}"]`).count() === 1, 'A2-Plan: Fahrer am LKW-Chip fehlt');
+  await ueberlauf('plan morgen'); await shot('plan-morgen');
+  await keinEuro('plan morgen');
+
+  // 6) Veröffentlichen: vorher keine Meldung; Abbrechen sendet nichts; erste Veröffentlichung → alle
+  pruef((await ausgang()).push.filter((p) => p.benutzerId === L).length === pushVorher, 'A2-Plan: Meldung an den Mitarbeiter, bevor veröffentlicht wurde');
+  await page.click('#tg-pub');
+  await page.waitForSelector('dialog[open] #pub-vorschau');
+  const emp1 = await page.locator('#pub-empfaenger li').evaluateAll((l) => l.map((x) => [Number(x.dataset.pubPerson), x.dataset.art]));
+  pruef(emp1.length === 2 && emp1.every(([, a]) => a === 'neu') && emp1.some(([id]) => id === L) && emp1.some(([id]) => id === P2.benutzerId), `A2-Plan: Vorschau der Empfänger falsch (${JSON.stringify(emp1)})`);
+  pruef(/2 Personen werden benachrichtigt/.test((await page.locator('#pub-text').innerText()).replace(/\s+/g, ' ')), 'A2-Plan: Text „2 Personen werden benachrichtigt“ fehlt');
+  await dialogUeberlauf('plan veröffentlichen'); await shot('plan-veroeffentlichen');
+  await page.click('#pub-abbrechen');
+  await page.waitForTimeout(300);
+  pruef((await ausgang()).push.filter((p) => p.benutzerId === L).length === pushVorher && await page.locator('#tg-stand[data-zustand="offen"]').count() === 1, 'A2-Plan: „Abbrechen“ hat trotzdem gesendet oder veröffentlicht');
+  await page.click('#tg-pub');
+  await page.waitForSelector('dialog[open] #pub-ok');
+  await page.click('#pub-ok');
+  await page.waitForSelector('#tg-stand[data-zustand="veroeffentlicht"]');
+  pruef(/Veröffentlicht \d{2}:\d{2}/.test(await page.locator('#tg-stand').innerText()), 'A2-Plan: Kopf zeigt nicht „Veröffentlicht HH:MM“');
+  let push = (await ausgang()).push.filter((p) => p.benutzerId === L);
+  pruef(push.length === pushVorher + 1, `A2-Plan: nach der Veröffentlichung ${push.length - pushVorher} Push-Meldungen statt 1`);
+  const p1 = push[push.length - 1] || {};
+  pruef(/06:30/.test(p1.body || '') && /Hinweis vorhanden/.test(p1.body || '') && !/Führerschein/.test(p1.body || '') && !/€/.test(`${p1.title}${p1.body}`), `A2-Plan: Kurztext der Meldung falsch („${p1.title} / ${p1.body}“)`);
+  await toastWeg();
+  // 7) Notiz ändern → erneut veröffentlichen: nur die betroffene Person
+  await notiz('p', L, 'Führerschein C und Fahrerkarte');
+  pruef(await page.locator('#tg-stand[data-zustand="geaendert"]').count() === 1, 'A2-Plan: geänderter Tag nicht als „Änderungen noch nicht veröffentlicht“ markiert');
+  await page.click('#tg-pub');
+  await page.waitForSelector('dialog[open] #pub-vorschau');
+  const emp2 = await page.locator('#pub-empfaenger li').evaluateAll((l) => l.map((x) => [Number(x.dataset.pubPerson), x.dataset.art]));
+  pruef(emp2.length === 1 && emp2[0][0] === L && emp2[0][1] === 'geaendert' && /1 Person mit Änderungen/.test((await page.locator('#pub-text').innerText()).replace(/\s+/g, ' ')), `A2-Plan: erneute Veröffentlichung trifft nicht nur die geänderte Person (${JSON.stringify(emp2)})`);
+  await page.click('#pub-ok');
+  await page.waitForSelector('#tg-stand[data-zustand="veroeffentlicht"]');
+  push = (await ausgang()).push.filter((p) => p.benutzerId === L);
+  pruef(push.length === pushVorher + 2 && /Geändert/.test(`${push[push.length - 1].title} ${push[push.length - 1].body}`), 'A2-Plan: „Geändert“-Meldung an die betroffene Person fehlt');
+  await toastWeg();
+
+  // 8) Heute: Einsatz für die Stempeluhr-Vorauswahl + Fuhre (Formular), dann veröffentlichen
+  const eh = await api('POST', '/plan/einsaetze', { datum: heute, baustelleId: B, beginn: '06:30', benutzerIds: [L] });
+  pruef(eh.status === 201, `A2-Plan: Einsatz für heute → ${eh.status}`);
+  const mats = (await api('GET', '/materialien')).json;
+  const mat = mats.find((m) => m.einheit === 't') || mats[0];
+  const mengeVorher = ((ber.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0;
+  await page.click('[data-tag-weiter="-1"]');
+  await page.waitForSelector(`#tg-tag[data-datum="${heute}"]`);
+  if (!g.mobil) { // LKW auf die Fuhren einer Baustelle ziehen → Formular mit LKW und Ziel
+    const lkwChip = page.locator(`.wp-pool [data-pool][data-chip="a"]`).first();
+    const lkwId = await lkwChip.getAttribute('data-id');
+    await zieh(page, lkwChip, karte(B).locator('.fu-zone'), { oben: 20 });
+    await page.waitForSelector('dialog[open] #fuf');
+    pruef(await page.locator('#fuf [name="nachBs"]').inputValue() === String(B) && [lkwId, ''].includes(await page.locator('#fuf [name="anlageId"]').inputValue()), 'A2-Fuhre: Ziehen des LKW belegt Ziel/LKW nicht vor');
+    await page.click('dialog[open] [data-zu]');
+  }
+  await karte(B).locator('[data-fuhre-neu]').click();
+  await page.waitForSelector('dialog[open] #fuf');
+  pruef(await page.locator('#fuf [name="nachBs"]').inputValue() === String(B) && await page.locator('#fuf [name="vonArt"]').inputValue() === 'grube', 'A2-Fuhre: Standard Grube → Baustelle fehlt');
+  await page.selectOption('#fuf [name="anlageId"]', String(lkw.anlageId));
+  await page.selectOption('#fuf [name="fahrerId"]', String(L));
+  await page.fill('#fuf [name="beginn"]', '06:30');
+  await page.fill('#fuf [name="material"]', mat.name);
+  await page.fill('#fuf [name="menge"]', '45'); await page.fill('#fuf [name="anzahlFuhren"]', '3');
+  await page.fill('#fuf [name="abladestelle"]', 'Zufahrt hinten');
+  await page.fill('#fuf [name="nachLink"]', '47.7012, 16.1034');
+  pruef(await page.locator('#fu-kopie input').count() === 5 && !(await page.locator('dialog[open]').innerText()).includes('€'), 'A2-Fuhre: „Für weitere Tage kopieren“ fehlt oder Preise im Formular');
+  await dialogUeberlauf('fuhre formular'); await shot('fuhre-formular');
+  await page.click('#fu-ok');
+  await page.waitForSelector(`.tg-karte[data-bs="${B}"] .fu-zone [data-fuhre]`);
+  pruef(/45/.test(await karte(B).locator('.fu-zone [data-fuhre]').first().innerText()), 'A2-Fuhre: Karte zeigt die Menge nicht');
+  const fuhre = (await api('GET', `/plan/fuhren?von=${heute}&bis=${heute}`)).json.find((f) => f.fahrer && f.fahrer.benutzerId === L);
+  const fuhre2 = (await api('POST', '/plan/fuhren', { datum: heute, anlageId: lkw.anlageId, fahrerId: L, materialId: mat.id, menge: 20, einheit: 't', reihenfolge: 2, nach: { art: 'baustelle', baustelleId: B } })).json;
+  pruef((await api('POST', '/plan/veroeffentlichen', { von: heute, bis: heute })).status === 200, 'A2-Plan: heute veröffentlichen nicht möglich');
+  await toastWeg();
+
+  // 9) Fortschreiben: Montag planen → Dienstag ist Vorschau ohne die Person im Urlaub → tauschen → veröffentlichen
+  const mo = (() => { let t = morgen; while (new Date(t + 'T12:00:00Z').getUTCDay() !== 1) t = plusTage(t, 1); return plusTage(t, 7); })(); // Montag der übernächsten Woche
+  const di = plusTage(mo, 1);
+  // (der Montag ist bis dahin selbst „wie Freitag“ vorbereitet – die erste Änderung speichert ihn; die Zelle kann es also schon geben)
+  await api('POST', '/plan/tag/uebernehmen', { datum: mo });
+  const zMo = (await api('GET', `/plan/woche?von=${mo}&tage=5`)).json.einsaetze.find((e) => e.datum === mo && e.baustelleId === B2 && e.id != null);
+  const eMo = zMo ? await api('POST', `/plan/einsaetze/${zMo.id}/personen`, { benutzerIds: [P3.benutzerId, P4.benutzerId] }) : await api('POST', '/plan/einsaetze', { datum: mo, baustelleId: B2, beginn: '07:00', benutzerIds: [P3.benutzerId, P4.benutzerId] });
+  pruef(eMo.status === 201 || eMo.status === 200, `A2-Fort: Montag planen → ${eMo.status}`);
+  pruef((await api('POST', '/abwesenheiten', { benutzerId: P4.benutzerId, datum: di, code: 'U' })).status < 300, 'A2-Fort: Urlaub eintragen nicht möglich');
+  await geh(`/plan?ansicht=woche&datum=${di}`);
+  await page.waitForSelector(`.wp-gitter [data-zelle][data-datum="${di}"][data-bs="${B2}"][data-vorschau]`);
+  const zDi = zelle(di, B2);
+  pruef(await zDi.locator(`[data-chip="p"][data-id="${P3.benutzerId}"]`).count() === 1 && await zDi.locator(`[data-chip="p"][data-id="${P4.benutzerId}"]`).count() === 0 && await zDi.locator('[data-uebersprungen="abwesenheit"]').count() === 1 && await zDi.locator('[data-wie-vortag]').count() === 1, 'A2-Fort: Dienstag ist nicht „wie Montag“ ohne die Person im Urlaub (mit Warnung)');
+  pruef(await zelle(mo, B2).locator('.wp-chip.serie').count() >= 1, `A2-Fort: durchgehender Balken (Serie) fehlt (${JSON.stringify(((await api('GET', `/plan/woche?von=${mo}&tage=5`)).json.serien.personen || {})[P3.benutzerId])})`);
+  await ueberlauf('plan fortschreiben'); await shot('plan-wie-vortag');
+  // Ersatz einteilen (Ziehen bzw. Auswahl) → der Tag wird gespeichert
+  if (g.mobil) { await poolP(P5.benutzerId).click(); await zDi.locator('[data-hier]').click(); }
+  else await zieh(page, poolP(P5.benutzerId), zDi);
+  await page.waitForSelector(`.wp-gitter [data-zelle][data-datum="${di}"][data-bs="${B2}"]:not([data-vorschau]) [data-chip="p"][data-id="${P5.benutzerId}"]`);
+  pruef(await zelle(di, B2).locator(`[data-chip="p"][data-id="${P3.benutzerId}"]`).count() === 1, 'A2-Fort: beim Speichern des Vorschau-Tags ging die übernommene Person verloren');
+  await toastWeg();
+  const probe = (await api('POST', '/plan/veroeffentlichen', { von: di, bis: di, vorschau: true })).json;
+  const ids = probe.empfaenger.map((e) => e.benutzerId);
+  pruef(probe.empfaenger.every((e) => e.art === 'neu') && ids.includes(P3.benutzerId) && ids.includes(P5.benutzerId) && !ids.includes(P4.benutzerId) && probe.anzahl === ids.length, `A2-Fort: erste Veröffentlichung meldet nicht alle Eingeteilten bzw. die Person im Urlaub (${JSON.stringify(probe.empfaenger)})`);
+  pruef((await api('POST', '/plan/veroeffentlichen', { von: di, bis: di })).status === 200, 'A2-Fort: Dienstag veröffentlichen nicht möglich');
+  await page.locator(`.wp-gitter [data-zelle][data-datum="${di}"][data-bs="${B2}"] [data-chip="p"][data-id="${P5.benutzerId}"] [data-chip-auf]`).click();
+  await page.waitForSelector('dialog[open] #chip-weg'); await page.click('#chip-weg'); await toastWeg();
+  const probe2 = (await api('POST', '/plan/veroeffentlichen', { von: di, bis: di, vorschau: true })).json;
+  pruef(probe2.anzahl === 1 && probe2.empfaenger[0].benutzerId === P5.benutzerId && probe2.empfaenger[0].art === 'entfaellt', `A2-Fort: erneute Veröffentlichung trifft nicht nur die geänderte Person (${JSON.stringify(probe2.empfaenger)})`);
+  // Projektzeitplan und Geräte-Disposition erreichbar
+  await geh('/plan?ansicht=zeitplan');
+  await page.waitForSelector('#zeitplan .zp-zeile[data-bv]');
+  pruef(await page.locator('.zp-kw').count() === 16 && await page.locator('#zp-archiv').count() === 1, 'A2-Plan: Projektzeitplan ohne Kalenderwochen oder Archiv-Knopf');
+  await page.locator(`.zp-zeile[data-bv="${B}"] [data-abschnitt-neu]`).click();
+  await page.waitForSelector('dialog[open] #zpf');
+  await page.selectOption('#zpf [name="art"]', 'pflaster'); await page.fill('#zpf [name="von"]', heute); await page.fill('#zpf [name="bis"]', plusTage(heute, 13));
+  await page.click('dialog[open] button[type="submit"]');
+  await page.waitForSelector(`.zp-zeile[data-bv="${B}"] .zp-balken.art-pflaster`);
+  await keinEuro('zeitplan'); await ueberlauf('zeitplan'); await shot('plan-zeitplan');
+  await toastWeg();
+  await page.click('[data-ansicht="geraete"]');
+  await page.waitForSelector('#geraete-dispo');
+  await ueberlauf('geräte-disposition');
+  await abmelden();
+
+  /* ---- Mitarbeiter: Mein Einsatz, Notizen, Stempeluhr-Vorauswahl, Meine Fuhren ---- */
+  await anmelden('mitarbeiter');
+  pruef((await planMeldungen()).length >= meldVorher + 2, 'A2-Plan: In-App-Meldungen zum Einsatz fehlen');
+  await geh('/einsatz');
+  await page.waitForSelector(`#einsatz-karte[data-datum="${morgen}"]`);
+  const et = await page.locator('#einsatz-karte').innerText();
+  pruef(/06:30/.test(et) && /Bauhof/.test(et) && /Pflaster verlegen/.test(et), `A2-Plan: Karte „Morgen“ unvollständig (${et.replace(/\s+/g, ' ').slice(0, 120)})`);
+  pruef(/Fahrerkarte/.test(await page.locator('#me-meine-notiz').innerText()) && /Rüttelplatte/.test(await page.locator('#me-benoetigt').innerText()) && /Vorher tanken/.test(await page.locator('#me-fahrzeug').innerText()), 'A2-Plan: Meine Notiz, Benötigt oder Mein Fahrzeug fehlen');
+  pruef(!(await h.text()).includes(`NUR-FUER-P2-${k}`), 'A2-Plan: Mitarbeiter sieht die Notiz einer anderen Person');
+  pruef(await page.locator('#me-route').count() === 1 && /^https:\/\/www\.google\.com\/maps\/dir\//.test(await page.locator('#me-route').getAttribute('href')), 'A2-Plan: „Route öffnen“ fehlt');
+  await keinEuro('mein einsatz'); await ueberlauf('mein einsatz'); await shot('mein-einsatz');
+  // Meine Fuhren
+  const fz = page.locator(`#meine-fuhren li[data-fuhre="${fuhre.id}"]`);
+  pruef(await page.locator('#meine-fuhren li[data-fuhre]').count() === 2, 'A2-Fuhre: „Meine Fuhren“ zeigt nicht beide Fuhren');
+  const maps = await fz.locator('[data-maps]').getAttribute('href');
+  pruef(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1/.test(maps) && /destination=47\.7012(%2C|,)16\.1034/.test(maps) && (await fz.locator('[data-maps]').getAttribute('target')) === '_blank', `A2-Fuhre: Maps-Link falsch (${maps})`);
+  pruef(/Zufahrt hinten/.test(await fz.innerText()) && /45/.test(await fz.locator('.fu-menge').innerText()), 'A2-Fuhre: Abladestelle oder Menge fehlt');
+  await fz.locator('[data-fuhr-los]').click();
+  await page.waitForSelector(`#meine-fuhren li[data-fuhre="${fuhre.id}"][data-status="unterwegs"]`);
+  await toastWeg();
+  await page.locator(`#meine-fuhren li[data-fuhre="${fuhre.id}"] [data-fuhr-ab]`).click();
+  await page.waitForSelector('dialog[open] #fab');
+  pruef(await page.locator('#fab [name="menge"]').inputValue() === '45', 'A2-Fuhre: tatsächliche Menge nicht vorbelegt');
+  await page.fill('#fab [name="menge"]', '44,5');
+  await dialogUeberlauf('fuhre abgeladen');
+  await page.click('#fab-ok');
+  await page.waitForSelector(`#meine-fuhren li[data-fuhre="${fuhre.id}"][data-status="erledigt"]`);
+  await toastWeg();
+  // ohne Netz: Meldung wird gemerkt und nachgesendet
+  await context.setOffline(true);
+  await h.absichtlich(async () => { await page.locator(`#meine-fuhren li[data-fuhre="${fuhre2.id}"] [data-fuhr-los]`).click(); await page.waitForSelector('#fuhren-warten'); });
+  pruef(await page.locator(`#meine-fuhren li[data-fuhre="${fuhre2.id}"][data-status="unterwegs"]`).count() === 1, 'A2-Fuhre: gemerkte Meldung wird nicht angezeigt');
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await page.waitForFunction(() => !document.querySelector('#fuhren-warten'), null, { timeout: 8000 });
+  await keinEuro('meine fuhren'); await ueberlauf('meine fuhren'); await shot('meine-fuhren');
+  // Stempeluhr schlägt die geplante Baustelle vor
+  await geh('/stempeln');
+  pruef(await page.locator(`#plan-vorschlag[data-geplant="${B}"]`).count() === 1, 'A2-Plan: Stempeluhr zeigt den geplanten Einsatz nicht');
+  const bName = woche0.baustellen.find((b) => b.id === B).name;
+  pruef((await page.locator('.site-row.pick').innerText()).includes(bName), 'A2-Plan: Stempeluhr wählt die geplante Baustelle nicht vor');
+  await keinEuro('stempeluhr geplant');
+  await abmelden();
+
+  /* ---- Polier der Baustelle: Meine Partie, Fuhren-Status, Bericht ---- */
+  await anmelden('polier', POLIER2);
+  await geh('/partie');
+  await page.waitForSelector('[data-partie-einsatz]');
+  pruef(await page.locator(`[data-partie-personen] li[data-person="${L}"] [data-lesestand="gelesen"], [data-partie-personen] li[data-person="${L}"] [data-lesestand="bestaetigt"]`).count() === 1, 'A2-Plan: Polier sieht nicht, dass der Mitarbeiter gelesen hat');
+  const pt = await h.text();
+  pruef(pt.includes(`NUR-FUER-P2-${k}`) && /Fahrerkarte/.test(pt) && /Vorher tanken/.test(pt) && /Rüttelplatte/.test(pt), 'A2-Plan: Polier sieht nicht alle Notizen');
+  await keinEuro('partie'); await ueberlauf('partie'); await shot('partie-morgen');
+  await page.locator('[data-anfrage]').first().click();
+  await page.waitForSelector('dialog[open] #anf');
+  await page.fill('#anf [name="text"]', 'Bitte einen zweiten Maschinisten');
+  await page.click('dialog[open] button[type="submit"]');
+  await toastWeg();
+  await page.click(`[data-partie-tag="${heute}"]`);
+  await page.waitForSelector(`#partie-fuhren li[data-fuhre="${fuhre.id}"][data-status="erledigt"]`);
+  pruef(await page.locator(`#partie-fuhren li[data-fuhre="${fuhre2.id}"][data-status="unterwegs"]`).count() === 1, 'A2-Fuhre: Polier sieht den Status „unterwegs“ nicht');
+  await keinEuro('partie fuhren');
+  // Bericht: Menge genau einmal
+  const ber2 = (await api('GET', `/berichte/${berId}`)).json;
+  if (entwurf) {
+    const zeile = (ber2.material || []).find((m) => m.materialId === mat.id) || {};
+    pruef(Math.abs((zeile.menge || 0) - mengeVorher - 44.5) < 0.001 && Math.abs((zeile.ausFuhren || 0) - 44.5) < 0.001, `A2-Fuhre: Bericht enthält die Fuhre nicht genau einmal (Menge ${zeile.menge}, vorher ${mengeVorher}, ausFuhren ${zeile.ausFuhren})`);
+    const wieder = await h.absichtlich(() => api('POST', `/plan/fuhren/${fuhre.id}/status`, { status: 'erledigt', menge: 44.5, einheit: 't' })); // Polier darf nicht melden (403) – in jedem Fall keine zweite Zeile
+    const ber3 = (await api('GET', `/berichte/${berId}`)).json;
+    pruef(Math.abs((((ber3.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0) - mengeVorher - 44.5) < 0.001, `A2-Fuhre: wiederholte Meldung (${wieder.status}) erzeugt eine zweite Zeile`);
+    await geh(`/bericht/${berId}`);
+    pruef(await page.locator(`.mat-row[data-m="${mat.id}"] [data-aus-fuhre]`).count() === 1, 'A2-Fuhre: Kennzeichnung „aus Fuhre“ fehlt im Bericht');
+  } else {
+    pruef((ber2.fuhrenVorschlag || []).filter((v) => v.fuhreId === fuhre.id).length === 1, 'A2-Fuhre: Vorschlag im unterschriebenen Bericht fehlt oder ist doppelt');
+    await geh(`/bericht/${berId}`);
+    pruef(await page.locator(`#fuhren-vorschlag li[data-fuhre="${fuhre.id}"]`).count() === 1, 'A2-Fuhre: Vorschlag wird im Bericht nicht angezeigt');
+  }
+  await keinEuro('bericht fuhre');
+  await abmelden();
+}
+
+/* ================= Dokumente (12.16), Rechnungen und Offene Posten (12.17) ================= */
+const PDF = (text) => Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R>>endobj\n4 0 obj<</Length ${text.length + 30}>>stream\nBT /F1 12 Tf 20 100 Td (${text}) Tj ET\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n`, 'latin1');
+const pngAusBrowser = async (page) => Buffer.from((await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 200; const x = c.getContext('2d'); x.fillStyle = '#d4302b'; x.fillRect(0, 0, 320, 200); x.fillStyle = '#fff'; x.font = '28px sans-serif'; x.fillText('Einbauten', 20, 110); return c.toDataURL('image/png'); })).split(',')[1], 'base64');
+const eur = (n) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' }).format(n);
+
+async function dokumenteUndRechnungen(h, z) {
+  const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg, context } = h;
+  const k = KENN(g), heute = h.heute();
+  const W = z.w || 1; // Baustelle des Poliers Haidbauer
+  const pdfDatei = (name, text) => ({ name, mimeType: 'application/pdf', buffer: PDF(text) });
+
+  await anmelden('buero');
+  /* ---- Dokumente ---- */
+  await geh(`/baustelle/${W}?reiter=dokumente`);
+  await page.waitForSelector('#dokumente');
+  pruef(await page.locator('.dok-kat-btn').count() >= 12 && await page.locator('.dok-kat-btn[data-kat="angebot"]').count() === 1 && await page.locator('#dok-ablage').count() === 1, 'A2-Dok: Kategorien (inkl. finanzieller) oder Ablagefläche fehlen');
+  await page.setInputFiles('#dok-datei', [pdfDatei(`Lageplan ${k}.pdf`, 'Lageplan'), { name: `Foto Einbauten ${k}.png`, mimeType: 'image/png', buffer: await pngAusBrowser(page) }]);
+  await page.waitForSelector('dialog[open] #dkf');
+  pruef(await page.locator('#dok-upload li').count() === 2, 'A2-Dok: Mehrfachauswahl zeigt nicht beide Dateien');
+  await page.selectOption('#dkf [name="kategorie"]', 'plaene');
+  await page.fill('#dkf [name="tags"]', 'Einbauten');
+  await dialogUeberlauf('dokumente hochladen'); await shot('dokumente-hochladen');
+  await page.click('#dok-senden');
+  await page.waitForSelector(`#dok-liste li:has-text("Lageplan ${k}")`);
+  pruef(await page.locator('#dok-liste li').count() === 2 && await page.locator('.dok-kat-btn[data-kat="plaene"].on b').innerText() === '2', 'A2-Dok: Liste oder Zähler der Kategorie stimmen nicht');
+  await toastWeg();
+  // ungültige Datei wird abgelehnt (kein Upload)
+  await page.setInputFiles('#dok-datei', { name: 'virus.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
+  await page.waitForSelector('.toast');
+  pruef(await page.locator('dialog[open] #dkf').count() === 0, 'A2-Dok: nicht erlaubter Dateityp öffnet den Hochlade-Dialog');
+  await toastWeg();
+  // finanzielles Dokument
+  await page.setInputFiles('#dok-datei', pdfDatei(`Angebot ${k}.pdf`, 'Angebot 12.500'));
+  await page.waitForSelector('dialog[open] #dkf');
+  await page.selectOption('#dkf [name="kategorie"]', 'angebot');
+  await page.click('#dok-senden');
+  await page.waitForSelector(`#dok-liste li:has-text("Angebot ${k}")`);
+  await toastWeg();
+  // Dateien hereinziehen (Ablegen aus dem Explorer)
+  await page.click('.dok-kat-btn[data-kat=""]');
+  await page.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File(['%PDF-1.4\n%%EOF'], 'Gezogen.pdf', { type: 'application/pdf' })); document.querySelector('#dok-ablage').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await page.waitForSelector('dialog[open] #dkf');
+  pruef(/gezogen/i.test(await page.locator('#dok-upload').innerText()), 'A2-Dok: Ablegen per Ziehen öffnet nicht den Hochlade-Dialog');
+  await page.click('dialog[open] [data-zu]');
+  // Suche
+  await page.fill('#dok-suche', 'Einbauten');
+  pruef(await page.locator('#dok-liste li').count() === 2, 'A2-Dok: Suche nach Stichwort findet nicht die zwei Dokumente');
+  await page.fill('#dok-suche', `Lageplan ${k}`);
+  pruef(await page.locator('#dok-liste li').count() === 1, 'A2-Dok: Suche nach Titel grenzt nicht ein');
+  await ueberlauf('dokumente'); await shot('dokumente');
+  // Vorschau PDF (abgeschotteter Rahmen), neue Version, Löschen und Wiederherstellen
+  await page.click('#dok-liste [data-dok-auf]');
+  await page.waitForSelector('dialog[open] #dok-dialog');
+  pruef(await page.locator('#dok-pdf-oeffnen[target="_blank"]').count() === 1 && await page.locator('#dok-laden').count() === 1, 'A2-Dok: PDF lässt sich nicht öffnen/herunterladen');
+  const pdfAntwort = await context.request.get(new URL(await page.locator('#dok-pdf-oeffnen').getAttribute('href'), page.url()).toString());
+  pruef(pdfAntwort.ok() && /sandbox/.test(pdfAntwort.headers()['content-security-policy'] || '') && pdfAntwort.headers()['x-content-type-options'] === 'nosniff', 'A2-Dok: Datei wird nicht abgeschottet ausgeliefert (CSP sandbox, nosniff)');
+  await dialogUeberlauf('dokument ansehen');
+  await page.setInputFiles('#dok-version-datei', pdfDatei(`Lageplan ${k} v2.pdf`, 'Lageplan Stand 2'));
+  await page.waitForSelector('#dok-versionen li[data-version="2"]');
+  pruef(await page.locator('#dok-versionen li').count() === 2, 'A2-Dok: Versionsverlauf zeigt nicht beide Versionen');
+  await shot('dokument-versionen');
+  await page.click('#dok-weg');
+  await page.waitForSelector('dialog[open] #dlf');
+  await page.click('#dok-weg-ok');
+  await page.waitForFunction((t) => ![...document.querySelectorAll('#dok-liste li')].some((li) => li.innerText.includes(t)), `Lageplan ${k}`);
+  await toastWeg();
+  await page.fill('#dok-suche', '');
+  await page.check('#dok-geloescht');
+  await page.waitForSelector('#dok-liste li.weg [data-dok-zurueck]');
+  await page.click('#dok-liste li.weg [data-dok-zurueck]');
+  await page.waitForFunction(() => !document.querySelector('#dok-liste li.weg'));
+  await toastWeg();
+  // Bild im Lichtkasten
+  await page.locator(`#dok-liste li:has-text("Foto Einbauten ${k}") [data-dok-auf]`).click();
+  await page.waitForSelector('dialog[open] #dok-vorschau-bild');
+  pruef(await page.locator('#dok-vorschau-bild').evaluate((i) => new Promise((ok) => { if (i.complete) ok(i.naturalWidth > 0); else { i.onload = () => ok(true); i.onerror = () => ok(false); } })), 'A2-Dok: Bildvorschau lädt nicht');
+  await page.click('dialog[open] [data-zu]');
+  const docs = (await api('GET', `/baustellen/${W}/dokumente`)).json;
+  const angebot = docs.find((d) => d.kategorie === 'angebot' && d.titel.includes(k));
+
+  /* ---- Rechnungen ---- */
+  await geh(`/baustelle/${W}?reiter=rechnungen`);
+  await page.waitForSelector('#rechnungen');
+  const rt = await h.text();
+  pruef(/Rechnung erfassen/.test(rt) && !/Rechnung erstellen|Rechnung schreiben/i.test(rt) && await page.locator('#re-bmd').count() === 1, 'A2-Re: Wortlaut „Rechnung erfassen“ bzw. BMD-Import fehlt');
+  await page.click('#re-neu');
+  await page.waitForSelector('dialog[open] #ref');
+  const nr = `RE-${k}-0001`;
+  await page.fill('#ref [name="nr"]', nr);
+  await page.fill('#ref [name="netto"]', '10.000,00');
+  await page.fill('#ref [name="zahlungszielTage"]', '30');
+  pruef((await page.locator('#re-faellig').innerText()).includes(plusTage(heute, 30).split('-').reverse().join('.')), `A2-Re: Fälligkeit nicht aus Datum + Zahlungsziel (${await page.locator('#re-faellig').innerText()})`);
+  await page.check('#ref [name="ustModus"][value="reverse_charge"]');
+  pruef(await page.locator('#rc-hinweis').isVisible() && (await page.locator('#re-zahlbetrag').innerText()).includes('10.000,00'), 'A2-Re: Reverse Charge ohne Hinweis oder mit Umsatzsteuer');
+  await page.check('#ref [name="ustModus"][value="normal"]');
+  await page.selectOption('#ref [name="ruecklassArt"]', 'haft'); await page.fill('#ref [name="ruecklassProzent"]', '5');
+  await page.fill('#ref [name="skontoProzent"]', '3'); await page.fill('#ref [name="skontoTage"]', '14');
+  pruef((await page.locator('#re-zahlbetrag').innerText()).includes('11.400,00'), `A2-Re: Zahlbetrag-Vorschau falsch (${await page.locator('#re-zahlbetrag').innerText()})`);
+  await page.setInputFiles('#ref [name="pdf"]', pdfDatei(`${nr}.pdf`, nr));
+  await dialogUeberlauf('rechnung erfassen'); await shot('rechnung-erfassen');
+  await page.click('#re-ok');
+  await page.waitForSelector(`#re-tabelle tr:has-text("${nr}")`);
+  let re = (await api('GET', `/rechnungen?baustelleId=${W}`)).json.find((r) => r.nr === nr);
+  pruef(re && re.brutto === 12000 && re.ruecklass === 600 && re.zahlbetrag === 11400 && re.faellig === plusTage(heute, 30) && !!re.dokumentId && re.status === 'offen', `A2-Re: Server rechnet anders (${JSON.stringify(re && { b: re.brutto, r: re.ruecklass, z: re.zahlbetrag, f: re.faellig, d: re.dokumentId, s: re.status })})`);
+  await toastWeg();
+  // doppelte Nummer → Fehler im Formular
+  await page.click('#re-neu'); await page.waitForSelector('dialog[open] #ref');
+  await page.fill('#ref [name="nr"]', nr); await page.fill('#ref [name="netto"]', '1,00');
+  await h.absichtlich(async () => { await page.click('#re-ok'); await page.waitForSelector('#ref .form-err:not([hidden])'); });
+  await page.click('dialog[open] [data-zu]');
+  // Teilzahlung, Mahnstufe
+  await page.locator(`#re-tabelle tr:has-text("${nr}")`).click();
+  await page.waitForSelector('dialog[open] #re-detail');
+  pruef(await page.locator('#re-pdf').count() === 1, 'A2-Re: Rechnungs-PDF nicht verknüpft');
+  await page.click('#re-zahlung');
+  await page.waitForSelector('dialog[open] #zaf');
+  pruef(await page.locator('#zaf [name="betrag"]').inputValue() === '11.400,00', 'A2-Re: Zahlung nicht mit dem offenen Betrag vorbelegt');
+  await page.fill('#zaf [name="betrag"]', '5.000,00');
+  await dialogUeberlauf('zahlung');
+  await page.click('#za-ok');
+  await page.waitForSelector('#re-detail [data-r-status="teilbezahlt"]');
+  pruef((await page.locator('#re-detail [data-wert="offen"]').innerText()).includes('6.400,00') && await page.locator('#re-zahlungen li').count() === 1, 'A2-Re: Teilzahlung nicht verbucht');
+  await toastWeg();
+  await page.click('#re-mahnung');
+  await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
+  await page.waitForSelector('#re-detail [data-mahnstufe="1"]');
+  await dialogUeberlauf('rechnung detail'); await shot('rechnung-detail');
+  await page.locator('dialog[open] .dlg-head button, dialog[open] [data-zu]').first().click().catch(() => {});
+  await page.keyboard.press('Escape');
+  await toastWeg();
+  pruef((await page.locator('#re-summen [data-summe="offen"]').innerText()).includes('6.400,00') && (await page.locator('#re-summen [data-summe="ruecklass"]').innerText()).includes('600,00'), 'A2-Re: Summen (offen, Rücklass) stimmen nicht');
+  await ueberlauf('rechnungen'); await shot('rechnungen');
+  // überfällige Rechnung (über die Schnittstelle) → Offene Posten
+  const nr2 = `RE-${k}-0002`;
+  const alt = await api('POST', `/baustellen/${W}/rechnungen`, { typ: 'teil', nr: nr2, datum: plusTage(heute, -60), netto: 2000, ustModus: 'normal', zahlungszielTage: 14 });
+  pruef(alt.status === 201, `A2-Re: zweite Rechnung → ${alt.status}`);
+  await geh('/offene-posten');
+  await page.waitForSelector('#offene-posten #re-tabelle');
+  const op = (await api('GET', '/offene-posten')).json;
+  pruef((await page.locator('[data-kpi="offen"] b').innerText()).includes(eur(op.summeOffen)) && (await page.locator('[data-kpi="ueberfaellig"] b').innerText()).includes(eur(op.summeUeberfaellig)), 'A2-Re: Kennzahlen der offenen Posten weichen vom Server ab');
+  pruef(/überfällig 46 Tage/.test(await page.locator(`#re-tabelle tr:has-text("${nr2}")`).innerText()), `A2-Re: „überfällig x Tage“ fehlt (${(await page.locator(`#re-tabelle tr:has-text("${nr2}")`).innerText()).replace(/\s+/g, ' ')})`);
+  await page.click('[data-op-filter="ueberfaellig"]');
+  pruef(await page.locator(`#re-tabelle tr:has-text("${nr}")`).count() === 0 && await page.locator(`#re-tabelle tr:has-text("${nr2}")`).count() === 1, 'A2-Re: Filter „Überfällig“ wirkt nicht');
+  await page.click('[data-op-filter=""]');
+  await page.fill('#op-suche', nr);
+  pruef(await page.locator('#re-tabelle tbody tr').count() === 1, 'A2-Re: Suche in den offenen Posten wirkt nicht');
+  const csv = await context.request.get(h.srv.url + '/api/offene-posten.csv');
+  const csvText = (await csv.body()).toString('utf8');
+  pruef(csv.ok() && csvText.includes(nr2) && csvText.includes(';'), `A2-Re: CSV-Export der offenen Posten → ${csv.status()}`);
+  pruef(await page.locator('#op-auftraggeber li').count() >= 1 && await page.locator('#op-ruecklaesse li').count() >= 1, 'A2-Re: Listen je Auftraggeber / Rücklässe fehlen');
+  await ueberlauf('offene posten'); await shot('offene-posten');
+  await geh('/dashboard');
+  pruef(await page.locator('#bv-kacheln [data-kpi="offene-posten"]').count() === 1 && (await page.locator('#bv-kacheln [data-kpi="offene-posten"]').innerText()).includes('überfällig'), 'A2-Re: Kachel „Offene Posten“ mit Überfälligen fehlt');
+  await geh(`/baustelle/${W}`);
+  pruef(await page.locator('[data-wert="verrechnet"]').count() === 1 && (await page.locator('[data-wert="verrechnet"]').innerText()).includes('12.000,00'), 'A2-Re: Nachkalkulation zeigt „verrechnet“ nicht');
+  await abmelden();
+
+  /* ---- Polier: Dokumente nur lesen, keine finanziellen, keine Rechnungen ---- */
+  await anmelden('polier');
+  await geh(`/baustelle/${W}?reiter=dokumente`);
+  await page.waitForSelector('#dokumente');
+  pruef(await page.locator('.dok-kat-btn[data-kat="plaene"]').count() === 1 && await page.locator('.dok-kat-btn[data-kat="angebot"], .dok-kat-btn[data-kat="ausgangsrechnungen"]').count() === 0, 'A2-Dok: Polier sieht finanzielle Kategorien oder keine Pläne');
+  pruef(await page.locator('#dok-nur-lesen').count() === 1 && await page.locator('#dok-neu, #dok-ablage').count() === 0, 'A2-Dok: Polier kann hochladen');
+  pruef(await page.locator(`#dok-liste li:has-text("Lageplan ${k}")`).count() === 1 && await page.locator(`#dok-liste li:has-text("Angebot ${k}"), #dok-liste li:has-text("${nr}")`).count() === 0, 'A2-Dok: Polier sieht den Plan nicht oder sieht Angebot/Rechnung');
+  await page.locator(`#dok-liste li:has-text("Lageplan ${k}") [data-dok-auf]`).click();
+  await page.waitForSelector('dialog[open] #dok-dialog');
+  pruef(await page.locator('#dok-weg, #dmf, #dok-version-neu').count() === 0, 'A2-Dok: Polier kann bearbeiten oder löschen');
+  await page.click('dialog[open] [data-zu]');
+  await keinEuro('polier dokumente'); await ueberlauf('polier dokumente'); await shot('dokumente-polier');
+  if (angebot) pruef((await h.absichtlich(() => api('GET', `/baustellen/${W}/dokumente/${angebot.id}`))).status === 403, 'A2-Dok: Polier kann ein finanzielles Dokument direkt abrufen');
+  pruef((await h.absichtlich(() => api('GET', `/rechnungen?baustelleId=${W}`))).status === 403, 'A2-Re: Polier kann Rechnungen abrufen');
+  await h.keinZugriff('/offene-posten');
+  await abmelden();
+}
+
+// Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen };
+module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

@@ -60,7 +60,8 @@ export function zeitplanBinden(el, ctx, holZp, neu) {
       fuss: `${a ? '<button class="btn danger" type="button" id="zp-weg">Löschen</button><span class="grow"></span>' : ''}<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="zpf">Speichern</button>` });
     $('#zpf', dlg.el).addEventListener('submit', async (ev) => {
       ev.preventDefault(); const f = new FormData(ev.target); const err = $('.form-err', dlg.el);
-      const body = { art: f.get('art'), name: String(f.get('name') || '').trim(), von: f.get('von'), bis: f.get('bis') };
+      const name = String(f.get('name') || '').trim();
+      const body = { art: f.get('art'), name: name || ARTEN[f.get('art')] || 'Abschnitt', von: f.get('von'), bis: f.get('bis') };
       if (!body.von || !body.bis || body.bis < body.von) { err.hidden = false; err.textContent = 'Bitte Von und Bis eintragen – Bis darf nicht vor Von liegen.'; return; }
       try { if (a) await put(`/baustellen/${bsId}/abschnitte/${a.id}`, { ...body, version: a.version }); else await post(`/baustellen/${bsId}/abschnitte`, body); dlg.zu(); toast('Gespeichert.'); neu(); }
       catch (x) { err.hidden = false; err.textContent = x.status === 409 ? 'Inzwischen geändert – bitte schließen und erneut öffnen.' : x.message; }

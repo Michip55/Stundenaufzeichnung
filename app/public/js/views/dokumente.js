@@ -25,6 +25,9 @@ export async function dokumenteTab(box, b, ctx) {
     fehler = '';
     try { [kats, docs] = await Promise.all([get('/dokument-kategorien'), get(`/baustellen/${b.id}/dokumente${mitGeloeschten ? '?geloescht=1' : ''}`)]); }
     catch (e) { if (e.status === 401 || e.netz) throw e; fehler = e.status === 403 ? 'Kein Zugriff auf die Dokumente dieser Baustelle.' : e.message; kats = []; docs = []; }
+    // nur Kategorien, die diese Rolle sehen darf (Polier: Pläne, Leitungsauskünfte …; finanzielle nur mit Preis-Recht)
+    kats = kats.filter((k) => (rolle !== 'polier' || k.polier) && (!k.finanziell || ctx.kann('preise_sehen')));
+    docs = docs.filter((d) => kats.some((k) => k.schluessel === d.kategorie));
     if (kat && !kats.some((k) => k.schluessel === kat)) kat = '';
   }
   await lade();
@@ -88,10 +91,10 @@ export async function dokumenteTab(box, b, ctx) {
     const k = kats.find((x) => x.schluessel === d.kategorie) || {};
     const schreib = !d.geloescht && darfKat(k);
     const url = dateiUrl(b.id, d);
-    const schau = istBild(d) ? `<a class="dok-bild" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(d.titel)}" id="dok-vorschau-bild"></a>` : istPdf(d) ? `<iframe class="dok-pdf" id="dok-vorschau-pdf" sandbox title="${esc(d.titel)}" src="${esc(url)}"></iframe>` : `<p class="muted sm">Für diesen Dateityp gibt es keine Vorschau – bitte herunterladen.</p>`;
+    const schau = istBild(d) ? `<a class="dok-bild" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(d.titel)}" id="dok-vorschau-bild"></a>` : istPdf(d) ? `<a class="dok-pdf-karte" id="dok-pdf-oeffnen" href="${esc(url)}" target="_blank" rel="noopener">${ic('file')}<span><b>PDF öffnen</b><small>${esc(d.dateiname || '')} · ${esc(groesse(d.groesse))} – öffnet in einem neuen Tab</small></span></a>` : `<p class="muted sm">Für diesen Dateityp gibt es keine Vorschau – bitte herunterladen.</p>`;
     const dlg = dialog({ titel: d.titel, breit: true, inhalt: `<div class="stack-s" id="dok-dialog" data-dok="${d.id}">
       <div class="dok-vorschau">${schau}</div>
-      <div class="btn-row"><a class="btn ghost" id="dok-laden" href="${esc(url)}" download="${esc(d.dateiname || 'dokument')}">${ic('download')}Herunterladen</a>${istPdf(d) ? `<a class="btn ghost" href="${esc(url)}" target="_blank" rel="noopener">In neuem Tab öffnen</a>` : ''}</div>
+      <div class="btn-row"><a class="btn ghost" id="dok-laden" href="${esc(url)}" download="${esc(d.dateiname || 'dokument')}">${ic('download')}Herunterladen</a></div>
       ${schreib ? `<form id="dmf" class="form-grid" novalidate><label class="field full"><span class="field-label">Titel</span><input class="input lg" name="titel" required maxlength="200" value="${esc(d.titel)}"></label>
         <label class="field"><span class="field-label">Kategorie</span><select class="input lg" name="kategorie">${schreibKats().map((x) => `<option value="${esc(x.schluessel)}" ${x.schluessel === d.kategorie ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
         <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" value="${esc(d.datum || '')}"></label>

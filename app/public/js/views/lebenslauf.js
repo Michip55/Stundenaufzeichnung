@@ -28,6 +28,9 @@ export function ziele(ctx, b) {
   if (ctx.ich.benutzer.rolle === 'bauleiter' && eigen(ctx, b)) return alle.filter((z) => BAULEITER_ZIELE.includes(z));
   return [];
 }
+// „Nächster Schritt“ ist nur ein Schritt nach vorne; zurück geht es über „Anderer Status …“
+const VOR = { angebot: 'geplant', geplant: 'in_arbeit', in_arbeit: 'fertiggestellt', pausiert: 'in_arbeit', fertiggestellt: 'abgenommen', abgenommen: 'schlussrechnung', schlussrechnung: 'bezahlt', bezahlt: 'archiviert', storniert: 'archiviert' };
+export const naechster = (ctx, b) => { const v = VOR[phaseVon(b)]; return ziele(ctx, b).includes(v) ? v : null; };
 const plusJahre = (iso, n) => { const d = fmt.dt(iso); d.setFullYear(d.getFullYear() + n); return fmt.iso(d); };
 const tageBis = (iso, heute) => Math.round((fmt.dt(iso) - fmt.dt(heute)) / 86400000);
 const dateiBase64 = (datei) => new Promise((ok, nein) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => nein(new Error('Datei konnte nicht gelesen werden.')); r.readAsDataURL(datei); });
@@ -80,7 +83,7 @@ export function phaseDialog(ctx, b, zielVorwahl, fertig) {
 
 /* ---------- Karte im Baustellen-Detail ---------- */
 export function lebenslaufHtml(b, ctx, verlauf) {
-  const p = phaseVon(b), moegl = ziele(ctx, b), vor = moegl[0];
+  const p = phaseVon(b), moegl = ziele(ctx, b), vor = naechster(ctx, b);
   const reihe = p === 'angebot' ? ['angebot', ...REIHE] : REIHE;
   const pos = reihe.indexOf(['pausiert'].includes(p) ? 'in_arbeit' : p);
   const rolle = ctx.ich.benutzer.rolle;
@@ -92,7 +95,7 @@ export function lebenslaufHtml(b, ctx, verlauf) {
       ${b.phaseSeit ? `<p class="muted sm">${esc(phaseText(p))} seit ${esc(fmt.datum(b.phaseSeit))}${p === 'pausiert' ? ' – Arbeiten ruhen' : ''}</p>` : ''}
       ${b.fertigmeldung ? `<div id="fertigmeldung">${banner('info', `<b>Fertigstellung gemeldet</b> von ${esc((b.fertigmeldung.von && b.fertigmeldung.von.name) || '')} am ${esc(fmt.zeitpunkt(b.fertigmeldung.zeit))}${b.fertigmeldung.notiz ? ' – ' + esc(b.fertigmeldung.notiz) : ''}${moegl.includes('fertiggestellt') ? ' <button type="button" class="btn ghost sm" data-phase-ziel="fertiggestellt">Bestätigen</button>' : ''}`)}</div>` : ''}
       ${b.phaseVorschlag && moegl.includes(b.phaseVorschlag.phase) ? `<div id="phase-vorschlag">${banner('info', `Vorschlag: <b>${esc(phaseText(b.phaseVorschlag.phase))}</b>${b.phaseVorschlag.grund ? ' – ' + esc(b.phaseVorschlag.grund) : ''} <button type="button" class="btn ghost sm" data-phase-ziel="${esc(b.phaseVorschlag.phase)}">Übernehmen</button>`)}</div>` : ''}
-      <div class="btn-row">${vor ? `<button type="button" class="btn primary" id="phase-weiter" data-phase-ziel="${vor}">${ic('right')}Nächster Schritt: ${esc(phaseText(vor))}</button>` : ''}${moegl.length > 1 ? `<button type="button" class="btn ghost" id="phase-andere" data-phase-ziel="">Anderer Status …</button>` : ''}
+      <div class="btn-row">${vor ? `<button type="button" class="btn primary" id="phase-weiter" data-phase-ziel="${vor}">${ic('right')}Nächster Schritt: ${esc(phaseText(vor))}</button>` : ''}${moegl.length > (vor ? 1 : 0) ? `<button type="button" class="btn ghost" id="phase-andere" data-phase-ziel="">Anderer Status …</button>` : ''}
         ${darfMelden ? `<button type="button" class="btn primary" id="fertig-melden">${ic('check')}Fertigstellung melden</button>` : ''}
         ${p === 'archiviert' && rolle === 'gf' ? '<button type="button" class="btn ghost" id="archiv-auf">Archiv aufheben</button>' : ''}</div>
       ${verlauf && verlauf.length ? `<details class="ll-verlauf"><summary>Verlauf (${verlauf.length})</summary><ul class="plain rows" id="phasen-verlauf">${verlauf.map((v) => `<li><span class="grow"><b>${esc(phaseText(v.phase))}</b><small>${esc(fmt.datum(v.datum || v.zeit))} · ${esc((v.von && v.von.name) || '')}${v.notiz ? ' · ' + esc(v.notiz) : ''}</small></span></li>`).join('')}</ul></details>` : ''}
@@ -157,12 +160,12 @@ export function lebenslaufBinden(el, b, ctx) {
 const TAFEL = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen', 'schlussrechnung', 'bezahlt'];
 export function tafelHtml(liste, ctx) {
   return `<div class="ll-tafel-scroll" data-zieh-scroll><div class="ll-tafel" id="bv-tafel">${TAFEL.map((s) => { const l = liste.filter((b) => phaseVon(b) === s); return `<section class="ll-spalte" data-spalte="${s}" aria-label="${esc(phaseText(s))}"><h3>${esc(phaseText(s))} <span class="count">${l.length}</span></h3>
-    <div class="ll-karten">${l.map((b) => { const z = ziele(ctx, b); return `<article class="ll-karte" ${z.length ? 'data-zieh' : ''} data-bv="${b.id}"><a href="#/baustelle/${b.id}"><small>${esc(b.kst || '')}</small><b>${esc(b.kurz || b.name)}</b></a><span class="muted sm">${esc(b.auftraggeber || '')}</span>${b.fertigmeldung ? '<span class="chip xs st-blue">Fertigstellung gemeldet</span>' : ''}${z.length ? `<button type="button" class="btn ghost sm" data-bv-weiter="${b.id}" data-ziel="${z[0]}">${ic('right', 'xs')}${esc(phaseText(z[0]))}</button>` : ''}</article>`; }).join('') || '<p class="muted sm ll-leer">–</p>'}</div></section>`; }).join('')}</div></div>
+    <div class="ll-karten">${l.map((b) => { const z = ziele(ctx, b); return `<article class="ll-karte" ${z.length ? 'data-zieh' : ''} data-bv="${b.id}"><a href="#/baustelle/${b.id}"><small>${esc(b.kst || '')}</small><b>${esc(b.kurz || b.name)}</b></a><span class="muted sm">${esc(b.auftraggeber || '')}</span>${b.fertigmeldung ? '<span class="chip xs st-blue">Fertigstellung gemeldet</span>' : ''}${z.length ? `<button type="button" class="btn ghost sm" data-bv-weiter="${b.id}" data-ziel="${naechster(ctx, b) || ''}">${ic('right', 'xs')}${esc(naechster(ctx, b) ? phaseText(naechster(ctx, b)) : 'Status ändern')}</button>` : ''}</article>`; }).join('') || '<p class="muted sm ll-leer">–</p>'}</div></section>`; }).join('')}</div></div>
     <p class="muted sm">Karte in die nächste Spalte ziehen – oder den Knopf auf der Karte verwenden.</p>`;
 }
 export function tafelBinden(el, ctx, holListe, fertig) {
   const finde = (id) => holListe().find((b) => Number(b.id) === Number(id));
-  el.addEventListener('click', (e) => { const w = e.target.closest('[data-bv-weiter]'); if (w) { const b = finde(w.dataset.bvWeiter); if (b) phaseDialog(ctx, b, w.dataset.ziel, fertig); } });
+  el.addEventListener('click', (e) => { const w = e.target.closest('[data-bv-weiter]'); if (w) { const b = finde(w.dataset.bvWeiter); if (b) phaseDialog(ctx, b, w.dataset.ziel || undefined, fertig); } });
   return ziehbar(el, {
     quelle: '.ll-karte[data-zieh]', ziel: '.ll-spalte',
     darf: (q, z) => { const b = finde(q.dataset.bv); return !!b && ziele(ctx, b).includes(z.dataset.spalte); },

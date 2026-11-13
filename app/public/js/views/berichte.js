@@ -184,7 +184,10 @@ export async function bericht(el, ctx) {
   const zeigHinweise = () => { const h = $('#anlage-hinweise', el); if (!h) return; h.hidden = !anlageHinweise.length; h.innerHTML = anlageHinweise.length ? banner('warn', `<b>Gesperrtes Gerät im Bericht:</b> ${anlageHinweise.map((x) => esc(x.text)).join(' · ')} – der Bericht wird trotzdem gespeichert, das Büro wird verständigt.`, 'lock') : ''; };
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
   // Menge, die aus erledigten Fuhren in die Materialzeile kam (12.8b) – nur zur Kennzeichnung
-  const ausFuhre = (mid) => { const z = b.material.find((m) => m.materialId === mid) || {}; return z.ausFuhren ?? z.mengeFuhren ?? (z.quelle === 'fuhre' ? z.menge : 0) ?? 0; };
+  const matZeile = (mid) => b.material.find((m) => m.materialId === mid) || {};
+  const fuhrMarke = (m) => { const z = matZeile(m.id); if (!z.quelle || !(z.ausFuhren > 0)) return ''; return ` <i class="chip xs st-outline" data-aus-fuhre="${esc(z.quelle)}">${ic('truck')}${z.quelle === 'fuhre' ? 'aus Fuhre' : `davon ${esc(fmt.zahl(z.ausFuhren, 2))} ${esc(m.einheit || '')} aus Fuhren`}</i>`; };
+  // Material, das im Bericht steht, aber inzwischen deaktiviert ist: bleibt sichtbar, steht aber in keiner neuen Auswahl
+  const matListe = () => [...matKat, ...b.material.filter((z) => !matKat.some((m) => m.id === z.materialId)).map((z) => ({ id: z.materialId, name: z.name || 'Material', einheit: z.einheit, deaktiviert: true }))];
   const gesamt = () => rund2(b.personal.reduce((s, p) => s + (Number(p.stunden) || 0), 0));
 
   /* ---- Speichern (automatisch, entprellt) ---- */
@@ -523,7 +526,7 @@ export async function bericht(el, ctx) {
           <section class="pf-sec a-mat" data-step="3" aria-labelledby="h-mat"><h4 id="h-mat">MATERIAL <span>Menge</span></h4>
           ${(b.fuhrenVorschlag || []).length ? `<div class="fuhr-vorschlag" id="fuhren-vorschlag"><b>${ic('truck')}${b.fuhrenVorschlag.length} Fuhre${b.fuhrenVorschlag.length === 1 ? '' : 'n'} abgeladen – noch nicht im Bericht</b><ul class="plain">${b.fuhrenVorschlag.map((v) => `<li data-fuhre="${v.fuhreId}"><span class="grow">${esc(v.name || 'Material')} · <b>${esc(fmt.zahl(v.menge, 2))} ${esc(v.einheit || '')}</b>${v.fahrer ? ` · ${esc(v.fahrer)}` : ''}${v.zeit ? ` · ${esc(fmt.uhr(v.zeit))}` : ''}${v.hinweis ? `<small>${esc(v.hinweis)}</small>` : ''}</span></li>`).join('')}</ul>${editierbar() ? `<button type="button" class="btn primary" id="fuhren-uebernehmen">${ic('check')}In den Bericht übernehmen</button>` : '<small class="muted">Übernahme nur im Entwurf.</small>'}</div>` : ''}
           <div class="pf-box flush mat-list">
-            ${matKat.map((m) => `<div class="mat-row${mMenge(m.id) ? ' on' : ''}" data-m="${m.id}"><span>${esc(m.name)}${ausFuhre(m.id) ? ` <i class="chip xs st-outline" data-aus-fuhre title="Menge (teilweise) aus Fuhren: ${esc(fmt.zahl(ausFuhre(m.id), 2))} ${esc(m.einheit || '')}">${ic('truck')}aus Fuhre</i>` : ''}</span>${stepper(`data-material="${m.id}"`, mMenge(m.id), 1, m.einheit, m.name)}<small>${esc(m.einheit || '')}</small></div>`).join('')}
+            ${matListe().map((m) => `<div class="mat-row${mMenge(m.id) ? ' on' : ''}" data-m="${m.id}"><span>${esc(m.name)}${m.deaktiviert ? ' <i class="chip xs st-grey" data-deaktiviert>deaktiviert</i>' : ''}${fuhrMarke(m)}</span>${stepper(`data-material="${m.id}"`, mMenge(m.id), 1, m.einheit, m.name)}<small>${esc(m.einheit || '')}</small></div>`).join('')}
           </div>${editierbar() ? `<div class="integ-row">${lieferscheinKnopf(integ)}</div>` : ''}</section>
           <section class="pf-sec a-leist" data-step="4" aria-labelledby="h-leist"><h4 id="h-leist">ARBEITSLEISTUNG</h4><div class="pf-box flush"><textarea class="input area" rows="5" data-f="arbeitsleistung" aria-labelledby="h-leist" placeholder="Was wurde heute gemacht?" ${dis()}>${esc(b.arbeitsleistung || '')}</textarea></div>
             ${editierbar() ? diktatHtml(integ) : ''}</section>

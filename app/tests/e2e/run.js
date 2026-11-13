@@ -10,6 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const fp = require('./fuhrpark'); // Servicebuch und Schäden mit Fotos
+const a2 = require('./ausbau2'); // Ausbaustufe 2: Stammdaten, Lebenslauf, Planer, Dokumente, Rechnungen, Urlaub
 
 const APP = path.resolve(__dirname, '..', '..');
 const SHOTS = process.env.BAUTAG_SHOTS || '';
@@ -64,7 +65,9 @@ async function laufe(browser, g) {
   // Konsolenfehler: alles zählt, außer Netz-Fehlermeldungen des Browsers in Schritten, die der Test absichtlich auslöst
   let erwartet = 0;
   const konsole = [];
-  page.on('console', (m) => { if (m.type() !== 'error') return; const t = m.text(); if (erwartet > 0 && /Failed to load resource|net::ERR_/.test(t)) return; konsole.push(`${page.url().split('#')[1] || ''}: ${t}`); });
+  let letzteFehlAntwort = '';
+  page.on('response', (r) => { if (r.status() >= 400) letzteFehlAntwort = `${r.request().method()} ${r.url().replace(srv.url, '')} → ${r.status()}`; });
+  page.on('console', (m) => { if (m.type() !== 'error') return; const t = m.text(); if (erwartet > 0 && /Failed to load resource|net::ERR_/.test(t)) return; konsole.push(`${page.url().split('#')[1] || ''}: ${t}${/Failed to load resource/.test(t) ? ` [${m.location().url ? m.location().url.replace(srv.url, '') : letzteFehlAntwort}]` : ''}`); });
   page.on('pageerror', (e) => konsole.push('pageerror: ' + e.message));
   const absichtlich = async (fn) => { erwartet++; try { return await fn(); } finally { await sleep(150); erwartet--; } };
 
@@ -118,6 +121,9 @@ async function laufe(browser, g) {
   const z = {};
 
   try {
+    haupt: {
+    // Entwicklung: E2E_NUR_A2=1 prüft nur die Bereiche der Ausbaustufe 2 (tests/e2e/ausbau2.js)
+    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
     /* ============ 0. Falsche PIN ============ */
     await page.goto(srv.url + '/');
     await page.waitForSelector('.login-user');
@@ -236,7 +242,12 @@ async function laufe(browser, g) {
     pruef(await page.locator('#zu-hilfe').count() === 1 && await page.locator('#install-karte').count() === 1, 'A2-1: „Mehr“ verlinkt weder Hilfe noch Installation');
     await geh('/mehr'); await keinEuro('mehr');
     pruef(await page.locator('.integ-list li').count() >= 5, 'Mehr: Zusatzdienste fehlen');
-    pruef((await text()).includes('Noch nicht angebunden'), 'Mehr: Hinweis „Noch nicht angebunden“ fehlt');
+    // Zusatzdienste zeigen den echten Zustand vom Server (12.14) – nichts wird vorgetäuscht
+    const integ = (await api('GET', '/integrationen')).json;
+    const dienstAktiv = (k) => /^aktiv/.test((integ.find((i) => i.schluessel === k) || {}).zustand || '');
+    const zustaende = await page.evaluate(() => [...document.querySelectorAll('.integ-list li[data-integ]')].map((li) => [li.dataset.integ, li.dataset.zustand]));
+    pruef(zustaende.length === integ.length && zustaende.every(([k, z]) => (integ.find((i) => i.schluessel === k) || {}).zustand === z), `Mehr: Zusatzdienste zeigen nicht den Zustand des Servers (${JSON.stringify(zustaende)})`);
+    pruef(!dienstAktiv('sms') && await page.locator('.integ-list li[data-integ="sms"]:not(.on)').count() === 1, 'Mehr: SMS darf ohne Anbieter nicht als aktiv erscheinen');
     for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/kalkulation/1/positionen', '/monat', '/benutzer', '/dashboard', '/berichte', '/kolonne', '/baustellen']) { await keinZugriff(r); await keinEuro(r); }
     // Server liefert dem Mitarbeiter keine €-Felder
     const mPreise = await absichtlich(() => api('GET', '/preise'));
@@ -283,7 +294,7 @@ async function laufe(browser, g) {
     await toastWeg();
     // Bericht anlegen
     await geh('/berichte'); await keinEuro('berichte');
-    pruef((await text()).includes('Noch nicht angebunden'), 'Berichte: Papier-Scan nicht als „Noch nicht angebunden“ gekennzeichnet');
+    pruef(await page.locator('#papier-liste').count() === 1, 'Berichte: „Papierbericht fotografieren“ fehlt (Foto als Anhang geht immer, Erkennung nur mit Texterkennung/KI)');
     await page.click('#neu');
     await page.waitForSelector('dialog[open] #nb');
     await page.selectOption('dialog[open] select[name="baustelleId"]', String(bsId));
@@ -353,7 +364,7 @@ async function laufe(browser, g) {
     await page.locator('.mat-row').nth(0).locator('input').blur();
     await page.locator('.mat-row').nth(1).locator('[data-d="1"]').click();
     await ueberlauf('bericht schritt 3'); await shot('bericht-3-material');
-    pruef(await page.locator('.a-mat [data-integ="scan_lieferschein"] button[disabled]').count() === 1, 'Bericht: Lieferschein-Scan ist nicht als deaktiviert gekennzeichnet');
+    pruef(await page.locator('.a-mat #ls-foto').count() === 1, 'Bericht: „Lieferschein fotografieren“ fehlt');
     // C-02: Arbeitsstunden sind nie frei eingebbar – weder in der Oberfläche noch über die Schnittstelle
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
     await schritt(1);
@@ -422,7 +433,7 @@ async function laufe(browser, g) {
     await page.locator('[data-pal="euro"] [data-d="1"]').click();
     await page.locator('[data-pal="weissenboeck"] [data-d="1"]').click(); await page.locator('[data-pal="weissenboeck"] [data-d="1"]').click();
     await ueberlauf('bericht schritt 4'); await shot('bericht-4-leistung');
-    pruef(await page.locator('[data-integ="diktat"] button[disabled]').count() === 1, 'Bericht: Diktat ist nicht als deaktiviert gekennzeichnet');
+    pruef(dienstAktiv('diktat') ? await page.locator('#diktat-text').count() === 1 : await page.locator('[data-integ="diktat"] button[disabled]').count() === 1, 'Bericht: Diktat passt nicht zum Zustand des Dienstes');
     // Regie, Vorkommnisse
     await schritt(5);
     await page.click('[data-r-neu]');
@@ -454,7 +465,8 @@ async function laufe(browser, g) {
       await box.locator('[data-sig-save]').click();
       await page.waitForSelector(`.sig-box.signed[data-sig="${rolle}"]`);
     };
-    pruef(await page.locator('[data-integ="sms"] button[disabled]').count() === 1, 'Bericht: SMS-Fernunterschrift ist nicht als deaktiviert gekennzeichnet');
+    pruef(dienstAktiv('fernunterschrift') ? await page.locator('[data-fern-anfordern]').count() >= 1 : await page.locator('[data-integ] button[disabled]').count() >= 1, 'Bericht: Fernunterschrift passt nicht zum Zustand des Dienstes');
+    pruef(!(await text()).includes('SMS gesendet'), 'Bericht: SMS-Versand darf nicht vorgetäuscht werden');
     await ueberlauf('bericht schritt 6'); await shot('bericht-6-unterschrift-leer');
     // D-07: unterschrieben wird nur der aktuelle Stand – veraltete Version → Hinweis und Neu-Laden
     const zeichneNur = async (rolle) => {
@@ -897,6 +909,7 @@ async function laufe(browser, g) {
     await epFeld.fill(String(pA.ep + 5).replace('.', ',')); await epFeld.press('Enter');
     await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [pA.id, pA.ep + 5]);
+    await page.waitForSelector(`.pt-row[data-pos="${pA.id}"] [data-perioden]`, { timeout: 6000 }).catch(() => {}); // nach dem Speichern wird die Liste neu geladen
     pos = await posApi();
     pruef(allePos(pos).find((x) => x.id === pA.id).ep === pA.ep + 5, 'P-03: EP im Bauvorhaben nicht gespeichert');
     // A2-2: frühere Mengen bleiben beim alten EP – die Position zeigt ihre Preisstände
@@ -1394,6 +1407,10 @@ async function laufe(browser, g) {
     await abmelden();
     pruef((await page.locator('.login-user small').allInnerTexts()).every((t) => !/Geschäftsführung|Büro|Bauleiter|Polier/.test(t)), 'B-03: Anmeldeliste zeigt Rollen');
 
+    /* ============ Ausbaustufe 2: neue Bereiche (tests/e2e/ausbau2.js) ============ */
+    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv });
+    for (const teil of Object.keys(a2.TEILE)) await a2.TEILE[teil](h, z);
+
     /* ============ 6c. M-06: Sicherheits-Header, kein Inline-Skript ============ */
     const start = await context.request.get(srv.url + '/');
     const csp = start.headers()['content-security-policy'] || '';
@@ -1511,6 +1528,7 @@ async function laufe(browser, g) {
       pruef(ich2 && ich2.benutzer && ich2.benutzer.name === NAME.mitarbeiter, `B-03: Anmeldung mit Personalnummer liefert ${ich2 && ich2.benutzer && ich2.benutzer.name}`);
     } finally { srv2.stop(); }
 
+    } // haupt
     pruef(konsole.length === 0, `Konsolenfehler:\n      ${konsole.slice(0, 12).join('\n      ')}`);
   } catch (e) {
     const zeile = (/run\.js:(\d+)/.exec(e.stack || '') || [])[1];

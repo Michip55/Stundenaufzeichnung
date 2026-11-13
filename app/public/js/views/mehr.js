@@ -1,5 +1,5 @@
 // Mehr: Konto, alle Bereiche, Einstellungen, Zusatzdienste (ehrlich: noch nicht angebunden), Abmelden.
-import { get } from '../api.js';
+import { get, put } from '../api.js';
 import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, integZustand, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
@@ -28,6 +28,7 @@ export default async function mehr(el, ctx) {
   el.innerHTML = `
   <div class="page narrow wide-md">
     <section class="card pad profile">${avatar(u.name, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(rolleText(u.rolle))}${u.lohngruppe ? ' · ' + esc(u.lohngruppe) : ''}</p></div></section>
+    <form class="card pad stack-s" id="telefon-form" novalidate><label class="field"><span class="field-label">Mein Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc(u.telefon || '')}" placeholder="+43 664 …"></label><small class="muted">Sieht das Büro – und beim Polier die eigene Partie für „Polier anrufen“.</small><button type="submit" class="btn ghost" id="telefon-ok">Telefon speichern</button></form>
     <button type="button" class="punch out sch-melden" id="mehr-schaden"><span class="punch-ic">${ic('camera')}</span><span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span></button>
     <nav class="card menu-list" aria-label="Alle Bereiche">
       ${ctx.navErlaubt().map((n) => `<a href="#${n.pfad}">${ic(n.icon)}<span>${esc(n.text)}</span>${ic('right')}</a>`).join('')}
@@ -53,6 +54,11 @@ export default async function mehr(el, ctx) {
     toast(e.target.checked ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Standort wird nicht mehr erfasst.');
   });
   $('#mehr-schaden', el).addEventListener('click', () => schadenMelden(ctx));
+  $('#telefon-form', el).addEventListener('submit', async (e) => {
+    e.preventDefault(); const t = String(new FormData(e.target).get('telefon') || '').trim();
+    if (t && !/^[+\d][\d ]{3,29}$/.test(t)) { toast('Bitte nur Ziffern, Leerzeichen und ein + am Anfang – z. B. +43 664 1234567.', 'warn'); return; }
+    try { await put('/auth/telefon', { telefon: t }); u.telefon = t; toast(t ? 'Telefon gespeichert.' : 'Telefon entfernt.'); } catch (x) { toast(x.message, 'warn'); }
+  });
   $('#sync-jetzt', el).addEventListener('click', async () => { await nachsenden(); if (ctx.aktuell()) ctx.neuLaden(); });
   bindeInstall(el, () => { if (ctx.aktuell()) ctx.neuLaden(); });
   $('#abmelden', el).addEventListener('click', async () => {

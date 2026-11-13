@@ -163,7 +163,7 @@ export function meineFuhrenHtml(tage, heute, benutzerId) {
 }
 export function meineFuhrenBinden(el, tage, benutzerId, fertig) {
   const finde = (id) => { for (const t of tage) { const f = (t.fuhren || []).find((x) => Number(x.id) === Number(id)); if (f) return f; } return null; };
-  const ergebnis = (r) => { toast(r === 'gesendet' ? 'Gemeldet.' : r === 'gemerkt-ohne-foto' ? 'Keine Verbindung – Meldung gespeichert (Foto bitte später nachreichen).' : 'Keine Verbindung – Meldung gespeichert, wird nachgesendet.', r === 'gesendet' ? 'ok' : 'warn'); fertig(); };
+  const ergebnis = (r) => { toast(r === 'gesendet' ? 'Gemeldet.' : r === 'gemerkt-ohne-foto' ? 'Keine Verbindung – Meldung gespeichert (Foto bitte später nachreichen).' : 'Keine Verbindung – Meldung gespeichert, wird nachgesendet.', r === 'gesendet' ? 'ok' : 'warn'); fertig(r); };
   el.addEventListener('click', async (e) => {
     const los = e.target.closest('[data-fuhr-los]');
     if (los) { los.disabled = true; try { ergebnis(await melde(benutzerId, Number(los.dataset.fuhrLos), { status: 'unterwegs' })); } catch (x) { los.disabled = false; toast(x.message, 'warn'); } return; }
