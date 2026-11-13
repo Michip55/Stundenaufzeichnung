@@ -4,8 +4,8 @@ const v = require('../validierung');
 const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
 const { darfKalk, darfPreise } = require('../rechte');
 const { parseJson } = require('../daten');
-const { GRUPPEN, GRUPPEN_SCHLUESSEL, leseVorlage, schreibeExport } = require('../katalog-excel');
-const { katalogKopieren, projektPositionen, positionJson } = require('../positionen');
+const { GRUPPEN, GRUPPEN_SCHLUESSEL, leseVorlage, schreibeExport, pruefeZip, ladeAnpassungen } = require('../katalog-excel');
+const { katalogKopieren, projektPositionen, positionJson, einheitNorm } = require('../positionen');
 const { schluessel } = require('../positionen-zuordnung');
 const { pruefeBudget } = require('../budget');
 const { wienDatum, plusTage } = require('../datum');
@@ -37,7 +37,12 @@ module.exports = function positionenRouten(api, bt) {
     return o;
   }
 
-  function pruefeFelder(body, teil) {
+  /**
+   * @param {object} body
+   * @param {boolean} teil  Teil-Update
+   * @param {object} [alt]  bisherige Zeile (Katalog oder Projekt) für die Schutzregeln (E-01)
+   */
+  function pruefeFelder(body, teil, alt) {
     const f = {};
     if (!teil || body.gruppe !== undefined) f.gruppe = v.auswahl(body.gruppe, 'gruppe', GRUPPEN_SCHLUESSEL);
     if (!teil || body.bezeichnung !== undefined) f.bezeichnung = v.text(body.bezeichnung, 'bezeichnung', { max: 200 });
@@ -46,10 +51,21 @@ module.exports = function positionenRouten(api, bt) {
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
     if (body.sortierung !== undefined) f.sortierung = v.zahl(body.sortierung, 'sortierung', { min: 0, max: 1e6, ganz: true });
     if (body.quelle !== undefined) {
+      // E-01: die automatische Landschaftsabgabe nie stillschweigend entfernen
+      const altQ = alt ? parseJson(alt.quelle, null) : null;
+      if (body.quelle === null && altQ && altQ.art === 'naturmaterial' && body.naturmaterialQuelleEntfernen !== true) {
+        throw ungueltig('Diese Position rechnet automatisch aus den Tonnen Naturmaterial (Landschaftsabgabe). Zum Entfernen der Quelle zusätzlich naturmaterialQuelleEntfernen:true senden.');
+      }
       f.quelle = body.quelle === null ? null : JSON.stringify(pruefeQuelle(body.quelle));
       f.zuordnung_pruefen = 0; // bewusst gesetzt
     }
     if (body.naturmaterial !== undefined) { f.naturmaterial = v.bool(body.naturmaterial, 'naturmaterial') ? 1 : 0; f.naturmaterial_pruefen = 0; }
+    // E-01: Naturmaterial nur bei Einheit t
+    const einheitNeu = f.einheit ?? (alt ? alt.einheit : undefined);
+    if (einheitNeu !== undefined && einheitNorm(einheitNeu) !== 't') {
+      if (f.naturmaterial === 1) throw ungueltig('Naturmaterial kann nur bei Positionen mit der Einheit t gesetzt werden.');
+      if (alt && alt.naturmaterial === 1 && f.einheit !== undefined) f.naturmaterial = 0;
+    }
     if (body.zuordnungPruefen !== undefined) f.zuordnung_pruefen = v.bool(body.zuordnungPruefen, 'zuordnungPruefen') ? 1 : 0;
     return f;
   }
@@ -82,12 +98,18 @@ module.exports = function positionenRouten(api, bt) {
       schluessel: g.schluessel, name: g.name,
       ...(mitPreis ? { summe: g.summe, anteilProzent: g.anteilProzent } : {}),
       positionen: g.positionen.map((p) => {
-        const { ep, summe, ...rest } = p;
-        return mitPreis ? p : rest;
+        if (mitPreis) return p;
+        const { ep, summe, ...rest } = p; // eslint-disable-line no-unused-vars
+        // E-08: PA/VE-Mengen sind Rechnungsbeträge in € – ohne preise_sehen nur die Anzahl der Einträge
+        if (['pa', 've'].includes(String(p.einheit).trim().toLowerCase())) {
+          const { menge, mengeAuto, mengeManuell, eintraege, ...ohne } = rest; // eslint-disable-line no-unused-vars
+          return { ...ohne, eintraegeAnzahl: (eintraege || []).length };
+        }
+        return rest;
       })
     }));
-    const o = { baustelleId: bs.id, gruppen, budgetVerbrauchProzent: r.budgetVerbrauchProzent, hinweise: r.hinweise, stand: db.einstellung('katalog_stand', null) };
-    if (mitPreis) Object.assign(o, { auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
+    const o = { baustelleId: bs.id, gruppen, budgetVerbrauchProzent: r.budgetVerbrauchProzent, positionenFehlen: r.positionenFehlen, hinweise: r.hinweise, stand: db.einstellung('katalog_stand', null) };
+    if (mitPreis) Object.assign(o, { auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, anteilSummeProzent: r.anteilSummeProzent, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
     return o;
   }
 
@@ -104,7 +126,7 @@ module.exports = function positionenRouten(api, bt) {
         positionen: alle.filter((k) => k.gruppe === g.schluessel).map((k) => ({
           id: k.id, gruppe: k.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, ep: k.ep, sortierung: k.sortierung,
           quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1,
-          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
+          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, naturmaterialMoeglich: einheitNorm(k.einheit) === 't', herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
         }))
       }))
     };
@@ -127,7 +149,7 @@ module.exports = function positionenRouten(api, bt) {
     if (!alt) throw nichtGefunden('Katalogposition nicht gefunden.');
     const body = v.objekt(req.body);
     if (body.version !== undefined && v.zahl(body.version, 'version', { min: 1, ganz: true }) !== alt.version) throw konflikt('Die Katalogposition wurde inzwischen geändert. Bitte neu laden.', { version: alt.version });
-    const f = pruefeFelder(body, true);
+    const f = pruefeFelder(body, true, alt);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
     const k = Object.keys(f);
     db.transaktion(() => {
@@ -147,37 +169,85 @@ module.exports = function positionenRouten(api, bt) {
     res.json({ ok: true });
   });
 
+  /** Nur ein Import gleichzeitig (E-02) */
+  let importLaeuft = false;
+
   api.post('/positionen/katalog/import', brauche('preise_bearbeiten'), async (req, res) => {
-    const body = v.objekt(req.body);
-    if (typeof body.dateiBase64 !== 'string' || !body.dateiBase64.length) throw ungueltig('dateiBase64 fehlt (Excel-Datei als Base64).');
-    const b64 = body.dateiBase64.replace(/^data:[^,]*,/, '');
-    if (!/^[A-Za-z0-9+/\r\n]+={0,2}$/.test(b64)) throw ungueltig('dateiBase64 ist kein gültiges Base64.');
-    const buf = Buffer.from(b64, 'base64');
-    let gelesen;
-    try { gelesen = await leseVorlage(buf); } catch (e) { throw ungueltig(`Die Excel-Datei konnte nicht gelesen werden: ${e.message}`); }
-    if (!gelesen.positionen.length) throw ungueltig('In der Datei wurden keine Positionen im Aufbau der Vorlage gefunden (Summenzeilen „Summe Arbeit“ … „Summe Abgaben“).');
-    const uebernehmen = req.query.uebernehmen === '1';
-    const bestand = new Map(db.alle('SELECT * FROM katalog').map((k) => [`${k.gruppe}|${schluessel(k.bezeichnung, k.einheit)}`, k]));
-    const neu = [], geaendert = [];
-    let unveraendert = 0;
-    for (const p of gelesen.positionen) {
-      const k = bestand.get(`${p.gruppe}|${schluessel(p.bezeichnung, p.einheit)}`);
-      if (!k) neu.push({ gruppe: p.gruppe, bezeichnung: p.bezeichnung, einheit: p.einheit, ep: p.ep });
-      else if (Math.abs(k.ep - p.ep) > 1e-9 || !k.aktiv) geaendert.push({ id: k.id, gruppe: p.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, epAlt: k.ep, epNeu: p.ep, wiederAktiv: !k.aktiv });
-      else unveraendert++;
-    }
-    if (uebernehmen) {
-      db.transaktion(() => {
-        for (const p of neu) {
-          const sort = (db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', p.gruppe).m || 0) + 10;
-          db.lauf("INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, aktiv, version, geaendert, herkunft) VALUES (?, ?, ?, ?, ?, 1, 1, ?, 'vorlage_excel')", p.gruppe, p.bezeichnung, p.einheit, p.ep, sort, jetzt());
+    if (importLaeuft) throw konflikt('Es läuft bereits ein Excel-Import. Bitte kurz warten und erneut versuchen.');
+    importLaeuft = true;
+    try {
+      const body = v.objekt(req.body);
+      if (typeof body.dateiBase64 !== 'string' || !body.dateiBase64.length) throw ungueltig('dateiBase64 fehlt (Excel-Datei als Base64).');
+      const b64 = body.dateiBase64.replace(/^data:[^,]*,/, '');
+      if (!/^[A-Za-z0-9+/\r\n]+={0,2}$/.test(b64)) throw ungueltig('dateiBase64 ist kein gültiges Base64.');
+      const buf = Buffer.from(b64, 'base64');
+      let gelesen;
+      try {
+        pruefeZip(buf); // E-02: ZIP-Bomben vor dem Lesen abweisen
+        gelesen = await leseVorlage(buf);
+      } catch (e) { throw ungueltig(`Die Excel-Datei wurde abgewiesen: ${e.message}`); }
+      if (!gelesen.positionen.length) throw ungueltig('In der Datei wurden keine Positionen im Aufbau der Vorlage gefunden (Summenzeilen „Summe Arbeit“ … „Summe Abgaben“).');
+      const uebernehmen = req.query.uebernehmen === '1';
+      const ueberschreiben = req.query.anpassungenUeberschreiben === '1';
+
+      // E-04: 10d-Umbenennungen und freigegebene Preise kennen
+      const anp = ladeAnpassungen();
+      const umbenennung = new Map(anp.flatMap((a) => (a.umbenennungen || []).map((u) => [schluessel(u.alt, u.einheit), u.neu])));
+      const geschuetzt = new Map(anp.flatMap((a) => (a.preise || []).map((pr) => [schluessel(pr.bezeichnung, pr.einheit), { ep: pr.ep, version: a.version }])));
+      const bestand = new Map(db.alle('SELECT * FROM katalog').map((k) => [`${k.gruppe}|${schluessel(k.bezeichnung, k.einheit)}`, k]));
+      const neu = [], geaendert = [], fehler = [], doppelt = [], umbenannt = [];
+      const gesehen = new Set();
+      let unveraendert = 0;
+      for (const p of gelesen.positionen) {
+        // E-05: dieselben Regeln wie POST /positionen/katalog
+        const zf = [];
+        if (!p.bezeichnung || (p.laenge && p.laenge.bezeichnung > 200) || p.bezeichnung.length > 200) zf.push('Bezeichnung fehlt oder ist länger als 200 Zeichen');
+        if (!p.einheit || (p.laenge && p.laenge.einheit > 20) || p.einheit.length > 20) zf.push('Einheit fehlt oder ist länger als 20 Zeichen');
+        if (!(Number.isFinite(p.ep) && p.ep >= 0 && p.ep <= 1e6)) zf.push(`EP ${p.ep} liegt nicht zwischen 0 und 1.000.000`);
+        if (zf.length) { fehler.push({ zeile: p.zeile, text: `${p.bezeichnung.slice(0, 60)}: ${zf.join('; ')}.` }); continue; }
+        const ep = Math.round((p.ep + Number.EPSILON) * 100) / 100;
+        let name = p.bezeichnung;
+        const umb = umbenennung.get(schluessel(name, p.einheit));
+        if (umb && !bestand.has(`${p.gruppe}|${schluessel(name, p.einheit)}`) && bestand.has(`${p.gruppe}|${schluessel(umb, p.einheit)}`)) {
+          umbenannt.push({ alt: name, neu: umb, zeile: p.zeile });
+          name = umb;
         }
-        for (const g of geaendert) db.lauf('UPDATE katalog SET ep = ?, aktiv = 1, version = version + 1, geaendert = ? WHERE id = ?', g.epNeu, jetzt(), g.id);
-        db.setzeEinstellung('katalog_stand', wienDatum(bt.uhr()));
-        db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: 'katalog', neu: { neu: neu.length, geaendert: geaendert.length }, text: `Katalog aus Excel übernommen: ${neu.length} neu, ${geaendert.length} geändert` });
-      });
+        const key = `${p.gruppe}|${schluessel(name, p.einheit)}`;
+        if (gesehen.has(key)) { doppelt.push({ zeile: p.zeile, bezeichnung: name, einheit: p.einheit }); continue; }
+        gesehen.add(key);
+        const k = bestand.get(key);
+        if (!k) { neu.push({ gruppe: p.gruppe, bezeichnung: name, einheit: p.einheit, ep, zeile: p.zeile }); continue; }
+        if (Math.abs(k.ep - ep) > 1e-9 || !k.aktiv) {
+          const g = { id: k.id, gruppe: p.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, epAlt: k.ep, epNeu: ep, wiederAktiv: !k.aktiv };
+          const s10d = geschuetzt.get(schluessel(k.bezeichnung, k.einheit));
+          if (s10d && Math.abs(k.ep - s10d.ep) < 1e-9 && Math.abs(ep - k.ep) > 1e-9) {
+            Object.assign(g, { geschuetzt: true, anpassung: s10d.version, hinweis: 'weicht von Preisliste-2026-Anpassung ab' });
+          }
+          geaendert.push(g);
+        } else unveraendert++;
+      }
+      const ohneSummenzeile = gelesen.offen.map((p) => ({ zeile: p.zeile, bezeichnung: p.bezeichnung }));
+      if (uebernehmen) {
+        if (fehler.length) throw ungueltig(`Die Datei enthält ${fehler.length} ungültige Zeile(n) – nichts übernommen.`, { zeilenFehler: fehler });
+        db.transaktion(() => {
+          for (const p of neu) {
+            const sort = (db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', p.gruppe).m || 0) + 10;
+            db.lauf("INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, aktiv, version, geaendert, herkunft) VALUES (?, ?, ?, ?, ?, 1, 1, ?, 'vorlage_excel')", p.gruppe, p.bezeichnung, p.einheit, p.ep, sort, jetzt());
+          }
+          for (const g of geaendert) {
+            if (g.geschuetzt && !ueberschreiben) continue;
+            db.lauf('UPDATE katalog SET ep = ?, aktiv = 1, version = version + 1, geaendert = ? WHERE id = ?', g.epNeu, jetzt(), g.id);
+          }
+          db.setzeEinstellung('katalog_stand', wienDatum(bt.uhr()));
+          db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: 'katalog',
+            neu: { neu: neu.length, geaendert: geaendert.filter((g) => !g.geschuetzt || ueberschreiben).length, geschuetztBehalten: ueberschreiben ? 0 : geaendert.filter((g) => g.geschuetzt).length },
+            text: `Katalog aus Excel übernommen: ${neu.length} neu, ${geaendert.length} geändert` });
+        });
+      }
+      res.json({ uebernommen: uebernehmen, neu, geaendert, unveraendert, umbenannt, fehler, doppelt, ohneSummenzeile });
+    } finally {
+      importLaeuft = false;
     }
-    res.json({ uebernommen: uebernehmen, neu, geaendert, unveraendert });
   });
 
   /* ---------- Projektpositionen ---------- */
@@ -207,7 +277,7 @@ module.exports = function positionenRouten(api, bt) {
     const body = v.objekt(req.body);
     const version = v.zahl(body.version, 'version', { min: 1, ganz: true });
     if (version !== p.version) throw konflikt('Die Position wurde inzwischen geändert. Bitte neu laden.', { version: p.version });
-    const f = pruefeFelder(body, true);
+    const f = pruefeFelder(body, true, p);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
     const k = Object.keys(f);
     db.transaktion(() => {
@@ -269,7 +339,7 @@ module.exports = function positionenRouten(api, bt) {
     const heute = wienDatum(bt.uhr());
     if (datum > heute) throw ungueltig('datum darf nicht in der Zukunft liegen.');
     if (datum < plusTage(heute, -731)) throw ungueltig('datum liegt mehr als 2 Jahre zurück.');
-    const menge = v.zahl(body.menge, 'menge', { min: 0.001, max: 1e7 });
+    const menge = Math.round(v.zahl(body.menge, 'menge', { min: 0.001, max: 1e7 }) * 1000) / 1000; // E-06: 3 Nachkommastellen
     const notiz = body.notiz === undefined || body.notiz === null ? null : v.text(body.notiz, 'notiz', { max: 300, pflicht: false });
     const r = db.transaktion(() => {
       const ins = db.lauf('INSERT INTO projektposition_menge (position_id, datum, menge, notiz, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?, ?)', p.id, datum, menge, notiz, jetzt(), req.ctx.benutzer.id);
@@ -287,6 +357,10 @@ module.exports = function positionenRouten(api, bt) {
     const mid = v.pfadId(req.params.mid, 'Mengen-ID');
     const m = db.eins('SELECT * FROM projektposition_menge WHERE id = ? AND position_id = ?', mid, p.id);
     if (!m) throw nichtGefunden('Mengeneintrag nicht gefunden.');
+    // E-07: Bauleiter storniert nur selbst erfasste Einträge
+    if (!req.ctx.hat('preise_bearbeiten') && m.erstellt_von !== req.ctx.benutzer.id) {
+      throw keinZugriff('Einträge anderer Personen (z. B. Rechnungen des Büros) storniert nur das Büro bzw. die Geschäftsführung.');
+    }
     db.transaktion(() => {
       db.lauf('DELETE FROM projektposition_menge WHERE id = ?', mid);
       prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: Menge zu „${p.bezeichnung}“ storniert`, { id: m.id, datum: m.datum, menge: m.menge, notiz: m.notiz }, null);

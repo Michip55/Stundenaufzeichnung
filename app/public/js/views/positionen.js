@@ -10,13 +10,15 @@ import { wienHeute } from '../zahl.js';
 export const GRUPPEN = { arbeit: 'Arbeit', transport: 'Transport', geraete: 'Geräte', eigenmaterial: 'Eigenmaterial', fremdmaterial: 'Fremdmaterial', abgaben: 'Abgaben' };
 // PA/VE: Menge = Rechnungsbetrag netto in €, EP = Aufschlagsfaktor (1,15 → +15 %)
 // Landschaftsabgabe: Menge = Tonnen Naturmaterial (automatisch), EP = 0,25 € je t – keine Rechnungsbetrags-Position, auch wenn die Vorlage „PA“ nennt
-export const istLandschaft = (p) => !!(p.automatik === 'landschaftsabgabe' || p.landschaftsabgabe || (p.quelle && p.quelle.art === 'naturmaterial') || /landschaftsabgabe/i.test(p.bezeichnung || ''));
+export const istLandschaft = (p) => !!((p.quelle && p.quelle.art === 'naturmaterial') || /landschaftsabgabe/i.test(p.bezeichnung || ''));
 export const istBetrag = (p) => /^(PA|VE)$/i.test(String(p.einheit || '').trim()) && !istLandschaft(p);
 export const aufschlag = (ep) => (typeof ep === 'number' ? `${ep >= 1 ? '+' : '−'}${fmt.zahl(Math.abs(Math.round((ep - 1) * 1000) / 10), 1)} %` : '');
 export const epText = (p) => (istBetrag(p) ? `× ${fmt.zahl(p.ep)} <small class="auf">(${aufschlag(p.ep)})</small>` : fmt.eur(p.ep));
 export const mengeText = (p, m) => (m == null ? '' : istBetrag(p) ? fmt.eur(m) : `${fmt.zahl(m)}`);
 // 10d: Positionen, die nicht aus der Excel-Vorlage stammen, sondern aus den Preislisten 2026 ergänzt wurden
 export const herkunftChip = (p) => (p.herkunft === 'preisliste_2026' ? '<span class="chip xs st-green" data-herkunft="preisliste_2026" title="Nicht in der Excel-Vorlage – aus den Preislisten 2026 ergänzt">neu aus Preisliste 2026</span>' : '');
+// E-08: ohne Preisrecht liefert der Server bei PA/VE keine Beträge – dann „–“ statt 0
+export const mengeAnz = (p) => (p.menge == null ? '–' : mengeText(p, p.menge) || '0');
 export const zuPruefen = (p) => !!(p.zuordnungPruefen || p.quellePruefen || (p.quelle && (p.quelle.pruefen || p.quelle.geprueft === false)));
 export const naturPruefen = (p) => !!(p.naturmaterialPruefen || p.naturmaterialGeprueft === false);
 const QUELLE_ART = { personal: 'Personalstunden', geraet: 'Gerätestunden', material: 'Materialmengen' };
@@ -43,6 +45,7 @@ export default async function positionen(el, ctx) {
   ctx.titel('Nachkalkulation', `${bs.kst ? bs.kst + ' · ' : ''}${bs.name || ''}`);
   const alle = () => d.gruppen.flatMap((g) => (g.positionen || []).map((p) => ({ ...p, gruppe: g.schluessel })));
   const finde = (pid) => alle().find((p) => String(p.id) === String(pid));
+  const mitPreis = () => d.gesamtsumme != null; // ohne preise_sehen liefert der Server keine €-Werte
   const sichtbar = (p) => (mitAusgeblendeten || p.aktiv !== false) && (!nurMitMenge || (p.menge || 0) !== 0 || p.neu);
 
   function zeile(p, i, liste) {
@@ -52,14 +55,15 @@ export default async function positionen(el, ctx) {
       <span class="pt-bez" role="cell">${darf ? `<input class="pt-in" data-feld="bezeichnung" value="${esc(p.bezeichnung)}" aria-label="Bezeichnung">` : `<b>${esc(p.bezeichnung)}</b>`}
         <span class="pt-marken">${herkunftChip(p)}${zuPruefen(p) ? `<button type="button" class="chip xs st-amber" data-akt="mengen" title="Die automatische Zuordnung zu den Bautagesberichten wurde nach bestem Wissen gesetzt">${ic('alert')}Zuordnung prüfen</button>` : ''}${p.naturmaterial ? `<span class="chip xs st-blue" title="Zählt für die Landschaftsabgabe (0,25 € je t Naturmaterial)">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : naturPruefen(p) ? '<span class="chip xs st-amber">Naturmaterial? bitte prüfen</span>' : ''}${aus ? '<span class="chip xs st-grey">ausgeblendet</span>' : ''}${p.eigene || p.katalogId === null ? '<span class="chip xs st-outline">eigene Position</span>' : ''}</span></span>
       <span class="pt-eh" role="cell">${darf ? `<input class="pt-in c" data-feld="einheit" value="${esc(p.einheit || '')}" aria-label="Einheit von ${esc(p.bezeichnung)}">` : esc(p.einheit || '')}</span>
-      <span class="pt-menge num" role="cell"><button type="button" class="pt-mbtn" data-akt="mengen" aria-label="Mengen von ${esc(p.bezeichnung)}: ${mengeText(p, p.menge || 0)} ${esc(p.einheit || '')} – anzeigen und erfassen"><b>${mengeText(p, p.menge || 0) || '0'}${istBetrag(p) ? '' : istLandschaft(p) ? ' t' : ` <i class="eh-m">${esc(p.einheit || '')}</i>`}</b><small>${istLandschaft(p) ? 'auto: je t Naturmaterial' : auto && manuell ? `${mengeText(p, auto)} auto + ${mengeText(p, manuell)}` : auto ? 'aus Berichten' : manuell ? `${(p.eintraege || []).length || ''} Eintr.`.trim() : istBetrag(p) ? 'Rechnungsbetrag' : 'erfassen'}</small></button></span>
-      <span class="pt-ep num" role="cell">${istLandschaft(p) && !darf ? `${fmt.eur(p.ep)} <small class="auf">je t</small>` : darf ? `<label class="price-in sm"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-feld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? `<small class="auf">${aufschlag(p.ep)}</small>` : istLandschaft(p) ? '<small class="auf">je t Naturmaterial</small>' : ''}` : epText(p)}</span>
-      <span class="pt-sum num" role="cell"><b>${fmt.eur(p.summe || 0)}</b></span>
+      <span class="pt-menge num" role="cell"><button type="button" class="pt-mbtn" data-akt="mengen" aria-label="Mengen von ${esc(p.bezeichnung)}: ${mengeAnz(p)} ${esc(p.einheit || '')} – anzeigen und erfassen"><b>${mengeAnz(p)}${istBetrag(p) ? '' : istLandschaft(p) ? ' t' : ` <i class="eh-m">${esc(p.einheit || '')}</i>`}</b><small>${istLandschaft(p) ? 'auto: je t Naturmaterial' : auto && manuell ? `${mengeText(p, auto)} auto + ${mengeText(p, manuell)}` : auto ? 'aus Berichten' : manuell || p.eintraegeAnzahl ? `${(p.eintraege || []).length || p.eintraegeAnzahl || ''} Eintr.`.trim() : istBetrag(p) ? 'Rechnungsbetrag' : 'erfassen'}</small></button></span>
+      <span class="pt-ep num" role="cell">${istLandschaft(p) && !darf ? `${fmt.eur(p.ep)} <small class="auf">je t</small>` : darf ? `<label class="price-in sm"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-feld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? `<small class="auf">${aufschlag(p.ep)}</small>` : istLandschaft(p) ? '<small class="auf">je t Naturmaterial</small>' : ''}` : p.ep == null ? '' : epText(p)}</span>
+      <span class="pt-sum num" role="cell"><b>${p.summe == null && !mitPreis() ? '' : fmt.eur(p.summe || 0)}</b></span>
       <span class="pt-akt" role="cell">${darf ? `<button type="button" class="icon-btn sm" data-akt="hoch" aria-label="${esc(p.bezeichnung)} nach oben" ${i === 0 ? 'disabled' : ''}>${ic('down', 'up')}</button><button type="button" class="icon-btn sm" data-akt="runter" aria-label="${esc(p.bezeichnung)} nach unten" ${i === liste.length - 1 ? 'disabled' : ''}>${ic('down')}</button><button type="button" class="icon-btn sm" data-akt="mehr" aria-label="Weitere Aktionen für ${esc(p.bezeichnung)}">${ic('more')}</button>` : ''}</span>
     </div>`;
   }
   function zeichne() {
     const hatAuftrag = d.auftragGesamt != null && d.auftragGesamt > 0;
+    const leerBs = !!d.positionenFehlen || alle().length === 0; // E-03: Baustelle ohne Positionen (z. B. Datenbank aus älterer Version) – kein „0 %“ vortäuschen
     const k = { budgetVerbrauchProzent: d.budgetVerbrauchProzent, leistungsstandProzent: null, status: d.status || (d.budgetVerbrauchProzent >= 100 ? 'kritisch' : d.budgetVerbrauchProzent >= ((d.schwellen || [80])[0]) ? 'warnung' : 'ok'), schwellen: d.schwellen || bs.schwellen || [80, 90, 100] };
     el.innerHTML = `
     <div class="page pos-page">
@@ -67,14 +71,16 @@ export default async function positionen(el, ctx) {
         <a class="btn ghost sm" id="pos-export" href="/api/baustellen/${id}/positionen/export.xlsx" download="Nachkalkulation_${esc(bs.kst || id)}.xlsx">${ic('download')}Excel</a>
         ${darf ? `<button type="button" class="btn ghost sm" data-akt="vorlage">${ic('sync')}Aus Vorlage übernehmen</button>` : ''}</div>
       ${kalkTabs(id, 'positionen')}
+      ${leerBs ? `<section class="card state big" id="pos-leer" data-zustand="keine-positionen">${ic('table')}<h2>Noch keine Positionen</h2><p>${esc(((d.hinweise || []).find((h) => /vorlage|position/i.test(h.text || h)) || {}).text || 'Für diese Baustelle wurden noch keine Positionen angelegt. Budget-Verbrauch und Nachkalkulationssumme gibt es erst, wenn die Positionen aus der Vorlage übernommen sind.')}</p>${darf ? `<button type="button" class="btn primary" data-akt="vorlage">${ic('sync')}Positionen aus Vorlage übernehmen</button>` : '<p class="muted sm">Das Büro kann die Positionen aus der Vorlage übernehmen.</p>'}</section>` : !mitPreis() ? banner('info', 'Preise und Summen sind für Ihre Rolle nicht freigegeben – angezeigt werden nur Bezeichnungen und Mengen.', 'lock') : `
       <div class="kpi-row three">
         <div class="kpi sm" data-kpi="nk"><small>Nachkalkulationssumme</small><b id="pos-gesamt">${fmt.eur(d.gesamtsumme || 0)}</b><em>Wert der Baustelle zu Firmensätzen</em></div>
         <div class="kpi sm"><small>Auftragssumme gesamt</small><b>${hatAuftrag ? fmt.eur(d.auftragGesamt) : '–'}</b><em>${hatAuftrag ? 'inkl. Nachträge' : 'nicht erfasst'}</em></div>
         <div class="kpi sm" data-kpi="ergebnis"><small>Ergebnis</small><b class="${d.ergebnis < 0 ? 'neg' : ''}">${d.ergebnis != null ? fmt.eur(d.ergebnis) : '–'}</b><em>${d.ergebnisProzent != null ? fmt.pct(d.ergebnisProzent) + ' der Auftragssumme' : 'Auftragssumme − Nachkalkulation'}</em></div>
       </div>
       <section class="card pad" aria-labelledby="h-pbud"><div class="card-h"><h3 id="h-pbud">Budget</h3><span class="muted sm">Nachkalkulationssumme ÷ Auftragssumme · <b data-wert="pos-verbrauch">${fmt.pct(d.budgetVerbrauchProzent)}</b></span></div>${budgetBalken(k)}</section>
+      `}
       ${(d.hinweise || []).length ? `<div class="stack-s" id="pos-hinweise">${d.hinweise.map((h) => banner(h.typ === 'warnung' ? 'warn' : 'info', esc(h.text || h))).join('')}</div>` : ''}
-      <div class="toolbar pos-filter">
+      ${leerBs ? '' : `<div class="toolbar pos-filter">
         <label class="check-inline"><input type="checkbox" id="f-menge" ${nurMitMenge ? 'checked' : ''}> Nur Positionen mit Menge</label>
         ${darf ? `<label class="check-inline"><input type="checkbox" id="f-aus" ${mitAusgeblendeten ? 'checked' : ''}> Ausgeblendete zeigen</label>` : ''}
       </div>
@@ -84,20 +90,21 @@ export default async function positionen(el, ctx) {
           const liste = (g.positionen || []).filter(sichtbar);
           const anz = (g.positionen || []).filter((p) => p.aktiv !== false).length;
           return `<details class="pg" data-gruppe="${esc(g.schluessel)}" ${zu.has(g.schluessel) ? '' : 'open'}>
-            <summary><span class="pg-name">${esc(g.name || GRUPPEN[g.schluessel] || g.schluessel)}</span><span class="count">${anz}</span><span class="grow"></span><span class="pg-pct">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : ''}</span><b class="num" data-gsum="${esc(g.schluessel)}">${fmt.eur(g.summe || 0)}</b>${ic('down')}</summary>
+            <summary><span class="pg-name">${esc(g.name || GRUPPEN[g.schluessel] || g.schluessel)}</span><span class="count">${anz}</span><span class="grow"></span><span class="pg-pct">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : ''}</span>${mitPreis() ? `<b class="num" data-gsum="${esc(g.schluessel)}">${fmt.eur(g.summe || 0)}</b>` : ''}${ic('down')}</summary>
             <div role="rowgroup">${liste.length ? liste.map(zeile).join('') : `<p class="muted sm pad-s">${nurMitMenge ? 'Keine Position mit Menge.' : 'Keine Positionen.'}</p>`}</div>
-            <div class="pg-foot">${darf ? `<button type="button" class="btn ghost sm" data-neu="${esc(g.schluessel)}">${ic('plus')}Eigene Position</button>` : '<span></span>'}<span>Summe ${esc(g.name || GRUPPEN[g.schluessel] || '')} <b class="num">${fmt.eur(g.summe || 0)}</b></span></div>
+            <div class="pg-foot">${darf ? `<button type="button" class="btn ghost sm" data-neu="${esc(g.schluessel)}">${ic('plus')}Eigene Position</button>` : '<span></span>'}${mitPreis() ? `<span>Summe ${esc(g.name || GRUPPEN[g.schluessel] || '')} <b class="num">${fmt.eur(g.summe || 0)}</b></span>` : '<span></span>'}</div>
           </details>`;
         }).join('')}
       </div>
-      <section class="card" aria-labelledby="h-zus"><div class="card-h pad-h"><h3 id="h-zus">Zusammenstellung</h3></div>
+      ${!mitPreis() ? '' : `<section class="card" aria-labelledby="h-zus"><div class="card-h pad-h"><h3 id="h-zus">Zusammenstellung</h3></div>
         <div class="tbl-wrap"><table class="tbl" id="zusammenstellung"><thead><tr><th>Gruppe</th><th class="r">Summe</th><th class="r">Anteil</th></tr></thead>
           <tbody>${d.gruppen.map((g) => `<tr><td>${esc(g.name || GRUPPEN[g.schluessel] || g.schluessel)}</td><td class="r num">${fmt.eur(g.summe || 0)}</td><td class="r num">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : '–'}</td></tr>`).join('')}</tbody>
-          <tfoot><tr class="sum"><th scope="row">Gesamtsumme (Nachkalkulation)</th><td class="r num"><b>${fmt.eur(d.gesamtsumme || 0)}</b></td><td class="r num">100 %</td></tr>
+          <tfoot><tr class="sum"><th scope="row">Gesamtsumme (Nachkalkulation)</th><td class="r num"><b>${fmt.eur(d.gesamtsumme || 0)}</b></td><td class="r num" data-anteil-summe>${d.anteilSummeProzent != null ? fmt.pct(d.anteilSummeProzent) : d.gesamtsumme > 0 ? fmt.pct(Math.round(d.gruppen.reduce((a, g) => a + (g.summe || 0), 0) / d.gesamtsumme * 1000) / 10) : '–'}</td></tr>
             <tr><th scope="row">Auftragssumme gesamt</th><td class="r num">${hatAuftrag ? fmt.eur(d.auftragGesamt) : '–'}</td><td></td></tr>
             <tr class="sum"><th scope="row">Ergebnis</th><td class="r num"><b class="${d.ergebnis < 0 ? 'neg' : ''}">${d.ergebnis != null ? fmt.eur(d.ergebnis) : '–'}</b></td><td class="r num">${d.ergebnisProzent != null ? fmt.pct(d.ergebnisProzent) : ''}</td></tr></tfoot></table></div>
-      </section>
-      <p class="fineprint">Einheitspreise sind Verrechnungspreise des Betriebs und gelten nur für dieses Bauvorhaben. Änderungen wirken nicht auf andere Baustellen und nicht auf die Firmenvorlage.</p>
+      </section>`}
+      `}
+      <p class="fineprint" ${mitPreis() ? '' : 'hidden'}>Einheitspreise sind Verrechnungspreise des Betriebs und gelten nur für dieses Bauvorhaben. Änderungen wirken nicht auf andere Baustellen und nicht auf die Firmenvorlage.</p>
     </div>`;
   }
   const neu = async () => { await lade(); if (ctx.aktuell()) { const v = document.getElementById('view'); const st = v ? v.scrollTop : 0; zeichne(); if (v) v.scrollTop = st; } ctx.meldungenNeu(); };
@@ -119,33 +126,38 @@ export default async function positionen(el, ctx) {
       stamm = { personal: [{ ref: 'alle', name: 'Alle Lohngruppen' }, ...((pr.lohngruppen || []).map((l) => ({ ref: l.id, name: l.name })))], geraet: ge.map((g) => ({ ref: g.code, name: g.name })), material: ma.map((m) => ({ ref: m.code, name: `${m.name} (${m.einheit})` })) };
     }
     const betrag = istBetrag(p), land = istLandschaft(p);
+    const natMoeglich = p.naturmaterialMoeglich ?? String(p.einheit || '').trim().toLowerCase() === 't'; // E-01: Kennzeichen nur bei Tonnen-Positionen
+    // E-07: Büro/GF stornieren alles, der Bauleiter nur eigene Einträge (der Server kann es je Eintrag mit `stornierbar` vorgeben)
+    const darfStorno = (e) => (e.stornierbar != null ? !!e.stornierbar : darf || (darfMengen && e.erstelltVon === ctx.ich.benutzer.id));
     const q = p.quelle || {};
     const qRefs = [].concat(q.ref == null ? [] : q.ref).map(String); // der Server liefert eine Liste
     const refs = (art) => (stamm && stamm[art] ? stamm[art].map((r) => `<option value="${esc(r.ref)}" ${qRefs.includes(String(r.ref)) && q.art === art ? 'selected' : ''}>${esc(r.name)}</option>`).join('') : '');
     const d2 = dialog({
       titel: p.bezeichnung, breit: true,
       inhalt: `<div class="stack-s" id="mengen" data-pos="${p.id}">
-        <dl class="def-list tight"><div><dt>${betrag ? 'Rechnungsbeträge gesamt' : 'Menge gesamt'}</dt><dd class="num">${mengeText(p, p.menge || 0)} ${betrag ? '' : land ? 't' : esc(p.einheit || '')}</dd></div>
+        <dl class="def-list tight"><div><dt>${betrag ? 'Rechnungsbeträge gesamt' : 'Menge gesamt'}</dt><dd class="num">${mengeAnz(p)} ${betrag ? '' : land ? 't' : esc(p.einheit || '')}</dd></div>
           <div><dt>${betrag ? `Aufschlagsfaktor` : 'Einheitspreis'}</dt><dd class="num">${betrag ? `× ${fmt.zahl(p.ep)} (${aufschlag(p.ep)})` : fmt.eur(p.ep)}</dd></div>
           <div><dt>Summe</dt><dd class="num"><b>${fmt.eur(p.summe || 0)}</b></dd></div></dl>
         ${land ? banner('info', `<b>Automatisch:</b> ${fmt.zahl(p.mengeAuto || 0)} t Naturmaterial × ${fmt.eur(p.ep)} – 0,25 € je t Naturmaterial. Gezählt werden alle Positionen mit dem Kennzeichen „Naturmaterial“ (Einheit t). Zusätzliche Mengen können unten händisch erfasst werden.`)
           : p.mengeAuto ? banner('info', `<b>${mengeText(p, p.mengeAuto)} ${esc(p.einheit || '')}</b> kommen automatisch aus den Bautagesberichten (${esc(QUELLE_ART[q.art] || 'Zuordnung')}).`) : ''}
         ${betrag ? banner('info', `<b>Rechnungsbetrag eingeben:</b> Bei dieser Position ist die Menge der Netto-Rechnungsbetrag in Euro. Er wird mit dem Faktor ${fmt.zahl(p.ep)} (${aufschlag(p.ep)}) verrechnet.`) : ''}
         <h4 class="sub-h">${betrag ? 'Erfasste Rechnungsbeträge' : 'Händisch erfasste Mengen'}</h4>
-        ${(p.eintraege || []).length ? `<ul class="plain rows" id="eintraege">${p.eintraege.map((e) => `<li data-eintrag="${e.id}"><span class="grow"><b>${betrag ? fmt.eur(e.menge) : fmt.zahl(e.menge) + ' ' + esc(p.einheit || '')}</b><small>${esc(fmt.datum(e.datum))}${e.notiz ? ' · ' + esc(e.notiz) : ''}</small></span>${darfMengen ? `<button type="button" class="btn ghost sm" data-storno="${e.id}">Stornieren</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted sm">Noch keine Einträge.</p>'}
+        ${(p.eintraege || []).length ? `<ul class="plain rows" id="eintraege">${p.eintraege.map((e) => `<li data-eintrag="${e.id}"><span class="grow"><b>${e.menge == null ? 'Betrag nicht sichtbar' : betrag ? fmt.eur(e.menge) : fmt.zahl(e.menge) + ' ' + esc(land ? 't' : p.einheit || '')}</b><small>${esc(fmt.datum(e.datum))}${e.erstelltVonName ? ' · ' + esc(e.erstelltVonName) : ''}${e.notiz ? ' · ' + esc(e.notiz) : ''}</small></span>${darfStorno(e) ? `<button type="button" class="btn ghost sm" data-storno="${e.id}">Stornieren</button>` : darfMengen ? '<span class="muted sm nw" data-kein-storno>Storno nur durch das Büro</span>' : ''}</li>`).join('')}</ul>` : p.eintraegeAnzahl ? `<p class="muted sm" data-eintraege-verborgen>${p.eintraegeAnzahl} ${p.eintraegeAnzahl === 1 ? 'Eintrag' : 'Einträge'} – Beträge und Notizen sind für Ihre Rolle nicht sichtbar.</p>` : '<p class="muted sm">Noch keine Einträge.</p>'}
         ${darfMengen ? `<form id="mf" class="form-grid mf" novalidate>
           <label class="field"><span class="field-label">${betrag ? 'Rechnungsbetrag (€)' : `Menge (${land ? 't' : esc(p.einheit || '')})`}</span><input class="input lg num" name="menge" inputmode="decimal" autocomplete="off" required placeholder="${betrag ? '0,00' : '0'}"><small class="geld-echo" id="mf-echo" aria-live="polite"></small></label>
           <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${wienHeute()}" max="${wienHeute()}"></label>
           <label class="field full"><span class="field-label">Notiz (z. B. Lieferant, Rechnungsnummer)</span><input class="input lg" name="notiz" maxlength="200"></label>
           <p class="form-err full" role="alert" hidden></p>
           <button type="submit" class="btn primary full">${ic('plus')}${betrag ? 'Rechnungsbetrag erfassen' : 'Menge erfassen'}</button></form>` : ''}
-        ${darf ? `<details class="einzeln" id="quelle-box" ${zuPruefen(p) ? 'open' : ''}><summary>Zuordnung zum Bautagesbericht${zuPruefen(p) ? ' – bitte prüfen' : ''}</summary>
+        ${darf ? `<details class="einzeln" id="quelle-box" ${zuPruefen(p) || naturPruefen(p) ? 'open' : ''}><summary>Zuordnung zum Bautagesbericht${zuPruefen(p) ? ' – bitte prüfen' : ''}</summary>
+          ${zuPruefen(p) ? `<div class="bestaetigen-zeile"><span>Die Zuordnung wurde nach bestem Wissen vorbelegt. Stimmt sie, einfach bestätigen – die automatische Menge bleibt dabei erhalten.</span><button type="button" class="btn primary sm" id="q-ok">${ic('check')}Zuordnung bestätigen</button></div>` : ''}
           <form id="qf" class="form-grid">
+            ${q.art === 'naturmaterial' ? `<div class="field full" id="q-fix"><span class="field-label">Menge kommt aus</span><p class="fix-quelle">${ic('lock')}<b>Tonnen Naturmaterial (automatisch)</b> – Summe aller Positionen mit dem Kennzeichen „Naturmaterial“. Diese Zuordnung ist fest (Landschaftsabgabe).</p></div>` : `
             <label class="field"><span class="field-label">Menge kommt aus</span><select class="input lg" name="art"><option value="">– keine automatische Menge –</option>${Object.entries(QUELLE_ART).map(([k2, t]) => `<option value="${k2}" ${q.art === k2 ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
             <label class="field"><span class="field-label">Welche?</span><select class="input" name="ref" id="qf-ref" multiple size="5" aria-describedby="qf-hinweis">${q.art ? refs(q.art) : ''}</select><small class="muted" id="qf-hinweis">Mehrere möglich (Strg bzw. lange tippen).</small></label>
-            <label class="field"><span class="field-label">Umrechnungsfaktor (nur bei anderer Einheit)</span><input class="input lg num" name="faktor" inputmode="decimal" value="${q.faktor != null ? fmt.zahl(q.faktor) : ''}" placeholder="1"></label>
-            ${String(p.einheit || '').toLowerCase() === 't' || p.naturmaterial != null ? `<label class="switch-row flat full"><span><b>Naturmaterial</b><small>Zählt für die Landschaftsabgabe (0,25 € je t).${naturPruefen(p) ? ' Startwert nach bestem Wissen – bitte prüfen.' : ''}</small></span><input type="checkbox" class="vh" name="naturmaterial" ${p.naturmaterial ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>` : ''}
-            <button type="submit" class="btn ghost full">${ic('check')}Zuordnung speichern${zuPruefen(p) || naturPruefen(p) ? ' und als geprüft bestätigen' : ''}</button></form></details>` : ''}
+            <label class="field"><span class="field-label">Umrechnungsfaktor (nur bei anderer Einheit)</span><input class="input lg num" name="faktor" inputmode="decimal" value="${q.faktor != null ? fmt.zahl(q.faktor) : ''}" placeholder="1"></label>`}
+            ${natMoeglich ? `<label class="switch-row flat full"><span><b>Naturmaterial</b><small>Zählt für die Landschaftsabgabe (0,25 € je t).${naturPruefen(p) ? ' Startwert nach bestem Wissen – bitte prüfen.' : ''}</small></span><input type="checkbox" class="vh" name="naturmaterial" ${p.naturmaterial ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>` : ''}
+            ${q.art === 'naturmaterial' && !natMoeglich ? '' : `<button type="submit" class="btn ghost full">${ic('check')}Änderung speichern</button>`}</form></details>` : ''}
       </div>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>',
     });
@@ -160,18 +172,31 @@ export default async function positionen(el, ctx) {
         catch (x) { err.hidden = false; err.textContent = x.message; }
       });
     }
+    // E-01: Bestätigen ändert nur das Prüf-Kennzeichen – die Zuordnung (quelle) bleibt unangetastet
+    const qOk = $('#q-ok', d2.el);
+    if (qOk) qOk.addEventListener('click', async () => { qOk.disabled = true; if (await aendere(finde(p.id) || p, { zuordnungPruefen: false }, 'Zuordnung bestätigt.')) d2.zu(); else qOk.disabled = false; });
     const qf = $('#qf', d2.el);
     if (qf) {
-      qf.elements.art.addEventListener('change', () => { $('#qf-ref', d2.el).innerHTML = qf.elements.art.value ? refs(qf.elements.art.value) : ''; });
+      if (qf.elements.art) qf.elements.art.addEventListener('change', () => { $('#qf-ref', d2.el).innerHTML = qf.elements.art.value ? refs(qf.elements.art.value) : ''; });
       qf.addEventListener('submit', async (e) => {
         e.preventDefault(); const f = new FormData(qf);
-        const gewaehlt = f.getAll('ref');
-        if (f.get('art') && !gewaehlt.length) { toast('Bitte auswählen, woher die Menge kommt.', 'warn'); return; }
-        const faktor = String(f.get('faktor') || '').trim() ? parseZahl(f.get('faktor')) : null;
-        if (faktor !== null && !(faktor > 0)) { toast('Umrechnungsfaktor unklar – bitte z. B. 1,8 schreiben.', 'warn'); return; }
-        const body = { quelle: f.get('art') ? { art: f.get('art'), ref: gewaehlt, ...(faktor ? { faktor } : {}) } : null };
-        if (qf.elements.naturmaterial) body.naturmaterial = qf.elements.naturmaterial.checked;
-        if (await aendere(finde(p.id) || p, body, 'Zuordnung gespeichert.')) d2.zu();
+        const body = {};
+        if (qf.elements.art) {
+          const gewaehlt = f.getAll('ref').map(String);
+          if (f.get('art') && !gewaehlt.length) { toast('Bitte auswählen, woher die Menge kommt.', 'warn'); return; }
+          const faktor = String(f.get('faktor') || '').trim() ? parseZahl(f.get('faktor')) : null;
+          if (faktor !== null && !(faktor > 0)) { toast('Umrechnungsfaktor unklar – bitte z. B. 1,8 schreiben.', 'warn'); return; }
+          const neuQ = f.get('art') ? { art: f.get('art'), ref: gewaehlt, ...(faktor ? { faktor } : {}) } : null;
+          const gleich = (!neuQ && !q.art) || (neuQ && q.art === neuQ.art && [...qRefs].sort().join('|') === [...gewaehlt].sort().join('|') && (q.faktor ?? null) === (neuQ.faktor ?? null));
+          if (!gleich) {
+            // Eine bestehende Zuordnung wird nie stillschweigend entfernt
+            if (!neuQ && !(await bestaetigen('Automatische Menge entfernen?', `„${p.bezeichnung}“ bekommt dann keine Mengen mehr aus den Bautagesberichten. Händische Einträge bleiben.`, 'Zuordnung entfernen', 'danger'))) return;
+            body.quelle = neuQ;
+          }
+        }
+        if (qf.elements.naturmaterial && qf.elements.naturmaterial.checked !== !!p.naturmaterial) body.naturmaterial = qf.elements.naturmaterial.checked;
+        if (!Object.keys(body).length) { toast('Keine Änderung – zum Bestätigen bitte „Zuordnung bestätigen“ verwenden.', 'warn'); return; }
+        if (await aendere(finde(p.id) || p, body, 'Änderung gespeichert.')) d2.zu();
       });
     }
     d2.el.addEventListener('click', async (e) => {

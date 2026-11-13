@@ -29,7 +29,8 @@ function berechnePositionen(positionen, auftragGesamt) {
   const nach = new Map(gruppen.map((g) => [g.schluessel, g]));
   const hinweise = [];
   for (const p of positionen) {
-    const mengeManuell = r3((p.eintraege || []).reduce((a, e) => a + e.menge, 0));
+    // E-06: jede Menge auf 3 Stellen, Summe = RUNDEN(Menge × EP; 2) – wie im Excel-Export
+    const mengeManuell = r3((p.eintraege || []).reduce((a, e) => a + r3(e.menge), 0));
     const mengeAuto = r3(p.mengeAuto || 0);
     const menge = r3(mengeAuto + mengeManuell);
     const summe = r2(menge * p.ep);
@@ -40,10 +41,12 @@ function berechnePositionen(positionen, auftragGesamt) {
   }
   const gesamtsumme = r2(gruppen.reduce((a, g) => a + g.summe, 0));
   for (const g of gruppen) g.anteilProzent = gesamtsumme > 0 ? r1((g.summe / gesamtsumme) * 100) : null;
+  const anteilSummeProzent = gesamtsumme > 0 ? r1(gruppen.reduce((a, g) => a + (g.anteilProzent || 0), 0)) : null;
   const basis = auftragGesamt != null && auftragGesamt > 0 ? auftragGesamt : null;
   return {
     gruppen,
     gesamtsumme,
+    anteilSummeProzent,
     ergebnis: basis == null ? null : r2(basis - gesamtsumme),
     ergebnisProzent: basis == null ? null : r1(((basis - gesamtsumme) / basis) * 100),
     budgetVerbrauchProzent: basis == null ? null : r1((gesamtsumme / basis) * 100),
@@ -106,6 +109,36 @@ function katalogAnpassungenAnwenden(db, jetzt = new Date()) {
   return neuAngewendet;
 }
 
+/**
+ * E-03: einmalige Übernahme für Bestands-Datenbanken.
+ * - Baustellen ohne Projektpositionen erhalten den aktuellen Katalog (Zuordnungen „bitte prüfen“)
+ * - alte Budget-Alarm-Zeilen (Basis interne Kosten) werden gelöscht, damit die Alarme auf der neuen Basis neu greifen
+ * @returns {{kopiert:string[], alarmeGeloescht:number|null}}
+ */
+function bestandUebernehmen(db, jetzt = new Date()) {
+  const t = jetzt.toISOString();
+  const kopiert = [];
+  let alarmeGeloescht = null;
+  db.transaktion(() => {
+    if (!db.einstellung('positionen_bestand', false)) {
+      for (const b of db.alle('SELECT id, kst FROM baustelle ORDER BY kst')) {
+        if (db.eins('SELECT COUNT(*) AS n FROM projektposition WHERE baustelle_id = ?', b.id).n === 0) {
+          katalogKopieren(db, b.id, jetzt);
+          kopiert.push(b.kst);
+        }
+      }
+      db.setzeEinstellung('positionen_bestand', true);
+      if (kopiert.length) db.protokolliere({ zeit: t, benutzerId: null, art: 'nachkalkulation', objekt: 'baustellen', neu: { baustellen: kopiert }, text: `Positionskatalog in ${kopiert.length} bestehende Baustelle(n) übernommen (Zuordnungen bitte prüfen)` });
+    }
+    if (db.einstellung('budget_basis', null) !== 'positionen') {
+      alarmeGeloescht = db.lauf('DELETE FROM budget_alarm').changes;
+      db.setzeEinstellung('budget_basis', 'positionen');
+      if (alarmeGeloescht) db.protokolliere({ zeit: t, benutzerId: null, art: 'budget_alarm', objekt: 'baustellen', text: `Budget-Basis auf Nachkalkulationssumme umgestellt: ${alarmeGeloescht} alte Alarm-Zeile(n) gelöscht, Alarme werden neu bewertet` });
+    }
+  });
+  return { kopiert, alarmeGeloescht };
+}
+
 /** Katalog (aktive Positionen) in eine Baustelle kopieren; nur fehlende (nach katalog_id) */
 function katalogKopieren(db, baustelleId, jetzt = new Date()) {
   const t = jetzt.toISOString();
@@ -138,6 +171,7 @@ function autoMengen(db, baustelleId, positionen) {
     JOIN material m ON m.id = bm.material_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY m.code`, baustelleId);
   const quellen = { personal, geraet: geraete, material };
   const verwendet = new Map();
+  const gemeldet = new Set();
   for (const p of mitQuelle) {
     const q = p.quelle;
     const refs = Array.isArray(q.ref) ? q.ref : [q.ref];
@@ -150,8 +184,14 @@ function autoMengen(db, baustelleId, positionen) {
       }
       m += (z.m || 0) * (q.art === 'material' && q.faktor != null ? q.faktor : 1);
       const k = `${q.art}:${z.ref}`;
-      if (verwendet.has(k) && verwendet.get(k) !== p.id) hinweise.push({ typ: 'warnung', text: `${q.art} „${z.ref}“ ist mehreren Positionen zugeordnet – Mengen werden doppelt gezählt.` });
-      verwendet.set(k, p.id);
+      // E-09: Mehrfachzuordnung nur unter aktiven Positionen melden (einmal je Eintrag)
+      if (p.aktiv) {
+        if (verwendet.has(k) && verwendet.get(k) !== p.id && !gemeldet.has(k)) {
+          hinweise.push({ typ: 'warnung', text: `${q.art} „${z.ref}“ ist mehreren Positionen zugeordnet – Mengen werden doppelt gezählt.` });
+          gemeldet.add(k);
+        }
+        verwendet.set(k, p.id);
+      }
     }
     mengen.set(p.id, r3(m));
   }
@@ -164,7 +204,7 @@ function autoMengen(db, baustelleId, positionen) {
  */
 function naturmaterialMengen(positionen) {
   const tonnen = r3(positionen.filter((p) => p.aktiv && p.naturmaterial && einheitNorm(p.einheit) === 't')
-    .reduce((a, p) => a + (p.mengeAuto || 0) + (p.eintraege || []).reduce((x, e) => x + e.menge, 0), 0));
+    .reduce((a, p) => a + r3(p.mengeAuto || 0) + (p.eintraege || []).reduce((x, e) => x + r3(e.menge), 0), 0));
   for (const p of positionen) if (p.quelle && p.quelle.art === 'naturmaterial' && p.aktiv) p.mengeAuto = tonnen;
   return tonnen;
 }
@@ -173,7 +213,7 @@ function positionJson(p) {
   return {
     id: p.id, katalogId: p.katalog_id, gruppe: p.gruppe, bezeichnung: p.bezeichnung, einheit: p.einheit, ep: p.ep,
     sortierung: p.sortierung, quelle: parseJson(p.quelle, null), zuordnungPruefen: p.zuordnung_pruefen === 1,
-    naturmaterial: p.naturmaterial === 1, naturmaterialPruefen: p.naturmaterial_pruefen === 1, herkunft: p.herkunft,
+    naturmaterial: p.naturmaterial === 1, naturmaterialPruefen: p.naturmaterial_pruefen === 1, naturmaterialMoeglich: einheitNorm(p.einheit) === 't', herkunft: p.herkunft,
     aktiv: p.aktiv === 1, version: p.version
   };
 }
@@ -191,7 +231,15 @@ function projektPositionen(db, bs, auftragGesamt) {
   const mitMengen = zeilen.map((p) => ({ ...p, mengeAuto: auto.mengen.get(p.id) || 0, eintraege: eintraege.get(p.id) || [] }));
   naturmaterialMengen(mitMengen);
   const r = berechnePositionen(mitMengen, auftragGesamt);
-  return { baustelleId: bs.id, auftragGesamt: auftragGesamt == null ? null : auftragGesamt, ...r, hinweise: [...auto.hinweise, ...r.hinweise] };
+  const hinweise = [...auto.hinweise, ...r.hinweise];
+  const natur = zeilen.filter((p) => p.aktiv && p.quelle && p.quelle.art === 'naturmaterial');
+  if (natur.length > 1) hinweise.push({ typ: 'warnung', text: `${natur.length} aktive Positionen rechnen die Landschaftsabgabe aus den Tonnen Naturmaterial (${natur.map((p) => `„${p.bezeichnung}“`).join(', ')}) – sie wird mehrfach gezählt.` });
+  const positionenFehlen = zeilen.filter((p) => p.aktiv).length === 0;
+  if (positionenFehlen) {
+    r.budgetVerbrauchProzent = null;
+    hinweise.unshift({ typ: 'warnung', text: 'Diese Baustelle hat noch keine Positionen – Budget-Verbrauch nicht berechenbar. Bitte „Aus Vorlage übernehmen“.' });
+  }
+  return { baustelleId: bs.id, auftragGesamt: auftragGesamt == null ? null : auftragGesamt, ...r, positionenFehlen, hinweise };
 }
 
-module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogAnpassungenAnwenden, katalogKopieren, autoMengen, projektPositionen, positionJson };
+module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogAnpassungenAnwenden, bestandUebernehmen, katalogKopieren, autoMengen, projektPositionen, positionJson };

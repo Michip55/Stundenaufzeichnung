@@ -44,6 +44,10 @@ function createApp(opt = {}) {
   require('./positionen').katalogAnlegen(db, uhr());
   require('./positionen').katalogAnpassungenAnwenden(db, uhr()); // versionierte Anpassungen (API.md 10d), einmalig
   require('./fuhrpark-vorlagen').vorlagenAnlegen(db); // Servicebuch-Vorlagen (API.md 11), einmalig
+  // E-03: Bestands-Datenbanken – Positionen übernehmen, Budget-Alarme auf neuer Basis neu bewerten
+  const bestand = require('./positionen').bestandUebernehmen(db, uhr());
+  bt.bestand = bestand;
+  if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
   // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
   bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
@@ -93,9 +97,11 @@ function createApp(opt = {}) {
     }
     next();
   });
-  // Schadensmeldungen mit Fotos (max. 8 MB je Foto, Base64) – eigenes, größeres Limit (API.md 11.9)
-  api.use('/fuhrpark/schaeden', express.json({ limit: '12mb', strict: true }));
-  api.use(express.json({ limit: '2mb', strict: true }));
+  // JSON-Grenze 2 MB; Excel-Import (Datei ≤ 5 MB als Base64) bis 7 MB (E-02); Schadensfotos (max. 8 MB je Foto, Base64) bis 12 MB (API.md 11.9)
+  const jsonKlein = express.json({ limit: '2mb', strict: true });
+  const jsonImport = express.json({ limit: '7mb', strict: true });
+  const jsonFotos = express.json({ limit: '12mb', strict: true });
+  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport : req.path.startsWith('/fuhrpark/schaeden') ? jsonFotos : jsonKlein)(req, res, next));
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (typeof req.body !== 'object' || Array.isArray(req.body))) {

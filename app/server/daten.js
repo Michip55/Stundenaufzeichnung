@@ -70,8 +70,10 @@ function kalkulationFuer(db, bs, preise) {
   k.budgetVerbrauchProzent = pos.budgetVerbrauchProzent;
   k.status = budgetStatus(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen);
   k.hinweise = [...budgetHinweise(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen, 'Die Nachkalkulationssumme'), ...k.hinweise.filter((h) => !h.budget), ...pos.hinweise];
+  k.positionenFehlen = pos.positionenFehlen;
   k.positionen = {
     ...k.positionen,
+    anteilSummeProzent: pos.anteilSummeProzent,
     gesamtsumme: pos.gesamtsumme, ergebnis: pos.ergebnis, ergebnisProzent: pos.ergebnisProzent,
     gruppen: pos.gruppen.map((g) => ({ schluessel: g.schluessel, name: g.name, summe: g.summe, anteilProzent: g.anteilProzent }))
   };

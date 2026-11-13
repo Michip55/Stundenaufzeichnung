@@ -17,7 +17,8 @@ function param(v) {
 }
 
 class Datenbank {
-  constructor(dbPfad) {
+  /** @param {{bisVersion?: number}} [opt] nur für Tests: Migrationen nur bis zu dieser Version */
+  constructor(dbPfad, opt = {}) {
     this.pfad = dbPfad || ':memory:';
     if (this.pfad !== ':memory:') {
       fs.mkdirSync(path.dirname(path.resolve(this.pfad)), { recursive: true });
@@ -28,8 +29,8 @@ class Datenbank {
     if (this.pfad !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL');
     this.cache = new Map();
     this.tiefe = 0;
-    this.migrieren();
-    this.nachMigration();
+    this.migrieren(opt.bisVersion);
+    if (!opt.bisVersion) this.nachMigration();
   }
 
   stmt(sql) {
@@ -75,11 +76,11 @@ class Datenbank {
     }
   }
 
-  migrieren() {
+  migrieren(bisVersion = Infinity) {
     this.db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, name TEXT, angewendet TEXT NOT NULL)');
     const vorhanden = new Set(this.alle('SELECT version FROM schema_version').map((z) => z.version));
     for (const m of MIGRATIONEN) {
-      if (vorhanden.has(m.version)) continue;
+      if (vorhanden.has(m.version) || m.version > bisVersion) continue;
       this.transaktion(() => {
         this.db.exec(m.sql);
         this.lauf('INSERT INTO schema_version (version, name, angewendet) VALUES (?, ?, ?)', m.version, m.name, new Date().toISOString());
@@ -131,8 +132,8 @@ function bildHash(dataUrl) {
   }
 }
 
-function oeffneDatenbank(dbPfad) {
-  return new Datenbank(dbPfad);
+function oeffneDatenbank(dbPfad, opt) {
+  return new Datenbank(dbPfad, opt);
 }
 
 module.exports = { oeffneDatenbank, Datenbank, bildHash };

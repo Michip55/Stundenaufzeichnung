@@ -3,6 +3,10 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- **Freigabe (13.11.2026):** Prüfbericht-4-Befunde E-01…E-09 + N-01 behoben, Nachprüfung bestanden (`PRUEFBERICHT_4_NACHPRUEFUNG.md`). Endstand: Server 290/290, E2E 484/484 je Größe (Handy, Tablet, PC) grün → Pull Request auf `main`
+- Vierte Prüfung (`PRUEFBERICHT_4.md`): **freigabefähig**, keine kritischen/hohen Befunde; alle Befunde aus Prüfbericht 3 bestätigt behoben. Tests: Server 277/277, E2E 463/463 je Größe grün
+- Oberfläche Positions-Nachkalkulation fertig; E2E uhrzeitunabhängig (feste Uhr), 463/463 je Größe laut Agent; Server 277/277 grün
+- Servicebuch: Recherche und Konzept (Kapitel 5 in `docs/Konzept.md`) und Umsetzungsvertrag `app/SERVICEBUCH_ENTWURF.md`
 - Katalog an Preislisten 2026 angepasst (119 Positionen; Kundenfreigabe 10d). Server 277/277 grün
 - Positions-Nachkalkulation Backend fertig (Katalog aus Excel, je Baustelle anpassbar, Mengen aus Berichten + manuell, Landschaftsabgabe automatisch, Excel-Import/-Export, Budget-Alarm auf Positionsbasis). Server 272/272 grün
 - Kundenentscheidungen 10a–10d eingearbeitet (EP = Verrechnungspreise, PA/VE = Rechnungsbetrag × Faktor, Landschaftsabgabe je t Naturmaterial, Abgleich Preislisten 2026)
@@ -21,8 +25,7 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- Oberfläche Positions-Nachkalkulation + uhrzeitunabhängige E2E-Tests – Fable-Agent
-- **Neue Kundenanfrage: Servicebuch für Fahrzeuge & Geräte** (Reparaturen, Service-/Prüftermine, Erinnerung 3 Monate vorher) – Recherche (§57a KFG, AM-VO, Tachograph …) und Umsetzungsentwurf durch Opus-Agent → `docs/Konzept.md` + `app/SERVICEBUCH_ENTWURF.md`
+- Servicebuch + Schadensmeldung mit Fotos: PAUSIERT (Nutzungslimit). Zwischenstand lokal im Arbeitsstand `/home/user/bautag-servicebuch` (Branch `servicebuch`, Commit 50f8891), noch nicht getestet/geprüft – wird nach eigener Prüfung als Erweiterung nachgereicht
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut

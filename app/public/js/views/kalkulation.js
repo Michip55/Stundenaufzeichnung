@@ -8,7 +8,7 @@ const KTXT = { lohn: 'Lohn', geraete: 'Geräte', material: 'Material', fremd: 'F
 /* Budget-Balken: Verbrauch (Kosten) gegen Leistungsstand, mit Schwellen-Marken */
 export function budgetBalken(k, klein = false) {
   const v = k.budgetVerbrauchProzent, l = k.leistungsstandProzent;
-  if (v == null) return `<div class="bud none"><span class="muted sm">Keine Auftragssumme erfasst</span></div>`;
+  if (v == null) return `<div class="bud none" ${k.positionenFehlen ? 'data-positionen-fehlen' : ''}><span class="muted sm">${k.positionenFehlen ? 'Positionen fehlen – bitte „Aus Vorlage übernehmen“' : 'Keine Auftragssumme erfasst'}</span></div>`;
   const max = Math.max(110, Math.min(160, Math.ceil((v + 5) / 10) * 10));
   const x = (p) => Math.min(100, (p / max) * 100);
   const st = k.status || 'ok';
