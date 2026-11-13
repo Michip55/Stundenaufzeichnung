@@ -94,10 +94,56 @@ module.exports = function dokumentRouten(api, bt) {
     const name = v.text(body.name, 'name', { max: 60 });
     const schluessel = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || `kat_${Date.now()}`;
     if (kategorien().has(schluessel)) throw konflikt('Diese Kategorie gibt es bereits.');
+    const fl = katFlags(body, { finanziell: false, polier: false });
     const sort = (db.eins('SELECT MAX(sortierung) AS m FROM dokument_kategorie').m || 0) + 10;
-    db.lauf('INSERT INTO dokument_kategorie (schluessel, name, finanziell, polier, eigen, sortierung) VALUES (?, ?, ?, ?, 1, ?)', schluessel, name, body.finanziell ? 1 : 0, body.polier ? 1 : 0, sort);
-    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `dokument_kategorie:${schluessel}`, neu: { name, finanziell: Boolean(body.finanziell), polier: Boolean(body.polier) }, text: `Dokumentkategorie „${name}“ angelegt` });
-    res.status(201).json({ schluessel, name, finanziell: Boolean(body.finanziell), polier: Boolean(body.polier), eigen: true });
+    db.lauf('INSERT INTO dokument_kategorie (schluessel, name, finanziell, polier, eigen, sortierung) VALUES (?, ?, ?, ?, 1, ?)', schluessel, name, fl.finanziell ? 1 : 0, fl.polier ? 1 : 0, sort);
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `dokument_kategorie:${schluessel}`, neu: { name, ...fl }, text: `Dokumentkategorie „${name}“ angelegt` });
+    res.status(201).json({ schluessel, name, ...fl, eigen: true });
+  });
+  /** Rechte-Flags (finanziell/polier, Aliase enthaeltPreise/polierLesen): enthält Preise → nie für Polier */
+  function katFlags(body, alt) {
+    const wert = (a, b, feld) => (body[a] !== undefined ? v.bool(body[a], a) : body[b] !== undefined ? v.bool(body[b], b) : alt[feld]);
+    const finanziell = wert('finanziell', 'enthaeltPreise', 'finanziell');
+    const polier = finanziell ? false : wert('polier', 'polierLesen', 'polier');
+    return { finanziell: Boolean(finanziell), polier: Boolean(polier) };
+  }
+  function katLaden(req) {
+    if (!req.ctx.hat('benutzer')) throw keinZugriff('Kategorien verwaltet die Geschäftsführung.');
+    const k = db.eins('SELECT * FROM dokument_kategorie WHERE schluessel = ?', String(req.params.schluessel || '').slice(0, 60));
+    if (!k) throw nichtGefunden('Kategorie nicht gefunden.');
+    return k;
+  }
+  api.put('/dokument-kategorien/:schluessel', (req, res) => {
+    const k = katLaden(req);
+    const body = v.objekt(req.body);
+    const name = body.name === undefined ? k.name : v.text(body.name, 'name', { max: 60 });
+    if (name.length < 2) throw ungueltig('name: mindestens 2 Zeichen.');
+    const andere = db.alle('SELECT schluessel, name FROM dokument_kategorie WHERE schluessel <> ?', k.schluessel);
+    if (andere.some((x) => x.name.toLowerCase() === name.toLowerCase())) throw konflikt('Eine Kategorie mit diesem Namen gibt es bereits.');
+    const alt = { finanziell: k.finanziell === 1, polier: k.polier === 1 };
+    let fl = alt;
+    if (k.eigen) fl = katFlags(body, alt);
+    else {
+      // eingebaute Kategorien: nur der Name; die Rechte (Preise/Polier) sind fest
+      const gewollt = katFlags(body, alt);
+      if (gewollt.finanziell !== alt.finanziell || gewollt.polier !== alt.polier) throw ungueltig('Bei eingebauten Kategorien lässt sich nur der Name ändern.');
+    }
+    db.transaktion(() => {
+      db.lauf('UPDATE dokument_kategorie SET name = ?, finanziell = ?, polier = ? WHERE schluessel = ?', name, fl.finanziell ? 1 : 0, fl.polier ? 1 : 0, k.schluessel);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `dokument_kategorie:${k.schluessel}`, alt: { name: k.name, ...alt }, neu: { name, ...fl }, text: `Dokumentkategorie „${k.name}“ geändert` });
+    });
+    res.json({ schluessel: k.schluessel, name, ...fl, eigen: k.eigen === 1 });
+  });
+  api.delete('/dokument-kategorien/:schluessel', (req, res) => {
+    const k = katLaden(req);
+    if (!k.eigen) throw konflikt('Eingebaute Kategorien lassen sich nicht löschen (nur umbenennen).');
+    const anzahl = db.eins('SELECT COUNT(*) AS n FROM dokument WHERE kategorie = ?', k.schluessel).n;
+    if (anzahl) throw konflikt(`In dieser Kategorie liegen noch ${anzahl} Dokument(e) (auch gelöschte zählen) – erst verschieben bzw. endgültig entfernen.`, { anzahl });
+    db.transaktion(() => {
+      db.lauf('DELETE FROM dokument_kategorie WHERE schluessel = ?', k.schluessel);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `dokument_kategorie:${k.schluessel}`, alt: { name: k.name }, neu: null, text: `Dokumentkategorie „${k.name}“ gelöscht` });
+    });
+    res.json({ ok: true });
   });
 
   function liste(req, bsIds, q) {
