@@ -370,6 +370,11 @@ function seed(db, opt = {}) {
 
 /* ---------------- CLI: npm run seed ---------------- */
 if (require.main === module) {
+  if (process.env.BAUTAG_DEMO !== '1') {
+    console.error('Testdaten werden nur im Demo-Modus eingespielt: BAUTAG_DEMO=1 npm run seed');
+    console.error('Für den Echtbetrieb stattdessen: node server/einrichten.js (leere Datenbank mit erster Geschäftsführung).');
+    process.exit(1);
+  }
   const dbPfad = process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
   if (dbPfad !== ':memory:') {
     for (const f of [dbPfad, dbPfad + '-wal', dbPfad + '-shm']) { try { fs.unlinkSync(f); } catch (_) { /* nicht vorhanden */ } }
@@ -377,16 +382,14 @@ if (require.main === module) {
   const db = oeffneDatenbank(dbPfad);
   const uhr = erzeugeUhr(process.env.BAUTAG_UHR);
   const t0 = Date.now();
-  const demo = process.env.BAUTAG_DEMO === '1';
+  const demo = true;
   const r = seed(db, { uhr: uhr(), demo });
   const zahl = (t) => db.eins(`SELECT COUNT(*) AS n FROM ${t}`).n;
   console.log(`BauTag-Testdaten eingespielt in ${dbPfad} (${Date.now() - t0} ms)`);
   console.log(`  heute: ${r.heute}, Historie: ${r.historieTage} Arbeitstage`);
   console.log(`  Benutzer: ${zahl('benutzer')}, Baustellen: ${zahl('baustelle')}, Buchungen: ${zahl('buchung')}, Berichte: ${zahl('bericht')}, Benachrichtigungen: ${zahl('benachrichtigung')}`);
-  console.log(demo
-    ? '  DEMO-Modus (BAUTAG_DEMO=1): PIN 1234 für alle, keine Änderungspflicht – nur zur Vorführung!'
-    : '  Start-PIN für alle Benutzer: 1234 – muss beim ersten Anmelden geändert werden (Demo ohne Änderungspflicht: BAUTAG_DEMO=1).');
+  console.log('  DEMO-Modus (BAUTAG_DEMO=1): PIN 1234 für alle, keine Änderungspflicht – nur zur Vorführung, nie im Echtbetrieb!');
   db.schliessen();
 }
 
-module.exports = { seed, DEMO_PIN };
+module.exports = { seed, DEMO_PIN, LOHNGRUPPEN, GERAETE, MATERIAL };
