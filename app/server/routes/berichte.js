@@ -131,7 +131,7 @@ function pruefePersonal(db, liste, kontext) {
     if (!PERSONAL_ROLLEN.includes(person.rolle)) throw ungueltig(`${f}: ${person.name} (Bauleitung/Büro/Geschäftsführung) kann nicht als Personal in einen Bautagesbericht eingetragen werden.`);
     const gast = p.gast === undefined || p.gast === null ? false : v.bool(p.gast, `${f}.gast`);
     const eigene = [...(schichtenTag.get(benutzerId) || []), ...(vortag.get(benutzerId) || [])];
-    const gestempeltHier = (schichtenTag.get(benutzerId) || []).some((sch) => sch.intervalle.some((x) => x.art === 'arbeit' && x.baustelleId === bs.id));
+    const gestempeltHier = (schichtenTag.get(benutzerId) || []).some((sch) => [...sch.intervalle, ...(sch.intervalleRoh || [])].some((x) => x.art === 'arbeit' && x.baustelleId === bs.id));
     const partie = person.baustelle_id === bs.id || bs.polier_id === benutzerId;
     if (!partie && !gestempeltHier && !gast) {
       throw ungueltig(`${f}: ${person.name} gehört nicht zur Partie dieser Baustelle und hat hier nicht gestempelt – nur als Gast eintragen (gast:true).`);
