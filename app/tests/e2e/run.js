@@ -789,6 +789,9 @@ async function laufe(browser, g) {
     pruef(allePos(pos).length >= 80 && await page.locator('.pt-row').count() >= 80, `P-01: zu wenige Positionen (${allePos(pos).length})`);
     pruef(await page.locator('#zusammenstellung tbody tr').count() === 6 && (await page.locator('#pos-gesamt').innerText()).includes('€'), 'P-01: Zusammenstellung oder Gesamtsumme fehlt');
     pruef(pos.gesamtsumme > 0 && Math.abs(pos.gruppen.reduce((a, x) => a + x.summe, 0) - pos.gesamtsumme) < 0.05 && Math.abs(pos.ergebnis - (pos.auftragGesamt - pos.gesamtsumme)) < 0.05, 'P-01: Summen/Ergebnis stimmen rechnerisch nicht');
+    // 10d: Positionen aus den Preislisten 2026 sind gekennzeichnet (Bauvorhaben und Katalog)
+    const ausListe = allePos(pos).filter((x) => x.herkunft === 'preisliste_2026' && x.aktiv);
+    pruef(ausListe.length >= 1 && await page.locator('.pt-row [data-herkunft="preisliste_2026"]').count() === ausListe.length && (await page.locator(`.pt-row[data-pos="${ausListe[0] && ausListe[0].id}"] [data-herkunft]`).innerText()).includes('neu aus Preisliste 2026'), `P-19: Kennzeichen „neu aus Preisliste 2026“ fehlt (${ausListe.length} Positionen laut Server)`);
     // Budget bezieht sich auf die Nachkalkulationssumme
     const kalkP = (await api('GET', `/kalkulation/${bsId}`)).json;
     pruef(Math.abs(kalkP.budgetVerbrauchProzent - (pos.gesamtsumme / pos.auftragGesamt) * 100) < 0.15 && Math.abs(kalkP.positionen.gesamtsumme - pos.gesamtsumme) < 0.01, `P-02: Budget-Verbrauch (${kalkP.budgetVerbrauchProzent} %) folgt nicht der Nachkalkulationssumme (${(pos.gesamtsumme / pos.auftragGesamt * 100).toFixed(1)} %)`);
@@ -944,6 +947,7 @@ async function laufe(browser, g) {
     await geh('/preise?tab=katalog', 'positionskatalog');
     await page.waitForSelector('[data-katalog] tr[data-kat]');
     pruef(await page.locator('[data-katalog] tr[data-kat]').count() >= 80 && await page.locator('[data-katalog] details.pg').count() === 6, 'P-15: Positionskatalog unvollständig');
+    pruef(await page.locator('[data-katalog] [data-herkunft="preisliste_2026"]').count() >= 1, 'P-19: Kennzeichen „neu aus Preisliste 2026“ fehlt im Positionskatalog');
     const kFeld = page.locator(`tr[data-kat="${katVor.id}"] input[data-kfeld="ep"]`);
     await kFeld.scrollIntoViewIfNeeded();
     await kFeld.fill(String(katVor.ep + 3).replace('.', ',')); await kFeld.press('Enter');

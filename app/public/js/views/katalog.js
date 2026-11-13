@@ -2,7 +2,7 @@
 // Änderungen hier wirken nur auf neue Baustellen – bestehende Bauvorhaben behalten ihre Positionen und Preise.
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, starkOk, laden, leer, banner, dialog, bestaetigen, toast, $ } from '../ui.js';
-import { GRUPPEN, istBetrag, aufschlag, zuPruefen, naturPruefen } from './positionen.js';
+import { GRUPPEN, istBetrag, aufschlag, zuPruefen, naturPruefen, herkunftChip } from './positionen.js';
 
 export async function katalogTab(box, ctx) {
   const darf = ctx.kann('preise_bearbeiten');
@@ -27,7 +27,7 @@ export async function katalogTab(box, ctx) {
           <div class="tbl-wrap"><table class="tbl price-tbl kat-tbl"><thead><tr><th>Bezeichnung</th><th>EH</th><th class="r">EP</th>${darf ? '<th></th>' : ''}</tr></thead><tbody>
           ${liste.map((p) => `<tr data-kat="${p.id}" class="${p.aktiv === false ? 'aus' : ''}">
             <td class="main">${darf ? `<input class="pt-in" data-kfeld="bezeichnung" value="${esc(p.bezeichnung)}" aria-label="Bezeichnung">` : esc(p.bezeichnung)}
-              <span class="pt-marken">${zuPruefen(p) ? '<span class="chip xs st-amber">Zuordnung prüfen</span>' : ''}${(p.naturmaterial || (p.naturmaterial != null && /^t$/i.test(String(p.einheit || '').trim()))) && darf ? `<label class="chip xs ${p.naturmaterial ? 'st-blue' : 'st-outline'} nat"><input type="checkbox" data-kfeld="naturmaterial" ${p.naturmaterial ? 'checked' : ''}> Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</label>` : p.naturmaterial ? `<span class="chip xs st-blue">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : ''}${p.aktiv === false ? '<span class="chip xs st-grey">deaktiviert</span>' : ''}</span></td>
+              <span class="pt-marken">${herkunftChip(p)}${zuPruefen(p) ? '<span class="chip xs st-amber">Zuordnung prüfen</span>' : ''}${(p.naturmaterial || (p.naturmaterial != null && /^t$/i.test(String(p.einheit || '').trim()))) && darf ? `<label class="chip xs ${p.naturmaterial ? 'st-blue' : 'st-outline'} nat"><input type="checkbox" data-kfeld="naturmaterial" ${p.naturmaterial ? 'checked' : ''}> Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</label>` : p.naturmaterial ? `<span class="chip xs st-blue">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : ''}${p.aktiv === false ? '<span class="chip xs st-grey">deaktiviert</span>' : ''}</span></td>
             <td>${darf ? `<input class="pt-in c eh" data-kfeld="einheit" value="${esc(p.einheit || '')}" aria-label="Einheit von ${esc(p.bezeichnung)}">` : esc(p.einheit || '')}</td>
             <td class="r">${darf ? `<label class="price-in"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-kfeld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? ` <small class="auf">${aufschlag(p.ep)}</small>` : ''}` : `<span class="num">${istBetrag(p) ? `× ${fmt.zahl(p.ep)} (${aufschlag(p.ep)})` : fmt.eur(p.ep)}</span>`}</td>
             ${darf ? `<td class="r">${p.aktiv === false ? `<button type="button" class="btn ghost sm" data-kakt="an">Aktivieren</button>` : `<button type="button" class="icon-btn sm" data-kakt="aus" aria-label="${esc(p.bezeichnung)} deaktivieren">${ic('trash')}</button>`}</td>` : ''}</tr>`).join('') || `<tr><td colspan="4" class="muted">Keine Positionen.</td></tr>`}
