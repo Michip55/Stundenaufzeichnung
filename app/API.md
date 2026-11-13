@@ -317,3 +317,39 @@ Bezug: `app/PRUEFBERICHT_3.md`. Gilt vor den Abschnitten 6–8.
 ### Inbetriebnahme (D-06)
 - `npm run seed` (Testdaten) läuft **nur mit `BAUTAG_DEMO=1`**, sonst Abbruch mit Hinweis.
 - **`node server/einrichten.js`** legt eine leere Echt-Datenbank an (Rechte-Matrix, Lohngruppen, Geräte und Material der Papiervorlage **ohne Preise**) und die erste GF: `--name "…" --pnr 1 --pin 123456` oder Umgebung `BAUTAG_GF_NAME`, `BAUTAG_GF_PNR`, `BAUTAG_GF_PIN`, sonst interaktive Abfrage. PIN-Regeln gelten (mind. 6 Ziffern). Bricht ab, wenn die Datenbank schon Benutzer enthält.
+
+## 10. Nachkalkulation nach Positionen (Kundenvorgabe, verbindlich)
+
+Grundlage: Excel-Vorlage des Betriebs `docs/vorlage/Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx` (Stand 01.04.2026, ~110 Positionen). **Positionen und Preise müssen je Bauvorhaben individuell anpassbar sein.**
+
+### Begriffe
+- **Positionskatalog (Firmenvorlage):** Gruppen in fester Reihenfolge `arbeit` (Arbeit), `transport` (Transport), `geraete` (Geräte), `eigenmaterial` (Eigenmaterial), `fremdmaterial` (Fremdmaterial), `abgaben` (Abgaben). Position = `{id, gruppe, bezeichnung, einheit, ep, sortierung, quelle?, aktiv}`. Einheiten wie in der Vorlage (`Std.`, `t`, `m³`, `m2`, `Stk`, `lfm`, `PA`, `VE` …). `PA`/`VE` = Betrag × Faktor (z. B. Lieferantenrechnung × 1,15, Maut × 1,05) – fachlich identisch zu Menge × EP, Oberfläche zeigt Hinweis „Rechnungsbetrag eingeben“.
+- **Projektpositionen:** Beim Anlegen einer Baustelle (und per `POST /baustellen/:id/positionen/aus-vorlage` für bestehende) wird der Katalog **kopiert**. Danach je Baustelle frei änderbar: EP, Bezeichnung, Einheit, aktiv/ausgeblendet, Reihenfolge, eigene zusätzliche Positionen, Löschen (nur wenn keine Mengen gebucht, sonst ausblenden). Änderungen am Katalog wirken **nicht** rückwirkend auf bestehende Baustellen (optional „Preise aus Vorlage übernehmen“ je Baustelle mit Vorschau).
+- **Quelle (Verknüpfung zum Bautagesbericht):** optional je Position `quelle = {art:"personal"|"geraet"|"material", ref:<lohngruppeId|geraeteCode|materialCode|"alle">, einheit?}`. Mengen fließen dann automatisch aus Berichten mit Status ≠ entwurf (Personalstunden, Gerätestunden, Materialmengen in passender Einheit). Startzuordnung beim Seed nach bestem Wissen, in der Oberfläche als „Zuordnung prüfen“ markiert.
+- **Manuelle Mengen:** je Projektposition beliebig viele Einträge `{id, datum, menge, notiz}` (entspricht den Spalten C–L der Excel-Vorlage), z. B. Rechnungsbeträge für PA-Positionen, Maut, Landschaftsabgabe. Storno mit Protokoll.
+
+### Rechnung
+- Menge je Position = automatische Menge (Quelle) + Σ manuelle Mengen. Summe je Position = Menge × EP (kaufmännisch gerundet auf Cent).
+- Gruppensummen und **Zusammenstellung** wie in der Vorlage: Summe Arbeit, Summe Transport, Summe Geräte, Eigenmaterial, Fremdmaterial, Summe Abgaben, je mit Anteil in % an der **Gesamtsumme**.
+- **Nachkalkulationssumme** = Gesamtsumme der Positionen. **Ergebnis** = Auftragssumme gesamt − Nachkalkulationssumme (in €, und in % der Auftragssumme).
+- **Budget-Verbrauch und Budget-Alarm (80/90/100 %) beziehen sich ab jetzt auf die Nachkalkulationssumme ÷ Auftragssumme gesamt** (Kundenwunsch: „wenn man mit der Nachkalkulation bei z. B. 80 % ist“). Die bisherige interne Kostenrechnung (Kostensätze/EK) bleibt als zusätzliche Ansicht „Interne Kosten“ erhalten.
+
+### Rechte
+- Lesen: `kalk_sehen` (Bauleiter nur eigene Baustellen). Polier/Mitarbeiter: nie (gesperrt wie bisher, keine €-Felder, keine Positions-EP).
+- Projektpositionen ändern (EP, Bezeichnung, hinzufügen, ausblenden, Quelle): `preise_bearbeiten` (Büro/GF). Manuelle Mengen erfassen: `preise_bearbeiten` oder Bauleiter für eigene Baustellen.
+- Katalog (Firmenvorlage) ändern: `preise_bearbeiten`. Alle Änderungen → Protokoll (nur mit `preise_sehen` lesbar).
+- Optimistische Sperre wie Abschnitt 8: `version` je Projektposition.
+
+### Endpunkte
+- `GET /positionen/katalog` → `{stand, gruppen:[{schluessel, name, positionen:[...]}]}`
+- `POST /positionen/katalog`, `PUT /positionen/katalog/:id`, `DELETE /positionen/katalog/:id` (deaktivieren)
+- `POST /positionen/katalog/import` – Import einer Excel-Datei im Aufbau der Vorlage (Body: `{dateiBase64}`; Spalten A=Bezeichnung, B=EH, N=EP; Gruppen anhand der Summenzeilen „Summe Arbeit/Transport/Geräte“, „Eigenmaterial“, „Fremdmaterial“, „Summe Abgaben“). Antwort mit Vorschau `{neu, geaendert, unveraendert}`; `?uebernehmen=1` speichert.
+- `GET /baustellen/:id/positionen` → `{baustelleId, auftragGesamt, gruppen:[{schluessel, name, summe, anteilProzent, positionen:[{id, bezeichnung, einheit, ep, mengeAuto, mengeManuell, menge, summe, quelle?, aktiv, version, eintraege:[...]}]}], gesamtsumme, ergebnis, ergebnisProzent, budgetVerbrauchProzent}`
+- `POST /baustellen/:id/positionen` (eigene Position), `PUT /baustellen/:id/positionen/:pid` (`{version, ep?, bezeichnung?, einheit?, aktiv?, sortierung?, quelle?}`), `DELETE /baustellen/:id/positionen/:pid`
+- `POST /baustellen/:id/positionen/aus-vorlage` (`{modus:"fehlende"|"preise", vorschau?:true}`)
+- `POST /baustellen/:id/positionen/:pid/mengen` `{datum, menge, notiz?}`, `DELETE /baustellen/:id/positionen/:pid/mengen/:mid`
+- `GET /baustellen/:id/positionen/export.xlsx` → Excel im Aufbau der Firmenvorlage (Spalten Bezeichnung, EH, Mengen je Eintrag/Bericht, ZS, EP, SUMME, Zusammenstellung mit %), Formeln wie in der Vorlage.
+- `GET /kalkulation/:baustelleId` liefert zusätzlich `positionen:{gesamtsumme, ergebnis, ergebnisProzent, gruppen:[{schluessel,name,summe,anteilProzent}]}`.
+
+### Seed
+Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheiten exakt wie in der Datei). `npm run seed` (Demo) kopiert ihn in alle Demo-Baustellen; `einrichten.js` legt den Katalog ebenfalls an.
