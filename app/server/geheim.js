@@ -38,4 +38,41 @@ function entschluesseln(bt, wert) {
   }
 }
 
-module.exports = { verschluesseln, entschluesseln, schluesselVorhanden: (bt) => Boolean(schluessel(bt)) };
+/** Produktion (G-11): Schlüssel mindestens 32 Zeichen */
+const MIN_PRODUKTION = 32;
+const schluesselGueltig = (roh) => typeof roh === 'string' && roh.length >= MIN_PRODUKTION;
+
+/** Lesbarkeit eines gespeicherten Werts: 'klar' | 'ok' | 'unlesbar' | 'leer' */
+function zustand(bt, wert) {
+  if (wert == null || wert === '') return 'leer';
+  if (wert.startsWith('klar:')) return 'klar';
+  return entschluesseln(bt, wert) == null ? 'unlesbar' : 'ok';
+}
+
+/**
+ * Beim Start (G-11): „klar:“-Geheimnisse (TOTP, VAPID, SMTP, KI) mit dem Schlüssel nachverschlüsseln und
+ * unlesbare (falscher/neuer Schlüssel) melden. → {nachverschluesselt, unlesbar:{zweiFaktor, vapid, smtp, ki}}
+ */
+function geheimnisseAbgleichen(bt) {
+  const { db } = bt;
+  const out = { nachverschluesselt: 0, unlesbar: { zweiFaktor: 0, vapid: false, smtp: false, ki: false } };
+  const mitSchluessel = Boolean(schluessel(bt));
+  const neu = (w) => verschluesseln(bt, w.slice(5));
+  db.transaktion(() => {
+    for (const z of db.alle('SELECT benutzer_id, geheimnis FROM benutzer_2fa')) {
+      const st = zustand(bt, z.geheimnis);
+      if (st === 'klar' && mitSchluessel) { db.lauf('UPDATE benutzer_2fa SET geheimnis = ? WHERE benutzer_id = ?', neu(z.geheimnis), z.benutzer_id); out.nachverschluesselt++; }
+      if (st === 'unlesbar') out.unlesbar.zweiFaktor++;
+    }
+    for (const [name, feld, merker] of [['vapid', 'privateKey', 'vapid'], ['email', 'passwort', 'smtp'], ['ki', 'apiKey', 'ki']]) {
+      const e = db.einstellung(name, null);
+      if (!e || !e[feld]) continue;
+      const st = zustand(bt, e[feld]);
+      if (st === 'klar' && mitSchluessel) { db.setzeEinstellung(name, { ...e, [feld]: neu(e[feld]) }); out.nachverschluesselt++; }
+      if (st === 'unlesbar') out.unlesbar[merker] = true;
+    }
+  });
+  return out;
+}
+
+module.exports = { verschluesseln, entschluesseln, zustand, geheimnisseAbgleichen, schluesselGueltig, MIN_PRODUKTION, schluesselVorhanden: (bt) => Boolean(schluessel(bt)) };

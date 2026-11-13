@@ -17,6 +17,10 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      # G-06/G-11: immer Echtbetrieb; Test-Schnittstellen hart aus (überschreibt eine versehentliche Zeile in .env)
+      NODE_ENV: production
+      BAUTAG_TEST: ""
+      BAUTAG_TEST_TOKEN: ""
       TRUST_PROXY: "1"
       BAUTAG_DB: /daten/bautag.db
       BAUTAG_UPLOADS: /daten/uploads

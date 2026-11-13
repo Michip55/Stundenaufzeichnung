@@ -13,6 +13,8 @@ const fp = require('./fuhrpark'); // Servicebuch und Schäden mit Fotos
 const a2 = require('./ausbau2'); // Ausbaustufe 2: Stammdaten, Lebenslauf, Planer, Dokumente, Rechnungen, Urlaub
 
 const APP = path.resolve(__dirname, '..', '..');
+// G-06: Test-Schnittstellen verlangen den Kopf X-BauTag-Test-Token (zufällig je Lauf)
+const TEST_TOKEN = require('node:crypto').randomBytes(24).toString('hex');
 const SHOTS = process.env.BAUTAG_SHOTS || '';
 const PIN = '1234';
 const NAME = { gf: 'Michael Pichler', buero: 'Martina Koller', bauleiter: 'Stefan Aigner', polier: 'Josef Haidbauer', mitarbeiter: 'Lukas Brandstätter' };
@@ -31,7 +33,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_TEST_TOKEN: TEST_TOKEN, BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -58,7 +60,7 @@ async function laufe(browser, g) {
   const pruef = (ok, text) => { schritte++; if (!ok) { fehler.push(text); console.log(`    ✗ ${text}`); } };
   const jetzt = () => srv.jetzt();
   // Browser-Uhr = Server-Uhr (läuft in Echtzeit weiter)
-  const neuerKontext = async (opt) => { const c = await browser.newContext(opt); await c.clock.install({ time: new Date(jetzt()) }); return c; };
+  const neuerKontext = async (opt = {}) => { const c = await browser.newContext({ ...opt, extraHTTPHeaders: { ...(opt.extraHTTPHeaders || {}), 'x-bautag-test-token': TEST_TOKEN } }); await c.clock.install({ time: new Date(jetzt()) }); return c; };
   const context = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, isMobile: false, acceptDownloads: true });
   context.setDefaultTimeout(10000);
   const page = await context.newPage();

@@ -135,8 +135,13 @@ if [[ ! -f .env ]]; then
   cp .env.beispiel .env
   sed -i "s|^BAUTAG_DOMAIN=.*|BAUTAG_DOMAIN=$DOMAIN|; s|^BAUTAG_EMAIL=.*|BAUTAG_EMAIL=$EMAIL|; s|^BAUTAG_URL=.*|BAUTAG_URL=https://$DOMAIN|; s|^BAUTAG_SCHLUESSEL=.*|BAUTAG_SCHLUESSEL=$SCHLUESSEL|; s|^ALARM_EMAIL=.*|ALARM_EMAIL=$EMAIL|" .env
   if [[ "$MODUS" == --wiederherstellen ]]; then
-    S="$(frage_geheim 'BAUTAG_SCHLUESSEL vom Notfallblatt (leer = neuer Schlüssel; dann SMTP-Passwort/2FA neu einrichten):')"
-    [[ -n "$S" ]] && sed -i "s|^BAUTAG_SCHLUESSEL=.*|BAUTAG_SCHLUESSEL=$S|" .env
+    S="$(frage_geheim 'BAUTAG_SCHLUESSEL vom Notfallblatt (leer = neuer Schlüssel; dann 2FA, SMTP und KI neu einrichten):')"
+    if [[ -n "$S" ]]; then
+      [[ ${#S} -ge 32 ]] || fehler "Der Schlüssel vom Notfallblatt ist kürzer als 32 Zeichen – bitte prüfen."
+      sed -i "s|^BAUTAG_SCHLUESSEL=.*|BAUTAG_SCHLUESSEL=$S|" .env
+    else
+      NEUER_SCHLUESSEL=1 # G-03: gespeicherte Geheimnisse der Sicherung sind mit dem neuen Schlüssel nicht lesbar
+    fi
   fi
 fi
 chmod 600 .env
@@ -188,6 +193,18 @@ schritt "9/9 Container bauen und starten"
 docker compose build app
 if [[ "$MODUS" == --wiederherstellen ]]; then
   bash "$ZIEL/deploy/wiederherstellen.sh" --extern
+  if [[ -n "${NEUER_SCHLUESSEL:-}" ]]; then
+    rot "ACHTUNG – neuer BAUTAG_SCHLUESSEL: Die mit dem alten Schlüssel gespeicherten Geheimnisse sind nicht mehr lesbar."
+    rot "  Neu einrichten müssen Sie: die Zwei-Faktor-Anmeldung (2FA) aller Personen, das SMTP-Passwort (Einstellungen → E-Mail)"
+    rot "  und den KI-API-Schlüssel (Einstellungen → KI). Push wird neu eingerichtet (Geräte schalten Push neu ein)."
+    rot "  Mit 2FA kann sich bis dahin nur anmelden, wer einen Wiederherstellungscode hat."
+    A="$(frage '2FA jetzt für ALLE Personen zurücksetzen (Anmeldung dann nur mit PIN, danach neu einrichten)? [J/n]')"
+    if [[ ! "$A" =~ ^[nN] ]]; then
+      docker compose run --rm app node server/entsperren.js --2fa-alle || rot "Zurücksetzen fehlgeschlagen – später: docker compose run --rm app node server/entsperren.js --2fa-alle"
+    else
+      echo "Später zurücksetzen: cd $ZIEL/deploy && docker compose run --rm app node server/entsperren.js <Personalnummer> --2fa  (bzw. --2fa-alle)"
+    fi
+  fi
 elif [[ ! -f "$DATEN/bautag.db" ]]; then
   docker compose run --rm -e BAUTAG_GF_NAME="$GF_NAME" -e BAUTAG_GF_PNR="$GF_PNR" -e BAUTAG_GF_PIN="$GF_PIN" app node server/einrichten.js
 fi

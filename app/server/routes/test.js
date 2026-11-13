@@ -8,6 +8,13 @@ function leer() {
 }
 
 module.exports = function testRouten(router, bt) {
+  // G-06: zusätzlich zum Schalter BAUTAG_TEST muss jede Anfrage den Test-Token mitsenden
+  router.use('/test', (req, res, next) => {
+    const t = Buffer.from(String(req.get('x-bautag-test-token') || ''));
+    const soll = Buffer.from(String(bt.testToken || ''));
+    if (!soll.length || t.length !== soll.length || !require('node:crypto').timingSafeEqual(t, soll)) return res.status(403).json({ fehler: 'Test-Schnittstelle: Token fehlt oder falsch.', code: 'KEIN_ZUGRIFF' });
+    next();
+  });
   router.get('/test/ausgang', (req, res) => res.json(bt.testAusgang));
   router.post('/test/zuruecksetzen', (req, res) => {
     bt.testAusgang = leer();

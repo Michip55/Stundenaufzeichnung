@@ -28,7 +28,27 @@ const CSP = [
  * @param {boolean} [opt.euroSicherheitsnetz=true]  zusätzliches Entfernen von €-Feldern vor dem Senden
  * @param {string} [opt.publicDir]
  */
+/** Start verweigern (G-06, G-11) – Fehler mit klarer Meldung statt Stacktrace */
+class StartFehler extends Error {}
+function startPruefen(opt) {
+  const produktion = (opt.nodeEnv !== undefined ? opt.nodeEnv : process.env.NODE_ENV) === 'production';
+  const test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
+  const demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
+  if (produktion && test) throw new StartFehler('BAUTAG_TEST=1 ist im Echtbetrieb (NODE_ENV=production) verboten: Die Test-Schnittstellen dürfen dort nie aktiv sein. Bitte BAUTAG_TEST aus deploy/.env entfernen.');
+  const schl = opt.schluessel || process.env.BAUTAG_SCHLUESSEL || '';
+  if (produktion && !demo && !require('./geheim').schluesselGueltig(schl)) {
+    throw new StartFehler(`BAUTAG_SCHLUESSEL fehlt oder ist zu kurz (mindestens ${require('./geheim').MIN_PRODUKTION} Zeichen). Ohne ihn lägen 2FA-Geheimnisse und Zugangsdaten im Klartext in der Datenbank und in jeder Sicherung. Erzeugen: openssl rand -hex 32 → in deploy/.env eintragen und auf dem Notfallblatt notieren.`);
+  }
+  let testToken = null;
+  if (test) {
+    testToken = opt.testToken || process.env.BAUTAG_TEST_TOKEN || (opt.test !== undefined ? require('node:crypto').randomBytes(24).toString('hex') : '');
+    if (testToken.length < 16) throw new StartFehler('BAUTAG_TEST=1 verlangt BAUTAG_TEST_TOKEN (mindestens 16 Zeichen); die Test-Schnittstellen prüfen den Kopf X-BauTag-Test-Token.');
+  }
+  return { produktion, testToken };
+}
+
 function createApp(opt = {}) {
+  const start = startPruefen(opt);
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
@@ -39,6 +59,8 @@ function createApp(opt = {}) {
   bt.bremse = new LoginBremse(db, uhr);
   // Ausbaustufe 2: Dienste (API.md 12.3–12.5, 12.18)
   bt.test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
+  bt.testToken = start.testToken; // G-06: Test-Schnittstellen nur mit Kopf X-BauTag-Test-Token
+  bt.produktion = start.produktion;
   bt.testAusgang = require('./routes/test').leer();
   bt.testVorgaben = {};
   bt.url = opt.url || process.env.BAUTAG_URL || '';
@@ -99,6 +121,25 @@ function createApp(opt = {}) {
   bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
+  // G-11/G-03: „klar:“-Geheimnisse nachverschlüsseln, unlesbare melden (neuer/falscher BAUTAG_SCHLUESSEL)
+  try {
+    const g = require('./geheim').geheimnisseAbgleichen(bt);
+    bt.geheimnisse = g;
+    if (g.nachverschluesselt) {
+      console.log(`[BauTag] ${g.nachverschluesselt} Geheimnis(se) mit BAUTAG_SCHLUESSEL nachverschlüsselt.`);
+      db.protokolliere({ zeit: uhr().toISOString(), benutzerId: null, art: 'sicherheit', objekt: 'geheimnisse', neu: { nachverschluesselt: g.nachverschluesselt }, text: `${g.nachverschluesselt} Geheimnis(se) beim Start nachverschlüsselt` });
+    }
+    const u = g.unlesbar;
+    if (u.zweiFaktor) bt.warnungen.push(`${u.zweiFaktor} Zwei-Faktor-Geheimnis(se) mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – Anmeldung nur mit Wiederherstellungscode; Zurücksetzen: GF (Benutzer → 2FA zurücksetzen) oder node server/entsperren.js <Pnr> --2fa bzw. --2fa-alle.`);
+    if (u.smtp) bt.warnungen.push('SMTP-Passwort mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – unter Einstellungen → E-Mail neu eingeben.');
+    if (u.ki) bt.warnungen.push('KI-API-Schlüssel mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – unter Einstellungen → KI neu eingeben.');
+    if (u.vapid) {
+      // Push-Schlüssel neu erzeugen; alte Abos passen nicht mehr und werden entfernt (Geräte melden sich beim nächsten Öffnen neu an)
+      db.setzeEinstellung('vapid', null);
+      db.lauf('DELETE FROM push_abo');
+      bt.warnungen.push('Push-Schlüssel (VAPID) war mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – neu erzeugt; Geräte müssen Push neu einschalten.');
+    }
+  } catch (e) { console.error('[BauTag] Geheimnisse prüfen:', e.message); }
   const verwalter = require('./rechte').entsperrKonten(db);
   if (verwalter.length < 2) {
     bt.warnungen.push(`Nur ${verwalter.length} aktives Verwaltungs-Konto (GF/Büro) kann gesperrte Konten entsperren – bitte mindestens zwei anlegen (Notfall: node server/entsperren.js <Personalnummer>).`);
@@ -256,7 +297,11 @@ function createApp(opt = {}) {
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
-  const app = createApp();
+  let app;
+  try { app = createApp(); } catch (e) {
+    if (e instanceof StartFehler) { console.error(`[BauTag] START VERWEIGERT: ${e.message}`); process.exit(1); }
+    throw e;
+  }
   for (const w of app.bt.warnungen) console.warn('[BauTag] WARNUNG: ' + w);
   const server = app.listen(port, () => {
     console.log(`BauTag läuft auf http://localhost:${port} (DB: ${app.bt.db.pfad})`);
@@ -266,4 +311,4 @@ if (require.main === module) {
   process.on('SIGTERM', stopp);
 }
 
-module.exports = { createApp };
+module.exports = { createApp, StartFehler };

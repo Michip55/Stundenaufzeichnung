@@ -63,6 +63,7 @@ Das Skript prüft den Stand, hält die App kurz an, legt den aktuellen Stand **b
    Eingeben: Adresse, E-Mail, **Adresse der externen Sicherung**, **Sicherungs-Passwort** und **BAUTAG_SCHLUESSEL** vom Notfallblatt.
 5. Das Skript holt den neuesten externen Stand, prüft ihn und startet BauTag. Ist der externe Speicher nicht erreichbar: die **Büro-Kopie** (Kopie 3) verwenden – `RESTIC_REPOSITORY` in `/etc/bautag/restic.env` auf den Büro-Ordner stellen (z. B. per SFTP vom NAS) und `wiederherstellen.sh --extern` ausführen.
 6. Danach: alle Benutzer ab- und neu anmelden lassen; Push-Benachrichtigungen am Handy neu erlauben.
+7. **Schlüssel verloren** (BAUTAG_SCHLUESSEL leer gelassen → neuer Schlüssel): Zwei-Faktor-Anmeldung, SMTP-Passwort und KI-Schlüssel sind dann nicht mehr lesbar. Das Skript sagt das und bietet an, die 2FA aller Personen zurückzusetzen (`docker compose run --rm app node server/entsperren.js --2fa-alle`; einzeln: `… entsperren.js <Personalnummer> --2fa`). Wiederherstellungscodes funktionieren auch mit neuem Schlüssel. Danach SMTP-Passwort und KI-Schlüssel in den Einstellungen neu eingeben und 2FA neu einrichten.
 Zeitbedarf: etwa 1–2 Stunden.
 
 ## 4. Notfallblatt (ausdrucken, ausfüllen, in den Tresor)

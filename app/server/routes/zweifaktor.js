@@ -12,6 +12,7 @@ const ROLLEN = ['bauleiter', 'buero', 'gf'];
 const VORGANG_MIN = 5;
 const VORGANG_VERSUCHE = 5;
 const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
+const UNLESBAR_TEXT = '2FA-Schlüssel nicht lesbar – Wiederherstellungscode verwenden oder Zurücksetzen durch GF/entsperren.js.';
 
 function pflichtRollen(db) {
   return { bauleiter: false, buero: false, gf: false, ...(db.einstellung('zwei_faktor_pflicht', {}) || {}) };
@@ -35,16 +36,18 @@ function neuerVorgang(bt, benutzerId, ip) {
  */
 function pruefeCode(bt, z, code) {
   const { db } = bt;
-  const geheimnis = G.entschluesseln(bt, z.geheimnis);
-  if (!geheimnis) return null;
   const c = String(code || '').trim().replace(/\s/g, '');
   if (/^\d{6}$/.test(c)) {
+    // G-03: Ist das Geheimnis nicht lesbar (BAUTAG_SCHLUESSEL geändert/verloren), klar melden – Wiederherstellungscodes gehen trotzdem
+    const geheimnis = G.entschluesseln(bt, z.geheimnis);
+    if (!geheimnis) return 'unlesbar';
     const s = T.pruefe(T.base32Dekodieren(geheimnis), c, bt.uhr().getTime(), z.letzter_schritt);
     if (s == null) return null;
     db.lauf('UPDATE benutzer_2fa SET letzter_schritt = ? WHERE benutzer_id = ?', s, z.benutzer_id);
     return 'totp';
   }
   if (/^[a-z2-7]{4}-?[a-z2-7]{4}$/i.test(c)) {
+    // nur gesalzene SHA-256-Hashes – unabhängig von BAUTAG_SCHLUESSEL (G-03)
     const codes = JSON.parse(z.codes || '[]');
     const h = T.codeHash(c, z.salz);
     const i = codes.findIndex((x) => x.h === h && !x.verbraucht);
@@ -133,7 +136,9 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     if (!z) throw konflikt('Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.');
     const body = v.objekt(req.body);
     await pinPruefen(req, b, body.pin);
-    if (!pruefeCode(bt, z, body.code)) { fehlversuch(b, clientIp(req)); throw ungueltig('Der Code stimmt nicht.'); }
+    const art = pruefeCode(bt, z, body.code);
+    if (art === 'unlesbar') throw ungueltig(UNLESBAR_TEXT);
+    if (!art) { fehlversuch(b, clientIp(req)); throw ungueltig('Der Code stimmt nicht.'); }
     db.transaktion(() => { db.lauf('DELETE FROM benutzer_2fa WHERE benutzer_id = ?', b.id); prot(b, `${b.name} hat die Zwei-Faktor-Anmeldung ausgeschaltet`); });
     res.json({ aktiv: false });
   });
@@ -154,6 +159,12 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     bt.bremse.pruefeKonto(b.id);
     const z = db.eins('SELECT * FROM benutzer_2fa WHERE benutzer_id = ? AND aktiv = 1', b.id);
     const art = z ? pruefeCode(bt, z, body.code) : null;
+    if (art === 'unlesbar') {
+      // kein Fehlversuch der Person (Server-Problem), aber Vorgang zählt
+      db.lauf('UPDATE login_2fa SET versuche = versuche + 1 WHERE token_hash = ?', vg.token_hash);
+      prot(b, `${b.name}: Anmeldung mit 2FA-Code nicht möglich – Geheimnis mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar`);
+      throw new (require('../fehler').ApiFehler)(401, 'ZWEI_FAKTOR_UNLESBAR', UNLESBAR_TEXT);
+    }
     if (!art) {
       db.lauf('UPDATE login_2fa SET versuche = versuche + 1 WHERE token_hash = ?', vg.token_hash);
       fehlversuch(b, ip);
@@ -210,3 +221,4 @@ module.exports.aktiv = aktiv;
 module.exports.stand = stand;
 module.exports.neuerVorgang = neuerVorgang;
 module.exports.ROLLEN = ROLLEN;
+module.exports.UNLESBAR_TEXT = UNLESBAR_TEXT;

@@ -4,6 +4,7 @@
 FROM node:22-slim
 
 ENV NODE_ENV=production \
+    BAUTAG_TEST= \
     PORT=3000 \
     TRUST_PROXY=1 \
     BAUTAG_DB=/daten/bautag.db \

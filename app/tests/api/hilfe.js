@@ -17,7 +17,7 @@ async function starte(opt = {}) {
   uhr.setze = (iso) => { jetzt = new Date(iso); };
   uhr.plus = (min) => { jetzt = new Date(jetzt.getTime() + min * 60000); };
   const app = createApp({
-    dbPath: ':memory:', uhr, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
+    dbPath: opt.dbPath || ':memory:', uhr, nodeEnv: opt.nodeEnv, testToken: opt.testToken, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
     pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
     // Ausbaustufe 2: Attrappen für externe Dienste (API.md 12.18)
     test: opt.test, kiClient: opt.kiClient, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
@@ -34,6 +34,7 @@ async function starte(opt = {}) {
       async anfrage(methode, pfad, body, header = {}) {
         const h = { ...header };
         if (c.cookie) h.cookie = c.cookie;
+        if (app.bt.testToken && h['x-bautag-test-token'] === undefined) h['x-bautag-test-token'] = app.bt.testToken; // G-06
         if (c.ip) h['x-forwarded-for'] = c.ip; // wirkt nur mit trustProxy
         let b;
         if (body !== undefined) {
