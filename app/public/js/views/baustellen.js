@@ -1,6 +1,10 @@
 // Baustellen: Liste und Detail (Stammdaten, Auftragssumme, Nachträge, Budget-Schwellen und Empfänger).
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, speicher, $, $$ } from '../ui.js';
+import { PHASEN, phaseVon, phaseText, phaseChip, lebenslaufHtml, abschlussHtml, lebenslaufBinden, tafelHtml, tafelBinden } from './lebenslauf.js';
+import { dokumenteTab } from './dokumente.js';
+import { rechnungenTab } from './rechnungen.js';
+import { importAssistent } from './import.js';
 
 const STATUS = { geplant: ['Geplant', 'st-blue'], aktiv: ['Aktiv', 'st-green'], abgeschlossen: ['Abgeschlossen', 'st-grey'] };
 const stChip = (s) => { const [t, c] = STATUS[s] || [s || '–', 'st-grey']; return `<span class="chip ${c}">${esc(t)}</span>`; };
@@ -17,7 +21,7 @@ function stammDialog(ctx, leute, b) {
   const wahl = (feld, rollen) => `<select class="input lg" name="${feld}"><option value="">– niemand –</option>${leute.filter((m) => rollen.includes(m.rolle) && m.aktiv !== false && m.aktiv !== 0).map((m) => `<option value="${m.id}" ${b && b[feld] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`;
   const d = dialog({ titel: b ? 'Baustelle bearbeiten' : 'Neue Baustelle', breit: true, inhalt: `<form id="bsf" class="form-grid">
     <label class="field"><span class="field-label">Kostenstelle (KST)</span><input class="input lg" name="kst" required maxlength="20" value="${esc((b && b.kst) || '')}" placeholder="z. B. 26-050"></label>
-    <label class="field"><span class="field-label">Status</span><select class="input lg" name="status">${Object.entries(STATUS).map(([k, [t]]) => `<option value="${k}" ${(b ? b.status : 'aktiv') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${b && b.phase ? `<div class="field"><span class="field-label">Status</span><output class="input lg ro">${esc(phaseText(b.phase))} – Änderung über „Status des Bauvorhabens“</output></div>` : `<label class="field"><span class="field-label">Status</span><select class="input lg" name="status">${Object.entries(STATUS).filter(([k]) => b || k !== 'abgeschlossen').map(([k, [t]]) => `<option value="${k}" ${(b ? b.status : 'aktiv') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`}
     <label class="field full"><span class="field-label">Bauvorhaben / Name</span><input class="input lg" name="name" required maxlength="120" value="${esc((b && b.name) || '')}"></label>
     <label class="field full"><span class="field-label">Auftraggeber</span><input class="input lg" name="auftraggeber" maxlength="120" value="${esc((b && b.auftraggeber) || '')}"></label>
     <label class="field full"><span class="field-label">Adresse der Baustelle</span><input class="input lg" name="adresse" maxlength="160" value="${esc((b && b.adresse) || '')}"></label>
@@ -33,7 +37,7 @@ function stammDialog(ctx, leute, b) {
     fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bsf">Speichern</button>' });
   $('#bsf', d.el).addEventListener('submit', async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
-    const body = { kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), status: f.get('status'), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
+    const body = { kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), ...(f.get('status') ? { status: f.get('status') } : {}), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
     // Koordinaten: Dezimalgrad mit Komma oder Punkt; leer = unbekannt
     const grad = (k) => { const roh = String(f.get(k) || '').trim().replace(',', '.'); return roh === '' ? null : Number(roh); };
     body.lat = grad('lat'); body.lng = grad('lng');
@@ -50,23 +54,38 @@ function stammDialog(ctx, leute, b) {
 }
 
 export async function baustellen(el, ctx) {
-  const liste = await get('/baustellen');
+  let liste = await get('/baustellen');
   const darf = ctx.kann('stammdaten');
-  let nurAktiv = true;
-  function zeichne() {
-    const sicht = liste.filter((b) => !nurAktiv || !b.status || b.status !== 'abgeschlossen');
-    el.innerHTML = `<div class="page">
-      <div class="toolbar"><label class="check-inline"><input type="checkbox" id="alle" ${nurAktiv ? '' : 'checked'}> Abgeschlossene anzeigen</label><span class="grow"></span>${darf ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neue Baustelle</button>` : ''}</div>
-      ${sicht.length ? `<div class="site-cards">${sicht.map((b) => `<a class="card pad site-card" href="#/baustelle/${b.id}">
-        <div class="kc-h"><div><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b></div>${stChip(b.status)}</div>
+  const LAUFEND = ['angebot', 'geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
+  let filter = PHASEN[ctx.query.get('phase')] ? ctx.query.get('phase') : 'laufend';
+  let ansicht = speicher.lies('bt_bs_ansicht') === 'tafel' ? 'tafel' : 'liste';
+  const karte = (b) => `<a class="card pad site-card" href="#/baustelle/${b.id}" data-bs="${b.id}">
+        <div class="kc-h"><div><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b></div>${phaseChip(phaseVon(b))}</div>
         <p class="muted sm">${esc(b.auftraggeber || '')}</p><p class="muted sm">${ic('pin', 'xs')} ${esc(b.adresse || '–')}</p>
+        ${b.fertigmeldung ? '<p><span class="chip xs st-blue">Fertigstellung gemeldet</span></p>' : ''}
         ${b.budgetVerbrauchProzent != null ? `<div class="site-bud"><span class="meter"><i data-st="width:${Math.min(100, b.budgetVerbrauchProzent)}%" class="${b.budgetVerbrauchProzent >= 100 ? 'red' : b.budgetVerbrauchProzent >= 80 ? 'amber' : ''}"></i></span><small>Budget ${fmt.pct(b.budgetVerbrauchProzent)}${b.leistungsstandProzent != null ? ' · Leistung ' + fmt.pct(b.leistungsstandProzent) : ''}</small></div>` : ''}
-      </a>`).join('')}</div>` : `<div class="card">${leer('Keine Baustellen vorhanden.', 'pin')}</div>`}
+      </a>`;
+  function zeichne() {
+    const n = (p) => liste.filter((b) => phaseVon(b) === p).length;
+    const sicht = liste.filter((b) => (filter === 'alle' ? true : filter === 'laufend' ? LAUFEND.includes(phaseVon(b)) : phaseVon(b) === filter));
+    const chips = [['laufend', 'Laufend', liste.filter((b) => LAUFEND.includes(phaseVon(b))).length], ...Object.keys(PHASEN).filter((p) => p !== 'archiviert' && n(p)).map((p) => [p, phaseText(p), n(p)]), ['alle', 'Alle', liste.length]];
+    el.innerHTML = `<div class="page${ansicht === 'tafel' ? ' breit' : ''}">
+      <div class="toolbar wrap"><div class="chip-row" role="group" aria-label="Status" id="bs-filter">${chips.map(([k, t, z]) => `<button type="button" class="chip-btn${filter === k ? ' on' : ''}" data-filter="${k}" aria-pressed="${filter === k}">${esc(t)} <span>${z}</span></button>`).join('')}</div><span class="grow"></span>
+        <div class="tabs klein" role="tablist" aria-label="Darstellung"><button type="button" role="tab" aria-selected="${ansicht === 'liste'}" class="${ansicht === 'liste' ? 'on' : ''}" data-ansicht="liste">${ic('grid')}Liste</button><button type="button" role="tab" aria-selected="${ansicht === 'tafel'}" class="${ansicht === 'tafel' ? 'on' : ''}" data-ansicht="tafel">${ic('board')}Tafel</button></div>
+        <a class="btn ghost" id="zum-archiv" href="#/baustellen/archiv">Abgeschlossene Bauvorhaben</a>${darf ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neue Baustelle</button>` : ''}</div>
+      ${ansicht === 'tafel' ? tafelHtml(liste, ctx) : sicht.length ? `<div class="site-cards">${sicht.map(karte).join('')}</div>` : `<div class="card">${leer('Keine Baustellen für diesen Filter.', 'pin')}</div>`}
     </div>`;
   }
-  el.addEventListener('change', (e) => { if (e.target.id === 'alle') { nurAktiv = !e.target.checked; zeichne(); } });
-  el.addEventListener('click', async (e) => { if (e.target.closest('#neu')) stammDialog(ctx, await get('/mitarbeiter'), null); });
+  const neu = async () => { try { liste = await get('/baustellen'); } catch (x) { toast(x.message, 'warn'); } if (ctx.aktuell()) zeichne(); };
+  el.addEventListener('click', async (e) => {
+    const f = e.target.closest('[data-filter]'); if (f) { filter = f.dataset.filter; ansicht = 'liste'; return zeichne(); }
+    const a = e.target.closest('[data-ansicht]'); if (a) { ansicht = a.dataset.ansicht; speicher.setz('bt_bs_ansicht', ansicht); return zeichne(); }
+    if (e.target.closest('#neu')) stammDialog(ctx, await get('/mitarbeiter'), null);
+  });
+  const loese = tafelBinden(el, ctx, () => liste, neu);
   zeichne();
+  if (darf && ctx.query.get('neu') === '1') stammDialog(ctx, await get('/mitarbeiter'), null);
+  return loese;
 }
 
 export async function baustelle(el, ctx) {
@@ -84,10 +103,22 @@ export async function baustelle(el, ctx) {
   const nachtraege = b.nachtraege || (kalk && kalk.nachtraege) || [];
   // N-07: Abschnitt nur zeigen, wenn der Server Budgetdaten für diese Baustelle liefert (nicht bei fremden Baustellen)
   const zeigAuftrag = 'auftragssumme' in b || 'schwellen' in b || !!kalk;
+  const rolle = ctx.ich.benutzer.rolle;
+  const planer = ['buero', 'gf'].includes(rolle) || ctx.kann('stammdaten');
+  const eigen = (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
+  const siehtDoku = planer || (['bauleiter', 'polier'].includes(rolle) && eigen);
+  const siehtRechnungen = ctx.kann('preise_sehen') && (planer || eigen) && zeigAuftrag;
+  const REITER = [['uebersicht', 'Übersicht'], ...(siehtDoku ? [['dokumente', 'Dokumente']] : []), ...(siehtRechnungen ? [['rechnungen', 'Rechnungen']] : [])];
+  const reiter = REITER.some(([k]) => k === ctx.query.get('reiter')) ? ctx.query.get('reiter') : 'uebersicht';
+  const verlauf = reiter === 'uebersicht' && b.phase ? await get(`/baustellen/${id}/phasen`).catch(() => []) : [];
+  const lv = reiter === 'uebersicht' && zeigAuftrag && ctx.kann('preise_sehen') && b.phase ? await get(`/baustellen/${id}/lv`).catch(() => null) : null;
 
   el.innerHTML = `
   <div class="page">
-    <div class="form-top"><a class="link-back" href="#/baustellen">${ic('left')}Alle Baustellen</a><span class="grow"></span>${stChip(b.status)}${kalk ? kalkChip(kalk.status) : ''}</div>
+    <div class="form-top"><a class="link-back" href="#/baustellen">${ic('left')}Alle Baustellen</a><span class="grow"></span>${b.phase ? phaseChip(b.phase) : stChip(b.status)}${kalk ? kalkChip(kalk.status) : ''}</div>
+    ${REITER.length > 1 ? `<div class="tabs" role="tablist" aria-label="Bereiche der Baustelle" id="bs-reiter">${REITER.map(([k, t]) => `<a role="tab" aria-selected="${k === reiter}" class="${k === reiter ? 'on' : ''}" data-reiter="${k}" href="#/baustelle/${id}${k === 'uebersicht' ? '' : '?reiter=' + k}">${t}</a>`).join('')}</div>` : ''}
+    ${reiter !== 'uebersicht' ? '<div id="reiter-inhalt" class="stack"></div>' : `
+    ${b.phase ? lebenslaufHtml(b, ctx, verlauf) : ''}
     <div class="two-col">
       <section class="card" aria-labelledby="h-stamm">
         <div class="card-h pad-h"><h3 id="h-stamm">Stammdaten</h3>${darfStamm ? `<button type="button" class="btn ghost sm" data-akt="stamm">${ic('edit')}Bearbeiten</button>` : ''}</div>
@@ -106,10 +137,20 @@ export async function baustelle(el, ctx) {
         </form>
         <div class="card-h pad-h bt"><h3>Nachträge <span class="count">${nachtraege.length}</span></h3>${darfAuftrag ? `<button type="button" class="btn ghost sm" data-akt="nachtrag">${ic('plus')}Nachtrag</button>` : ''}</div>
         ${nachtraege.length ? `<ul class="plain rows" id="nachtraege">${nachtraege.map((n) => `<li><span class="grow"><b>${esc(n.text)}</b></span><b class="num">${fmt.eur(n.betrag)}</b>${darfAuftrag ? `<button type="button" class="icon-btn sm" data-nt-weg="${n.id}" aria-label="Nachtrag ${esc(n.text)} löschen">${ic('trash')}</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted sm pad-s">Keine Nachträge.</p>'}
-        ${kalk ? `<dl class="def-list bt"><div><dt>Auftrag gesamt</dt><dd class="num">${fmt.eur(kalk.auftragGesamt)}</dd></div><div><dt>Kosten bisher</dt><dd class="num">${fmt.eur(kalk.kosten && kalk.kosten.gesamt)}</dd></div><div><dt>Budget verbraucht</dt><dd class="num" data-wert="verbrauch">${fmt.pct(kalk.budgetVerbrauchProzent)}</dd></div></dl>` : ''}
+        ${kalk ? `<dl class="def-list bt"><div><dt>Auftrag gesamt</dt><dd class="num">${fmt.eur(kalk.auftragGesamt)}</dd></div><div><dt>Kosten bisher</dt><dd class="num">${fmt.eur(kalk.kosten && kalk.kosten.gesamt)}</dd></div><div><dt>Budget verbraucht</dt><dd class="num" data-wert="verbrauch">${fmt.pct(kalk.budgetVerbrauchProzent)}</dd></div>${kalk.rechnungen ? `<div><dt>Verrechnet (netto)</dt><dd class="num" data-wert="verrechnet">${fmt.eur(kalk.rechnungen.verrechnetNetto)}</dd></div><div><dt>Bezahlt</dt><dd class="num" data-wert="bezahlt">${fmt.eur(kalk.rechnungen.bezahlt)}</dd></div><div><dt>Offen</dt><dd class="num">${fmt.eur(kalk.rechnungen.offen)}</dd></div>` : ''}</dl>` : ''}
+        ${b.phase && ctx.kann('preise_sehen') ? `<div class="card-h pad-h bt"><h3>Leistungsverzeichnis (Soll)</h3>${darfAuftrag ? `<button type="button" class="btn ghost sm" id="lv-import">${ic('download')}Leistungsverzeichnis aus Auer Success importieren</button>` : ''}</div>
+        ${lv && (lv.positionen || []).length ? `<p class="pad-s sm" id="lv-stand"><b>${lv.positionen.length} Positionen</b> · LV-Summe ${fmt.eur(lv.summe)}${lv.importiert ? ` · importiert am ${esc(fmt.zeitpunkt(lv.importiert))}` : ''}${lv.datei ? ` · ${esc(lv.datei)}` : ''} <button type="button" class="btn ghost sm" id="lv-zeigen">Positionen ansehen</button></p>` : '<p class="muted sm pad-s" id="lv-stand">Noch kein Leistungsverzeichnis importiert.</p>'}` : ''}
       </section>` : ''}
     </div>
+    ${b.phase ? abschlussHtml(b, ctx) : ''}`}
   </div>`;
+  if (reiter === 'dokumente') return dokumenteTab($('#reiter-inhalt', el), b, ctx);
+  if (reiter === 'rechnungen') return rechnungenTab($('#reiter-inhalt', el), b, ctx);
+  lebenslaufBinden(el, b, ctx);
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('#lv-import')) return importAssistent(ctx, 'lv', { baustelle: b, fertig: () => ctx.neuLaden() });
+    if (e.target.closest('#lv-zeigen') && lv) dialog({ titel: `Leistungsverzeichnis · ${lv.positionen.length} Positionen`, breit: true, inhalt: `<div class="table-wrap imp-hoch"><table class="tbl" id="lv-tabelle"><thead><tr><th>OZ</th><th>Kurztext</th><th>EH</th><th class="num">Menge</th><th class="num">EP</th><th class="num">GP</th></tr></thead><tbody>${lv.positionen.map((p) => `<tr><td>${esc(p.oz || '')}</td><td>${esc(p.kurztext || '')}</td><td>${esc(p.einheit || '')}</td><td class="num">${fmt.zahl(p.menge, 3)}</td><td class="num">${p.ep != null ? fmt.eur(p.ep) : '–'}</td><td class="num">${p.gp != null ? fmt.eur(p.gp) : '–'}</td></tr>`).join('')}</tbody></table></div>`, fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
+  });
 
   el.addEventListener('click', async (e) => {
     const a = e.target.closest('[data-akt]');

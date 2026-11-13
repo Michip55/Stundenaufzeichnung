@@ -11,7 +11,8 @@ export default async function kolonne(el, ctx) {
   // Polier: nur Baustellen der eigenen Partie
   const eigeneIds = ctx.ich.baustellenIds || [];
   if (ctx.ich.benutzer.rolle === 'polier' && aktive.some((b) => eigeneIds.includes(b.id))) aktive = aktive.filter((b) => eigeneIds.includes(b.id));
-  const gemerkt = speicher.lies('bt_baustelle');
+  const ausPlan = ctx.query.get('plan') === '1' && aktive.some((b) => b.id === Number(ctx.query.get('baustelleId'))) ? Number(ctx.query.get('baustelleId')) : null;
+  const gemerkt = ausPlan ?? speicher.lies('bt_baustelle');
   let baustelleId = aktive.some((b) => b.id === gemerkt) ? gemerkt : (aktive.find((b) => eigeneIds.includes(b.id)) || aktive[0] || {}).id;
   let typ = 'kommen';
   let partie = [];          // [{benutzerId, name, rolle, partie, status, seit, code}]
@@ -24,7 +25,7 @@ export default async function kolonne(el, ctx) {
   async function ladePartie() {
     fehlerPartie = ''; partie = [];
     if (baustelleId == null) return;
-    try { partie = await get(`/zeit/kolonne?baustelleId=${baustelleId}`); }
+    try { partie = await get(`/zeit/kolonne?baustelleId=${baustelleId}&plan=1`); }
     catch (e) { if (e.status === 401) throw e; fehlerPartie = e.netz ? 'Keine Verbindung – die Partie kann gerade nicht geladen werden.' : e.message; }
   }
   const liste = () => {
@@ -38,6 +39,7 @@ export default async function kolonne(el, ctx) {
     const [st, cls] = ST[m.status] || ['', ''];
     const info = erg ? (erg.ok ? '<span class="chip xs st-green">gebucht</span>' : `<span class="crew-err">${esc(erg.fehler || 'nicht gebucht')}</span>`)
       : m.code ? `<span class="code-badge c-${esc(m.code)}">${esc(m.code)}</span>`
+      : m.geplant && m.status === 'aus' ? '<span class="chip xs st-blue" data-eingeplant>eingeplant</span>'
       : st ? `<span class="chip xs ${cls}">${st}${m.status !== 'aus' && m.seit ? ' seit ' + fmt.uhr(m.seit) : ''}</span>` : '';
     return `<label class="crew-row${an ? ' sel' : ''}${erg && !erg.ok ? ' err' : ''}"><input type="checkbox" class="vh" data-ma="${m.benutzerId}" ${an ? 'checked' : ''}><span class="check">${ic('check')}</span>${avatar(m.name, m.status === 'arbeit' ? 'on' : m.status === 'pause' ? 'pause' : '')}<span class="crew-txt"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.extra ? ' · Gast (nicht in der Partie, wird protokolliert)' : ''}</small></span>${info}</label>`;
   }
@@ -105,5 +107,7 @@ export default async function kolonne(el, ctx) {
     }
   });
   await ladePartie();
+  // aus „Meine Partie“: die heute eingeplante Mannschaft ist schon ausgewählt
+  if (ausPlan != null) partie.filter((m) => m.geplant && (!m.status || m.status === 'aus') && !m.code).forEach((m) => gewaehlt.add(m.benutzerId));
   zeichne();
 }

@@ -10,6 +10,9 @@ import woche from './views/woche.js';
 import { berichte, bericht } from './views/berichte.js';
 import dashboard from './views/dashboard.js';
 import { baustellen, baustelle } from './views/baustellen.js';
+import { archiv } from './views/lebenslauf.js';
+import plan, { einsatz, partie } from './views/plan.js';
+import { offenePosten } from './views/rechnungen.js';
 import preise from './views/preise.js';
 import { kalkUebersicht, kalkDetail } from './views/kalkulation.js';
 import monat from './views/monat.js';
@@ -50,14 +53,23 @@ const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
 // C-14: Das Büro pflegt Benutzer (Mitarbeiter, Polier, Bauleiter) – laut API eine Regel der Rolle, kein eigenes Recht
 const darfBenutzerPflegen = () => !!ich && ich.benutzer.rolle === 'buero';
+const rolle = (...r) => () => !!ich && r.includes(ich.benutzer.rolle);
+// Baustellenplaner: Büro/GF (bzw. Recht „stammdaten“) und Bauleiter planen; Polier sieht seine Partie, alle Eingeteilten „Mein Einsatz“
+const darfPlanen = () => !!ich && (['buero', 'gf', 'bauleiter'].includes(ich.benutzer.rolle) || kann('stammdaten'));
+const siehtBaustellen = () => eines('stammdaten', 'kalk_sehen', 'bericht_freigeben')() || rolle('polier')();
 
 const NAV = [
   { id: 'dashboard', pfad: '/dashboard', text: 'Übersicht', kurz: 'Übersicht', icon: 'grid', darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
   { id: 'stempeln', pfad: '/stempeln', text: 'Stempeluhr', kurz: 'Stempeln', icon: 'clock', darf: eines('zeit_eigen') },
+  { id: 'einsatz', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('mitarbeiter') },
+  { id: 'partie', pfad: '/partie', text: 'Meine Partie', kurz: 'Partie', icon: 'users', darf: rolle('polier') },
   { id: 'kolonne', pfad: '/kolonne', text: 'Kolonne stempeln', kurz: 'Kolonne', icon: 'users', darf: eines('kolonne') },
   { id: 'berichte', pfad: '/berichte', text: 'Bautagesberichte', kurz: 'Berichte', icon: 'clipboard', darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
-  { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
+  { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: siehtBaustellen },
+  { id: 'plan', pfad: '/plan', text: 'Baustellenplaner', kurz: 'Planer', icon: 'board', darf: darfPlanen },
+  { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier', 'bauleiter'), nurMehr: true },
+  { id: 'offeneposten', pfad: '/offene-posten', text: 'Offene Posten', kurz: 'Posten', icon: 'euro', darf: eines('preise_sehen') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Preise & Stammdaten', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
   // Fuhrpark & Geräte: für alle (Geräteliste, Schaden/Mangel melden, Zählerstand); Pflege nur mit Recht „fuhrpark“. Am Handy unter „Mehr“.
@@ -85,8 +97,13 @@ const ROUTEN = [
   { muster: /^\/berichte$/, nav: 'berichte', titel: 'Bautagesberichte', view: berichte, darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { muster: /^\/bericht\/(\d+)$/, nav: 'berichte', titel: 'Bautagesbericht', view: bericht, darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { muster: /^\/dashboard$/, nav: 'dashboard', titel: 'Übersicht', view: dashboard, darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
-  { muster: /^\/baustellen$/, nav: 'baustellen', titel: 'Baustellen', view: baustellen, darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
-  { muster: /^\/baustelle\/(\d+)$/, nav: 'baustellen', titel: 'Baustelle', view: baustelle, darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
+  { muster: /^\/baustellen$/, nav: 'baustellen', titel: 'Baustellen', view: baustellen, darf: siehtBaustellen },
+  { muster: /^\/baustellen\/archiv$/, nav: 'baustellen', titel: 'Abgeschlossene Bauvorhaben', view: archiv, darf: siehtBaustellen },
+  { muster: /^\/baustelle\/(\d+)$/, nav: 'baustellen', titel: 'Baustelle', view: baustelle, darf: siehtBaustellen },
+  { muster: /^\/plan$/, nav: 'plan', titel: 'Baustellenplaner', view: plan, darf: darfPlanen },
+  { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier', 'bauleiter') },
+  { muster: /^\/partie$/, nav: 'partie', titel: 'Meine Partie', view: partie, darf: rolle('polier') },
+  { muster: /^\/offene-posten$/, nav: 'offeneposten', titel: 'Offene Posten', view: offenePosten, darf: eines('preise_sehen') },
   { muster: /^\/preise$/, nav: 'preise', titel: 'Preise & Stammdaten', view: preise, darf: eines('preise_sehen') },
   { muster: /^\/kalkulation$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkUebersicht, darf: eines('kalk_sehen') },
   { muster: /^\/kalkulation\/(\d+)\/positionen$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: positionen, darf: eines('kalk_sehen') },

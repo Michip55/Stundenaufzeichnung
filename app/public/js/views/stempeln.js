@@ -47,6 +47,8 @@ export default async function stempeln(el, ctx) {
     try {
       const [s, b] = await Promise.all([get('/zeit/status'), get('/baustellen')]);
       st = s; baustellen = b; offlineModus = false;
+      // Baustellenplaner: heutiger veröffentlichter Einsatz → diese Baustelle vorschlagen (einmal je Tag, danach gilt die eigene Wahl)
+      if (s.status === 'aus' && s.geplant && b.some((x) => x.id === s.geplant.baustelleId) && speicher.lies('bt_plan_vorschlag') !== `${fmt.iso()}:${s.geplant.baustelleId}`) { wahl = s.geplant.baustelleId; speicher.setz('bt_plan_vorschlag', `${fmt.iso()}:${s.geplant.baustelleId}`); speicher.setz('bt_baustelle', wahl); }
       speicher.setz('bt_status', { status: s.status, seit: s.seit, baustelleId: s.baustelleId, heute: s.heute, tag: fmt.iso() });
       speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status }))); // ohne Beträge
     } catch (e) {
@@ -88,6 +90,7 @@ export default async function stempeln(el, ctx) {
     let aktion;
     if (st.status === 'aus') {
       aktion = `
+        ${st.geplant ? `<p class="plan-vorschlag" id="plan-vorschlag" data-geplant="${st.geplant.baustelleId}">${ic('calendar', 'xs')}<span>Heute eingeplant: <b>${esc(st.geplant.name || '')}</b>${st.geplant.beginn ? ` · ${esc(st.geplant.beginn)} Uhr` : ''}${st.geplant.treffpunkt ? ` · Treffpunkt ${esc(st.geplant.treffpunkt)}` : ''}</span></p>` : ''}
         <button type="button" class="site-row pick" data-akt="waehlen" aria-label="Baustelle wählen${b ? ': ' + esc(b.name) : ''}">${baustelleZeile}<span class="pick-cta">Ändern${ic('right')}</span></button>
         <button type="button" class="punch in" data-stempel="kommen" ${b ? '' : 'disabled'}><span class="punch-ic">${ic('play')}</span><span><b>Kommen</b><small>Arbeitsbeginn jetzt buchen</small></span></button>`;
     } else {
