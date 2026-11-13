@@ -47,12 +47,39 @@ export function bloecke(p) {
   }
   return out;
 }
-export function stundenAus(p) {
+/* ---------- Wiener Ortszeit (unabhängig von der Zeitzone des Geräts; Prüfbericht 2 C-10, C-15) ---------- */
+const WIEN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+function wienTeile(ms) {
+  const t = {}; for (const x of WIEN.formatToParts(new Date(ms))) t[x.type] = x.value;
+  return { datum: `${t.year}-${t.month}-${t.day}`, zeit: `${t.hour}:${t.minute}` };
+}
+// Zeitpunkt (ms seit 1970) für eine Wiener Ortszeit „YYYY-MM-DD“ + „HH:MM“
+export function wienMs(datum, hhmm) {
+  const [y, m, d] = datum.split('-').map(Number); const [h, mi] = hhmm.split(':').map(Number);
+  const wand = Date.UTC(y, m - 1, d, h, mi);
+  const versatz = (ms) => { const w = wienTeile(ms); const [yy, mm, dd] = w.datum.split('-').map(Number); const [hh, mn] = w.zeit.split(':').map(Number); return Date.UTC(yy, mm - 1, dd, hh, mn) - ms; };
+  let v = versatz(wand - 3600e3);
+  v = versatz(wand - v);
+  return wand - v;
+}
+export const wienIso = (datum, hhmm) => new Date(wienMs(datum, hhmm)).toISOString();
+// ISO-Zeitstempel → Wert für <input type="datetime-local"> in Wiener Ortszeit
+export const wienLokal = (iso) => { const w = wienTeile(new Date(iso).getTime()); return `${w.datum}T${w.zeit}`; };
+export const wienHeute = () => wienTeile(Date.now()).datum;
+
+// Arbeitsstunden einer Berichtszeile. Mit Datum wird in echter Zeit gerechnet (Zeitumstellung: Nachtschicht 7 bzw. 9 Std.),
+// ohne Datum nach der Wanduhr. Pause wird nur abgezogen, soweit sie nicht schon in der Lücke zwischen den Blöcken liegt.
+export function stundenAus(p, datum) {
   const { b1, b2 } = bloecke(p);
+  const dauer = (von, bis) => {
+    if (!datum) return bis - von;
+    const punkt = (min) => { const [y, m, d] = datum.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, d + Math.floor(min / 1440))); const tag = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`; const r = min % 1440; return wienMs(tag, `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`); };
+    return Math.round((punkt(bis) - punkt(von)) / 60000);
+  };
   let m = 0;
-  if (b1) m += b1[1] - b1[0];
-  if (b2) m += b2[1] - b2[0];
-  const luecke = b1 && b2 ? Math.max(0, b2[0] - b1[1]) : 0;
+  if (b1) m += dauer(b1[0], b1[1]);
+  if (b2) m += dauer(b2[0], b2[1]);
+  const luecke = b1 && b2 ? Math.max(0, dauer(b1[1], b2[0])) : 0;
   m -= Math.max(0, (Number(p.pauseMin) || 0) - luecke);
   return Math.round((Math.max(0, m) / 60) * 100) / 100;
 }
@@ -65,6 +92,6 @@ export function personalFehler(p) {
   const { b1, b2 } = bloecke(p);
   if (b1 && b2 && b2[0] < b1[1]) return 'Die beiden Zeitblöcke überschneiden sich.';
   if (b1 && (b2 ? b2[1] : b1[1]) - b1[0] > 1440) return 'Die Zeiten ergeben mehr als 24 Stunden.';
-  if (Number(p.stunden) > 24) return 'Mehr als 24 Arbeitsstunden sind nicht möglich.';
+  if (Number(p.segStunden) > 0 && Number(p.segStunden) > Number(p.stunden || 0)) return 'SEG-Stunden dürfen die Arbeitsstunden nicht übersteigen.';
   return '';
 }

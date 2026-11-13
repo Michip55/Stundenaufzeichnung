@@ -1,18 +1,20 @@
 // Zeitkorrektur durch Büro/GF (Prüfbericht B-05): Buchungen ansehen, nachtragen, ändern, löschen – immer mit Grund.
 import { get, post, put, api } from '../api.js';
 import { ic, esc, fmt, laden, leer, banner, dialog, toast, speicher, $ } from '../ui.js';
+import { wienIso, wienLokal, wienHeute } from '../zahl.js';
 
 const TYP = { kommen: 'Kommen', gehen: 'Gehen', pause_start: 'Pause Beginn', pause_ende: 'Pause Ende', wechsel: 'Baustellenwechsel' };
 const QUELLE = { app: 'App', offline: 'offline nachgebucht', kolonne: 'durch Polier', buero: 'Korrektur Büro' };
-const p2 = (n) => String(n).padStart(2, '0');
-const lokal = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+// C-15: Alle Zeiten sind österreichische Ortszeit – unabhängig davon, welche Zeitzone am Gerät eingestellt ist
+const lokal = (iso) => wienLokal(iso);
+const alsIso = (wert) => wienIso(wert.slice(0, 10), wert.slice(11, 16));
 
 export default async function korrektur(el, ctx) {
   const [leute, baustellen] = await Promise.all([get('/mitarbeiter'), get('/baustellen')]);
   const aktive = leute.filter((m) => m.aktiv !== false);
   let benutzerId = Number(ctx.query.get('benutzerId')) || speicher.lies('bt_korr_ma') || (aktive[0] && aktive[0].id);
   if (!leute.some((m) => m.id === benutzerId)) benutzerId = aktive[0] && aktive[0].id;
-  let bis = ctx.query.get('bis') || fmt.iso();
+  let bis = ctx.query.get('bis') || wienHeute();
   let von = ctx.query.get('von') || fmt.addTage(bis, -13);
   let liste = [];
   const bsName = (id) => { const b = baustellen.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
@@ -39,10 +41,10 @@ export default async function korrektur(el, ctx) {
     liste.sort((a, b) => (a.zeit < b.zeit ? 1 : -1));
     let tag = '';
     box.innerHTML = liste.length ? `<ul class="plain rows korr">${liste.map((x) => {
-      const d = x.datum || fmt.iso(new Date(x.zeit));
+      const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}</b><small>${esc(bsName(x.baustelleId))}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}</b><small>${esc(bsName(x.baustelleId))}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
         <button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || fmt.uhr(x.zeit))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }
@@ -52,9 +54,9 @@ export default async function korrektur(el, ctx) {
     const d = dialog({
       titel,
       inhalt: `<form id="kf" class="stack-s">
-        ${loeschen ? `<p>${esc(TYP[x.typ] || x.typ)} am ${esc(fmt.zeitpunkt(x.zeit))} Uhr wird gelöscht.</p>` : `
+        ${loeschen ? `<p>${esc(TYP[x.typ] || x.typ)} am ${esc(fmt.datum(lokal(x.zeit).slice(0, 10)))} um ${esc(lokal(x.zeit).slice(11))} Uhr wird gelöscht.</p>` : `
         ${neu ? `<label class="field"><span class="field-label">Art</span><select class="input lg" name="typ">${Object.entries(TYP).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></label>` : ''}
-        <label class="field"><span class="field-label">Zeitpunkt</span><input class="input lg" type="datetime-local" name="zeit" required value="${lokal(x ? x.zeit : new Date().toISOString())}" max="${lokal(new Date().toISOString())}"></label>
+        <label class="field"><span class="field-label">Zeitpunkt (österreichische Ortszeit)</span><input class="input lg" type="datetime-local" name="zeit" required value="${lokal(x ? x.zeit : new Date().toISOString())}" max="${lokal(new Date().toISOString())}"></label>
         <label class="field"><span class="field-label">Baustelle</span><select class="input lg" name="baustelleId"><option value="">– unverändert / keine –</option>${baustellen.map((b) => `<option value="${b.id}" ${x && x.baustelleId === b.id ? 'selected' : ''}>${esc(bsName(b.id))}</option>`).join('')}</select></label>`}
         <label class="field"><span class="field-label">Grund (Pflicht)</span><input class="input lg" name="grund" required minlength="3" maxlength="300" placeholder="z. B. Ausstempeln vergessen, laut Polier 16:00"></label>
         <p class="form-err" role="alert" hidden></p></form>`,
@@ -67,7 +69,7 @@ export default async function korrektur(el, ctx) {
       try {
         if (loeschen) await api('DELETE', `/zeit/buchungen/${x.id}`, { grund });
         else {
-          const body = { zeit: new Date(f.get('zeit')).toISOString(), grund };
+          const body = { zeit: alsIso(String(f.get('zeit'))), grund };
           if (f.get('baustelleId')) body.baustelleId = Number(f.get('baustelleId'));
           if (neu) await post('/zeit/buchungen', { ...body, benutzerId, typ: f.get('typ') }); else await put(`/zeit/buchungen/${x.id}`, body);
         }

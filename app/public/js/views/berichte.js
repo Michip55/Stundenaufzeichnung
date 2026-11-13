@@ -142,6 +142,8 @@ export async function bericht(el, ctx) {
   // M-02: Sobald eine Unterschrift vorliegt, ist der Inhalt gesperrt (der Server lehnt Änderungen mit 409 ab)
   const editierbar = () => signierbar() && !signiert();
   const ungueltig = () => b.personal.some((p) => personalFehler(p));
+  // C-06: Die Unterschrift des Bauherrn zieht nur Büro/GF zurück (der Server prüft das ebenfalls)
+  const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ['buero', 'gf'].includes(ctx.ich.benutzer.rolle) : signierbar());
   const dis = () => (editierbar() ? '' : 'disabled');
   const gStd = (gid) => (b.geraete.find((g) => g.geraetId === gid) || {}).stunden || 0;
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
@@ -174,7 +176,7 @@ export async function bericht(el, ctx) {
   const wert = (feld) => {
     if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden }));
     if (feld === 'material') return b.material.filter((m) => m.menge > 0).map((m) => ({ materialId: m.materialId, menge: m.menge }));
-    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, stunden: Number(p.stunden) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0 }));
+    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0 })); // Stunden berechnet der Server
     if (feld === 'regie') return b.regie.filter((r) => (r.text || '').trim() || r.stunden > 0).map((r) => ({ text: r.text || '', stunden: Number(r.stunden) || 0 }));
     return b[feld];
   };
@@ -189,6 +191,12 @@ export async function bericht(el, ctx) {
       const body = {}; felder.forEach((f) => { body[f] = wert(f); });
       const neu = await put(`/berichte/${id}`, body);
       if (neu && 'kostenTag' in neu) { b.kostenTag = neu.kostenTag; zeichneKosten(); }
+      // Die vom Server berechneten Stunden sind maßgeblich – Anzeige danach richten
+      if (neu && Array.isArray(neu.personal) && felder.includes('personal') && !offen.has('personal')) {
+        neu.personal.forEach((np) => { const p = b.personal.find((x) => x.benutzerId === np.benutzerId); if (p) { p.stunden = np.stunden; p.hinweis = np.hinweis; } });
+        $$('#personal .bp-row', el).forEach((pr) => { const p = b.personal[Number(pr.dataset.i)]; if (p) $('[data-p-std]', pr).textContent = fmt.zahl(p.stunden || 0); });
+        const g = $('#gesamt', el); if (g) g.textContent = fmt.zahl(gesamt());
+      }
       fehlerText = ''; gespeichertUm = Date.now();
     } catch (e) {
       felder.forEach((f) => offen.add(f)); // nichts gilt als gespeichert, was der Server nicht bestätigt hat
@@ -216,13 +224,14 @@ export async function bericht(el, ctx) {
     const frei = mitarbeiter.filter((m) => m.aktiv !== false && m.aktiv !== 0 && !b.personal.some((p) => p.benutzerId === m.id));
     return `
       <div class="bp" role="table" aria-label="Personal">
-        <div class="bp-head" role="row"><span role="columnheader">Name</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">Pause</span><span role="columnheader">Arbstd.</span><span role="columnheader">Code</span><span></span></div>
+        <div class="bp-head" role="row"><span role="columnheader">Name</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">Pause</span><span role="columnheader">Arbstd.</span><span role="columnheader">SEG</span><span role="columnheader">Code</span><span></span></div>
         ${b.personal.length ? b.personal.map((p, i) => `
         <div class="bp-row" role="row" data-i="${i}">
           <span class="bp-name" role="cell"><b>${esc(p.name || (mitarbeiter.find((m) => m.id === p.benutzerId) || {}).name || 'Mitarbeiter')}</b>${p.hinweis ? `<small class="bp-hinweis">${ic('alert', 'xs')} ${esc(p.hinweis)}</small>` : ''}</span>
           ${['von1', 'bis1', 'von2', 'bis2'].map((k, n) => `<label role="cell"><span class="bp-l">${n % 2 ? 'bis' : 'von'}${n > 1 ? ' (2)' : ''}</span><input type="time" class="input s" data-p="${k}" value="${esc(p[k] || '')}" aria-label="${esc(p.name || '')} ${n % 2 ? 'bis' : 'von'} ${n > 1 ? 'Nachmittag' : 'Vormittag'}" ${dis()}></label>`).join('')}
           <label role="cell"><span class="bp-l">Pause (min)</span><input type="text" inputmode="numeric" class="input s num" data-p="pauseMin" value="${p.pauseMin || ''}" placeholder="0" aria-label="${esc(p.name || '')} Pause in Minuten" ${dis()}></label>
-          <label role="cell"><span class="bp-l">Arbeitsstd.</span><input type="text" inputmode="decimal" class="input s num strong" data-p="stunden" value="${p.stunden ? fmt.zahl(p.stunden) : ''}" placeholder="0" aria-label="${esc(p.name || '')} Arbeitsstunden" ${dis()}></label>
+          <span role="cell" class="bp-std"><span class="bp-l">Arbeitsstd.</span><output data-p-std aria-label="${esc(p.name || '')} Arbeitsstunden (berechnet aus den Zeiten)" title="Wird aus den Zeiten und der Pause berechnet">${fmt.zahl(p.stunden || 0)}</output></span>
+          <label role="cell"><span class="bp-l">SEG-Std.</span><input type="text" inputmode="decimal" class="input s num" data-p="segStunden" value="${p.segStunden ? fmt.zahl(p.segStunden) : ''}" placeholder="0" aria-label="${esc(p.name || '')} SEG-Stunden (Schmutz, Erschwernis, Gefahr)" ${dis()}></label>
           <label role="cell"><span class="bp-l">Code</span><select class="input s" data-p="code" aria-label="${esc(p.name || '')} Abwesenheits-Code" ${dis()}>${CODES.map(([k, t]) => `<option value="${k}" ${(p.code || '') === k ? 'selected' : ''}>${k ? esc(k) : '–'}</option>`).join('')}</select></label>
           <span role="cell" class="bp-del">${editierbar() ? `<button type="button" class="icon-btn sm" data-p-weg aria-label="${esc(p.name || 'Person')} entfernen">${ic('trash')}</button>` : ''}</span>
         </div>`).join('') : `<div class="state empty small">${ic('users')}<p>Für diesen Tag wurde auf dieser Baustelle niemand gestempelt. Personen können händisch ergänzt werden.</p></div>`}
@@ -253,7 +262,7 @@ export async function bericht(el, ctx) {
   }
   function sigHtml(rolle, titel, sub) {
     const u = b.unterschriften[rolle];
-    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div>${signierbar() ? `<button type="button" class="btn ghost sm" data-sig-weg="${rolle}">Unterschrift zurückziehen</button>` : ''}</div>`;
+    if (u) return `<div class="sig-box signed" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><span class="chip st-green">${ic('check')}Unterschrieben</span></div><div class="sig-done">${u.bildPng && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(u.bildPng) ? `<img src="${u.bildPng}" alt="Unterschrift ${esc(u.name || '')}">` : ic('sign')}<div><b>${esc(u.name || '')}</b><small>${esc(fmt.zeitpunkt(u.zeit))} Uhr</small></div></div>${darfZurueckziehen(rolle) ? `<button type="button" class="btn ghost sm" data-sig-weg="${rolle}">Unterschrift zurückziehen</button>` : rolle === 'bh' && signierbar() ? '<p class="muted sm" data-bh-fest>Die Unterschrift des Bauherrn kann nur das Büro oder die Geschäftsführung zurückziehen.</p>' : ''}</div>`;
     if (!signierbar()) return `<div class="sig-box" data-sig="${rolle}"><div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div></div><p class="muted sm">Keine Unterschrift vorhanden.</p></div>`;
     return `<div class="sig-box" data-sig="${rolle}">
       <div class="sig-h"><div><b>${titel}</b><small>${sub}</small></div><button type="button" class="btn ghost sm" data-sig-clear>Löschen</button></div>
@@ -444,10 +453,11 @@ export async function bericht(el, ctx) {
     const pr = t.closest('.bp-row');
     if (pr && t.dataset.p) {
       const p = b.personal[Number(pr.dataset.i)], k = t.dataset.p;
-      if (k === 'stunden') { p.stunden = zahl(t.value, p.stunden); t.value = p.stunden ? fmt.zahl(p.stunden) : ''; }
+      if (k === 'segStunden') { p.segStunden = zahl(t.value, p.segStunden); t.value = p.segStunden ? fmt.zahl(p.segStunden) : ''; }
       else if (k === 'pauseMin') { p.pauseMin = Math.round(zahl(t.value, p.pauseMin)); t.value = p.pauseMin || ''; }
       else p[k] = t.value;
-      if (k !== 'stunden' && k !== 'code') { p.stunden = stundenAus(p); $('[data-p="stunden"]', pr).value = p.stunden ? fmt.zahl(p.stunden) : ''; }
+      // C-02: Arbeitsstunden sind nie frei eingebbar – sie folgen aus Zeiten und Pause (gleiche Regel wie am Server)
+      if (k !== 'code' && k !== 'segStunden') { p.stunden = stundenAus(p, b.datum); $('[data-p-std]', pr).textContent = fmt.zahl(p.stunden); }
       $('#gesamt', el).textContent = fmt.zahl(gesamt());
       zeilenStatus(pr, p);
       geaendert('personal'); // ungültige Zeilen werden nicht gesendet, bleiben aber sichtbar „nicht gespeichert“

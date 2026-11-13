@@ -40,7 +40,7 @@ export default async function abwesenheiten(el, ctx) {
       ${darfEntscheiden ? `
       <section class="card" id="abw-offen" aria-labelledby="h-offen">
         <div class="card-h pad-h"><h3 id="h-offen">${ic('calendar')}Anträge zur Genehmigung <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3></div>
-        ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}
+        ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: a.benutzerId === ich.id ? '<span class="muted sm" data-eigener>Eigener Antrag – entscheidet eine andere Person</span>' : `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}
         <p class="card-note">Nur genehmigte Abwesenheiten zählen in Monatsauswertung, Lohn- und BUAK-Export.</p>
       </section>` : ''}
 
@@ -53,7 +53,7 @@ export default async function abwesenheiten(el, ctx) {
       <section class="card" id="abw-andere" aria-labelledby="h-andere">
         <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3><button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button></div>
         ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: darfEntscheiden ? `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` : '' })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
-        ${istPolier ? '<p class="card-note">Als Polier können Sie Schlechtwetter (SW) für Ihre Partie eintragen – höchstens 3 Tage zurück. Krankenstand trägt das Büro ein.</p>' : ''}
+        ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankenstand trägt das Büro ein.</p>' : ''}
       </section>` : ''}
     </div>`;
   }
@@ -71,7 +71,7 @@ export default async function abwesenheiten(el, ctx) {
     });
     $('#abw-f', d.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target);
-      try { await post('/abwesenheiten', { benutzerId: ich.id, datum: f.get('datum'), code: f.get('code') }); d.zu(); toast('Antrag gestellt – wartet auf Genehmigung.'); neu(); }
+      try { const r = await post('/abwesenheiten', { benutzerId: ich.id, datum: f.get('datum'), code: f.get('code') }); d.zu(); toast(r && r.status === 'genehmigt' ? 'Abwesenheit eingetragen und genehmigt.' : 'Antrag gestellt – wartet auf Genehmigung durch eine andere Person.'); neu(); }
       catch (x) { const m = $('.form-err', d.el); m.hidden = false; m.textContent = x.message; }
     });
   }
@@ -96,12 +96,13 @@ export default async function abwesenheiten(el, ctx) {
       const wer = f.getAll('wer').map(Number);
       if (!wer.length) { m.hidden = false; m.textContent = 'Bitte mindestens eine Person auswählen.'; return; }
       const fehler = [];
+      let wartend = 0;
       for (const id of wer) {
-        try { await post('/abwesenheiten', { benutzerId: id, datum: f.get('datum'), code: f.get('code') }); }
+        try { const r = await post('/abwesenheiten', { benutzerId: id, datum: f.get('datum'), code: f.get('code') }); if (r && r.status === 'beantragt') wartend++; }
         catch (x) { fehler.push(`${(leute.find((l) => l.id === id) || {}).name || id}: ${x.message}`); }
       }
       if (fehler.length) { m.hidden = false; m.textContent = fehler.join(' · '); if (fehler.length < wer.length) neu(); return; }
-      d.zu(); toast(wer.length === 1 ? 'Abwesenheit eingetragen.' : `${wer.length} Abwesenheiten eingetragen.`); neu();
+      d.zu(); toast(wartend ? `${wer.length === 1 ? 'Eingetragen' : wer.length + ' Einträge'} – wartet auf Bestätigung durch Bauleitung oder Büro.` : wer.length === 1 ? 'Abwesenheit eingetragen.' : `${wer.length} Abwesenheiten eingetragen.`); neu();
     });
   }
 

@@ -61,6 +61,20 @@ const fs = require('node:fs');
   fehler({ von1: '07:00', bis1: '12:00', von2: '11:00', bis2: '16:00' }, true);
   fehler({ von1: '22:00', bis1: '02:00', von2: '01:00', bis2: '06:00' }, true);
   fehler({}, false);
+  // C-10: Nachtschicht über die Zeitumstellung (mit Datum wird in echter Zeit gerechnet)
+  n++; assert.equal(z.stundenAus({ von1: '22:00', bis1: '06:00', pauseMin: 0 }, '2027-03-27'), 7, 'Sommerzeit-Beginn: 7 Std.');
+  n++; assert.equal(z.stundenAus({ von1: '22:00', bis1: '06:00', pauseMin: 0 }, '2026-10-24'), 9, 'Sommerzeit-Ende: 9 Std.');
+  n++; assert.equal(z.stundenAus({ von1: '22:00', bis1: '06:00', pauseMin: 0 }, '2026-11-12'), 8);
+  n++; assert.equal(z.stundenAus({ von1: '07:00', bis1: '12:00', von2: '12:30', bis2: '16:00', pauseMin: 30 }, '2026-11-12'), 8.5);
+  // C-15: Wiener Ortszeit unabhängig von der Zeitzone des Geräts
+  n++; assert.equal(z.wienIso('2026-11-12', '07:00'), '2026-11-12T06:00:00.000Z');
+  n++; assert.equal(z.wienIso('2026-07-01', '07:00'), '2026-07-01T05:00:00.000Z');
+  n++; assert.equal(z.wienLokal('2026-11-12T06:00:00.000Z'), '2026-11-12T07:00');
+  n++; assert.equal(z.wienLokal('2026-07-01T22:30:00.000Z'), '2026-07-02T00:30');
+  n++; assert.equal(z.wienIso('2026-10-25', '03:30'), '2026-10-25T02:30:00.000Z');
+  // M-01: SEG-Stunden höchstens Arbeitsstunden
+  fehler({ von1: '07:00', bis1: '16:00', stunden: 8.5, segStunden: 9 }, true);
+  fehler({ von1: '07:00', bis1: '16:00', stunden: 8.5, segStunden: 4 }, false);
   n++; assert.equal(z.bloecke({ von1: '22:00', bis1: '06:00' }).naechsterTag, true);
   n++; assert.equal(z.bloecke({ von1: '07:00', bis1: '16:00' }).naechsterTag, false);
 
