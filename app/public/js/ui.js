@@ -51,6 +51,9 @@ const IC = {
   away: '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9.5 13.5l5 5M14.5 13.5l-5 5"/>',
   wrench: '<path d="M14.5 6.5a4.5 4.5 0 0 0-6 5.600L3.500 17a2 2 0 0 0 3 3l5-5a4.5 4.5 0 0 0 5.600-6L14 12l-2.500-2.500z"/>',
   gauge: '<path d="M4.5 17.5a8.500 8.500 0 1 1 15 0"/><path d="M12 13.5l4-5"/><circle cx="12" cy="14" r="1.500"/><path d="M7 20.5h10"/>',
+  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M5.5 15.5h-1a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+  board: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 4.5v15M15 4.5v15"/><path d="M10.5 12.5h3M4.800 15.500h3" stroke-width="2.6"/>',
   plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.500a5.5 5.5 0 0 1-11 0zM12 17v4"/>',
 };
 export const ic = (n, cls = '') =>

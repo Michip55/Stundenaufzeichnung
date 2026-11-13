@@ -17,6 +17,7 @@ import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import hilfe from './views/hilfe.js';
 import push from './views/push.js';
+import plan from './views/plan.js';
 import zweifaktor, { zweiFaktorErzwungen } from './views/zweifaktor.js';
 import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
@@ -60,6 +61,8 @@ const NAV = [
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Preise & Stammdaten', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
+  // Plantafel: Büro/GF/Bauleiter planen, Polier sieht seine Baustellen, alle sehen „Mein Einsatz“. Am Handy unter „Mehr“ (der Einsatz steht auf der Stempeluhr).
+  { id: 'plan', pfad: '/plan', text: 'Plantafel', kurz: 'Plan', icon: 'board', darf: () => !!ich, nurMehr: true },
   // Fuhrpark & Geräte: für alle (Geräteliste, Schaden/Mangel melden, Zählerstand); Pflege nur mit Recht „fuhrpark“. Am Handy unter „Mehr“.
   { id: 'fuhrpark', pfad: '/fuhrpark', text: 'Fuhrpark & Geräte', kurz: 'Geräte', icon: 'truck', darf: () => !!ich, nurMehr: true },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
@@ -97,6 +100,7 @@ const ROUTEN = [
   { muster: /^\/fuhrpark\/anlage\/(\d+)$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: anlage },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
   { muster: /^\/zwei-faktor$/, nav: 'mehr', titel: 'Zwei-Faktor-Anmeldung', view: zweifaktor },
+  { muster: /^\/plan$/, nav: 'plan', titel: 'Plantafel', view: plan },
   { muster: /^\/push$/, nav: 'mehr', titel: 'Push-Benachrichtigungen', view: push },
   { muster: /^\/hilfe$/, nav: 'mehr', titel: 'Hilfe & erste Schritte', view: hilfe },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
@@ -217,12 +221,13 @@ function zeigeGlocke() {
   $('#glocke').classList.toggle('has', !!n);
   $('#glocke').setAttribute('aria-label', n ? `Benachrichtigungen, ${n} ungelesen` : 'Benachrichtigungen');
 }
-const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar', sicherheit: 'lock', fuhrpark: 'truck' };
+const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar', sicherheit: 'lock', fuhrpark: 'truck', plan: 'board', email: 'mail' };
 function meldungZiel(m) {
   if (m.typ === 'budget' && m.baustelleId && kann('kalk_sehen')) return `#/kalkulation/${m.baustelleId}`;
   if (m.typ === 'bericht' && (kann('bericht_erstellen') || kann('bericht_freigeben'))) return m.berichtId ? `#/bericht/${m.berichtId}` : '#/berichte';
   if (m.typ === 'azg' && kann('zeit_eigen')) return '#/woche';
   if (m.typ === 'abwesenheit') return '#/abwesenheiten';
+  if (m.typ === 'plan') return kann('zeit_eigen') ? '#/stempeln' : '#/plan';
   if (m.typ === 'fuhrpark') return m.schadenId ? `#/fuhrpark?reiter=schaeden&schaden=${m.schadenId}` : /Schaden/.test(m.titel || '') ? '#/fuhrpark?reiter=schaeden' : m.anlageId ? `#/fuhrpark/anlage/${m.anlageId}` : '#/fuhrpark';
   if (m.typ === 'sicherheit' && (kann('benutzer') || darfBenutzerPflegen())) return '#/benutzer';
   return '';
