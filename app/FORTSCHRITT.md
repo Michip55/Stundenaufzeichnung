@@ -3,6 +3,7 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- Vierte Prüfung (`PRUEFBERICHT_4.md`): **freigabefähig**, keine kritischen/hohen Befunde; alle Befunde aus Prüfbericht 3 bestätigt behoben. Tests: Server 277/277, E2E 463/463 je Größe grün
 - Oberfläche Positions-Nachkalkulation fertig; E2E uhrzeitunabhängig (feste Uhr), 463/463 je Größe laut Agent; Server 277/277 grün
 - Servicebuch: Recherche und Konzept (Kapitel 5 in `docs/Konzept.md`) und Umsetzungsvertrag `app/SERVICEBUCH_ENTWURF.md`
 - Katalog an Preislisten 2026 angepasst (119 Positionen; Kundenfreigabe 10d). Server 277/277 grün
@@ -23,8 +24,8 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- **Abschlussprüfung vor Freigabe** (neuer Opus-Agent) auf dem aktuellen Stand; parallel kompletter E2E-Lauf
-- **Servicebuch** (Fuhrpark & Geräte): Umsetzung nach `app/SERVICEBUCH_ENTWURF.md` durch Opus (Server) und Fable (Oberfläche) in einem getrennten lokalen Arbeitsstand (Branch `servicebuch`), damit die Freigabe des fertigen Umfangs nicht blockiert wird. Wird nach eigener Prüfung übernommen.
+- Behebung der mittleren/niedrigen Befunde aus `PRUEFBERICHT_4.md` (E-01 Landschaftsabgabe geht beim Bestätigen verloren, E-02 Excel-Import-Absturz, E-03 Migration Bestands-DB, E-04 Re-Import der Vorlage, E-05…E-09) – danach kurze Nachprüfung und Pull Request
+- **Servicebuch + Schadensmeldung mit Fotos**: Umsetzung in getrenntem Arbeitsstand (Branch `servicebuch`, lokal)
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
