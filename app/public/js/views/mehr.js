@@ -2,6 +2,7 @@
 import { get } from '../api.js';
 import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
+import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
 
 const INTEG_ICON = { diktat: 'mic', scan_lieferschein: 'scan', scan_papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud' };
@@ -34,6 +35,8 @@ export default async function mehr(el, ctx) {
       <div class="switch-row"><span><b>Offline-Buchungen</b><small id="sync-info">${s.ausstehend ? `${s.ausstehend} Stempelung${s.ausstehend > 1 ? 'en' : ''} warten auf Verbindung.` : 'Alles gesendet.'}</small></span>
         <button type="button" class="btn ghost sm" id="sync-jetzt" ${s.ausstehend ? '' : 'disabled'}>${ic('sync')}Jetzt senden</button></div>
     </section>
+    <nav class="card menu-list" aria-label="Hilfe"><a href="#/hilfe" id="zu-hilfe">${ic('info')}<span>Hilfe &amp; erste Schritte</span>${ic('right')}</a></nav>
+    ${installKarte()}
     ${integKarte(integ)}
     <button type="button" class="btn ghost lg block" id="abmelden">${ic('logout')}Abmelden</button>
     <p class="fineprint">BauTag${gesund && gesund.version ? ' · Version ' + esc(gesund.version) : ''}</p>
@@ -44,6 +47,7 @@ export default async function mehr(el, ctx) {
   });
   $('#mehr-schaden', el).addEventListener('click', () => schadenMelden(ctx));
   $('#sync-jetzt', el).addEventListener('click', async () => { await nachsenden(); if (ctx.aktuell()) ctx.neuLaden(); });
+  bindeInstall(el, () => { if (ctx.aktuell()) ctx.neuLaden(); });
   $('#abmelden', el).addEventListener('click', async () => {
     const offen = syncStatus().ausstehend;
     if (offen && !(await bestaetigen('Abmelden?', `${offen} Stempelung${offen > 1 ? 'en sind' : ' ist'} noch nicht gesendet. Sie bleiben am Gerät gespeichert und werden nach der nächsten Anmeldung gesendet.`, 'Abmelden'))) return;

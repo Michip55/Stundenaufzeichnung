@@ -15,6 +15,8 @@ import { kalkUebersicht, kalkDetail } from './views/kalkulation.js';
 import monat from './views/monat.js';
 import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
+import hilfe from './views/hilfe.js';
+import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
 import korrektur from './views/korrektur.js';
@@ -92,6 +94,7 @@ const ROUTEN = [
   { muster: /^\/fuhrpark$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: fuhrpark },
   { muster: /^\/fuhrpark\/anlage\/(\d+)$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: anlage },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
+  { muster: /^\/hilfe$/, nav: 'mehr', titel: 'Hilfe & erste Schritte', view: hilfe },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { muster: /^\/korrektur$/, nav: 'monat', titel: 'Zeiten korrigieren', view: korrektur, darf: eines('stammdaten') },
   { muster: /^\/pin$/, nav: 'mehr', titel: 'PIN ändern', view: pin },
@@ -125,16 +128,28 @@ function rahmen() {
           <div class="top-clock" aria-hidden="true"><b id="uhr"></b><small id="uhr-datum"></small></div>
         </div>
       </header>
+      <div id="install-hinweis" hidden></div>
       <main class="view" id="view" tabindex="-1"></main>
       <nav class="tabbar" id="nav-tab" aria-label="Hauptnavigation">${tabs.map((n) => navLink(n)).join('')}</nav>
     </div>
   </div>`;
   $('#glocke').addEventListener('click', glockeAuf);
+  zeigeInstallHinweis();
   zeigeSync();
   zeigeGlocke();
   zeigeBadge();
   tick();
 }
+// Dezenter Hinweis am Handy, solange BauTag noch nicht am Startbildschirm liegt (einmal wegklickbar)
+function zeigeInstallHinweis() {
+  const el = $('#install-hinweis'); if (!el) return;
+  const s = installStatus();
+  const zeigen = !s.installiert && (s.kannFragen || s.ios) && !speicher.lies('bt_install_weg', false);
+  el.hidden = !zeigen;
+  el.innerHTML = zeigen ? `${ic('download')}<a href="#/hilfe">BauTag am Startbildschirm ablegen – so geht’s</a><button type="button" class="icon-btn sm" aria-label="Hinweis schließen">${ic('x')}</button>` : '';
+  const zu = $('button', el); if (zu) zu.addEventListener('click', () => { speicher.setz('bt_install_weg', true); zeigeInstallHinweis(); });
+}
+window.addEventListener('bt:install', zeigeInstallHinweis);
 function markiereNav(id) {
   const tabIds = $$('#nav-tab .nav-item').map((a) => a.dataset.nav);
   $$('.nav-item, .nav-user').forEach((a) => {
