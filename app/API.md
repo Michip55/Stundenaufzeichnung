@@ -358,3 +358,50 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
 - EP der Vorlage sind **Verrechnungspreise**. Nachkalkulation = Wert der Baustelle zu Firmensätzen, verglichen mit der Auftragssumme (Ergebnis = Auftragssumme − Nachkalkulationssumme).
 - **PA-Positionen** (Lieferanten, Asphalt; EP 1,15) und **Maut (VE; EP 1,05)**: Menge = **Rechnungsbetrag netto in €**, EP = Aufschlagsfaktor. Oberfläche: Eingabefeld „Rechnungsbetrag (€)“, Anzeige „+15 %“ bzw. „+5 %“.
 - **Landschaftsabgabe**: **0,25 € je Tonne Naturmaterial**. Menge wird **automatisch** berechnet = Σ Tonnen aller Positionen mit Kennzeichen `naturmaterial:true` (Einheit `t`), zusätzlich manuelle Einträge möglich. Kennzeichen je Katalog- und Projektposition änderbar. Startwert `naturmaterial:true` für: Sande (RK/Bruchsand), Kies, Rollschotter, Splitt, Wandschotter FSM, Grädermaterial; `false` für Recycling (RB, RA, RG, RMH), Erde, Bodenaushub, Bruch/Schutt, Holz/Wurzelstöcke. In der Oberfläche als „bitte prüfen“ markiert.
+
+### 10b. Umsetzung Backend (Ergänzungen zu 10/10a)
+- **Katalogquelle:** `server/daten/katalog_vorlage.json` wird mit `node server/katalog-excel.js` aus der Excel-Vorlage erzeugt (103 Positionen; EP und Einheiten exakt wie in der Datei, auch EP-Formeln wie „=14.5“). Ein Unit-Test vergleicht JSON und Excel. Bezeichnungen ohne führende/abschließende Leerzeichen.
+- **Vorlagen-Besonderheit:** In der Vorlage rechnet „Summe Abgaben“ nur `SUM(O113:O113)` (ohne Maut). BauTag zählt **beide** Abgaben-Positionen (Landschaftsabgabe und Maut) in die Gruppe Abgaben – bitte mit dem Kunden bestätigen.
+- **Quelle:** `ref` darf eine Liste sein (`{art:"geraet", ref:["verlege","schneid",…]}`); optional `faktor` (Umrechnung Bericht-Einheit → Positions-Einheit, z. B. lfm → Stk). Ohne `faktor` werden nur Mengen in passender Einheit übernommen (t = to, m3 = m³, m2 = m²), sonst Hinweis. `{art:"naturmaterial"}` = Landschaftsabgabe (10a). Mehrfach zugeordnete Bericht-Einträge erzeugen einen Hinweis.
+- **Ausgeblendete Positionen** (`aktiv:false`) zählen nicht in Gruppen-/Gesamtsumme; haben sie Mengen, erscheint ein Hinweis.
+- **Positionen je Projekt** zusätzlich: `katalogId`, `gruppe`, `sortierung`, `zuordnungPruefen`, `naturmaterial`, `naturmaterialPruefen`, `eintraege[].erstelltVonName`; Antwort zusätzlich `stand` (Katalogstand) und `hinweise`. Ohne `preise_sehen` (aber mit `kalk_sehen`): keine `ep`, `summe`, Gruppensummen, `gesamtsumme`, `ergebnis`, `auftragGesamt`.
+- **`GET /kalkulation/:id`:** `positionen` enthält weiter die internen Listen (`lohn`, `geraete`, `material`, `fremd`, `leistungen`, `regie`) **und** neu `gesamtsumme`, `ergebnis`, `ergebnisProzent`, `gruppen`. `budgetVerbrauchProzent`/`status` beziehen sich auf die Nachkalkulationssumme; die interne Rechnung steht unter `interneKosten:{kosten, budgetVerbrauchProzent, db, dbProzent, status}`. Fremdleistungen zählen nur noch intern.
+- **Katalog-PUT** nimmt optional `version` (409 bei veralteter). **Import** vergleicht über Gruppe + Bezeichnung + Einheit; fehlende Positionen werden nicht gelöscht; Übernahme setzt den Katalogstand auf das heutige Datum.
+- **Export:** Spalte C = Menge aus Berichten, D–L = manuelle Einträge (ab dem 10. Eintrag in L zusammengefasst), M `=SUM(C:L)`, N EP, O `=ROUND(M*N;2)`, Summenzeilen `=SUM(…)`, Zusammenstellung mit `=WENN(Gesamt=0;0;…)` statt #DIV/0!. Zeile 1 Spalte A: „Nachkalkulation KST Name“. Die Datei rechnet beim Öffnen neu (in LibreOffice geprüft).
+- **Protokoll-Arten** `katalog` und `nachkalkulation` (nur mit `preise_sehen` lesbar).
+
+**Startzuordnung Bautagesbericht → Vorlage (alle „Zuordnung prüfen“):**
+
+| Bautagesbericht | Position der Vorlage |
+|---|---|
+| Personal Polier, Vorarbeiter, Facharbeiter, Hilfsarbeiter, Lehrling (Std.) | Facharbeiter (Std.) |
+| Personal LKW-Fahrer, Maschinist | – (in den Transport-/Gerätesätzen enthalten) |
+| LKW 2-Achser / 3-Achser / 4-Achser | LKW 2A / LKW 3A / LKW 4A |
+| LKW mit Kran 3-A | 3A-Kran |
+| LKW mit Kran 4-A | LKW 4A Mulde und Kran |
+| LKW Zug oder Sattel | LKW Sattel |
+| LKW mit Tieflader | LKW Tieflader |
+| Bagger 1,5 to. | Bagger 1,8 to. |
+| Bagger 2,7 to. | Komatsu PC27 3 to |
+| Bagger 9 to. | Mobilbagger 9-11 to |
+| Bagger 23 to. | Kettenbagger 23 to |
+| Bobcat | Minilader Bobcat 3,3 to |
+| Radlader | Radlader Case 2,5 m3 |
+| Hamm Walz 2 to. | Walze Hamm 3,0 to |
+| Bomag BW 177 | Walze Bomag 7,0 to |
+| Grabenwalze | Grabenwalze |
+| Dumper | Dumper |
+| Verlegemaschine, Schneidgerät, Kompressor, Handwalze, Rüttelplatte | Kleingeräte |
+| Gräder | – (keine Position in der Vorlage) |
+| Frostschutz (to) | Wandschotter FSM 0/63 (t) |
+| Grädermaterial (to) | Grädermaterial KK 0/32 (t) |
+| Splitt (to) | Splitt KK 2/4 oder KK 4/8 (t) |
+| Aushub (to) | Bodenaushub, Kleinmenge bis 2000 to (t) |
+| Betonbruch (to) | Betonbruch bis 80cm (t) |
+| Asphaltbruch (to) | Asphaltbruch rein (t) |
+| Beton C20/25 erdfeucht (m³) | Beton C 16/20 (m3) |
+| Betonsteinpflaster 8 cm grau (m²) | Pflaster (m2) |
+| Kanalrohr PVC DN 150 (lfm) | PVC DN150 (lfm) |
+| Randleiste 8/25/100 (lfm) | Leistenstein 100/10/20 (Stk, Faktor 1) |
+| Asphalt AC 11 deck (to) | – (Vorlage: Lieferantenrechnung „Asphalt“ PA, Betrag manuell) |
+| Σ Tonnen Naturmaterial (10a) | Landschaftsabgabe (PA × 0,25) |
