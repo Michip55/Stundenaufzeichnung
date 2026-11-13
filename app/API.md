@@ -252,6 +252,7 @@ Bezug: `app/PRUEFBERICHT_2.md`. Gilt vor den Abschnitten 6 und 7.
 - `POST /benutzer`: `pnr` optional – fehlt sie, vergibt der Server die nächste freie Nummer (ab 1001). Doppelte `pnr` → 409. Unbekannte Felder im Body werden ignoriert.
 - **Vier-Augen-Prinzip:** Niemand entscheidet eigene Anträge (`PUT /abwesenheiten/:id` für sich selbst → 403) und niemand korrigiert die eigenen Stempelzeiten (`/zeit/buchungen`, `/zeit/schichten` für sich selbst → 403). Eigene Abwesenheiten sind auch für Büro/GF immer `beantragt`.
 - **`POST /benutzer/:id/entsperren`** → `{ok:true}`: hebt Konto- und IP-Sperren der Anmeldung auf.
+- `GET /benutzer` liefert je Benutzer zusätzlich `gesperrt: true|false` (Kontosperre nach C-07) und bei Sperre `gesperrtSeit` (ISO).
 
 ### Anmeldung (C-07, M-05)
 - Zusätzlich zur Sperre je (Benutzer, IP): **20 Fehlversuche innerhalb von 24 h (über alle IPs)** sperren das Konto, bis Büro/GF es entsperren (`POST /benutzer/:id/entsperren` oder PIN-Reset). Antwort bei gesperrtem Konto (auch mit richtiger PIN): **423** `{code:"KONTO_GESPERRT", fehler:"…"}`. Büro und GF erhalten eine Benachrichtigung (`typ:"sicherheit"`). Abwägung: Ein Angreifer kann damit ein Konto absichtlich sperren (DoS); das ist gewollt, weil sonst verteiltes PIN-Raten unbegrenzt wäre – das Büro entsperrt (Konzept 2.2: „Das Büro entsperrt“).

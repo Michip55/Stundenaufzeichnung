@@ -113,7 +113,10 @@ module.exports = function benutzerRouten(api, bt) {
   const verwalterPruefen = (req, res, next) => (R.darfBenutzerVerwalten(req.ctx) ? next() : next(keinZugriff()));
 
   api.get('/benutzer', verwalterPruefen, (req, res) => {
-    res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map(benutzerVoll));
+    const sperren = new Map(db.alle('SELECT benutzer_id, gesperrt_seit FROM login_konto WHERE gesperrt = 1').map((k) => [k.benutzer_id, k.gesperrt_seit]));
+    res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map((b) => ({
+      ...benutzerVoll(b), gesperrt: sperren.has(b.id), ...(sperren.has(b.id) ? { gesperrtSeit: sperren.get(b.id) } : {})
+    })));
   });
 
   api.post('/benutzer', verwalterPruefen, async (req, res) => {

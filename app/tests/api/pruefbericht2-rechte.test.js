@@ -72,8 +72,14 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal(r.status, 423);
     assert.equal(r.daten.code, 'KONTO_GESPERRT');
     assert.ok((await buero.get('/benachrichtigungen')).daten.some((n) => n.typ === 'sicherheit' && /Lukas Brandstätter/.test(n.titel)));
+    const liste = (await buero.get('/benutzer')).daten;
+    const lukas = liste.find((b) => b.id === 2);
+    assert.equal(lukas.gesperrt, true);
+    assert.match(lukas.gesperrtSeit, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(liste.filter((b) => b.id !== 2).every((b) => b.gesperrt === false && !('gesperrtSeit' in b)));
     assert.equal((await (await s.login(U.polier, '1234', '10.1.0.3')).post('/benutzer/2/entsperren')).status, 403);
     assert.equal((await buero.post('/benutzer/2/entsperren')).status, 200);
+    assert.equal((await buero.get('/benutzer')).daten.find((b) => b.id === 2).gesperrt, false);
     assert.equal((await s.client(null, '10.9.99.2').post('/auth/login', { benutzerId: 2, pin: '1234' })).status, 200);
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE text LIKE '%entsperrt%'").n === 1);
     // Fehlversuche vor mehr als 24 h zählen nicht

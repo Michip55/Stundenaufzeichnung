@@ -7,7 +7,7 @@
  *                    │  └────pause_ende────────┘
  *                    └──gehen──▶ aus ◀──gehen── pause
  */
-const { wienDatum, wienZeit } = require('./datum');
+const { wienDatum, wienZeit, wienZuDate, plusTage } = require('./datum');
 
 const TYPEN = ['kommen', 'gehen', 'pause_start', 'pause_ende', 'wechsel'];
 const UEBERGAENGE = {
@@ -198,7 +198,17 @@ const dauerMin = (a, b) => (hm(b) - hm(a) + 1440) % 1440;
  * Zeitleiste der Blöcke (über Mitternacht erlaubt).
  * @returns {{arbeitMin:number, lueckeMin:number, spanneMin:number}}
  */
-function blockZeitleiste({ von1, bis1, von2, bis2 }) {
+function blockZeitleiste({ von1, bis1, von2, bis2 }, datum) {
+  if (datum) {
+    const iv = bloeckeAlsZeitpunkte(datum, { von1, bis1, von2, bis2 });
+    if (!iv.length) return { arbeitMin: 0, lueckeMin: 0, spanneMin: 0 };
+    const m = (x) => Math.round(x / 60000);
+    return {
+      arbeitMin: iv.reduce((a, [x, y]) => a + m(y - x), 0),
+      lueckeMin: iv.length > 1 ? m(iv[1][0] - iv[0][1]) : 0,
+      spanneMin: m(iv[iv.length - 1][1] - iv[0][0])
+    };
+  }
   let arbeit = 0, luecke = 0, spanne = 0;
   if (von1 && bis1) {
     const d1 = dauerMin(von1, bis1);
@@ -215,12 +225,37 @@ function blockZeitleiste({ von1, bis1, von2, bis2 }) {
 }
 
 /**
+ * Zeitblöcke als echte Zeitpunkte (Europe/Vienna, C-10): jede Uhrzeit ist das nächste Auftreten
+ * nach der vorigen – so stimmen Dauern auch über Mitternacht und über die Zeitumstellung.
+ * @returns {Array<[number, number]>} Intervalle in ms
+ */
+function bloeckeAlsZeitpunkte(datum, { von1, bis1, von2, bis2 }) {
+  if (!von1 || !bis1) return [];
+  const naechster = (hm, nach, strikt) => {
+    for (let k = 0; k <= 2; k++) {
+      const t = wienZuDate(plusTage(datum, k), hm).getTime();
+      if (strikt ? t > nach : t >= nach) return t;
+    }
+    return null;
+  };
+  const v1 = wienZuDate(datum, von1).getTime();
+  const b1 = naechster(bis1, v1, true);
+  const out = [[v1, b1]];
+  if (von2 && bis2) {
+    const v2 = naechster(von2, b1, false);
+    const b2 = naechster(bis2, v2, true);
+    out.push([v2, b2]);
+  }
+  return out;
+}
+
+/**
  * Arbeitsstunden einer (händisch bearbeiteten) Personalzeile:
  * Summe der Blöcke minus der Pause, soweit sie nicht schon in der Lücke zwischen den Blöcken liegt.
  * Über Mitternacht: bis < von zählt bis zum nächsten Tag.
  */
-function stundenAusBloecken({ von1, bis1, von2, bis2, pauseMin = 0 }) {
-  const z = blockZeitleiste({ von1, bis1, von2, bis2 });
+function stundenAusBloecken({ von1, bis1, von2, bis2, pauseMin = 0 }, datum) {
+  const z = blockZeitleiste({ von1, bis1, von2, bis2 }, datum);
   const min = z.arbeitMin - Math.max(0, (pauseMin || 0) - z.lueckeMin);
   return r2(Math.max(0, min) / 60);
 }
@@ -238,5 +273,5 @@ function ungueltigeUebergaenge(buchungen) {
 
 module.exports = {
   TYPEN, UEBERGAENGE, STATUS_TEXT, MAX_SCHICHT_MIN, HINWEIS_UNPLAUSIBEL, naechsterStatus, statusAusBuchungen, pruefeBuchung, schichten,
-  plausibilisieren, personalAusSchichten, stundenAusBloecken, blockZeitleiste, dauerMin, ungueltigeUebergaenge, hm
+  plausibilisieren, personalAusSchichten, stundenAusBloecken, blockZeitleiste, bloeckeAlsZeitpunkte, dauerMin, ungueltigeUebergaenge, hm
 };
