@@ -18,6 +18,7 @@ import mehr from './views/mehr.js';
 import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
 import korrektur from './views/korrektur.js';
+import positionen from './views/positionen.js';
 
 const root = document.getElementById('root');
 
@@ -49,7 +50,7 @@ const NAV = [
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
-  { id: 'preise', pfad: '/preise', text: 'Preise', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
+  { id: 'preise', pfad: '/preise', text: 'Preise & Stammdaten', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
   { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Benutzer', icon: 'shield', darf: () => kann('benutzer') || darfBenutzerPflegen() },
@@ -75,8 +76,9 @@ const ROUTEN = [
   { muster: /^\/dashboard$/, nav: 'dashboard', titel: 'Übersicht', view: dashboard, darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
   { muster: /^\/baustellen$/, nav: 'baustellen', titel: 'Baustellen', view: baustellen, darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { muster: /^\/baustelle\/(\d+)$/, nav: 'baustellen', titel: 'Baustelle', view: baustelle, darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
-  { muster: /^\/preise$/, nav: 'preise', titel: 'Preise', view: preise, darf: eines('preise_sehen') },
+  { muster: /^\/preise$/, nav: 'preise', titel: 'Preise & Stammdaten', view: preise, darf: eines('preise_sehen') },
   { muster: /^\/kalkulation$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkUebersicht, darf: eines('kalk_sehen') },
+  { muster: /^\/kalkulation\/(\d+)\/positionen$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: positionen, darf: eines('kalk_sehen') },
   { muster: /^\/kalkulation\/(\d+)$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkDetail, darf: eines('kalk_sehen') },
   { muster: /^\/monat$/, nav: 'monat', titel: 'Monatsauswertung', view: monat, darf: eines('lohn') },
   { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: () => kann('benutzer') || darfBenutzerPflegen() },

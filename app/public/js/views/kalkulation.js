@@ -125,14 +125,20 @@ export async function kalkDetail(el, ctx) {
   <div class="page">
     <div class="form-top"><a class="link-back" href="#/kalkulation">${ic('left')}Alle Baustellen</a><span class="grow"></span>${kalkChip(k.status)}
       <a class="btn ghost sm" href="#/baustelle/${id}">${ic('pin')}Baustelle &amp; Auftrag</a></div>
+    <div class="tabs" role="tablist" aria-label="Ansichten der Nachkalkulation"><a role="tab" aria-selected="false" href="#/kalkulation/${id}/positionen" data-kalk-tab="positionen">Positionen</a><a role="tab" aria-selected="true" class="on" href="#/kalkulation/${id}" data-kalk-tab="intern">Übersicht &amp; interne Kosten</a></div>
+    ${k.positionen ? `<section class="card pad" id="pos-karte" aria-labelledby="h-posk">
+      <div class="card-h"><h3 id="h-posk">Nachkalkulation nach Positionen</h3><a class="btn primary sm" href="#/kalkulation/${id}/positionen">${ic('table')}Positionen öffnen</a></div>
+      <div class="kpi-row three"><div class="kpi sm"><small>Nachkalkulationssumme</small><b data-wert="nk-summe">${fmt.eur(k.positionen.gesamtsumme)}</b></div><div class="kpi sm"><small>Auftragssumme gesamt</small><b>${fmt.eur0(k.auftragGesamt)}</b></div><div class="kpi sm"><small>Ergebnis</small><b class="${k.positionen.ergebnis < 0 ? 'neg' : ''}">${k.positionen.ergebnis != null ? fmt.eur(k.positionen.ergebnis) : '–'}</b><em>${k.positionen.ergebnisProzent != null ? fmt.pct(k.positionen.ergebnisProzent) : ''}</em></div></div>
+      ${(k.positionen.gruppen || []).length ? `<ul class="plain zus">${k.positionen.gruppen.map((g) => `<li><span>${esc(g.name)}</span><span class="muted num">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : ''}</span><b class="num">${fmt.eur(g.summe || 0)}</b></li>`).join('')}</ul>` : ''}
+    </section>` : ''}
     <div class="kpi-row four">
       <div class="kpi"><small>Auftrag gesamt</small><b>${fmt.eur0(k.auftragGesamt)}</b><em>${k.auftragssumme != null ? `Auftrag ${fmt.eur0(k.auftragssumme)}` : 'nicht erfasst'}${(k.nachtraege || []).length ? ` + ${k.nachtraege.length} Nachtr.` : ''}</em></div>
-      <div class="kpi" data-kpi="kosten"><small>Kosten bisher</small><b>${fmt.eur0(kosten.gesamt)}</b><em>${fmt.pct(k.budgetVerbrauchProzent)} vom Auftrag</em></div>
+      <div class="kpi" data-kpi="kosten"><small>Interne Kosten bisher</small><b>${fmt.eur0(kosten.gesamt)}</b><em>${fmt.pct(k.budgetVerbrauchProzent)} vom Auftrag</em></div>
       <div class="kpi"><small>Erlös bisher</small><b>${fmt.eur0(k.erloes)}</b><em>Leistungsstand ${fmt.pct(k.leistungsstandProzent)}</em></div>
       <div class="kpi"><small>Deckungsbeitrag</small><b class="${k.db < 0 ? 'neg' : ''}">${fmt.eur0(k.db)}</b><em>${k.dbProzent != null ? fmt.pct(k.dbProzent) + ' vom Erlös' : 'noch kein Erlös'}</em></div>
     </div>
     <section class="card pad" aria-labelledby="h-bud">
-      <div class="card-h"><h3 id="h-bud">Budget</h3><span class="muted sm">Kosten gegen Auftragssumme, Strich = Leistungsstand</span></div>
+      <div class="card-h"><h3 id="h-bud">Budget</h3><span class="muted sm">${k.positionen ? 'Nachkalkulationssumme' : 'Kosten'} gegen Auftragssumme, Strich = Leistungsstand</span></div>
       ${budgetBalken(k)}
       <div class="two-stats"><div><small>Budget verbraucht</small><b data-wert="verbrauch">${fmt.pct(k.budgetVerbrauchProzent)}</b></div><div><small>Leistungsstand</small><b>${fmt.pct(k.leistungsstandProzent)}</b></div></div>
     </section>

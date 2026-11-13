@@ -215,7 +215,7 @@ async function laufe(browser, g) {
     await geh('/mehr'); await keinEuro('mehr');
     pruef(await page.locator('.integ-list li').count() >= 5, 'Mehr: Zusatzdienste fehlen');
     pruef((await text()).includes('Noch nicht angebunden'), 'Mehr: Hinweis „Noch nicht angebunden“ fehlt');
-    for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/monat', '/benutzer', '/dashboard', '/berichte', '/kolonne', '/baustellen']) { await keinZugriff(r); await keinEuro(r); }
+    for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/kalkulation/1/positionen', '/monat', '/benutzer', '/dashboard', '/berichte', '/kolonne', '/baustellen']) { await keinZugriff(r); await keinEuro(r); }
     // Server liefert dem Mitarbeiter keine €-Felder
     const mPreise = await absichtlich(() => api('GET', '/preise'));
     pruef(mPreise.status === 403, `Mitarbeiter: /api/preise liefert ${mPreise.status} statt 403`);
@@ -472,7 +472,11 @@ async function laufe(browser, g) {
     pruef(await page.locator('.bform textarea:not([disabled])').count() === 0, 'Bericht ist nach den Unterschriften noch bearbeitbar');
     await ueberlauf('bericht unterschrieben'); await shot('bericht-unterschrieben'); await keinEuro('bericht unterschrieben');
     await toastWeg();
-    for (const r of ['/preise', '/kalkulation', `/kalkulation/${bsId}`, '/monat', '/benutzer']) { await keinZugriff(r); await keinEuro(r); }
+    for (const r of ['/preise', '/kalkulation', `/kalkulation/${bsId}`, `/kalkulation/${bsId}/positionen`, '/monat', '/benutzer']) { await keinZugriff(r); await keinEuro(r); }
+    const pPos = await absichtlich(() => api('GET', `/baustellen/${bsId}/positionen`));
+    const pKat = await absichtlich(() => api('GET', '/positionen/katalog'));
+    const pXls = await absichtlich(() => page.evaluate(async (b) => (await fetch(`/api/baustellen/${b}/positionen/export.xlsx`)).status, bsId));
+    pruef(pPos.status === 403 && pKat.status === 403 && pXls === 403, `P-17: Polier erreicht Positionen/Katalog/Export (${pPos.status}/${pKat.status}/${pXls})`);
     // B-07: Polier darf nur Schlechtwetter für seine Partie eintragen
     await geh('/abwesenheiten'); await keinEuro('polier abwesenheiten');
     pruef(await page.locator('[data-entscheid]').count() === 0, 'B-07: Polier sieht Genehmigen/Ablehnen');
@@ -617,7 +621,9 @@ async function laufe(browser, g) {
     const schonGemeldet = (kalkNach.alarme || []).map((a) => a.schwelle);
     const ziel = !schonGemeldet.includes(80) ? 85 : !schonGemeldet.includes(90) ? 95 : 104;
     const nt = (kalkNach.nachtraege || []).reduce((s, n) => s + n.betrag, 0);
-    const summe = Math.max(1, Math.round((kalkNach.kosten.gesamt / (ziel / 100) - nt) * 100) / 100);
+    // Budget-Verbrauch bezieht sich auf die Nachkalkulationssumme nach Positionen (API.md 10)
+    const nkBasis = (kalkNach.positionen && kalkNach.positionen.gesamtsumme) || kalkNach.kosten.gesamt;
+    const summe = Math.max(1, Math.round((nkBasis / (ziel / 100) - nt) * 100) / 100);
     const budgetVorher = (await api('GET', '/benachrichtigungen')).json.filter((m) => m.typ === 'budget' && m.baustelleId === bsId).length;
     await geh(`/baustelle/${bsId}`);
     // C-08: Baustelle wurde inzwischen von jemand anderem geändert → Hinweis statt Überschreiben
@@ -773,6 +779,185 @@ async function laufe(browser, g) {
       await ueberlauf('korrektur nach änderung'); await shot('korrektur-liste');
       await toastWeg();
     } else pruef(false, 'B-05: keine lange offene Schicht in den Testdaten');
+    /* ---- P: Nachkalkulation nach Positionen (API.md 10/10a) ---- */
+    const posApi = async (b = bsId) => (await api('GET', `/baustellen/${b}/positionen`)).json;
+    const allePos = (d) => d.gruppen.flatMap((x) => x.positionen.map((y) => ({ ...y, gruppe: x.schluessel })));
+    const katApi = async () => (await api('GET', '/positionen/katalog')).json.gruppen.flatMap((x) => x.positionen);
+    await geh(`/kalkulation/${bsId}/positionen`, 'positionen');
+    let pos = await posApi();
+    pruef(await page.locator('details.pg').count() === 6 && (await page.locator('details.pg .pg-name').allInnerTexts()).join('|').toLowerCase() === 'arbeit|transport|geräte|eigenmaterial|fremdmaterial|abgaben', `P-01: Gruppen nicht wie in der Vorlage (${(await page.locator('details.pg .pg-name').allInnerTexts()).join('|')})`);
+    pruef(allePos(pos).length >= 80 && await page.locator('.pt-row').count() >= 80, `P-01: zu wenige Positionen (${allePos(pos).length})`);
+    pruef(await page.locator('#zusammenstellung tbody tr').count() === 6 && (await page.locator('#pos-gesamt').innerText()).includes('€'), 'P-01: Zusammenstellung oder Gesamtsumme fehlt');
+    pruef(pos.gesamtsumme > 0 && Math.abs(pos.gruppen.reduce((a, x) => a + x.summe, 0) - pos.gesamtsumme) < 0.05 && Math.abs(pos.ergebnis - (pos.auftragGesamt - pos.gesamtsumme)) < 0.05, 'P-01: Summen/Ergebnis stimmen rechnerisch nicht');
+    // Budget bezieht sich auf die Nachkalkulationssumme
+    const kalkP = (await api('GET', `/kalkulation/${bsId}`)).json;
+    pruef(Math.abs(kalkP.budgetVerbrauchProzent - (pos.gesamtsumme / pos.auftragGesamt) * 100) < 0.15 && Math.abs(kalkP.positionen.gesamtsumme - pos.gesamtsumme) < 0.01, `P-02: Budget-Verbrauch (${kalkP.budgetVerbrauchProzent} %) folgt nicht der Nachkalkulationssumme (${(pos.gesamtsumme / pos.auftragGesamt * 100).toFixed(1)} %)`);
+    // EP nur für dieses Bauvorhaben ändern
+    const zweiteBs = (await api('GET', '/baustellen')).json.find((x) => x.id !== bsId && !x.intern && x.status === 'aktiv');
+    const pA = allePos(pos).find((x) => x.gruppe === 'arbeit' && x.katalogId && x.aktiv && !/^(PA|VE)$/i.test(x.einheit));
+    const andereVor = allePos(await posApi(zweiteBs.id)).find((x) => x.katalogId === pA.katalogId);
+    const katVor = (await katApi()).find((x) => x.id === pA.katalogId);
+    const epFeld = page.locator(`.pt-row[data-pos="${pA.id}"] input[data-feld="ep"]`);
+    await epFeld.scrollIntoViewIfNeeded();
+    await epFeld.fill(String(pA.ep + 5).replace('.', ',')); await epFeld.press('Enter');
+    await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [pA.id, pA.ep + 5]);
+    pos = await posApi();
+    pruef(allePos(pos).find((x) => x.id === pA.id).ep === pA.ep + 5, 'P-03: EP im Bauvorhaben nicht gespeichert');
+    pruef(allePos(await posApi(zweiteBs.id)).find((x) => x.katalogId === pA.katalogId).ep === andereVor.ep, 'P-03: EP-Änderung hat ein anderes Bauvorhaben verändert');
+    pruef((await katApi()).find((x) => x.id === pA.katalogId).ep === katVor.ep, 'P-03: EP-Änderung im Bauvorhaben hat den Katalog verändert');
+    await toastWeg();
+    // Händische Menge ändert die Summen
+    const vorM = allePos(pos).find((x) => x.id === pA.id); const gesamtVor = pos.gesamtsumme;
+    await page.locator(`.pt-row[data-pos="${pA.id}"] .pt-mbtn`).click();
+    await page.waitForSelector('dialog[open] #mf');
+    await page.fill('dialog[open] #mf input[name="menge"]', '10');
+    pruef((await page.locator('dialog[open] #mf-echo').innerText()).includes('ergibt'), 'P-04: Vorschau der Summe im Mengen-Dialog fehlt');
+    await page.fill('dialog[open] #mf input[name="notiz"]', 'E2E Nachtrag');
+    await ueberlauf('dialog mengen'); await shot('positionen-mengen-dialog');
+    await page.click('dialog[open] #mf button[type="submit"]');
+    await page.waitForSelector('dialog[open] #eintraege li');
+    pos = await posApi();
+    const nachM = allePos(pos).find((x) => x.id === pA.id);
+    pruef(Math.abs(nachM.mengeManuell - (vorM.mengeManuell || 0) - 10) < 1e-6 && Math.abs(pos.gesamtsumme - gesamtVor - 10 * nachM.ep) < 0.02, `P-04: händische Menge ändert die Summen nicht richtig (${gesamtVor} → ${pos.gesamtsumme})`);
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await page.waitForFunction((t) => !document.querySelector('dialog[open]'));
+    await toastWeg();
+    // PA-Position: Rechnungsbetrag (€) mit Aufschlag
+    const pPA = allePos(pos).find((x) => /^PA$/i.test(x.einheit) && x.aktiv && Math.abs(x.ep - 1.15) < 0.001);
+    pruef(!!pPA, 'P-05: keine PA-Position mit Faktor 1,15 in den Testdaten');
+    await page.locator(`.pt-row[data-pos="${pPA.id}"] .pt-mbtn`).scrollIntoViewIfNeeded();
+    pruef((await page.locator(`.pt-row[data-pos="${pPA.id}"]`).innerText()).replace(/\s+/g, ' ').includes('+15'), 'P-05: Aufschlag „+15 %“ wird bei der PA-Position nicht gezeigt');
+    await page.locator(`.pt-row[data-pos="${pPA.id}"] .pt-mbtn`).click();
+    await page.waitForSelector('dialog[open] #mf');
+    pruef((await page.locator('dialog[open] #mf').innerText()).includes('Rechnungsbetrag (€)') && (await page.locator('dialog[open]').innerText()).includes('Rechnungsbetrag eingeben'), 'P-05: Eingabe heißt nicht „Rechnungsbetrag (€)“ bzw. Hinweis fehlt');
+    await page.fill('dialog[open] #mf input[name="menge"]', '1.000');
+    pruef((await page.locator('dialog[open] #mf-echo').innerText()).replace(/\s/g, ' ').includes('1.150,00'), `P-05: Vorschau rechnet nicht Betrag × 1,15 („${await page.locator('dialog[open] #mf-echo').innerText()}“)`);
+    await page.click('dialog[open] #mf button[type="submit"]');
+    await page.waitForSelector('dialog[open] #eintraege li');
+    const gesamtPA = (await posApi()).gesamtsumme;
+    pruef(Math.abs(gesamtPA - pos.gesamtsumme - 1150) < 0.02, `P-05: 1.000 € Rechnungsbetrag ergeben nicht 1.150 € (${pos.gesamtsumme} → ${gesamtPA})`);
+    await shot('positionen-pa-dialog');
+    // Storno
+    await page.click('dialog[open] #eintraege [data-storno]');
+    await page.locator('dialog[open] [data-ok]').last().click();
+    await page.waitForFunction(() => { const d = [...document.querySelectorAll('dialog[open]')]; return d.length === 1 && !d[0].querySelector('#eintraege li'); });
+    pruef(Math.abs((await posApi()).gesamtsumme - pos.gesamtsumme) < 0.02, 'P-06: Storno rechnet den Eintrag nicht heraus');
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await toastWeg();
+    // Eigene Position anlegen, ausblenden, löschen
+    await page.locator('details.pg[data-gruppe="abgaben"] [data-neu]').scrollIntoViewIfNeeded();
+    await page.click('details.pg[data-gruppe="abgaben"] [data-neu]');
+    await page.fill('dialog[open] input[name="bezeichnung"]', 'E2E Sonderposition');
+    await page.fill('dialog[open] input[name="einheit"]', 'Stk');
+    await page.fill('dialog[open] input[name="ep"]', '12,5');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pt-row input[data-feld="bezeichnung"]')].some((i) => i.value === 'E2E Sonderposition'));
+    pos = await posApi();
+    const eigene = allePos(pos).find((x) => x.bezeichnung === 'E2E Sonderposition');
+    pruef(eigene && eigene.gruppe === 'abgaben' && eigene.ep === 12.5 && !allePos(await posApi(zweiteBs.id)).some((x) => x.bezeichnung === 'E2E Sonderposition') && !(await katApi()).some((x) => x.bezeichnung === 'E2E Sonderposition'), 'P-07: eigene Position fehlt oder ist in andere Bauvorhaben/den Katalog gelangt');
+    await toastWeg();
+    await page.locator(`.pt-row[data-pos="${eigene.id}"] [data-akt="mehr"]`).click();
+    await page.click('dialog[open] [data-m="aktiv"]');
+    await page.waitForFunction((id) => !document.querySelector(`.pt-row[data-pos="${id}"]`), eigene.id);
+    pruef(allePos(await posApi()).find((x) => x.id === eigene.id).aktiv === false, 'P-07: Ausblenden nicht gespeichert');
+    await page.check('#f-aus');
+    await page.waitForSelector(`.pt-row.aus[data-pos="${eigene.id}"]`);
+    await toastWeg();
+    await page.locator(`.pt-row[data-pos="${eigene.id}"] [data-akt="mehr"]`).click();
+    await page.click('dialog[open] [data-m="loeschen"]');
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction((id) => !document.querySelector(`.pt-row[data-pos="${id}"]`), eigene.id);
+    pruef(!allePos(await posApi()).some((x) => x.id === eigene.id), 'P-07: eigene Position nicht gelöscht');
+    await toastWeg();
+    // Reihenfolge ändern
+    const gArbeit = (await posApi()).gruppen.find((x) => x.schluessel === 'arbeit').positionen.filter((x) => x.aktiv);
+    await page.locator(`.pt-row[data-pos="${gArbeit[0].id}"] [data-akt="runter"]`).click();
+    await page.waitForFunction(([a, b]) => { const r = [...document.querySelectorAll('details.pg[data-gruppe="arbeit"] .pt-row')].map((x) => x.dataset.pos); return r[0] === String(b) && r[1] === String(a); }, [gArbeit[0].id, gArbeit[1].id]);
+    pruef((await posApi()).gruppen.find((x) => x.schluessel === 'arbeit').positionen.filter((x) => x.aktiv)[0].id === gArbeit[1].id, 'P-08: Reihenfolge nicht gespeichert');
+    // Gruppen einklappen
+    await page.locator('details.pg[data-gruppe="transport"] > summary').click();
+    pruef(await page.locator('details.pg[data-gruppe="transport"]:not([open])').count() === 1, 'P-09: Gruppe lässt sich nicht einklappen');
+    await page.locator('details.pg[data-gruppe="transport"] > summary').click();
+    await ueberlauf('positionen bearbeitet'); await shot('positionen-bearbeitet');
+    // Zuordnung prüfen + Editor
+    pruef(await page.locator('.pt-marken .chip:has-text("Zuordnung prüfen")').count() >= 1, 'P-10: keine Kennzeichnung „Zuordnung prüfen“');
+    const pZu = allePos(await posApi()).find((x) => x.zuordnungPruefen && x.quelle);
+    await page.locator(`.pt-row[data-pos="${pZu.id}"] .pt-marken button`).click();
+    await page.waitForSelector('dialog[open] #qf');
+    pruef(await page.locator('dialog[open] #quelle-box[open]').count() === 1 && await page.locator('dialog[open] #qf-ref option:checked').count() >= 1, 'P-10: Zuordnungs-Editor zeigt die bestehende Zuordnung nicht');
+    await page.click('dialog[open] #qf button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    pruef(allePos(await posApi()).find((x) => x.id === pZu.id).zuordnungPruefen === false, 'P-10: bestätigte Zuordnung bleibt als „prüfen“ markiert');
+    await toastWeg();
+    // 10a: Naturmaterial-Kennzeichen und Landschaftsabgabe (automatisch je t Naturmaterial)
+    pos = await posApi();
+    const pNat = allePos(pos).find((x) => x.naturmaterial === true && x.aktiv && /^t$/i.test(x.einheit));
+    const pLand = allePos(pos).find((x) => /landschaftsabgabe/i.test(x.bezeichnung));
+    pruef(!!pNat && !!pLand, 'P-11: Naturmaterial-Kennzeichen oder Position Landschaftsabgabe fehlt');
+    if (pNat && pLand) {
+      pruef(await page.locator(`.pt-row[data-pos="${pNat.id}"] .chip:has-text("Naturmaterial")`).count() === 1 && await page.locator('.pt-marken .chip:has-text("bitte prüfen")').count() >= 1, 'P-11: Kennzeichen „Naturmaterial … bitte prüfen“ wird nicht gezeigt');
+      await page.locator(`.pt-row[data-pos="${pNat.id}"] .pt-mbtn`).click();
+      await page.waitForSelector('dialog[open] #mf');
+      await page.fill('dialog[open] #mf input[name="menge"]', '40');
+      await page.click('dialog[open] #mf button[type="submit"]');
+      await page.waitForSelector('dialog[open] #eintraege li');
+      await page.click('dialog[open] .dlg-foot [data-zu]');
+      const landNach = allePos(await posApi()).find((x) => x.id === pLand.id);
+      pruef(Math.abs(landNach.mengeAuto - (pLand.mengeAuto || 0) - 40) < 1e-6 && Math.abs(landNach.summe - (pLand.summe || 0) - 40 * landNach.ep) < 0.02, `P-11: Landschaftsabgabe folgt nicht den Tonnen Naturmaterial (${pLand.mengeAuto} → ${landNach.mengeAuto})`);
+      await page.locator(`.pt-row[data-pos="${pLand.id}"] .pt-mbtn`).click();
+      await page.waitForSelector('dialog[open] #mengen');
+      pruef((await page.locator('dialog[open]').innerText()).includes('0,25 € je t Naturmaterial'), 'P-11: Erklärung „0,25 € je t Naturmaterial“ fehlt');
+      await shot('positionen-landschaftsabgabe');
+      await page.click('dialog[open] .dlg-foot [data-zu]');
+      // Kennzeichen abschalten → zählt nicht mehr
+      await page.locator(`.pt-row[data-pos="${pNat.id}"] .pt-mbtn`).click();
+      await page.waitForSelector('dialog[open] #qf');
+      if (!(await page.locator('dialog[open] #quelle-box[open]').count())) await page.click('dialog[open] #quelle-box summary');
+      await page.locator('dialog[open] #qf input[name="naturmaterial"] + .switch').click();
+      await page.click('dialog[open] #qf button[type="submit"]');
+      await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+      const landAus = allePos(await posApi()).find((x) => x.id === pLand.id);
+      pruef(landAus.mengeAuto < landNach.mengeAuto - 39.9, `P-11: abgeschaltetes Naturmaterial zählt weiter (${landNach.mengeAuto} → ${landAus.mengeAuto})`);
+      await toastWeg();
+    }
+    // Aus Vorlage übernehmen: Preise (mit Vorschau)
+    await page.locator('[data-akt="vorlage"]').scrollIntoViewIfNeeded();
+    await page.click('[data-akt="vorlage"]');
+    await page.check('dialog[open] input[name="modus"][value="preise"]');
+    await page.click('#vl-vorschau');
+    await page.waitForSelector('dialog[open] [data-vorschau]');
+    pruef(Number(await page.locator('dialog[open] [data-vorschau]').getAttribute('data-vorschau')) >= 1 && (await page.locator('dialog[open] .vl-liste').innerText()).includes(pA.bezeichnung.slice(0, 12)), 'P-12: Vorschau „Preise aus Vorlage“ zeigt die geänderte Position nicht');
+    await ueberlauf('dialog vorlage'); await shot('positionen-vorlage-vorschau');
+    await page.click('#vl-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    pruef(allePos(await posApi()).find((x) => x.id === pA.id).ep === katVor.ep, 'P-12: Preise aus der Vorlage nicht übernommen');
+    await toastWeg();
+    // Excel-Export
+    const [xl] = await Promise.all([page.waitForEvent('download'), page.click('#pos-export')]);
+    const xlBuf = fs.readFileSync(await xl.path());
+    pruef(/\.xlsx$/.test(xl.suggestedFilename()) && xlBuf.length > 3000 && xlBuf.slice(0, 2).toString() === 'PK' && xlBuf.includes('xl/worksheets'), `P-13: Excel-Export ist keine gültige xlsx-Datei (${xl.suggestedFilename()}, ${xlBuf.length} Bytes)`);
+    // Übersicht zeigt die Positions-Zusammenstellung
+    await geh(`/kalkulation/${bsId}`, 'kalkulation-mit-positionen');
+    pruef(await page.locator('#pos-karte [data-wert="nk-summe"]').count() === 1 && await page.locator('#pos-karte .zus li').count() === 6, 'P-14: Übersicht zeigt die Nachkalkulation nach Positionen nicht');
+    // Positionskatalog pflegen: Katalogpreis ändert kein bestehendes Bauvorhaben
+    await geh('/preise?tab=katalog', 'positionskatalog');
+    await page.waitForSelector('[data-katalog] tr[data-kat]');
+    pruef(await page.locator('[data-katalog] tr[data-kat]').count() >= 80 && await page.locator('[data-katalog] details.pg').count() === 6, 'P-15: Positionskatalog unvollständig');
+    const kFeld = page.locator(`tr[data-kat="${katVor.id}"] input[data-kfeld="ep"]`);
+    await kFeld.scrollIntoViewIfNeeded();
+    await kFeld.fill(String(katVor.ep + 3).replace('.', ',')); await kFeld.press('Enter');
+    await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`tr[data-kat="${id}"] input[data-kfeld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [katVor.id, katVor.ep + 3]);
+    pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep + 3 && allePos(await posApi()).find((x) => x.id === pA.id).ep === katVor.ep, 'P-15: Katalogpreis nicht gespeichert oder wirkt rückwirkend auf das Bauvorhaben');
+    await toastWeg();
+    // Excel-Import der Firmenvorlage mit Vorschau → stellt den Preis der Vorlage wieder her
+    await page.setInputFiles('#kat-datei', path.resolve(APP, '..', 'docs', 'vorlage', 'Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx'));
+    await page.waitForSelector('dialog[open] #import-vorschau');
+    pruef(Number(await page.locator('dialog[open] [data-imp="geaendert"]').innerText()) >= 1 && Number(await page.locator('dialog[open] [data-imp="unveraendert"]').innerText()) >= 50, `P-16: Import-Vorschau unplausibel (geändert ${await page.locator('dialog[open] [data-imp="geaendert"]').innerText()}, unverändert ${await page.locator('dialog[open] [data-imp="unveraendert"]').innerText()})`);
+    await ueberlauf('dialog import'); await shot('katalog-import-vorschau');
+    await page.click('#imp-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep, 'P-16: Import hat den Vorlagenpreis nicht übernommen');
+    await ueberlauf('/preise katalog'); await toastWeg();
     // C-14: Büro verwaltet Mitarbeiter, Poliere und Bauleiter – ohne Rechte-Matrix und Protokoll
     await geh('/benutzer', 'buero-benutzer');
     pruef(await page.locator('[data-tab="matrix"], [data-tab="protokoll"], #matrix').count() === 0, 'C-14: Büro sieht Rechte-Matrix oder Protokoll');
@@ -857,6 +1042,11 @@ async function laufe(browser, g) {
     await geh('/dashboard', 'bauleiter-dashboard');
     await geh('/preise');
     pruef(await page.locator('.price-in input').count() === 0, 'Bauleiter kann Preise bearbeiten');
+    await geh(`/kalkulation/${bsId}/positionen`, 'bauleiter-positionen');
+    pruef(await page.locator('.pt-row').count() >= 20 && await page.locator('.pt-row input[data-feld], [data-akt="vorlage"], [data-neu]').count() === 0, 'P-18: Bauleiter kann Positionen/Preise bearbeiten oder sieht sie nicht');
+    const blPos = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen[0].positionen[0];
+    const blPut = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${blPos.id}`, { version: blPos.version, ep: 1 }));
+    pruef(blPut.status === 403, `P-18: Bauleiter kann EP ändern (Status ${blPut.status})`);
     await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
     await keinZugriff('/monat'); await keinZugriff('/benutzer'); await keinZugriff('/korrektur');
     // N-07: fremde Baustelle zeigt kein Auftragsformular

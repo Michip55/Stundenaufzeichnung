@@ -1,6 +1,7 @@
 // Preise: Lohngruppen, Geräte, Material, Leistungen – mit direkter Bearbeitung in der Tabelle.
 import { get, put } from '../api.js';
 import { ic, esc, fmt, parseZahl, starkOk, leer, banner, toast, speicher, $, $$ } from '../ui.js';
+import { katalogTab } from './katalog.js';
 
 const TABS = [
   { art: 'lohngruppen', text: 'Lohngruppen', spalten: [['name', 'Lohngruppe']], preise: [['kostensatz', 'Kostensatz / Std.'], ['regiesatz', 'Regiesatz / Std.']] },
@@ -12,7 +13,7 @@ const TABS = [
 export default async function preise(el, ctx) {
   const daten = await get('/preise');
   const darf = ctx.kann('preise_bearbeiten');
-  let tab = TABS.some((t) => t.art === speicher.lies('bt_preistab')) ? speicher.lies('bt_preistab') : 'lohngruppen';
+  let tab = ctx.query.get('tab') === 'katalog' || speicher.lies('bt_preistab') === 'katalog' ? 'katalog' : TABS.some((t) => t.art === speicher.lies('bt_preistab')) ? speicher.lies('bt_preistab') : 'lohngruppen';
 
   function tabelle(t) {
     const zeilen = daten[t.art] || [];
@@ -24,19 +25,20 @@ export default async function preise(el, ctx) {
           : `<span class="num">${fmt.eur(z[k])}</span>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   function zeichne() {
-    const t = TABS.find((x) => x.art === tab);
+    const t = TABS.find((x) => x.art === tab) || { art: 'katalog' };
     el.innerHTML = `
     <div class="page">
       ${darf ? '' : banner('info', 'Nur Ansicht – Preise ändern dürfen Büro und Geschäftsführung.', 'lock')}
-      <div class="tabs" role="tablist" aria-label="Preisarten">${TABS.map((x) => `<button type="button" role="tab" id="tab-${x.art}" aria-selected="${x.art === tab}" aria-controls="tabpanel" class="${x.art === tab ? 'on' : ''}" data-tab="${x.art}">${x.text}<span class="count">${(daten[x.art] || []).length}</span></button>`).join('')}</div>
-      <section class="card" id="tabpanel" role="tabpanel" aria-labelledby="tab-${t.art}">${tabelle(t)}</section>
-      ${darf ? `<p class="fineprint">Änderungen werden sofort gespeichert, protokolliert und wirken auf alle Nachkalkulationen.</p>` : ''}
+      <div class="tabs" role="tablist" aria-label="Preisarten">${TABS.map((x) => `<button type="button" role="tab" id="tab-${x.art}" aria-selected="${x.art === tab}" aria-controls="tabpanel" class="${x.art === tab ? 'on' : ''}" data-tab="${x.art}">${x.text}<span class="count">${(daten[x.art] || []).length}</span></button>`).join('')}<button type="button" role="tab" id="tab-katalog" aria-selected="${tab === 'katalog'}" aria-controls="tabpanel" class="${tab === 'katalog' ? 'on' : ''}" data-tab="katalog">Positionskatalog</button></div>
+      <section class="card" id="tabpanel" role="tabpanel" aria-labelledby="tab-${t.art}">${tab === 'katalog' ? '' : tabelle(t)}</section>
+      ${darf && tab !== 'katalog' ? `<p class="fineprint">Kostensätze für die Ansicht „Interne Kosten“. Änderungen werden sofort gespeichert und protokolliert. Die Verrechnungspreise der Nachkalkulation stehen im Positionskatalog bzw. je Bauvorhaben.</p>` : ''}
     </div>`;
+    if (tab === 'katalog') { const box = document.createElement('div'); $('#tabpanel', el).appendChild(box); katalogTab(box, ctx); }
   }
   el.addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; speicher.setz('bt_preistab', tab); zeichne(); } });
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.price-in input')) e.target.blur(); });
   el.addEventListener('change', async (e) => {
-    const inp = e.target.closest('.price-in input'); if (!inp) return;
+    const inp = e.target.closest('.price-in input'); if (!inp || inp.closest('[data-katalog]')) return;
     const tr = inp.closest('tr'), feld = inp.dataset.feld;
     const zeile = (daten[tab] || []).find((z) => String(z.id) === tr.dataset.id);
     const wert = parseZahl(inp.value);
