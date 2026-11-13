@@ -959,6 +959,95 @@ ALTER TABLE leistung ADD COLUMN aktiv INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE leistung ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE benutzer ADD COLUMN telefon TEXT;
 `
+  },
+  {
+    version: 18,
+    name: 'Ausbaustufe 2: Projektdokumente (12.16)',
+    sql: `
+CREATE TABLE dokument_kategorie (
+  schluessel TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  finanziell INTEGER NOT NULL DEFAULT 0,
+  polier INTEGER NOT NULL DEFAULT 0,
+  eigen INTEGER NOT NULL DEFAULT 0,
+  sortierung INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO dokument_kategorie (schluessel, name, finanziell, polier, sortierung) VALUES
+  ('angebot','Angebot',1,0,10), ('auftrag','Auftrag/Schlussbrief',1,0,20), ('lv','Leistungsverzeichnis',1,0,30), ('plaene','Pläne',0,1,40),
+  ('bodengutachten','Bodengutachten',0,1,50), ('bescheide','Bescheide/Bewilligungen',0,1,60), ('leitungsauskuenfte','Leitungsauskünfte',0,1,70),
+  ('abnahmeprotokoll','Abnahmeprotokoll',0,0,80), ('ausgangsrechnungen','Ausgangsrechnungen',1,0,90), ('eingangsrechnungen','Eingangsrechnungen',1,0,100),
+  ('lieferscheine','Lieferscheine',0,1,110), ('schriftverkehr','Schriftverkehr',0,0,120), ('fotos','Fotos',0,1,130), ('sonstiges','Sonstiges',0,0,140);
+CREATE TABLE dokument (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  kategorie TEXT NOT NULL REFERENCES dokument_kategorie(schluessel),
+  titel TEXT NOT NULL,
+  datum TEXT,
+  notiz TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1,
+  geloescht_zeit TEXT, geloescht_von INTEGER REFERENCES benutzer(id), geloescht_grund TEXT,
+  erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id), geaendert TEXT
+);
+CREATE INDEX dokument_bs ON dokument(baustelle_id, kategorie);
+CREATE TABLE dokument_datei (
+  id INTEGER PRIMARY KEY,
+  dokument_id INTEGER NOT NULL REFERENCES dokument(id) ON DELETE CASCADE,
+  nr INTEGER NOT NULL,
+  datei TEXT NOT NULL, mime TEXT NOT NULL, groesse INTEGER NOT NULL, sha256 TEXT NOT NULL, dateiname TEXT,
+  notiz TEXT, erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id),
+  UNIQUE (dokument_id, nr)
+);
+`
+  },
+  {
+    version: 19,
+    name: 'Ausbaustufe 2: Ausgangsrechnungen und Zahlungen (12.17)',
+    sql: `
+CREATE TABLE rechnung (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id),
+  nr TEXT NOT NULL UNIQUE,
+  nr_norm TEXT NOT NULL,
+  typ TEXT NOT NULL CHECK (typ IN ('abschlag','teil','schluss','regie','gutschrift')),
+  datum TEXT NOT NULL,
+  leistung_von TEXT, leistung_bis TEXT,
+  netto REAL NOT NULL,
+  ust_modus TEXT NOT NULL DEFAULT 'normal' CHECK (ust_modus IN ('normal','reverse_charge')),
+  ust_satz REAL NOT NULL DEFAULT 20,
+  zahlungsziel_tage INTEGER NOT NULL DEFAULT 30,
+  skonto_prozent REAL, skonto_tage INTEGER,
+  ruecklass_art TEXT CHECK (ruecklass_art IN ('haft','deckung')), ruecklass_prozent REAL, ruecklass_betrag REAL,
+  dokument_id INTEGER REFERENCES dokument(id),
+  notiz TEXT,
+  storniert TEXT, storniert_grund TEXT, storniert_von INTEGER REFERENCES benutzer(id),
+  erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id),
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX rechnung_bs ON rechnung(baustelle_id);
+CREATE UNIQUE INDEX rechnung_nr_norm ON rechnung(nr_norm);
+CREATE TABLE rechnung_zahlung (
+  id INTEGER PRIMARY KEY,
+  rechnung_id INTEGER NOT NULL REFERENCES rechnung(id) ON DELETE CASCADE,
+  datum TEXT NOT NULL,
+  betrag REAL NOT NULL,
+  skonto REAL NOT NULL DEFAULT 0,
+  ruecklass INTEGER NOT NULL DEFAULT 0,
+  notiz TEXT,
+  quelle TEXT NOT NULL DEFAULT 'manuell',
+  import_schluessel TEXT,
+  erfasst TEXT NOT NULL, erfasst_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX rechnung_zahlung_r ON rechnung_zahlung(rechnung_id);
+CREATE TABLE rechnung_mahnung (
+  id INTEGER PRIMARY KEY,
+  rechnung_id INTEGER NOT NULL REFERENCES rechnung(id) ON DELETE CASCADE,
+  stufe INTEGER NOT NULL CHECK (stufe IN (1,2,3)),
+  datum TEXT NOT NULL,
+  erfasst TEXT NOT NULL, erfasst_von INTEGER REFERENCES benutzer(id),
+  UNIQUE (rechnung_id, stufe)
+);
+`
   }
 ];
 

@@ -200,6 +200,7 @@ function createApp(opt = {}) {
   require('./routes/berichtfotos')(api, bt);
   require('./routes/stammdatenverwaltung')(api, bt);
   require('./routes/planer')(api, bt);
+  require('./routes/dokumente')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
