@@ -1,7 +1,8 @@
 'use strict';
 /**
  * Optionale KI (Anthropic Claude) für Diktat, Lieferschein, Papierbericht (API.md 12.13). Standardmäßig AUS.
- * Ergebnis ist immer nur ein Vorschlag; Stammdaten-Zuordnung prüft der Server. Keine €-Daten werden gesendet.
+ * Ergebnis ist immer nur ein Vorschlag; Stammdaten-Zuordnung prüft der Server. Aus der Datenbank werden keine €-Daten
+ * gesendet; bei Lieferschein/Papierbericht wird aber das Foto übermittelt (ohne EXIF/GPS – G-15) und kann Preise zeigen.
  */
 const Anthropic = require('@anthropic-ai/sdk');
 const { z } = require('zod');
@@ -129,4 +130,7 @@ function bildBlock(mime, buf) {
   return { type: 'image', source: { type: 'base64', media_type: mime, data: buf.toString('base64') } };
 }
 
-module.exports = { MODELL, KiFehler, einstellungen, aktiv, anfrage, heuteNutzung, SCHEMA, SYSTEM, bildBlock, schluessel };
+/** Hinweis in Antworten, wenn ein Foto an die KI geht (G-15) */
+const FOTO_HINWEIS = 'Das Foto wird an die KI übermittelt (Anthropic; ohne EXIF/GPS).';
+
+module.exports = { FOTO_HINWEIS, MODELL, KiFehler, einstellungen, aktiv, anfrage, heuteNutzung, SCHEMA, SYSTEM, bildBlock, schluessel };

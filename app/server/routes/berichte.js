@@ -625,7 +625,17 @@ function linksUngueltig(db, berichtId, nurRolle = null) {
   if (!db.eins("SELECT name FROM sqlite_master WHERE name = 'unterschrift_link'")) return;
   db.lauf(`UPDATE unterschrift_link SET status = 'ungueltig' WHERE bericht_id = ? AND status = 'offen' ${nurRolle ? 'AND rolle = ?' : ''}`, berichtId, ...(nurRolle ? [nurRolle] : []));
 }
+/**
+ * Inhalt eines Berichts geändert (Fotos, Lieferschein, Fuhren …): Version +1 und offene Fern-Unterschrift-Links
+ * ungültig (12.9, G-02). Alle Stellen außerhalb von PUT /berichte/:id nutzen diese Funktion.
+ */
+function berichtGeaendert(db, berichtId, zeit) {
+  db.lauf('UPDATE bericht SET geaendert = ?, version = version + 1 WHERE id = ?', zeit, berichtId);
+  linksUngueltig(db, berichtId);
+  return db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version;
+}
 module.exports.linksUngueltig = linksUngueltig;
+module.exports.berichtGeaendert = berichtGeaendert;
 module.exports.pruefeLesen = pruefeLesen;
 module.exports.pruefeSchreiben = pruefeSchreiben;
 module.exports.GESPERRT_TEXT = GESPERRT_TEXT;

@@ -717,6 +717,7 @@ module.exports = function planerRouten(api, bt) {
     const j = F.fuhreJson(db, f, K);
     j.konflikte = P.konflikteTag(f.datum, [], [f], K).map((k) => ({ typ: k.typ, text: k.text }));
     j.geaendertNachVeroeffentlichung = Boolean(f.veroeffentlicht_zeit) && f.veroeffentlicht_hash !== F.fuhreHash(j);
+    if (j.berichtZeile && j.berichtZeile.status === 'uebernommen' && f.bericht_id) j.berichtZeile.berichtVersion = (db.eins('SELECT version FROM bericht WHERE id = ?', f.bericht_id) || {}).version; // G-02
     return { status, j };
   };
   function fuhreLaden(req) {
@@ -888,11 +889,12 @@ module.exports = function planerRouten(api, bt) {
         n++;
       }
       if (n) {
-        db.lauf('UPDATE bericht SET geaendert = ?, version = version + 1 WHERE id = ?', jetzt(), b.id);
+        B.berichtGeaendert(db, b.id, jetzt()); // G-02: Version +1 und Fern-Links ungültig
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, neu: { fuhreIds: ids }, text: `${n} Fuhre(n) in den Bericht übernommen` });
       }
     });
-    res.json({ uebernommen: n, bericht: B.berichtJson(db, req.ctx, B.ladeBerichtRoh(db, b.id)) });
+    const bj = B.berichtJson(db, req.ctx, B.ladeBerichtRoh(db, b.id));
+    res.json({ uebernommen: n, berichtVersion: bj.version, bericht: bj });
   });
 
   // 12.8b: Dichte über PUT /materialien/:id (Alias zu 12.21)

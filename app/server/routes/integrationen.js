@@ -22,9 +22,9 @@ function stand(bt) {
     email: email ? z('aktiv', 'SMTP eingerichtet.') : z('fehlt', 'Mailserver (SMTP) unter Einstellungen → E-Mail eintragen.'),
     fernunterschrift: z('aktiv', 'Einmal-Link (72 Std.) per WhatsApp/E-Mail teilen.'),
     diktat: ki ? z('aktiv_mit_ki', 'Mikrofon der Handy-Tastatur → Vorschlag mit KI.') : z('aktiv_ohne_ki', 'Mikrofon der Handy-Tastatur → Vorschlag nach festen Regeln.'),
-    lieferschein: !ocr && !ki ? z('optional', 'Texterkennung braucht die Sprachdaten (deploy/ocr-daten.sh); Foto wird trotzdem gespeichert.') : ki ? z('aktiv_mit_ki', 'Texterkennung mit KI.') : z('aktiv_ohne_ki', 'Texterkennung auf dem Server (Deutsch).'),
-    papier: !ocr && !ki ? z('optional', 'Archivfoto möglich; Erkennung braucht die Sprachdaten (deploy/ocr-daten.sh).') : ki ? z('aktiv_mit_ki', 'Archiv + Erkennung inkl. Handschrift (KI).') : z('aktiv_ohne_ki', 'Archiv + Erkennung gedruckter Teile (Datum, KST).'),
-    ki: ki ? z('aktiv', 'Anthropic Claude – nur Vorschläge, keine €-Daten.') : z('optional', 'Aus. Einschalten unter Einstellungen → KI (API-Schlüssel + Datenschutz-Bestätigung).'),
+    lieferschein: !ocr && !ki ? z('optional', 'Texterkennung braucht die Sprachdaten (deploy/ocr-daten.sh); Foto wird trotzdem gespeichert.') : ki ? z('aktiv_mit_ki', 'Texterkennung mit KI – das Foto wird an die KI übermittelt (ohne EXIF/GPS; Lieferscheine können Preise enthalten).') : z('aktiv_ohne_ki', 'Texterkennung auf dem Server (Deutsch).'),
+    papier: !ocr && !ki ? z('optional', 'Archivfoto möglich; Erkennung braucht die Sprachdaten (deploy/ocr-daten.sh).') : ki ? z('aktiv_mit_ki', 'Archiv + Erkennung inkl. Handschrift (KI) – das Foto wird an die KI übermittelt (ohne EXIF/GPS).') : z('aktiv_ohne_ki', 'Archiv + Erkennung gedruckter Teile (Datum, KST).'),
+    ki: ki ? z('aktiv', 'Anthropic Claude – nur Vorschläge. Übermittelt werden der Diktat-Text und bei Lieferschein/Papierbericht das Foto (es kann Preise enthalten).') : z('optional', 'Aus. Einschalten unter Einstellungen → KI (API-Schlüssel + Datenschutz-Bestätigung).'),
     sms: z('optional', 'Anbieter nötig – stattdessen Link per WhatsApp/E-Mail teilen.')
   };
   return Object.entries(liste).map(([schluessel, x]) => ({ schluessel, name: NAMEN[schluessel], angebunden: x.zustand.startsWith('aktiv'), zustand: x.zustand, hinweis: x.hinweis }));

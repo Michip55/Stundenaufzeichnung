@@ -132,7 +132,7 @@ function inBericht(bt, f, benutzerId) {
   if (offen) {
     zeileHinzufuegen(db, b.id, f.material_id, menge);
     db.lauf("UPDATE plan_fuhre SET bericht_status = 'uebernommen', bericht_id = ?, bericht_menge = ? WHERE id = ?", b.id, menge, f.id);
-    db.lauf('UPDATE bericht SET geaendert = ?, version = version + 1 WHERE id = ?', zeit, b.id);
+    require('./routes/berichte').berichtGeaendert(db, b.id, zeit); // G-02: Version +1 und Fern-Links ungültig
     db.protokolliere({ zeit, benutzerId, art: 'bericht', objekt: `bericht:${b.id}`, neu: { fuhreId: f.id, materialId: f.material_id, menge }, text: `Fuhre ${f.id}: ${menge} ${m.einheit} ${m.name} in den Bericht übernommen (Quelle Fuhre)` });
   } else {
     db.lauf("UPDATE plan_fuhre SET bericht_status = 'vorschlag', bericht_id = ?, bericht_menge = ? WHERE id = ?", b ? b.id : null, menge, f.id);

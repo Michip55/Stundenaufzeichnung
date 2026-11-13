@@ -55,8 +55,7 @@ function fotoSpeichern(bt, req, b, body, art = 'foto') {
 
 /** Bericht als geändert markieren: Version +1, offene Fern-Unterschrift-Links ungültig (12.6/12.9) */
 function berichtGeaendert(bt, berichtId) {
-  bt.db.lauf('UPDATE bericht SET geaendert = ?, version = version + 1 WHERE id = ?', bt.uhr().toISOString(), berichtId);
-  if (typeof B.linksUngueltig === 'function') B.linksUngueltig(bt.db, berichtId);
+  return require('./berichte').berichtGeaendert(bt.db, berichtId, bt.uhr().toISOString());
 }
 /** aktuelle Berichtsversion für Antworten der Anhang-Routen (`berichtVersion`) */
 const berichtVersion = (db, berichtId) => db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version;
