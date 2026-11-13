@@ -1499,7 +1499,11 @@ async function krank(h) {
   const antworten = [];
   const lausche = async (r) => { if (!r.url().includes('/api/') || !/json/.test(r.headers()['content-type'] || '')) return; try { antworten.push([r.url().replace(h.srv.url, ''), await r.text()]); } catch (e) { /* Antwort schon weg */ } };
   page.on('response', lausche);
-  const entwurf = (await api('GET', '/berichte?status=entwurf')).json[0];
+  // ein Entwurf mit Personalzeilen (für die Code-Auswahl); notfalls ein neuer Entwurf für einen Tag mit Stempelungen
+  let entwurf = null;
+  for (const kandidat of (await api('GET', '/berichte?status=entwurf')).json) { const voll = (await api('GET', `/berichte/${kandidat.id}`)).json; if ((voll.personal || []).length >= 2 && !(voll.unterschriften.an || voll.unterschriften.bh)) { entwurf = kandidat; break; } }
+  for (let i = 1; i < 40 && !entwurf; i += 1) { const r = await api('POST', '/berichte', { baustelleId: polier.baustelleId, datum: plusTage(heute, -i) }); if (r.status === 201 && (r.json.personal || []).length >= 2) entwurf = r.json; }
+  pruef(!!entwurf, 'R-01: kein Berichtsentwurf mit Personal für die Prüfung der Code-Auswahl');
   const sichtbar = [];
   for (const r of [`/urlaub?monat=${tag.slice(0, 7)}`, '/abwesenheiten', '/partie', '/kolonne', '/einsatz', '/woche', ...(entwurf ? [`/bericht/${entwurf.id}`] : [])]) {
     await geh(r); await page.waitForTimeout(250);
