@@ -3,6 +3,7 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- Katalog an Preislisten 2026 angepasst (119 Positionen; Kundenfreigabe 10d). Server 277/277 grün
 - Positions-Nachkalkulation Backend fertig (Katalog aus Excel, je Baustelle anpassbar, Mengen aus Berichten + manuell, Landschaftsabgabe automatisch, Excel-Import/-Export, Budget-Alarm auf Positionsbasis). Server 272/272 grün
 - Kundenentscheidungen 10a–10d eingearbeitet (EP = Verrechnungspreise, PA/VE = Rechnungsbetrag × Faktor, Landschaftsabgabe je t Naturmaterial, Abgleich Preislisten 2026)
 - Befunde aus Prüfbericht 3 behoben (D-01…D-12). Server 253/253 grün
@@ -20,8 +21,8 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- E2E-Tests von der Uhrzeit unabhängig machen (scheiterten um ~06 Uhr an einer Überschneidung mit Testdaten) – Fable-Agent
-- **Neue Kundenvorgabe:** Nachkalkulation nach Positionen aus der Excel-Vorlage des Betriebs (`docs/vorlage/Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx`, ~110 Positionen in 6 Gruppen), je Bauvorhaben in Positionen und Preisen anpassbar; Budget-Alarm bezieht sich auf die Positions-Nachkalkulation. Vertrag: `API.md` Abschnitt 10. Backend: Opus-Agent, Oberfläche: Fable-Agent
+- Oberfläche Positions-Nachkalkulation + uhrzeitunabhängige E2E-Tests – Fable-Agent
+- **Neue Kundenanfrage: Servicebuch für Fahrzeuge & Geräte** (Reparaturen, Service-/Prüftermine, Erinnerung 3 Monate vorher) – Recherche (§57a KFG, AM-VO, Tachograph …) und Umsetzungsentwurf durch Opus-Agent → `docs/Konzept.md` + `app/SERVICEBUCH_ENTWURF.md`
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
