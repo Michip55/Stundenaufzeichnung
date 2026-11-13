@@ -1094,6 +1094,31 @@ CREATE TABLE lohn_vorlage (
   geaendert TEXT
 );
 `
+  },
+  {
+    version: 22,
+    name: 'Ausbaustufe 2: Fernunterschrift per Link, KI-Nutzung (12.9, 12.13)',
+    sql: `
+CREATE TABLE unterschrift_link (
+  id INTEGER PRIMARY KEY,
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  rolle TEXT NOT NULL CHECK (rolle IN ('an','bh')),
+  token_hash TEXT NOT NULL UNIQUE,
+  name TEXT, email TEXT,
+  erstellt TEXT NOT NULL, erstellt_von INTEGER NOT NULL REFERENCES benutzer(id),
+  ablauf TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'offen' CHECK (status IN ('offen','verwendet','ungueltig','widerrufen')),
+  verwendet TEXT, verwendet_ip TEXT, abrufe INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX unterschrift_link_b ON unterschrift_link(bericht_id);
+CREATE TABLE ki_nutzung (
+  id INTEGER PRIMARY KEY,
+  zeit TEXT NOT NULL, tag TEXT NOT NULL, zweck TEXT NOT NULL,
+  benutzer_id INTEGER REFERENCES benutzer(id),
+  eingabe_tokens INTEGER, ausgabe_tokens INTEGER, ok INTEGER NOT NULL, fehler TEXT
+);
+CREATE INDEX ki_nutzung_tag ON ki_nutzung(tag);
+`
   }
 ];
 

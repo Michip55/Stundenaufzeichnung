@@ -436,6 +436,7 @@ module.exports = function berichtRouten(api, bt) {
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
     db.transaktion(() => {
       speichereUpdate(db, b.id, u, jetzt());
+      linksUngueltig(db, b.id); // 12.9
       const warGast = new Set(b.personal.filter((p) => p.gast).map((p) => p.benutzer_id));
       for (const p of (u.personal || []).filter((x) => x.gast && !warGast.has(x.benutzerId))) {
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `${p.name} als Gast (nicht Partie, nicht gestempelt) in Bericht ${b.baustelle.kst} ${b.datum} eingetragen` });
@@ -467,7 +468,7 @@ module.exports = function berichtRouten(api, bt) {
     pruefeBerichtVersion(v.objekt(req.body || {}), b, true); // D-07
     const seg = new Map(b.personal.map((p) => [p.benutzer_id, p.seg_stunden]));
     const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: Math.min(seg.get(p.benutzerId) || 0, p.stunden) }));
-    db.transaktion(() => speichereUpdate(db, b.id, { personal }, jetzt()));
+    db.transaktion(() => { speichereUpdate(db, b.id, { personal }, jetzt()); linksUngueltig(db, b.id); });
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
 
@@ -483,6 +484,17 @@ module.exports = function berichtRouten(api, bt) {
     if (b.unterschriften.some((u) => u.rolle === rolle)) {
       throw konflikt(`Die Unterschrift ${rolle === 'bh' ? 'des Bauherrn' : 'des Auftragnehmers'} liegt bereits vor. Ersetzen nur über „Unterschrift zurückziehen“.`);
     }
+    unterschriftSpeichern(b, { rolle, name, bild, benutzerId: req.ctx.benutzer.id });
+    res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
+  });
+
+
+  /**
+   * Unterschrift speichern (Route und Fernunterschrift 12.9). Prüft Wiederverwendung, setzt Status, Folgeaktionen.
+   * @returns {'entwurf'|'unterschrieben'}
+   */
+  function unterschriftSpeichern(b, { rolle, name, bild, benutzerId, protokollZusatz = '' }) {
+    const req = { ctx: { benutzer: { id: benutzerId } } };
     const hash = bildHash(bild);
     // C-06: zurückgezogene oder anderswo verwendete Unterschriftsbilder nicht wiederverwenden
     if (db.eins('SELECT 1 AS x FROM unterschrift_widerruf WHERE bericht_id = ? AND bild_hash = ?', b.id, hash)
@@ -500,7 +512,7 @@ module.exports = function berichtRouten(api, bt) {
       if (n >= 2) {
         neuerStatus = 'unterschrieben';
         db.lauf("UPDATE bericht SET status = 'unterschrieben', geaendert = ?, version = version + 1 WHERE id = ?", zeit, b.id);
-        db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, alt: 'entwurf', neu: 'unterschrieben', text: `Bericht ${b.baustelle.kst} ${b.datum} unterschrieben` });
+        db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, alt: 'entwurf', neu: 'unterschrieben', text: `Bericht ${b.baustelle.kst} ${b.datum} unterschrieben${protokollZusatz}` });
         // Hinweis an alle, die freigeben dürfen (Bauleiter der Baustelle, Büro, GF)
         const empf = db.alle("SELECT id, rolle FROM benutzer WHERE aktiv = 1 AND (rolle IN ('buero','gf') OR id = ?)", b.baustelle.bauleiter_id || -1);
         for (const e of empf) {
@@ -517,8 +529,10 @@ module.exports = function berichtRouten(api, bt) {
       autoMail(b);
       if (b.geraete.length) require('../fuhrpark-erinnerung').pruefeFuhrparkSicher(bt); // Gerätestunden → Servicebuch
     }
-    res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
-  });
+    linksUngueltig(db, b.id, rolle);
+    return neuerStatus;
+  }
+  module.exports.unterschriftSpeichern = unterschriftSpeichern;
 
   /** API.md 12.5: AG-PDF nach der zweiten Unterschrift automatisch an den Auftraggeber */
   function autoMail(b) {
@@ -541,6 +555,7 @@ module.exports = function berichtRouten(api, bt) {
       db.lauf('DELETE FROM unterschrift WHERE bericht_id = ? AND rolle = ?', b.id, rolle);
       db.lauf('INSERT INTO unterschrift_widerruf (bericht_id, rolle, name, bild_hash, unterschrieben, zeit, von) VALUES (?, ?, ?, ?, ?, ?, ?)',
         b.id, rolle, alt.name, alt.bild_hash || (alt.bild_png ? bildHash(alt.bild_png) : null), alt.zeit, jetzt(), req.ctx.benutzer.id);
+      linksUngueltig(db, b.id);
       db.lauf('UPDATE bericht SET geaendert_nach_unterschrift = ?, version = version + 1 WHERE id = ?',
         JSON.stringify({ zeit: jetzt(), rolle, von: req.ctx.benutzer.name, unterschriebenAm: alt.zeit }), b.id);
     });
@@ -605,6 +620,13 @@ module.exports.ladeBerichtRoh = ladeBerichtRoh;
 module.exports.berichtJson = berichtJson;
 module.exports.speichereUpdate = speichereUpdate;
 module.exports.pruefePersonal = pruefePersonal;
+/** API.md 12.9: offene Fernunterschrift-Links ungültig machen (Inhalt geändert bzw. Rolle schon unterschrieben) */
+function linksUngueltig(db, berichtId, nurRolle = null) {
+  if (!db.eins("SELECT name FROM sqlite_master WHERE name = 'unterschrift_link'")) return;
+  db.lauf(`UPDATE unterschrift_link SET status = 'ungueltig' WHERE bericht_id = ? AND status = 'offen' ${nurRolle ? 'AND rolle = ?' : ''}`, berichtId, ...(nurRolle ? [nurRolle] : []));
+}
+module.exports.linksUngueltig = linksUngueltig;
 module.exports.pruefeLesen = pruefeLesen;
 module.exports.pruefeSchreiben = pruefeSchreiben;
 module.exports.GESPERRT_TEXT = GESPERRT_TEXT;
+module.exports.pruefePng = pruefePng;

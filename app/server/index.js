@@ -46,6 +46,7 @@ function createApp(opt = {}) {
   bt.wetterAn = opt.wetter !== undefined ? Boolean(opt.wetter) : process.env.BAUTAG_WETTER !== '0';
   if (opt.wetterAbruf) bt.wetterAbruf = opt.wetterAbruf;
   if (opt.mailTransport) bt.mailTransport = opt.mailTransport;
+  if (opt.kiClient) bt.kiClient = opt.kiClient; // Tests: Attrappe des Anthropic-SDK
   bt.pushAus = Boolean(opt.pushAus);
   bt.mail = { alarm: (betreff, text) => require('./mail').alarm(bt, betreff, text) };
 
@@ -139,7 +140,7 @@ function createApp(opt = {}) {
   const jsonImport = express.json({ limit: '7mb', strict: true });
   const jsonFotos = express.json({ limit: '12mb', strict: true });
   const jsonDokumente = express.json({ limit: '35mb', strict: true });
-  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/;
+  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/; // inkl. Lieferschein/Papier (12.11/12.12)
   api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport
     : /^\/baustellen\/\d+\/(dokumente|lv-import)|^\/import\/|^\/stammdaten\/[a-z]+\/import$/.test(req.path) ? jsonDokumente
       : fotoPfad.test(req.path) ? jsonFotos : jsonKlein)(req, res, next));
@@ -175,6 +176,7 @@ function createApp(opt = {}) {
   }
 
   require('./routes/auth')(api, bt);
+  require('./routes/fernunterschrift').oeffentlich(api, bt); // 12.9: ohne Anmeldung
 
   // Ab hier nur angemeldet – und erst nach Änderung einer vorgegebenen PIN
   api.use(angemeldet);
@@ -206,6 +208,8 @@ function createApp(opt = {}) {
   require('./routes/rechnungen')(api, bt);
   require('./routes/urlaub')(api, bt);
   require('./routes/importe')(api, bt);
+  require('./routes/fernunterschrift').intern(api, bt);
+  require('./routes/assistent')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
@@ -242,6 +246,7 @@ function createApp(opt = {}) {
   app.schliessen = () => {
     bt.pushAus = true;
     clearInterval(bt.fuhrparkTimer);
+    require('./ocr').beenden();
     db.schliessen();
     if (bt.uploadsTemp) { try { fs.rmSync(bt.uploads, { recursive: true, force: true }); } catch (_) { /* egal */ } }
   };

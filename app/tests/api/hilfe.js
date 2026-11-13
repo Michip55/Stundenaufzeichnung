@@ -20,7 +20,7 @@ async function starte(opt = {}) {
     dbPath: ':memory:', uhr, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
     pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
     // Ausbaustufe 2: Attrappen für externe Dienste (API.md 12.18)
-    test: opt.test, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
+    test: opt.test, kiClient: opt.kiClient, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
     // Standard in Tests: lange Sitzungen, damit Uhrsprünge nicht abmelden (eigener Test für Ablaufzeiten)
     sitzung: opt.sitzung || { feldMin: 720, bueroMin: 24 * 60, maxH: 24 * 30 }
   });
