@@ -40,6 +40,12 @@ function createApp(opt = {}) {
   if (!db.eins('SELECT 1 AS x FROM rolle_recht LIMIT 1')) db.transaktion(() => schreibeStandardMatrix(db));
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: opt.demo !== undefined ? opt.demo : process.env.BAUTAG_DEMO === '1' });
 
+  bt.warnungen = [];
+  const verwalter = require('./rechte').entsperrKonten(db);
+  if (verwalter.length < 2) {
+    bt.warnungen.push(`Nur ${verwalter.length} aktives Verwaltungs-Konto (GF/Büro) kann gesperrte Konten entsperren – bitte mindestens zwei anlegen (Notfall: node server/entsperren.js <Personalnummer>).`);
+  }
+
   const app = express();
   app.disable('x-powered-by');
   // Nur hinter einem Reverse-Proxy: dann gelten X-Forwarded-For/-Proto (Client-IP, HTTPS)
@@ -159,6 +165,7 @@ function createApp(opt = {}) {
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   const app = createApp();
+  for (const w of app.bt.warnungen) console.warn('[BauTag] WARNUNG: ' + w);
   const server = app.listen(port, () => {
     console.log(`BauTag läuft auf http://localhost:${port} (DB: ${app.bt.db.pfad})`);
   });

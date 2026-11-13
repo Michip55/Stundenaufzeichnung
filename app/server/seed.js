@@ -194,7 +194,7 @@ function seed(db, opt = {}) {
     // Benutzer (Start-PIN 1234, je Benutzer eigener Salt). Ohne Demo-Modus muss jeder die PIN beim ersten Anmelden ändern.
     const mussAendern = opt.demo ? 0 : 1;
     for (const m of [...MITARBEITER, ...BUERO]) {
-      db.lauf('INSERT INTO benutzer (id, name, rolle, lohngruppe_id, pnr, aktiv, pin_hash, erstellt, muss_pin_aendern) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)', m.id, m.name, m.rolle, m.lg || null, m.pnr || null, hashPinSync(DEMO_PIN), jetztIso, mussAendern);
+      db.lauf('INSERT INTO benutzer (id, name, rolle, lohngruppe_id, pnr, aktiv, pin_hash, erstellt, muss_pin_aendern, pin_laenge) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)', m.id, m.name, m.rolle, m.lg || null, m.pnr || null, hashPinSync(DEMO_PIN), jetztIso, mussAendern, DEMO_PIN.length);
     }
 
     // Baustellen

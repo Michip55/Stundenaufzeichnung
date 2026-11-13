@@ -6,6 +6,10 @@ const auth = require('../auth');
 const { brauche } = require('./hilfe');
 
 /** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
+/** Rollenwechsel, die das Büro vornehmen darf (D-02) */
+const BUERO_ROLLENWECHSEL = ['mitarbeiter', 'polier'];
+const { benachrichtige } = require('../budget');
+
 const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm'];
 
 function protokollFuer(ctx, zeilen) {
@@ -113,20 +117,24 @@ module.exports = function benutzerRouten(api, bt) {
   const verwalterPruefen = (req, res, next) => (R.darfBenutzerVerwalten(req.ctx) ? next() : next(keinZugriff()));
 
   api.get('/benutzer', verwalterPruefen, (req, res) => {
-    const sperren = new Map(db.alle('SELECT benutzer_id, gesperrt_seit FROM login_konto WHERE gesperrt = 1').map((k) => [k.benutzer_id, k.gesperrt_seit]));
-    res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map((b) => ({
-      ...benutzerVoll(b), gesperrt: sperren.has(b.id), ...(sperren.has(b.id) ? { gesperrtSeit: sperren.get(b.id) } : {})
-    })));
+    const jetztIso = bt.uhr().toISOString();
+    const sperren = new Map(db.alle('SELECT benutzer_id, gesperrt_seit, gesperrt_bis FROM login_konto WHERE gesperrt = 1 AND gesperrt_bis > ?', jetztIso).map((k) => [k.benutzer_id, k]));
+    res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map((b) => {
+      const k = sperren.get(b.id);
+      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}) };
+    }));
   });
 
   api.post('/benutzer', verwalterPruefen, async (req, res) => {
     const { f, pin } = pruefeFelder(v.objekt(req.body), false);
     if (!R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung legt nur die GF an.');
+    if (!req.ctx.hat('benutzer') && !BUERO_ROLLENWECHSEL.includes(f.rolle)) throw keinZugriff('Bauleiter legt nur die Geschäftsführung an (Büro: Mitarbeiter und Poliere).');
     if (f.pnr == null) {
       const max = db.eins('SELECT MAX(pnr) AS m FROM benutzer').m;
       f.pnr = Math.max(1000, max || 0) + 1; // nächste freie Personalnummer (C-12)
     }
     f.pin_hash = await auth.hashPin(pin);
+    f.pin_laenge = pin.length;
     f.muss_pin_aendern = 1; // Start-PIN muss beim ersten Anmelden geändert werden
     f.erstellt = jetzt();
     if (f.aktiv === undefined) f.aktiv = 1;
@@ -144,6 +152,10 @@ module.exports = function benutzerRouten(api, bt) {
     const body = v.objekt(req.body);
     const { f, pin } = pruefeFelder(body, true, alt.rolle, id);
     if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Büro und Geschäftsführung vergibt nur die GF.');
+    const rollenwechsel = Boolean(f.rolle && f.rolle !== alt.rolle);
+    if (rollenwechsel && !req.ctx.hat('benutzer') && !(BUERO_ROLLENWECHSEL.includes(alt.rolle) && BUERO_ROLLENWECHSEL.includes(f.rolle))) {
+      throw keinZugriff('Zum oder vom Bauleiter macht nur die Geschäftsführung (Büro: Mitarbeiter ↔ Polier).');
+    }
     if (!Object.keys(f).length && !pin) throw ungueltig('Keine Änderungen angegeben.');
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
@@ -153,28 +165,47 @@ module.exports = function benutzerRouten(api, bt) {
     if (verliertGf && db.eins("SELECT COUNT(*) AS n FROM benutzer WHERE rolle = 'gf' AND aktiv = 1 AND id <> ?", id).n === 0) {
       throw konflikt('Mindestens eine aktive Geschäftsführung muss bestehen bleiben.');
     }
-    if (pin) { f.pin_hash = await auth.hashPin(pin); f.muss_pin_aendern = 1; }
+    if (pin) { f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1; }
+    // D-02: neue Rolle mit Mindestlänge 6 und kürzere/unbekannte PIN → PIN-Wechsel erzwingen
+    if (rollenwechsel && !auth.FELD_ROLLEN.includes(f.rolle) && !pin && !(alt.pin_laenge >= 6)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
+    const entfernt = [];
     db.transaktion(() => {
       db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
       // Ausnahmen, die für die neue Rolle gesperrt sind, entfernen
-      if (f.rolle && f.rolle !== alt.rolle) {
+      if (rollenwechsel) {
         for (const r of R.GESPERRT[f.rolle]) db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', id, r);
+        // D-11: unpassende Zuordnungen räumen
+        if (!['bauleiter', 'gf'].includes(f.rolle)) {
+          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE bauleiter_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'bauleiterId' });
+          db.lauf('UPDATE baustelle SET bauleiter_id = NULL, version = version + 1 WHERE bauleiter_id = ?', id);
+        }
+        if (f.rolle !== 'polier') {
+          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE polier_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'polierId' });
+          db.lauf('UPDATE baustelle SET polier_id = NULL, version = version + 1 WHERE polier_id = ?', id);
+        }
+        // D-02: Rollenwechsel durch das Büro → GF informieren
+        if (!req.ctx.hat('benutzer')) {
+          for (const g of db.alle("SELECT id FROM benutzer WHERE rolle = 'gf' AND aktiv = 1")) {
+            benachrichtige(db, { benutzerId: g.id, typ: 'sicherheit', titel: `Rollenwechsel: ${alt.name}`, text: `${req.ctx.benutzer.name} hat ${alt.name} von ${R.ROLLEN_NAMEN[alt.rolle]} zu ${R.ROLLEN_NAMEN[f.rolle]} geändert.`, zeit: jetzt(), schluessel: `rolle:${id}:${jetzt()}` });
+          }
+        }
       }
       if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) auth.beendeAlleSitzungen(db, id);
       if (pin) { bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id); }
       const altW = {}, neuW = {};
       for (const x of k) {
-        if (x === 'pin_hash' || x === 'muss_pin_aendern') continue;
+        if (['pin_hash', 'muss_pin_aendern', 'pin_laenge'].includes(x)) continue;
         altW[x] = alt[x]; neuW[x] = f[x];
       }
       if (pin) neuW.pin = 'zurückgesetzt';
+      if (entfernt.length) neuW.zuordnungenEntfernt = entfernt;
       db.protokolliere({
         zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: f.rolle && f.rolle !== alt.rolle ? 'rolle' : 'benutzer', objekt: `benutzer:${id}`,
         alt: altW, neu: neuW, text: `Benutzer ${alt.name} geändert${pin ? ' (PIN zurückgesetzt)' : ''}`
       });
     });
-    res.json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)));
+    res.json({ ...benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}) });
   });
 
   /** Konto entsperren (C-07): Büro für Mitarbeiter/Polier/Bauleiter, GF für alle */
@@ -182,7 +213,9 @@ module.exports = function benutzerRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
-    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung entsperrt nur die GF.');
+    // D-01: Büro darf auch GF-/Büro-Konten ENTSPERREN (nur entsperren), damit sich die Verwaltung nicht aussperrt
+    if (!R.darfBenutzerVerwalten(req.ctx)) throw keinZugriff();
+    if (id === req.ctx.benutzer.id) throw keinZugriff('Das eigene Konto entsperrt eine andere Person.');
     db.transaktion(() => {
       bt.bremse.entsperre(id);
       bt.bremse.kontoEntsperren(id);

@@ -1,6 +1,6 @@
 'use strict';
 const v = require('../validierung');
-const { nichtAngemeldet, ungueltig, nichtGefunden, ApiFehler } = require('../fehler');
+const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
 const { benachrichtige } = require('../budget');
 const auth = require('../auth');
 const { eigeneBaustellenIds } = require('../rechte');
@@ -18,9 +18,9 @@ function fehlversuch(bt, b, ip) {
     const zeit = bt.uhr().toISOString();
     bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})` });
     for (const e of bt.db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", b.id)) {
-      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} gesperrt. Bitte prüfen und entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
+      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} befristet gesperrt. Bitte prüfen und ggf. entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
     }
-    throw new ApiFehler(423, 'KONTO_GESPERRT', 'Das Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte im Büro entsperren lassen.');
+    bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer
   }
   if (gesperrt) throw bt.bremse.fehler(gesperrt);
 }
@@ -42,6 +42,8 @@ module.exports = function authRouten(api, bt) {
     let b = null;
     let benutzerId = null;
     if (body.benutzerId !== undefined) {
+      // D-12: ohne Namensliste nur Anmeldung mit Personalnummer
+      if (!bt.loginListe) throw ungueltig('Anmeldung bitte mit Personalnummer (pnr) und PIN.');
       benutzerId = v.id(body.benutzerId, 'benutzerId');
       b = db.eins('SELECT * FROM benutzer WHERE id = ? AND aktiv = 1', benutzerId);
     } else if (body.pnr !== undefined) {
@@ -60,6 +62,10 @@ module.exports = function authRouten(api, bt) {
       throw nichtAngemeldet('Benutzer oder PIN falsch.');
     }
     bt.bremse.erfolg(b.id, ip);
+    // D-02: PIN kürzer als für die Rolle vorgeschrieben → Wechsel erzwingen
+    const zuKurz = !auth.FELD_ROLLEN.includes(b.rolle) && body.pin.length < 6;
+    db.lauf('UPDATE benutzer SET pin_laenge = ?, muss_pin_aendern = CASE WHEN ? THEN 1 ELSE muss_pin_aendern END WHERE id = ?', body.pin.length, zuKurz ? 1 : 0, b.id);
+    if (zuKurz) b.muss_pin_aendern = 1;
     if (req.token) auth.beendeSitzung(db, req.token);
     const token = auth.neueSitzung(db, b.id, bt.uhr());
     auth.setzeCookie(req, res, token);
@@ -102,7 +108,7 @@ module.exports = function authRouten(api, bt) {
     const hash = await auth.hashPin(body.neu);
     const zeit = bt.uhr().toISOString();
     db.transaktion(() => {
-      db.lauf('UPDATE benutzer SET pin_hash = ?, muss_pin_aendern = 0 WHERE id = ?', hash, ich.id);
+      db.lauf('UPDATE benutzer SET pin_hash = ?, muss_pin_aendern = 0, pin_laenge = ? WHERE id = ?', hash, body.neu.length, ich.id);
       db.lauf('DELETE FROM sitzung WHERE benutzer_id = ? AND token_hash <> ?', ich.id, require('node:crypto').createHash('sha256').update(req.token).digest('hex'));
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'benutzer', objekt: `benutzer:${ich.id}`, neu: { pin: 'selbst geändert' }, text: `${ich.name} hat die eigene PIN geändert` });
     });

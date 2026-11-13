@@ -21,6 +21,8 @@ const IP_MAX_FEHLVERSUCHE = 30;
 /** Kontoweite Grenze über alle IPs (C-07): 20 Fehlversuche in 24 h → Konto gesperrt bis zur Entsperrung */
 const KONTO_MAX_FEHLVERSUCHE = 20;
 const KONTO_FENSTER_MS = 24 * 3600 * 1000;
+/** Dauer der Kontosperre (D-01): 24 h, 48 h, danach 7 Tage */
+const KONTO_SPERRSTUFEN_MS = [24 * 3600 * 1000, 48 * 3600 * 1000, 7 * 24 * 3600 * 1000];
 const FELD_ROLLEN = ['mitarbeiter', 'polier'];
 
 function zahlEnv(name, standard) {
@@ -219,16 +221,23 @@ class LoginBremse {
 
   erfolg(benutzerId, ip) {
     this.db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
-    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId);
+    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId); // auch Eskalationsstufe zurück
   }
 
-  /** Konto gesperrt? → 423 */
+  /** Konto gesperrt? → 423 (befristet, D-01) */
   pruefeKonto(benutzerId) {
     if (!benutzerId) return;
-    const k = this.db.eins('SELECT gesperrt FROM login_konto WHERE benutzer_id = ?', benutzerId);
-    if (k && k.gesperrt) {
-      throw new ApiFehler(423, 'KONTO_GESPERRT', 'Das Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte im Büro entsperren lassen.');
+    const k = this.db.eins('SELECT gesperrt, gesperrt_bis FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    if (!k || !k.gesperrt) return;
+    const rest = new Date(k.gesperrt_bis || 0).getTime() - this.uhr().getTime();
+    if (rest <= 0) {
+      // Sperre abgelaufen: Zähler neu, Eskalationsstufe bleibt bis zur nächsten erfolgreichen Anmeldung
+      this.db.lauf('UPDATE login_konto SET gesperrt = 0, fehlversuche = 0, erster = NULL WHERE benutzer_id = ?', benutzerId);
+      return;
     }
+    const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). Büro oder Geschäftsführung können es vorher entsperren.`);
+    f.retryAfter = Math.ceil(rest / 1000);
+    throw f;
   }
 
   /** Fehlversuch kontoweit zählen; @returns {boolean} true, wenn das Konto jetzt gesperrt wurde */
@@ -239,10 +248,13 @@ class LoginBremse {
     const neuesFenster = !k || !k.erster || jetzt - new Date(k.erster).getTime() > KONTO_FENSTER_MS;
     const n = neuesFenster ? 1 : k.fehlversuche + 1;
     const erster = neuesFenster ? new Date(jetzt).toISOString() : k.erster;
+    const stufe = k ? k.sperren : 0;
     const sperren = n >= KONTO_MAX_FEHLVERSUCHE;
-    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = excluded.gesperrt, gesperrt_seit = excluded.gesperrt_seit`,
-    benutzerId, n, erster, sperren ? 1 : 0, sperren ? new Date(jetzt).toISOString() : null);
+    const bis = sperren ? new Date(jetzt + KONTO_SPERRSTUFEN_MS[Math.min(stufe, KONTO_SPERRSTUFEN_MS.length - 1)]).toISOString() : (k ? k.gesperrt_bis : null);
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = excluded.gesperrt,
+        gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
+    benutzerId, sperren ? 0 : n, sperren ? null : erster, sperren ? 1 : 0, sperren ? new Date(jetzt).toISOString() : null, sperren ? stufe + 1 : stufe, bis);
     return sperren;
   }
 
@@ -257,7 +269,7 @@ class LoginBremse {
 }
 
 module.exports = {
-  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, pinFehler,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse

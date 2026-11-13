@@ -391,6 +391,18 @@ DROP TABLE benachrichtigung_alt;
 DROP INDEX IF EXISTS benachrichtigung_benutzer;
 CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
 `
+  },
+  {
+    version: 5,
+    name: 'Prüfbericht 3: befristete Kontosperre, PIN-Länge, Selbstfreigabe, Bildpunkt-Hash',
+    sql: `
+ALTER TABLE login_konto ADD COLUMN sperren INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE login_konto ADD COLUMN gesperrt_bis TEXT;
+UPDATE login_konto SET gesperrt_bis = datetime(gesperrt_seit, '+1 day') WHERE gesperrt = 1;
+ALTER TABLE benutzer ADD COLUMN pin_laenge INTEGER;
+ALTER TABLE bericht ADD COLUMN selbstfreigabe INTEGER NOT NULL DEFAULT 0;
+UPDATE unterschrift SET bild_hash = NULL;
+`
   }
 ];
 

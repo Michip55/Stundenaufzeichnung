@@ -181,6 +181,12 @@ function darfBenutzerVerwalten(ctx, zielRolle) {
   return ctx.benutzer.rolle === 'buero' && ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
 }
 
+/** Aktive Konten, die gesperrte GF-/Büro-Konten entsperren können (D-01): GF und Büro mit stammdaten */
+function entsperrKonten(db) {
+  return db.alle("SELECT * FROM benutzer WHERE aktiv = 1 AND rolle IN ('gf','buero')")
+    .filter((b) => b.rolle === 'gf' || ladeRechteFuer(db, b).has('stammdaten'));
+}
+
 /** Kontext für eine Anfrage */
 function kontext(db, benutzer) {
   const rechte = ladeRechteFuer(db, benutzer);
@@ -197,5 +203,5 @@ module.exports = {
   ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, PREIS_LOHN_RECHTE,
   istGesperrt, istImmer, effektiveRechte, bereich, baustelleImBereich, darfPreise, darfKalk,
   EURO_FELDER, KALK_FELDER, entferneEuroFelder, findeEuroFelder,
-  BUERO_VERWALTBAR, darfBenutzerVerwalten, ladeMatrix, schreibeStandardMatrix, ladeRechteFuer, kontext, eigeneBaustellenIds
+  BUERO_VERWALTBAR, darfBenutzerVerwalten, entsperrKonten, ladeMatrix, schreibeStandardMatrix, ladeRechteFuer, kontext, eigeneBaustellenIds
 };
