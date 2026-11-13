@@ -3,6 +3,8 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- Oberfläche Positions-Nachkalkulation fertig; E2E uhrzeitunabhängig (feste Uhr), 463/463 je Größe laut Agent; Server 277/277 grün
+- Servicebuch: Recherche und Konzept (Kapitel 5 in `docs/Konzept.md`) und Umsetzungsvertrag `app/SERVICEBUCH_ENTWURF.md`
 - Katalog an Preislisten 2026 angepasst (119 Positionen; Kundenfreigabe 10d). Server 277/277 grün
 - Positions-Nachkalkulation Backend fertig (Katalog aus Excel, je Baustelle anpassbar, Mengen aus Berichten + manuell, Landschaftsabgabe automatisch, Excel-Import/-Export, Budget-Alarm auf Positionsbasis). Server 272/272 grün
 - Kundenentscheidungen 10a–10d eingearbeitet (EP = Verrechnungspreise, PA/VE = Rechnungsbetrag × Faktor, Landschaftsabgabe je t Naturmaterial, Abgleich Preislisten 2026)
@@ -21,8 +23,8 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- Oberfläche Positions-Nachkalkulation + uhrzeitunabhängige E2E-Tests – Fable-Agent
-- **Neue Kundenanfrage: Servicebuch für Fahrzeuge & Geräte** (Reparaturen, Service-/Prüftermine, Erinnerung 3 Monate vorher) – Recherche (§57a KFG, AM-VO, Tachograph …) und Umsetzungsentwurf durch Opus-Agent → `docs/Konzept.md` + `app/SERVICEBUCH_ENTWURF.md`
+- **Abschlussprüfung vor Freigabe** (neuer Opus-Agent) auf dem aktuellen Stand; parallel kompletter E2E-Lauf
+- **Servicebuch** (Fuhrpark & Geräte): Umsetzung nach `app/SERVICEBUCH_ENTWURF.md` durch Opus (Server) und Fable (Oberfläche) in einem getrennten lokalen Arbeitsstand (Branch `servicebuch`), damit die Freigabe des fertigen Umfangs nicht blockiert wird. Wird nach eigener Prüfung übernommen.
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
