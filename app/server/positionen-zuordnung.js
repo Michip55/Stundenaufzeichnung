@@ -35,8 +35,19 @@ const ZUORDNUNG = [
   ['Beton C 16/20', 'm3', { art: 'material', ref: ['beton'] }],
   ['Pflaster', 'm2', { art: 'material', ref: ['pflaster8'] }],
   ['PVC DN150', 'lfm', { art: 'material', ref: ['rohr150'] }],
-  ['Leistenstein 100/10/20', 'Stk', { art: 'material', ref: ['randstein'], faktor: 1 }]
+  ['Leistenstein 100/10/20', 'Stk', { art: 'material', ref: ['randstein'], faktor: 1 }],
+  // API.md 10a: Landschaftsabgabe 0,25 € je Tonne Naturmaterial – Menge automatisch aus allen Naturmaterial-Positionen
+  ['Landschaftsabgabe', 'PA', { art: 'naturmaterial' }]
 ];
+
+/**
+ * Startwert Naturmaterial (API.md 10a): Sande (RK/Bruchsand), Kies, Rollschotter, Splitt, Wandschotter FSM,
+ * Grädermaterial → ja; Recycling (RB, RA, RG, RMH), Erde, Bodenaushub, Bruch/Schutt, Holz/Wurzelstöcke → nein.
+ */
+function istNaturmaterial(bezeichnung, einheit, gruppe) {
+  if (gruppe !== 'eigenmaterial' || String(einheit).trim() !== 't') return false;
+  return /^(Sand |Bruchsand|Kies|Rollschotter|Splitt|Wandschotter|Grädermaterial)/.test(String(bezeichnung).trim());
+}
 
 /** Bericht-Einträge ohne Zuordnung (bewusst): Gräder (kein Gerät in der Vorlage), Asphalt (Vorlage: Lieferantenrechnung PA) */
 const OHNE_ZUORDNUNG = [
@@ -53,4 +64,4 @@ function zuordnungFuer(bezeichnung, einheit) {
   return MAP.get(schluessel(bezeichnung, einheit)) || null;
 }
 
-module.exports = { ZUORDNUNG, OHNE_ZUORDNUNG, zuordnungFuer, schluessel };
+module.exports = { ZUORDNUNG, OHNE_ZUORDNUNG, zuordnungFuer, schluessel, istNaturmaterial };

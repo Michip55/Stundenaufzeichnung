@@ -354,7 +354,7 @@ function seed(db, opt = {}) {
       };
       for (const [i, tag] of tage.entries()) if (i % 5 === 4) eintrag('Maut', 'VE', 40 + Math.round(r() * 80), 'Maut-Abrechnung Woche', tag);
       if (tage.length) {
-        eintrag('Landschaftsabgabe', 'PA', 300 + Math.round(r() * 400), 'Landschaftsabgabe laut Deponieschein', tage[tage.length - 1]);
+        // Landschaftsabgabe: automatisch aus den Tonnen Naturmaterial (API.md 10a)
         eintrag('Lagerhaus', 'PA', 250 + Math.round(r() * 500), 'Lagerhaus-Rechnung Kleinmaterial', tage[Math.floor(tage.length / 2)]);
       }
     }

@@ -12,7 +12,7 @@ const { wienDatum, plusTage } = require('../datum');
 const { brauche, baustelleAusPfad } = require('./hilfe');
 const { kalkulationFuer } = require('../daten');
 
-const ARTEN = ['personal', 'geraet', 'material'];
+const ARTEN = ['personal', 'geraet', 'material', 'naturmaterial'];
 
 module.exports = function positionenRouten(api, bt) {
   const { db } = bt;
@@ -24,6 +24,7 @@ module.exports = function positionenRouten(api, bt) {
     if (q === null) return null;
     v.objekt(q, 'quelle');
     const art = v.auswahl(q.art, 'quelle.art', ARTEN);
+    if (art === 'naturmaterial') return { art }; // Landschaftsabgabe: Σ Tonnen Naturmaterial
     const refs = Array.isArray(q.ref) ? v.liste(q.ref, 'quelle.ref', { max: 30 }) : [q.ref];
     if (!refs.length) throw ungueltig('quelle.ref: mindestens ein Eintrag.');
     const gueltig = new Set(art === 'personal' ? db.alle('SELECT id FROM lohngruppe').map((x) => x.id)
@@ -48,6 +49,7 @@ module.exports = function positionenRouten(api, bt) {
       f.quelle = body.quelle === null ? null : JSON.stringify(pruefeQuelle(body.quelle));
       f.zuordnung_pruefen = 0; // bewusst gesetzt
     }
+    if (body.naturmaterial !== undefined) { f.naturmaterial = v.bool(body.naturmaterial, 'naturmaterial') ? 1 : 0; f.naturmaterial_pruefen = 0; }
     if (body.zuordnungPruefen !== undefined) f.zuordnung_pruefen = v.bool(body.zuordnungPruefen, 'zuordnungPruefen') ? 1 : 0;
     return f;
   }
@@ -101,7 +103,8 @@ module.exports = function positionenRouten(api, bt) {
         schluessel: g.schluessel, name: g.name,
         positionen: alle.filter((k) => k.gruppe === g.schluessel).map((k) => ({
           id: k.id, gruppe: k.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, ep: k.ep, sortierung: k.sortierung,
-          quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1, aktiv: k.aktiv === 1, version: k.version
+          quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1,
+          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, aktiv: k.aktiv === 1, version: k.version
         }))
       }))
     };
@@ -112,8 +115,8 @@ module.exports = function positionenRouten(api, bt) {
   api.post('/positionen/katalog', brauche('preise_bearbeiten'), (req, res) => {
     const f = pruefeFelder(v.objekt(req.body), false);
     const sort = f.sortierung ?? ((db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', f.gruppe).m || 0) + 10);
-    const r = db.lauf('INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)',
-      f.gruppe, f.bezeichnung, f.einheit, f.ep, sort, f.quelle ?? null, f.zuordnung_pruefen ?? 0, jetzt());
+    const r = db.lauf('INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert, naturmaterial) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)',
+      f.gruppe, f.bezeichnung, f.einheit, f.ep, sort, f.quelle ?? null, f.zuordnung_pruefen ?? 0, jetzt(), f.naturmaterial ?? 0);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'katalog', objekt: `katalog:${r.id}`, neu: f, text: `Katalog: Position „${f.bezeichnung}“ angelegt` });
     res.status(201).json(katalogJson().gruppen.flatMap((g) => g.positionen).find((p) => p.id === r.id));
   });
@@ -190,8 +193,8 @@ module.exports = function positionenRouten(api, bt) {
     lesen(req, bs); schreibenPreise(req);
     const f = pruefeFelder(v.objekt(req.body), false);
     const sort = f.sortierung ?? ((db.eins('SELECT MAX(sortierung) AS m FROM projektposition WHERE baustelle_id = ? AND gruppe = ?', bs.id, f.gruppe).m || 0) + 10);
-    const r = db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert)
-      VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`, bs.id, f.gruppe, f.bezeichnung, f.einheit, f.ep, sort, f.quelle ?? null, f.zuordnung_pruefen ?? 0, jetzt(), jetzt());
+    const r = db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial)
+      VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`, bs.id, f.gruppe, f.bezeichnung, f.einheit, f.ep, sort, f.quelle ?? null, f.zuordnung_pruefen ?? 0, jetzt(), jetzt(), f.naturmaterial ?? 0);
     prot(req, `baustelle:${bs.id}`, `Nachkalkulation ${bs.kst}: eigene Position „${f.bezeichnung}“ angelegt`, null, f);
     budget(req, bs, 'neue Position');
     res.status(201).json(positionJson(db.eins('SELECT * FROM projektposition WHERE id = ?', r.id)));

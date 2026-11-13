@@ -449,6 +449,24 @@ CREATE TABLE projektposition_menge (
 );
 CREATE INDEX projektposition_menge_pos ON projektposition_menge(position_id);
 `
+  },
+  {
+    version: 7,
+    name: 'Naturmaterial-Kennzeichen und automatische Landschaftsabgabe (API.md 10a)',
+    sql: `
+ALTER TABLE katalog ADD COLUMN naturmaterial INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE katalog ADD COLUMN naturmaterial_pruefen INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE projektposition ADD COLUMN naturmaterial INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE projektposition ADD COLUMN naturmaterial_pruefen INTEGER NOT NULL DEFAULT 0;
+UPDATE katalog SET naturmaterial_pruefen = 1 WHERE gruppe = 'eigenmaterial';
+UPDATE projektposition SET naturmaterial_pruefen = 1 WHERE gruppe = 'eigenmaterial';
+UPDATE katalog SET naturmaterial = 1 WHERE gruppe = 'eigenmaterial' AND einheit = 't' AND (bezeichnung LIKE 'Sand %' OR bezeichnung LIKE 'Bruchsand%'
+  OR bezeichnung LIKE 'Kies%' OR bezeichnung LIKE 'Rollschotter%' OR bezeichnung LIKE 'Splitt%' OR bezeichnung LIKE 'Wandschotter%' OR bezeichnung LIKE 'Grädermaterial%');
+UPDATE projektposition SET naturmaterial = 1 WHERE gruppe = 'eigenmaterial' AND einheit = 't' AND (bezeichnung LIKE 'Sand %' OR bezeichnung LIKE 'Bruchsand%'
+  OR bezeichnung LIKE 'Kies%' OR bezeichnung LIKE 'Rollschotter%' OR bezeichnung LIKE 'Splitt%' OR bezeichnung LIKE 'Wandschotter%' OR bezeichnung LIKE 'Grädermaterial%');
+UPDATE katalog SET quelle = '{"art":"naturmaterial"}', zuordnung_pruefen = 1 WHERE bezeichnung = 'Landschaftsabgabe' AND quelle IS NULL;
+UPDATE projektposition SET quelle = '{"art":"naturmaterial"}', zuordnung_pruefen = 1 WHERE bezeichnung = 'Landschaftsabgabe' AND quelle IS NULL;
+`
   }
 ];
 

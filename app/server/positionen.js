@@ -5,7 +5,7 @@
  * Summe je Position = Menge × EP (auf Cent), Gruppensummen, Zusammenstellung, Nachkalkulationssumme.
  */
 const { GRUPPEN, ladeKatalogVorlage } = require('./katalog-excel');
-const { zuordnungFuer } = require('./positionen-zuordnung');
+const { zuordnungFuer, istNaturmaterial } = require('./positionen-zuordnung');
 const { parseJson } = require('./daten');
 
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -61,8 +61,9 @@ function katalogAnlegen(db, jetzt = new Date()) {
   db.transaktion(() => {
     v.positionen.forEach((p, i) => {
       const q = zuordnungFuer(p.bezeichnung, p.einheit);
-      db.lauf('INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)',
-        p.gruppe, p.bezeichnung.trim(), p.einheit, p.ep, (i + 1) * 10, q ? JSON.stringify(q) : null, q ? 1 : 0, t);
+      db.lauf(`INSERT INTO katalog (gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, geaendert, naturmaterial, naturmaterial_pruefen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`, p.gruppe, p.bezeichnung.trim(), p.einheit, p.ep, (i + 1) * 10, q ? JSON.stringify(q) : null, q ? 1 : 0, t,
+      istNaturmaterial(p.bezeichnung, p.einheit, p.gruppe) ? 1 : 0, p.gruppe === 'eigenmaterial' ? 1 : 0);
     });
     db.setzeEinstellung('katalog_stand', v.stand);
   });
@@ -76,8 +77,8 @@ function katalogKopieren(db, baustelleId, jetzt = new Date()) {
   let n = 0;
   for (const k of db.alle('SELECT * FROM katalog WHERE aktiv = 1 ORDER BY sortierung, id')) {
     if (vorhanden.has(k.id)) continue;
-    db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`, baustelleId, k.id, k.gruppe, k.bezeichnung, k.einheit, k.ep, k.sortierung, k.quelle, k.zuordnung_pruefen, t, t);
+    db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial, naturmaterial_pruefen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`, baustelleId, k.id, k.gruppe, k.bezeichnung, k.einheit, k.ep, k.sortierung, k.quelle, k.zuordnung_pruefen, t, t, k.naturmaterial, k.naturmaterial_pruefen);
     n++;
   }
   return n;
@@ -90,7 +91,7 @@ function katalogKopieren(db, baustelleId, jetzt = new Date()) {
 function autoMengen(db, baustelleId, positionen) {
   const mengen = new Map();
   const hinweise = [];
-  const mitQuelle = positionen.filter((p) => p.quelle && p.aktiv);
+  const mitQuelle = positionen.filter((p) => p.quelle && p.aktiv && p.quelle.art !== 'naturmaterial');
   if (!mitQuelle.length) return { mengen, hinweise };
   const personal = db.alle(`SELECT b.lohngruppe_id AS ref, SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
     JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY b.lohngruppe_id`, baustelleId);
@@ -120,10 +121,22 @@ function autoMengen(db, baustelleId, positionen) {
   return { mengen, hinweise };
 }
 
+/**
+ * API.md 10a: Positionen mit quelle {art:"naturmaterial"} (Landschaftsabgabe) erhalten als automatische Menge
+ * die Summe der Tonnen aller aktiven Naturmaterial-Positionen (Bericht + manuelle Einträge).
+ */
+function naturmaterialMengen(positionen) {
+  const tonnen = r3(positionen.filter((p) => p.aktiv && p.naturmaterial && einheitNorm(p.einheit) === 't')
+    .reduce((a, p) => a + (p.mengeAuto || 0) + (p.eintraege || []).reduce((x, e) => x + e.menge, 0), 0));
+  for (const p of positionen) if (p.quelle && p.quelle.art === 'naturmaterial' && p.aktiv) p.mengeAuto = tonnen;
+  return tonnen;
+}
+
 function positionJson(p) {
   return {
     id: p.id, katalogId: p.katalog_id, gruppe: p.gruppe, bezeichnung: p.bezeichnung, einheit: p.einheit, ep: p.ep,
     sortierung: p.sortierung, quelle: parseJson(p.quelle, null), zuordnungPruefen: p.zuordnung_pruefen === 1,
+    naturmaterial: p.naturmaterial === 1, naturmaterialPruefen: p.naturmaterial_pruefen === 1,
     aktiv: p.aktiv === 1, version: p.version
   };
 }
@@ -138,8 +151,10 @@ function projektPositionen(db, bs, auftragGesamt) {
     eintraege.get(e.position_id).push({ id: e.id, datum: e.datum, menge: e.menge, notiz: e.notiz, erstellt: e.erstellt, erstelltVon: e.erstellt_von, erstelltVonName: e.von_name });
   }
   const auto = autoMengen(db, bs.id, zeilen);
-  const r = berechnePositionen(zeilen.map((p) => ({ ...p, mengeAuto: auto.mengen.get(p.id) || 0, eintraege: eintraege.get(p.id) || [] })), auftragGesamt);
+  const mitMengen = zeilen.map((p) => ({ ...p, mengeAuto: auto.mengen.get(p.id) || 0, eintraege: eintraege.get(p.id) || [] }));
+  naturmaterialMengen(mitMengen);
+  const r = berechnePositionen(mitMengen, auftragGesamt);
   return { baustelleId: bs.id, auftragGesamt: auftragGesamt == null ? null : auftragGesamt, ...r, hinweise: [...auto.hinweise, ...r.hinweise] };
 }
 
-module.exports = { einheitNorm, berechnePositionen, katalogAnlegen, katalogKopieren, autoMengen, projektPositionen, positionJson };
+module.exports = { einheitNorm, naturmaterialMengen, berechnePositionen, katalogAnlegen, katalogKopieren, autoMengen, projektPositionen, positionJson };
