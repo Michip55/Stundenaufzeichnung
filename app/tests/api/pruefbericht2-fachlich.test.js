@@ -82,7 +82,7 @@ test('C-04, C-02, C-06, C-08, C-11', async (t) => {
 
   await t.test('C-06: Bauherr-Unterschrift zurückziehen nur Büro/GF, gleiches Bild abgelehnt, Vermerk sichtbar (auch PDF)', async () => {
     const bild = demoUnterschrift('echter-bauherr');
-    assert.equal((await pol.post(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: bild })).status, 200);
+    assert.equal((await pol.postV(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: bild })).status, 200);
     const g = (await pol.get(`/berichte/${berichtId}`)).daten;
     assert.equal(g.unterschriften.bh.bildPng, bild);
     assert.equal((await pol.del(`/berichte/${berichtId}/unterschrift/bh`)).status, 403);
@@ -91,15 +91,15 @@ test('C-04, C-02, C-06, C-08, C-11', async (t) => {
     assert.equal(w.daten.geaendertNachUnterschrift.rolle, 'bh');
     assert.equal(w.daten.geaendertNachUnterschrift.von, 'Martina Koller');
     assert.equal((await pol.putV(`/berichte/${berichtId}`, { regie: [{ text: 'Regie 10 Std. angeordnet', stunden: 10 }] })).status, 200);
-    const wieder = await pol.post(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'DI Bauherr', bildPng: bild });
+    const wieder = await pol.postV(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'DI Bauherr', bildPng: bild });
     assert.equal(wieder.status, 400);
     assert.match(wieder.daten.fehler, /neu unterschreiben/);
     // Bild aus einem anderen Bericht
     const fremdesBild = s.db.eins("SELECT bild_png FROM unterschrift WHERE bericht_id <> ? AND bild_png IS NOT NULL LIMIT 1", berichtId).bild_png;
     s.db.nachMigration(); // Hashes der Testdaten-Unterschriften
-    assert.equal((await pol.post(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'DI Bauherr', bildPng: fremdesBild })).status, 400);
-    assert.equal((await pol.post(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('neu-bh') })).status, 200);
-    assert.equal((await pol.post(`/berichte/${berichtId}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('neu-an') })).status, 200);
+    assert.equal((await pol.postV(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'DI Bauherr', bildPng: fremdesBild })).status, 400);
+    assert.equal((await pol.postV(`/berichte/${berichtId}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('neu-bh') })).status, 200);
+    assert.equal((await pol.postV(`/berichte/${berichtId}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('neu-an') })).status, 200);
     const liste = (await buero.get(`/berichte?baustelleId=${BS.pitten}&von=2026-11-12`)).daten;
     assert.equal(liste.find((x) => x.id === berichtId).geaendertNachUnterschrift, true);
     for (const f of ['ag', 'intern']) {
@@ -171,8 +171,8 @@ test('C-01, C-03, C-10: Lohn ohne Doppelzählung, Bericht-Korrektur gilt, Zeitum
     const aktuell = (await pol.get(`/berichte/${bericht1}`)).daten.personal;
     const neu = aktuell.filter((p) => p.benutzerId !== 5).map((p) => (p.benutzerId === 4 ? { benutzerId: 4, von1: null, bis1: null, pauseMin: 0 } : p));
     assert.equal((await pol.putV(`/berichte/${bericht1}`, { personal: neu })).status, 200);
-    await pol.post(`/berichte/${bericht1}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('c03-an') });
-    await pol.post(`/berichte/${bericht1}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('c03-bh') });
+    await pol.postV(`/berichte/${bericht1}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('c03-an') });
+    await pol.postV(`/berichte/${bericht1}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('c03-bh') });
     assert.equal((await bl.post(`/berichte/${bericht1}/freigeben`)).status, 200);
     const m = (await buero.get('/monat?monat=2026-12')).daten;
     const tag = (id) => m.mitarbeiter.find((x) => x.id === id).tage['2026-12-14'];

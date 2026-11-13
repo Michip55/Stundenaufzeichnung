@@ -255,6 +255,11 @@ function monat(db, monatStr, jetzt) {
       normal: r2(summe - ueberstunden), ueberstunden, sw, swStunden: r2(swStunden), k, u, za, seg: r2(seg.get(b.id) || 0)
     };
   });
+  // D-10: GF-Selbstfreigaben kennzeichnen
+  for (const r of db.alle(`SELECT r.id, r.datum, b.kst, u.id AS uid, u.name FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
+      LEFT JOIN benutzer u ON u.id = r.freigegeben_von WHERE r.selbstfreigabe = 1 AND r.datum BETWEEN ? AND ?`, erster, letzter)) {
+    warnungen.push({ benutzerId: r.uid, name: r.name, datum: r.datum, typ: 'selbstfreigabe', stufe: 'hinweis', berichtId: r.id, text: `Bericht ${r.kst} vom ${r.datum.split('-').reverse().join('.')} von derselben Person unterschrieben (AN) und freigegeben.` });
+  }
   return {
     monat: monatStr, tage, mitarbeiter, warnungen, beantragt, offeneSchichten,
     annahmen: {

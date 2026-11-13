@@ -137,31 +137,31 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
   });
 
   await t.test('Personal neu aus Stempelungen übernehmen (nur Entwurf)', async () => {
-    const r = await pol.post(`/berichte/${id}/personal-aktualisieren`);
+    const r = await pol.postV(`/berichte/${id}/personal-aktualisieren`);
     assert.equal(r.status, 200);
     assert.equal(r.daten.personal.find((p) => p.benutzerId === 2).stunden, 8.5);
     assert.equal(r.daten.personal.find((p) => p.benutzerId === 2).segStunden, 3);
   });
 
   await t.test('Unterschriften: Prüfung, erst beide → unterschrieben, danach nicht mehr bearbeitbar', async () => {
-    assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: 'data:image/jpeg;base64,AAAA' })).status, 400);
-    assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: 'data:image/png;base64,AAAAAAAAAAAA' })).status, 400);
-    assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'xx', name: 'J', bildPng: demoUnterschrift('a') })).status, 400);
-    assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'an', name: '', bildPng: demoUnterschrift('a') })).status, 400);
-    assert.equal((await ma.post(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'X', bildPng: demoUnterschrift('a') })).status, 403);
+    assert.equal((await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: 'data:image/jpeg;base64,AAAA' })).status, 400);
+    assert.equal((await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: 'data:image/png;base64,AAAAAAAAAAAA' })).status, 400);
+    assert.equal((await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'xx', name: 'J', bildPng: demoUnterschrift('a') })).status, 400);
+    assert.equal((await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: '', bildPng: demoUnterschrift('a') })).status, 400);
+    assert.equal((await ma.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'X', bildPng: demoUnterschrift('a') })).status, 403);
     assert.equal((await pol.post(`/berichte/${id}/freigeben`)).status, 403);
     assert.equal((await buero.post(`/berichte/${id}/freigeben`)).status, 409); // erst nach Unterschriften
-    let r = await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('an') });
+    let r = await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('an') });
     assert.equal(r.status, 200);
     assert.equal(r.daten.status, 'entwurf');
     assert.equal(r.daten.unterschriften.an.name, 'Josef Haidbauer');
-    r = await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('bh') });
+    r = await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('bh') });
     assert.equal(r.daten.status, 'unterschrieben');
     assert.equal(r.daten.bearbeitbar, false);
     assert.match(r.daten.unterschriften.bh.bildPng, /^data:image\/png;base64,/);
     assert.equal((await pol.putV(`/berichte/${id}`, { vorkommnisse: 'nachträglich' })).status, 409);
-    assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'bh', name: 'X', bildPng: demoUnterschrift('x') })).status, 409);
-    assert.equal((await pol.post(`/berichte/${id}/personal-aktualisieren`)).status, 409);
+    assert.equal((await pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'bh', name: 'X', bildPng: demoUnterschrift('x') })).status, 409);
+    assert.equal((await pol.postV(`/berichte/${id}/personal-aktualisieren`)).status, 409);
     // Hinweis „wartet auf Freigabe“ an Bauleiter, Büro, GF – nicht an Polier
     assert.ok((await bl.get('/benachrichtigungen')).daten.some((n) => n.typ === 'bericht' && /WHA Pitten/.test(n.titel)));
     assert.ok(!(await pol.get('/benachrichtigungen')).daten.some((n) => n.typ === 'bericht'));

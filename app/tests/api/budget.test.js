@@ -134,9 +134,9 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     await gf.putV(`/baustellen/${BS.ternitz}/auftrag`, { auftragssumme: summe });
     const vorher = (await budgetMeldungen(bl, BS.ternitz)).length;
     const sig = require('../../server/png').demoUnterschrift('x');
-    await gf.post(`/berichte/${entwurf}/unterschrift`, { rolle: 'an', name: 'Manfred Puchegger', bildPng: sig });
+    await gf.postV(`/berichte/${entwurf}/unterschrift`, { rolle: 'an', name: 'Manfred Puchegger', bildPng: sig });
     assert.equal((await budgetMeldungen(bl, BS.ternitz)).length, vorher);
-    await gf.post(`/berichte/${entwurf}/unterschrift`, { rolle: 'bh', name: 'DI Martin Ebner', bildPng: sig });
+    await gf.postV(`/berichte/${entwurf}/unterschrift`, { rolle: 'bh', name: 'DI Martin Ebner', bildPng: sig });
     const m = await budgetMeldungen(bl, BS.ternitz);
     assert.equal(m.length, vorher + 1);
     assert.match(m[0].text, /90 %/);

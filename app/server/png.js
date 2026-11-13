@@ -75,4 +75,55 @@ function demoUnterschrift(text, w = 240, h = 80) {
   return 'data:image/png;base64,' + pngGrau(w, h, px).toString('base64');
 }
 
-module.exports = { pngGrau, demoUnterschrift, crc32, zufall, hash };
+/**
+ * Dekodiert ein PNG zu Bildpunkten (ungefiltert) – für einen inhaltlichen Bild-Abgleich (D-05):
+ * angehängte Bytes, Zusatz-Chunks oder andere Kompression ändern das Ergebnis nicht.
+ * @returns {{w:number,h:number,farbtyp:number,bittiefe:number,palette:Buffer|null,daten:Buffer}}
+ */
+function pngBildpunkte(buf) {
+  if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) throw new Error('kein PNG');
+  let pos = 8, ihdr = null, palette = null;
+  const idat = [];
+  while (pos + 8 <= buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const typ = buf.toString('ascii', pos + 4, pos + 8);
+    const daten = buf.subarray(pos + 8, pos + 8 + len);
+    if (typ === 'IHDR') ihdr = daten;
+    else if (typ === 'PLTE') palette = Buffer.from(daten);
+    else if (typ === 'IDAT') idat.push(daten);
+    else if (typ === 'IEND') break;
+    pos += 12 + len;
+  }
+  if (!ihdr || !idat.length) throw new Error('PNG unvollständig');
+  const w = ihdr.readUInt32BE(0), h = ihdr.readUInt32BE(4), bittiefe = ihdr[8], farbtyp = ihdr[9], interlace = ihdr[12];
+  const roh = zlib.inflateSync(Buffer.concat(idat));
+  const kanaele = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[farbtyp];
+  if (!kanaele || interlace) return { w, h, farbtyp, bittiefe, palette, daten: roh }; // Sonderfall: gefilterte Rohdaten
+  const zeile = Math.ceil((w * kanaele * bittiefe) / 8);
+  const bpp = Math.max(1, Math.ceil((kanaele * bittiefe) / 8));
+  if (roh.length < h * (zeile + 1)) throw new Error('PNG-Daten zu kurz');
+  const out = Buffer.alloc(h * zeile);
+  for (let y = 0; y < h; y++) {
+    const filter = roh[y * (zeile + 1)];
+    const ein = roh.subarray(y * (zeile + 1) + 1, (y + 1) * (zeile + 1));
+    const o = y * zeile;
+    for (let x = 0; x < zeile; x++) {
+      const a = x >= bpp ? out[o + x - bpp] : 0;
+      const b = y > 0 ? out[o - zeile + x] : 0;
+      const c = y > 0 && x >= bpp ? out[o - zeile + x - bpp] : 0;
+      let wert;
+      switch (filter) {
+        case 0: wert = 0; break;
+        case 1: wert = a; break;
+        case 2: wert = b; break;
+        case 3: wert = (a + b) >> 1; break;
+        case 4: { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); wert = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; break; }
+        default: throw new Error('unbekannter PNG-Filter');
+      }
+      out[o + x] = (ein[x] + wert) & 0xff;
+    }
+  }
+  return { w, h, farbtyp, bittiefe, palette, daten: out };
+}
+
+module.exports = { pngGrau, demoUnterschrift, crc32, zufall, hash, pngBildpunkte };

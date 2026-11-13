@@ -116,10 +116,19 @@ class Datenbank {
   }
 }
 
-/** SHA-256 der Bilddaten einer PNG-data-URL */
+/**
+ * SHA-256 über die dekodierten Bildpunkte einer PNG-data-URL (D-05); bei nicht lesbarem PNG über die Bytes.
+ */
 function bildHash(dataUrl) {
+  const crypto = require('node:crypto');
   const b64 = String(dataUrl).slice(String(dataUrl).indexOf(',') + 1);
-  return require('node:crypto').createHash('sha256').update(Buffer.from(b64, 'base64')).digest('hex');
+  const buf = Buffer.from(b64, 'base64');
+  try {
+    const p = require('./png').pngBildpunkte(buf);
+    return crypto.createHash('sha256').update(`png:${p.w}x${p.h}:${p.farbtyp}:${p.bittiefe}:`).update(p.palette || Buffer.alloc(0)).update(p.daten).digest('hex');
+  } catch (_) {
+    return crypto.createHash('sha256').update(buf).digest('hex');
+  }
 }
 
 function oeffneDatenbank(dbPfad) {

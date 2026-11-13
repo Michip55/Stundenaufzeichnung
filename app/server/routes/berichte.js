@@ -75,6 +75,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     geaendert: b.geaendert,
     version: b.version,
     geaendertNachUnterschrift: parseJson(b.geaendert_nach_unterschrift, null),
+    selbstfreigabe: b.selbstfreigabe === 1,
     bearbeitbar: b.status === 'entwurf' && !b.unterschriften.length
   };
   if (darfPreise(ctx, bs)) o.kostenTag = kostenTagFuer(db, b.id);
@@ -381,7 +382,7 @@ module.exports = function berichtRouten(api, bt) {
   api.post('/berichte/:id/personal-aktualisieren', (req, res) => {
     const b = ladeMitZugriff(req, true);
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
-    pruefeBerichtVersion(v.objekt(req.body || {}), b, false);
+    pruefeBerichtVersion(v.objekt(req.body || {}), b, true); // D-07
     const seg = new Map(b.personal.map((p) => [p.benutzer_id, p.seg_stunden]));
     const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: Math.min(seg.get(p.benutzerId) || 0, p.stunden) }));
     db.transaktion(() => speichereUpdate(db, b.id, { personal }, jetzt()));
@@ -395,6 +396,11 @@ module.exports = function berichtRouten(api, bt) {
     const rolle = v.auswahl(body.rolle, 'rolle', ['an', 'bh']);
     const name = v.text(body.name, 'name', { max: 120 });
     const bild = pruefePng(body.bildPng);
+    pruefeBerichtVersion(body, b, true); // D-07: Unterschrift nur auf den gesehenen Stand
+    // D-05: vorhandene Unterschrift nie überschreiben – nur über Zurückziehen
+    if (b.unterschriften.some((u) => u.rolle === rolle)) {
+      throw konflikt(`Die Unterschrift ${rolle === 'bh' ? 'des Bauherrn' : 'des Auftragnehmers'} liegt bereits vor. Ersetzen nur über „Unterschrift zurückziehen“.`);
+    }
     const hash = bildHash(bild);
     // C-06: zurückgezogene oder anderswo verwendete Unterschriftsbilder nicht wiederverwenden
     if (db.eins('SELECT 1 AS x FROM unterschrift_widerruf WHERE bericht_id = ? AND bild_hash = ?', b.id, hash)
@@ -405,7 +411,7 @@ module.exports = function berichtRouten(api, bt) {
     let neuerStatus = 'entwurf';
     db.transaktion(() => {
       db.lauf(`INSERT INTO unterschrift (bericht_id, rolle, name, zeit, bild_png, erfasst_von, bild_hash) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(bericht_id, rolle) DO UPDATE SET name = excluded.name, zeit = excluded.zeit, bild_png = excluded.bild_png, erfasst_von = excluded.erfasst_von, bild_hash = excluded.bild_hash`,
+        ON CONFLICT(bericht_id, rolle) DO NOTHING`,
       b.id, rolle, name, zeit, bild, req.ctx.benutzer.id, hash);
       db.lauf('UPDATE bericht SET version = version + 1 WHERE id = ?', b.id);
       const n = db.eins('SELECT COUNT(*) AS n FROM unterschrift WHERE bericht_id = ?', b.id).n;
@@ -455,10 +461,17 @@ module.exports = function berichtRouten(api, bt) {
     if (!baustelleImBereich(req.ctx.benutzer, b.baustelle)) throw keinZugriff('Freigeben dürfen Sie nur Berichte Ihrer eigenen Baustellen.');
     if (b.status === 'freigegeben') throw konflikt('Der Bericht ist bereits freigegeben.');
     if (b.status !== 'unterschrieben') throw konflikt('Freigabe erst nach beiden Unterschriften (Auftragnehmer und Bauherr) möglich.');
+    // D-10: Vier-Augen-Prinzip – wer die AN-Unterschrift erfasst hat, gibt nicht selbst frei (außer GF, dann markiert)
+    const an = b.unterschriften.find((u) => u.rolle === 'an');
+    const selbst = Boolean(an && an.erfasst_von === req.ctx.benutzer.id);
+    if (selbst && req.ctx.benutzer.rolle !== 'gf') {
+      throw keinZugriff('Vier-Augen-Prinzip: Wer die Unterschrift des Auftragnehmers erfasst hat, gibt den Bericht nicht selbst frei.');
+    }
     const zeit = jetzt();
     db.transaktion(() => {
-      db.lauf("UPDATE bericht SET status = 'freigegeben', freigegeben_von = ?, freigegeben_zeit = ?, geaendert = ?, version = version + 1 WHERE id = ?", req.ctx.benutzer.id, zeit, zeit, b.id);
-      db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'freigabe', objekt: `bericht:${b.id}`, alt: 'unterschrieben', neu: 'freigegeben', text: `Bericht ${b.baustelle.kst} ${b.datum} freigegeben` });
+      db.lauf("UPDATE bericht SET status = 'freigegeben', freigegeben_von = ?, freigegeben_zeit = ?, geaendert = ?, selbstfreigabe = ?, version = version + 1 WHERE id = ?", req.ctx.benutzer.id, zeit, zeit, selbst ? 1 : 0, b.id);
+      db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'freigabe', objekt: `bericht:${b.id}`, alt: 'unterschrieben', neu: 'freigegeben',
+        text: `Bericht ${b.baustelle.kst} ${b.datum} freigegeben${selbst ? ' (Selbstfreigabe durch GF – Vier-Augen-Prinzip nicht eingehalten)' : ''}` });
     });
     pruefeBudget(bt, b.baustelle_id, { anlass: 'Freigabe Bautagesbericht', benutzerId: req.ctx.benutzer.id });
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
