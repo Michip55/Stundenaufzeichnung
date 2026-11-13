@@ -39,6 +39,7 @@ if not exist data\bautag.db (
 echo.
 echo  ==============================================================
 echo   BauTag laeuft:  http://localhost:3000
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do echo   Handy im selben WLAN:%%a:3000  ^(vorne http:// eintippen^)
 echo   Anmelden mit einem Namen und der PIN 1234 ^(nur Testdaten^)
 echo   Dieses Fenster offen lassen. Beenden: Fenster schliessen.
 echo  ==============================================================

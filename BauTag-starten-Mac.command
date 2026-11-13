@@ -12,5 +12,6 @@ fi
 export BAUTAG_DEMO=1
 [ -f data/bautag.db ] || npm run seed
 echo; echo "BauTag läuft: http://localhost:3000  –  Anmelden mit Namen und PIN 1234 (Testdaten). Fenster offen lassen."; echo
+IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"; [ -n "$IP" ] && echo "Handy im selben WLAN: http://$IP:3000"; echo
 (sleep 4; open http://localhost:3000) &
 node server/index.js
