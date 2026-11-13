@@ -26,7 +26,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', ...extra };
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', ...extra };
   delete env.BAUTAG_UHR;
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
@@ -270,7 +270,7 @@ async function laufe(browser, g) {
     // B-06: Schicht über Mitternacht ist erfassbar und wird gespeichert
     await zeit(0, 'von1', '22:00'); await zeit(0, 'bis1', '06:00');
     pruef(await page.locator('.bp-row').nth(0).locator('.bp-nacht:not([hidden])').count() === 1, 'B-06: Hinweis „+1 Tag“ fehlt bei Schicht über Mitternacht');
-    pruef((await page.locator('.bp-row').nth(0).locator('[data-p="stunden"]').inputValue()) === '7,5', `B-06: Stunden über Mitternacht falsch (${await page.locator('.bp-row').nth(0).locator('[data-p="stunden"]').inputValue()})`);
+    pruef((await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()) === '7,5', `B-06: Stunden über Mitternacht falsch (${await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()})`);
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
     pruef(await zustand() === 'ok', `B-06: Nachtschicht wurde nicht gespeichert (Zustand ${await zustand()}: ${await page.locator('#unsaved').innerText().catch(() => '')})`);
     let p0 = (await api('GET', `/berichte/${berichtId}`)).json.personal[0];
@@ -314,6 +314,67 @@ async function laufe(browser, g) {
     await page.locator('.mat-row').nth(1).locator('[data-d="1"]').click();
     await ueberlauf('bericht schritt 3'); await shot('bericht-3-material');
     pruef(await page.locator('.a-mat [data-integ="scan_lieferschein"] button[disabled]').count() === 1, 'Bericht: Lieferschein-Scan ist nicht als deaktiviert gekennzeichnet');
+    // C-02: Arbeitsstunden sind nie frei eingebbar – weder in der Oberfläche noch über die Schnittstelle
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    await schritt(1);
+    pruef(await page.locator('.bp-row [data-p="stunden"], .bp-row input[aria-label*="Arbeitsstunden"]').count() === 0 && await page.locator('.bp-row output[data-p-std]').count() === ber.personal.length, 'C-02: Arbeitsstunden sind ein Eingabefeld');
+    const verBer = async () => (await api('GET', `/berichte/${berichtId}`)).json;
+    let akt = await verBer();
+    const c02 = await api('PUT', `/berichte/${berichtId}`, { version: akt.version, personal: akt.personal.map((x, i) => ({ benutzerId: x.benutzerId, von1: x.von1, bis1: x.bis1, von2: x.von2, bis2: x.bis2, pauseMin: x.pauseMin, code: x.code, segStunden: x.segStunden, stunden: i === 0 ? 23 : x.stunden })) });
+    pruef(c02.status === 200 && c02.json.personal[0].stunden === 8.5, `C-02: Server übernimmt frei gesetzte Stunden (${c02.status}, ${c02.json && c02.json.personal && c02.json.personal[0].stunden})`);
+    await page.reload(); await bereit(); await schritt(1);
+    // M-01: SEG-Stunden je Person, höchstens die Arbeitsstunden
+    await zeit(0, 'segStunden', '20');
+    await sleep(800);
+    pruef(await zustand() === 'invalid' && await page.locator('.bp-row.invalid .bp-err:not([hidden])').count() === 1, 'M-01: SEG-Stunden über den Arbeitsstunden werden angenommen');
+    await zeit(0, 'segStunden', '2');
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    pruef((await verBer()).personal[0].segStunden === 2, 'M-01: SEG-Stunden je Person nicht am Server');
+    // C-01: Personenauswahl – Partie zuerst, andere nur ausdrücklich als Gast, nie Bauleiter/Büro/GF
+    const optionen = await page.locator('#p-neu option').allInnerTexts();
+    pruef(optionen.length > 1 && ![NAME.gf, NAME.buero, NAME.bauleiter].some((n) => optionen.some((o) => o.includes(n))), `C-01: Auswahl bietet Büro/GF/Bauleiter an (${optionen.length} Einträge)`);
+    const gastOpt = page.locator('#p-neu optgroup[label^="Gast"] option').first();
+    pruef(await gastOpt.count() === 1 && (await gastOpt.innerText()).includes('(Gast)'), 'C-01: fremde Personen sind nicht als Gast gekennzeichnet');
+    const gastId = await gastOpt.getAttribute('value');
+    await page.selectOption('#p-neu', gastId);
+    await page.waitForSelector('.bp-row [data-gast]');
+    const gi = (await page.locator('.bp-row').count()) - 1;
+    await zeit(gi, 'von1', '07:00'); await zeit(gi, 'bis1', '09:00');
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
+    akt = await verBer();
+    const gastZeile = akt.personal.find((x) => String(x.benutzerId) === gastId);
+    pruef(await zustand() === 'ok' && gastZeile && gastZeile.gast === true, `C-01: Gast nicht als Gast gespeichert (Zustand ${await zustand()}: ${await page.locator('#unsaved').innerText().catch(() => '')})`);
+    await toastWeg();
+    const ohneGast = await absichtlich(() => api('PUT', `/berichte/${berichtId}`, { version: akt.version, personal: akt.personal.map((x) => ({ benutzerId: x.benutzerId, von1: x.von1, bis1: x.bis1, von2: x.von2, bis2: x.bis2, pauseMin: x.pauseMin, code: x.code })) }));
+    pruef(ohneGast.status === 400, `C-01: Server nimmt fremde Person ohne Gast-Kennzeichen an (Status ${ohneGast.status})`);
+    await ueberlauf('bericht gast'); await shot('bericht-gast');
+    // C-01: Fehlermeldung des Servers (z. B. Überschneidung) erscheint an der betroffenen Zeile
+    await page.route(`**/api/berichte/${berichtId}`, (r) => (r.request().method() === 'PUT' ? r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ code: 'UNGUELTIG', fehler: 'personal[0]: Überschneidung mit einer Stempelung auf Baustelle 26-038 (07:00–15:00).' }) }) : r.continue()));
+    await absichtlich(async () => { await zeit(0, 'pauseMin', '45'); await page.waitForSelector('.bp-row[data-i="0"] .bp-srv'); });
+    pruef((await page.locator('.bp-row[data-i="0"] .bp-srv').innerText()).includes('Überschneidung') && await zustand() === 'err' && await page.locator('#unsaved:not([hidden])').count() === 1, 'C-01: Überschneidungs-Fehler des Servers nicht an der Zeile sichtbar');
+    await shot('bericht-ueberschneidung');
+    await page.unroute(`**/api/berichte/${berichtId}`);
+    await zeit(0, 'pauseMin', '30');
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    pruef(await page.locator('.bp-srv').count() === 0, 'C-01: Zeilenfehler bleibt nach erfolgreichem Speichern stehen');
+    // Gast wieder entfernen
+    await page.locator('.bp-row').nth(gi).locator('[data-p-weg]').click();
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction((n) => document.querySelectorAll('.bp-row').length === n, gi);
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    // C-08: gleichzeitige Bearbeitung – ein veralteter Stand überschreibt nichts
+    akt = await verBer();
+    const fremd = await api('PUT', `/berichte/${berichtId}`, { version: akt.version, arbeitsleistung: 'Vom Büro eingetragen (anderes Gerät).' });
+    pruef(fremd.status === 200 && fremd.json.version !== akt.version, 'C-08: Version ändert sich beim Speichern nicht');
+    await schritt(5);
+    await absichtlich(async () => { await page.fill('[data-f="vorkommnisse"]', 'Alter Stand vom Tablet'); await page.waitForSelector('#unsaved[data-art="konflikt"]:not([hidden])'); });
+    pruef((await page.locator('#unsaved').innerText()).includes('von jemand anderem geändert') && await zustand() !== 'ok', 'C-08: kein Hinweis auf die fremde Änderung');
+    akt = await verBer();
+    pruef(akt.arbeitsleistung === 'Vom Büro eingetragen (anderes Gerät).' && akt.vorkommnisse !== 'Alter Stand vom Tablet', 'C-08: veralteter Stand hat die fremde Änderung überschrieben');
+    await ueberlauf('bericht konflikt'); await shot('bericht-konflikt');
+    await page.click('[data-konflikt-laden]');
+    await bereit(); await page.waitForSelector('.bform');
+    pruef((await page.locator('[data-f="arbeitsleistung"]').inputValue()) === 'Vom Büro eingetragen (anderes Gerät).', 'C-08: nach „Neu laden“ fehlt die fremde Änderung');
     // Leistung, Beistellung, Paletten
     await schritt(4);
     await page.fill('[data-f="arbeitsleistung"]', 'Künette ausgehoben, Frostschutz eingebaut und verdichtet (E2E-Test).');
@@ -339,6 +400,7 @@ async function laufe(browser, g) {
     pruef(ber.regie.length === 1 && ber.regie[0].stunden === 2, 'Bericht: Regie nicht gespeichert');
     // Unterschriften
     await schritt(6);
+    let sigNr = 0;
     const unterschreibe = async (rolle, name) => {
       const box = page.locator(`.sig-box[data-sig="${rolle}"]`);
       const cv = box.locator('canvas');
@@ -346,7 +408,8 @@ async function laufe(browser, g) {
       const r = await cv.boundingBox();
       await page.mouse.move(r.x + 30, r.y + r.height * 0.6);
       await page.mouse.down();
-      for (let i = 1; i <= 12; i++) await page.mouse.move(r.x + 30 + i * (r.width - 60) / 12, r.y + r.height * (0.6 + (i % 2 ? -0.25 : 0.2)), { steps: 2 });
+      sigNr++; // jede Unterschrift sieht anders aus (ein schon verwendetes Bild lehnt der Server ab)
+      for (let i = 1; i <= 12; i++) await page.mouse.move(r.x + 30 + i * (r.width - 60) / 12, r.y + r.height * (0.6 + (i % 2 ? -0.25 : 0.2) + ((i * sigNr) % 5) * 0.02), { steps: 2 });
       await page.mouse.up();
       if (name) await box.locator('[data-sig-name]').fill(name);
       await box.locator('[data-sig-save]').click();
@@ -359,7 +422,7 @@ async function laufe(browser, g) {
     // M-02: nach der ersten Unterschrift ist der Inhalt gesperrt – mit klarem Hinweis
     pruef(await page.locator('#gesperrt-hinweis').count() === 1, 'M-02: Hinweis „Inhalt gesperrt“ fehlt nach der ersten Unterschrift');
     pruef(await page.locator('.bform textarea:not([disabled]), .bform .stepper button:not([disabled]), .bform .bp-row input:not([disabled])').count() === 0, 'M-02: Bericht ist nach der ersten Unterschrift noch bearbeitbar');
-    const m02 = await absichtlich(() => api('PUT', `/berichte/${berichtId}`, { vorkommnisse: 'nachträglich geändert' }));
+    const m02 = await absichtlich(async () => api('PUT', `/berichte/${berichtId}`, { version: (await verBer()).version, vorkommnisse: 'nachträglich geändert' }));
     pruef(m02.status === 409, `M-02: Server nimmt Änderung nach Unterschrift an (Status ${m02.status})`);
     // Unterschrift zurückziehen → wieder bearbeitbar → neu unterschreiben
     await page.click('[data-sig-weg="an"]');
@@ -367,8 +430,14 @@ async function laufe(browser, g) {
     await page.waitForSelector('.sig-box[data-sig="an"]:not(.signed) canvas');
     pruef(await page.locator('#gesperrt-hinweis').count() === 0 && await page.locator('[data-f="vorkommnisse"]:not([disabled])').count() === 1, 'M-02: nach dem Zurückziehen nicht wieder bearbeitbar');
     await toastWeg();
-    await unterschreibe('an');
+    // C-06: der Vermerk „Unterschrift zurückgezogen“ ist sichtbar; die Bauherr-Unterschrift zieht nur Büro/GF zurück
+    pruef(await page.locator('#nach-unterschrift').count() === 1 && !!(await verBer()).geaendertNachUnterschrift, 'C-06: Vermerk nach zurückgezogener Unterschrift fehlt');
     await unterschreibe('bh', 'Ing. Maria Gruber');
+    pruef(await page.locator('[data-sig-weg="bh"]').count() === 0 && await page.locator('[data-bh-fest]').count() === 1, 'C-06: Polier sieht „Unterschrift zurückziehen“ beim Bauherrn');
+    const c06 = await absichtlich(() => api('DELETE', `/berichte/${berichtId}/unterschrift/bh`));
+    pruef(c06.status === 403, `C-06: Polier kann die Bauherr-Unterschrift zurückziehen (Status ${c06.status})`);
+    await ueberlauf('bericht bauherr unterschrieben'); await shot('bericht-bauherr-fest');
+    await unterschreibe('an');
     await bereit();
     ber = (await api('GET', `/berichte/${berichtId}`)).json;
     pruef(ber.status === 'unterschrieben', `Bericht nach zwei Unterschriften: Status ${ber.status}`);
@@ -394,7 +463,9 @@ async function laufe(browser, g) {
     await page.click('dialog[open] button[type="submit"]');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
     await page.waitForSelector('#abw-andere li');
-    pruef((await api('GET', '/abwesenheiten')).json.some((a) => a.code === 'SW' && a.datum === heuteWien && String(a.benutzerId) === freieIds[0]), 'B-07: Schlechtwetter des Poliers nicht am Server');
+    const swEintrag = (await api('GET', '/abwesenheiten')).json.find((a) => a.code === 'SW' && a.datum === heuteWien && String(a.benutzerId) === freieIds[0]);
+    pruef(!!swEintrag, 'B-07: Schlechtwetter des Poliers nicht am Server');
+    pruef(swEintrag && swEintrag.status === 'beantragt' && await page.locator(`#abw-andere li[data-abw="${swEintrag && swEintrag.id}"] [data-abw-status="beantragt"]`).count() === 1, `C-13: Schlechtwetter des Poliers ist nicht „beantragt“ (${swEintrag && swEintrag.status})`);
     await toastWeg();
     await geh('/woche'); await keinEuro('polier woche');
     await geh('/mehr'); await keinEuro('polier mehr');
@@ -407,7 +478,7 @@ async function laufe(browser, g) {
     /* ============ 3. Büro: freigeben, PDF, Preis, Nachkalkulation, Budget-Alarm, CSV ============ */
     ich = await anmelden('buero');
     nav = await navIds();
-    pruef(['dashboard', 'berichte', 'baustellen', 'kalkulation', 'preise', 'monat'].every((n) => nav.includes(n)) && !nav.includes('benutzer'), `Büro-Navigation falsch: ${nav}`);
+    pruef(['dashboard', 'berichte', 'baustellen', 'kalkulation', 'preise', 'monat', 'benutzer'].every((n) => nav.includes(n)), `Büro-Navigation falsch: ${nav}`);
     await geh('/dashboard');
     pruef(await page.locator('[data-kpi="freigabe"] b').innerText() !== '0', 'Übersicht: kein Bericht zur Freigabe angezeigt');
     pruef(await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
@@ -421,6 +492,8 @@ async function laufe(browser, g) {
     // Freigeben
     await geh(`/bericht/${berichtId}`);
     pruef(await page.locator('#kosten:not([hidden])').count() === 1, 'Büro sieht die Tageskosten im Bericht nicht');
+    pruef(await page.locator('#nach-unterschrift').count() === 1 && (await page.locator('#nach-unterschrift').innerText()).includes('zurückgezogen'), 'C-06: Vermerk „Unterschrift zurückgezogen“ fehlt in der Freigabe-Ansicht');
+    await shot('bericht-freigabe-vermerk');
     const kalkVor = (await api('GET', `/kalkulation/${bsId}`)).json;
     await page.click('#freigeben');
     await page.click('dialog[open] [data-ok]');
@@ -452,9 +525,34 @@ async function laufe(browser, g) {
     await page.waitForSelector('dialog[open] #abw-e');
     pruef(await page.locator('dialog[open] select[name="code"] option').count() === 4, 'B-07: Büro kann nicht alle Kürzel eintragen');
     await page.selectOption('dialog[open] select[name="code"]', 'K');
-    await page.locator('dialog[open] input[name="wer"]').nth(2).check();
+    // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – der Polier kann sie danach nicht einstempeln
+    const heuteW = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const daHeute = (await api('GET', '/zeit/anwesend')).json.map((x) => x.benutzerId);
+    const abwHeute = (await api('GET', `/abwesenheiten?von=${heuteW}&bis=${heuteW}`)).json.map((x) => x.benutzerId);
+    const kranker = (await api('GET', '/benutzer')).json.find((m) => m.rolle === 'mitarbeiter' && m.aktiv && m.baustelleId === bsId && !daHeute.includes(m.id) && !abwHeute.includes(m.id));
+    pruef(!!kranker, 'C-11: keine freie Person der Partie für den Krankenstand (Testdaten)');
+    await page.locator(`dialog[open] input[name="wer"][value="${kranker.id}"]`).check();
     await page.click('dialog[open] button[type="submit"]');
-    await page.waitForSelector('#abw-andere li:has(.c-K)');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    await page.waitForSelector(`#abw-andere li:has(.c-K):has-text("${kranker.name}")`);
+    await toastWeg();
+    // C-13: Schlechtwetter-Meldung des Poliers wartet auf Bestätigung
+    pruef(await page.locator('#abw-offen li:has(.c-SW) [data-entscheid="genehmigt"]').count() >= 1, 'C-13: Schlechtwetter des Poliers steht nicht zur Bestätigung an');
+    // C-09: eigener Antrag des Büros ist „beantragt“ und kann nicht selbst genehmigt werden
+    await page.click('[data-akt="antrag"]'); await page.waitForSelector('dialog[open] #abw-f');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    await page.waitForSelector('#abw-eigene li[data-status="beantragt"]');
+    const eigenB = (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === ich.benutzer.id && a.status === 'beantragt');
+    pruef(!!eigenB, 'C-09: eigener Antrag des Büros ist nicht „beantragt“');
+    pruef(await page.locator(`#abw-offen li[data-abw="${eigenB && eigenB.id}"] [data-eigener]`).count() === 1 && await page.locator(`#abw-offen li[data-abw="${eigenB && eigenB.id}"] [data-entscheid]`).count() === 0, 'C-09: eigener Antrag kann selbst genehmigt werden');
+    const c09 = await absichtlich(() => api('PUT', `/abwesenheiten/${eigenB.id}`, { status: 'genehmigt' }));
+    pruef(c09.status === 403, `C-09: Server lässt Selbst-Genehmigung zu (Status ${c09.status})`);
+    await ueberlauf('abwesenheiten eigener antrag'); await shot('abwesenheiten-eigener-antrag');
+    await toastWeg();
+    await page.click(`#abw-eigene li[data-abw="${eigenB.id}"] [data-zurueckziehen]`);
+    await page.click('dialog[open] [data-ok]');
+    await page.waitForFunction((id) => !document.querySelector(`li[data-abw="${id}"]`), eigenB.id);
     await toastWeg();
     // Nachkalkulation vorher
     await geh(`/kalkulation/${bsId}`);
@@ -485,7 +583,9 @@ async function laufe(browser, g) {
     // Bauleiter der Baustelle sicherstellen (für den Empfänger-Test)
     const leute = (await api('GET', '/mitarbeiter')).json;
     const blId = leute.find((m) => m.name === NAME.bauleiter).id;
-    await api('PUT', `/baustellen/${bsId}`, { bauleiterId: blId });
+    const bsVer = (await api('GET', `/baustellen/${bsId}`)).json.version;
+    const blSetzen = await api('PUT', `/baustellen/${bsId}`, { bauleiterId: blId, version: bsVer });
+    pruef(blSetzen.status === 200, `Bauleiter-Zuordnung durch das Büro fehlgeschlagen (${blSetzen.status})`);
     // Auftragssumme so setzen, dass der Verbrauch über einer noch nicht gemeldeten Schwelle liegt
     const schonGemeldet = (kalkNach.alarme || []).map((a) => a.schwelle);
     const ziel = !schonGemeldet.includes(80) ? 85 : !schonGemeldet.includes(90) ? 95 : 104;
@@ -493,6 +593,15 @@ async function laufe(browser, g) {
     const summe = Math.max(1, Math.round((kalkNach.kosten.gesamt / (ziel / 100) - nt) * 100) / 100);
     const budgetVorher = (await api('GET', '/benachrichtigungen')).json.filter((m) => m.typ === 'budget' && m.baustelleId === bsId).length;
     await geh(`/baustelle/${bsId}`);
+    // C-08: Baustelle wurde inzwischen von jemand anderem geändert → Hinweis statt Überschreiben
+    const bsJetzt = (await api('GET', `/baustellen/${bsId}`)).json;
+    await api('PUT', `/baustellen/${bsId}`, { version: bsJetzt.version, adresse: bsJetzt.adresse });
+    await page.fill('#auftrag input[name="auftragssumme"]', '77.777');
+    await absichtlich(async () => { await page.click('#auftrag-ok'); if (await page.locator('dialog[open] [data-ok]').count()) await page.click('dialog[open] [data-ok]'); await page.waitForSelector('#auftrag .form-err[data-konflikt]:not([hidden])'); });
+    pruef((await api('GET', `/baustellen/${bsId}`)).json.auftragssumme === bsJetzt.auftragssumme, 'C-08: veralteter Stand der Baustelle wurde gespeichert');
+    await shot('baustelle-konflikt');
+    await page.click('#auftrag [data-konflikt-laden]');
+    await bereit(); await page.waitForSelector('#auftrag');
     // B-04: „250.000“ sind zweihundertfünfzigtausend – und unklare Eingaben werden nicht gespeichert
     const feldSumme = page.locator('#auftrag input[name="auftragssumme"]');
     const summeServer = async () => (await api('GET', `/baustellen/${bsId}`)).json.auftragssumme;
@@ -637,7 +746,49 @@ async function laufe(browser, g) {
       await ueberlauf('korrektur nach änderung'); await shot('korrektur-liste');
       await toastWeg();
     } else pruef(false, 'B-05: keine lange offene Schicht in den Testdaten');
-    await keinZugriff('/benutzer');
+    // C-14: Büro verwaltet Mitarbeiter, Poliere und Bauleiter – ohne Rechte-Matrix und Protokoll
+    await geh('/benutzer', 'buero-benutzer');
+    pruef(await page.locator('[data-tab="matrix"], [data-tab="protokoll"], #matrix').count() === 0, 'C-14: Büro sieht Rechte-Matrix oder Protokoll');
+    pruef(await page.locator(`#benutzerliste li:has-text("${NAME.gf}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.mitarbeiter}") [data-bearb]`).count() === 1, 'C-14: Büro kann GF bearbeiten oder Mitarbeiter nicht');
+    await page.click('[data-akt="neu"]');
+    pruef((await page.locator('dialog[open] select[name="rolle"] option').evaluateAll((l) => l.map((o) => o.value))).join(',') === 'mitarbeiter,polier,bauleiter', 'C-14: Büro kann Rollen Büro/GF vergeben');
+    await page.fill('dialog[open] input[name="name"]', 'Neu Vom Buero');
+    await page.fill('dialog[open] input[name="pin"]', '5913');
+    await ueberlauf('dialog benutzer büro'); await shot('buero-benutzer-dialog');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('#benutzerliste li:has-text("Neu Vom Buero")');
+    const neuB = (await api('GET', '/benutzer')).json.find((m) => m.name === 'Neu Vom Buero');
+    pruef(neuB && neuB.rolle === 'mitarbeiter' && !!neuB.pnr, `C-14: vom Büro angelegter Benutzer fehlt oder ohne Personalnummer (${JSON.stringify(neuB)})`);
+    const c14 = await absichtlich(() => api('GET', '/rechte'));
+    pruef(c14.status === 403, `C-14: Büro darf die Rechte-Matrix lesen (Status ${c14.status})`);
+    await toastWeg();
+    // C-07: Konto nach vielen Fehlversuchen (von verschiedenen Adressen) gesperrt → Büro entsperrt
+    const opfer = (await api('GET', '/benutzer')).json.find((m) => m.rolle === 'mitarbeiter' && m.aktiv && m.id !== neuB.id && m.name !== NAME.mitarbeiter && !m.name.startsWith('Test'));
+    const versuch = (pin, ip) => fetch(srv.url + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip }, body: JSON.stringify({ benutzerId: opfer.id, pin }) }).then((r) => r.status);
+    for (let i = 0; i < 24; i++) await versuch('9' + String(1000 + i).slice(1), `10.9.${Math.floor(i / 3)}.7`);
+    const gesperrtStatus = await versuch(PIN, '10.77.0.1');
+    pruef(gesperrtStatus === 423, `C-07: Konto nach 24 Fehlversuchen nicht gesperrt (Status ${gesperrtStatus} mit richtiger PIN)`);
+    // Anmeldeseite (frisches Gerät): klare Meldung „bitte im Büro melden“
+    const ctxNeu = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna' });
+    const seite2 = await ctxNeu.newPage();
+    await seite2.goto(srv.url + '/#/login'); await seite2.waitForSelector('.login-user');
+    await seite2.fill('#login-suche', opfer.name.split(' ')[1]);
+    await seite2.click(`.login-user:has-text("${opfer.name}")`);
+    for (const z of PIN) await seite2.click(`.pin-pad [data-z="${z}"]`);
+    await seite2.click('.pin-pad [data-ok]');
+    await seite2.waitForSelector('.pin-msg.err');
+    const sperrText = await seite2.locator('.pin-msg.err').innerText();
+    pruef(/Büro/.test(sperrText) && /gesperrt/i.test(sperrText), `C-07: Anmeldeseite zeigt keine klare Sperr-Meldung („${sperrText}“)`);
+    if (SHOTS) await seite2.screenshot({ path: path.join(SHOTS, `${g.name}-login-gesperrt.png`) });
+    await ctxNeu.close();
+    await page.reload(); await bereit();
+    await page.waitForSelector(`#gesperrte li[data-benutzer="${opfer.id}"] [data-entsperren]`);
+    await ueberlauf('benutzer gesperrt'); await shot('benutzer-gesperrt');
+    await page.click(`#gesperrte li[data-benutzer="${opfer.id}"] [data-entsperren]`);
+    await page.waitForFunction((id) => !document.querySelector(`#gesperrte li[data-benutzer="${id}"]`), opfer.id);
+    const nachEntsperren = await versuch(PIN, '10.78.0.1');
+    pruef(nachEntsperren === 200, `C-07: Anmeldung nach „Entsperren“ nicht möglich (Status ${nachEntsperren})`);
+    await toastWeg();
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
     await abmelden();
 
@@ -668,6 +819,16 @@ async function laufe(browser, g) {
     await page.click('#glocke'); await page.waitForSelector('#notif-panel #notif-inhalt :is(.notif, .state.empty)');
     await keinEuro('polier benachrichtigungen');
     await page.click('#notif-panel [data-zu]');
+    // C-11: Person mit genehmigtem Krankenstand lässt sich nicht einstempeln – Meldung des Servers steht in der Zeile
+    await geh('/kolonne');
+    await page.selectOption('#kol-bs', String(bsId)); await sleep(300); await bereit();
+    await page.locator(`.crew-row:has-text("${kranker.name}") .check`).click();
+    await page.click('[data-typ="kommen"]');
+    await page.click('#kol-los');
+    await page.waitForSelector(`.crew-row:has-text("${kranker.name}") .crew-err`);
+    pruef((await page.locator(`.crew-row:has-text("${kranker.name}") .crew-err`).innerText()).length > 8, 'C-11: keine Begründung beim abgelehnten Einstempeln');
+    await ueberlauf('kolonne krank'); await shot('kolonne-krank'); await keinEuro('kolonne krank');
+    await toastWeg();
     await abmelden();
 
     /* ============ 6. Geschäftsführung: Rechte, Protokoll, gesperrte Zellen ============ */
@@ -769,6 +930,66 @@ async function laufe(browser, g) {
     pruef(sw, 'Service Worker ist nicht registriert');
     const apiImCache = await page.evaluate(async () => { for (const n of await caches.keys()) { const c = await caches.open(n); for (const k of await c.keys()) if (new URL(k.url).pathname.startsWith('/api/')) return k.url; } return ''; });
     pruef(!apiImCache, `Service Worker hat eine API-Antwort gespeichert: ${apiImCache}`);
+
+    /* ============ 7b. C-04 / C-15: ganze Schicht nachtragen und löschen – am Gerät mit Zeitzone New York ============ */
+    {
+      const ctxNy = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'America/New_York' });
+      const ny = await ctxNy.newPage();
+      const nyFehler = [];
+      ny.on('console', (m) => { if (m.type() === 'error') nyFehler.push(m.text()); });
+      ny.on('pageerror', (e) => nyFehler.push('pageerror: ' + e.message));
+      const nyApi = (pfad) => ny.evaluate(async (p) => (await fetch('/api' + p)).json(), pfad);
+      await ny.goto(srv.url + '/#/login'); await ny.waitForSelector('.login-user');
+      await ny.fill('#login-suche', NAME.buero.split(' ')[1]);
+      await ny.click(`.login-user:has-text("${NAME.buero}")`);
+      for (const z of PIN) await ny.click(`.pin-pad [data-z="${z}"]`);
+      await ny.click('.pin-pad [data-ok]');
+      await ny.waitForSelector('#view');
+      const person = (await nyApi('/benutzer')).find((m) => m.name === 'Neu Vom Buero');
+      // ein Sonntag vor drei bis vier Wochen (Wiener Datum), dort gibt es keine Schicht
+      const basis = new Date(Date.now() - 21 * 86400e3);
+      const tagWien = new Date(basis.getTime() - ((new Date(basis.toLocaleString('en-US', { timeZone: 'Europe/Vienna' })).getDay()) % 7) * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+      await ny.evaluate((h) => { location.hash = h; }, `#/korrektur?benutzerId=${person.id}&von=${tagWien}&bis=${tagWien}`);
+      await ny.waitForSelector('#k-schichten .state, #k-schichtliste');
+      pruef(await ny.locator('#k-schichtliste li').count() === 0, 'C-04: Testtag hat schon eine Schicht');
+      // C-15: Vorbelegung des Einzelbuchungs-Dialogs ist Wiener Zeit, nicht New York
+      await ny.click('#k-neu');
+      const vorbelegt = await ny.locator('dialog[open] input[name="zeit"]').inputValue();
+      const wienJetzt = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Vienna' }).slice(0, 16).replace(' ', 'T');
+      pruef(Math.abs(new Date(vorbelegt + ':00Z').getTime() - new Date(wienJetzt + ':00Z').getTime()) < 3 * 60e3, `C-15: Dialog rechnet mit der Geräte-Zeitzone (vorbelegt ${vorbelegt}, Wien ${wienJetzt})`);
+      await ny.click('dialog[open] .dlg-foot [data-zu]');
+      // C-04: ganze Schicht 07:00–15:30, Pause 30
+      await ny.click('#k-schicht');
+      await ny.fill('dialog[open] input[name="datum"]', tagWien);
+      await ny.selectOption('dialog[open] select[name="baustelleId"]', String(bsId));
+      await ny.fill('dialog[open] input[name="von"]', '07:00'); await ny.fill('dialog[open] input[name="bis"]', '15:30');
+      await ny.fill('dialog[open] input[name="pauseMin"]', '30');
+      pruef((await ny.locator('#sf-std').innerText()).startsWith('8 Std'), `C-04: Vorschau der Schichtdauer falsch („${await ny.locator('#sf-std').innerText()}“)`);
+      await ny.click('dialog[open] button[type="submit"]');
+      pruef(await ny.locator('dialog[open] .form-err:not([hidden])').count() === 1, 'C-04: Schicht ohne Grund möglich');
+      await ny.fill('dialog[open] input[name="grund"]', 'Stempeln vergessen (E2E)');
+      if (SHOTS) await ny.screenshot({ path: path.join(SHOTS, `${g.name}-korrektur-schicht-dialog.png`) });
+      await ny.click('dialog[open] button[type="submit"]');
+      await ny.waitForSelector('#k-schichtliste li[data-schicht]');
+      const sch = (await nyApi(`/zeit/schichten?benutzerId=${person.id}&von=${tagWien}&bis=${tagWien}`));
+      const winter = new Date(tagWien + 'T12:00:00Z').toLocaleString('en-US', { timeZone: 'Europe/Vienna', timeZoneName: 'short' }).includes('GMT+1');
+      const bu = (await nyApi(`/zeit/buchungen?benutzerId=${person.id}&von=${tagWien}&bis=${tagWien}`));
+      const kommen = bu.find((x) => x.typ === 'kommen');
+      pruef(sch.length === 1 && sch[0].arbeitMin === 480 && sch[0].pauseMin === 30, `C-04: Schicht nicht richtig am Server (${JSON.stringify(sch).slice(0, 200)})`);
+      pruef(kommen && new Date(kommen.zeit).toISOString() === `${tagWien}T0${winter ? 6 : 5}:00:00.000Z`, `C-15: „07:00“ wurde nicht als Wiener Zeit gespeichert (${kommen && kommen.zeit})`);
+      pruef((await ny.locator('#k-schichtliste li').first().innerText()).includes('07:00') && (await ny.locator('#k-liste li[data-buchung] time').allInnerTexts()).includes('07:00'), 'C-15: Liste zeigt nicht die Wiener Zeit');
+      const d = await ny.evaluate(() => { const v = document.getElementById('view'); return v.scrollWidth - v.clientWidth; });
+      pruef(d <= 1, `[korrektur schichten] horizontaler Überlauf (${d})`);
+      if (SHOTS) await ny.screenshot({ path: path.join(SHOTS, `${g.name}-korrektur-schichten.png`) });
+      // ganze Schicht löschen
+      await ny.click('#k-schichtliste [data-schicht-weg]');
+      await ny.fill('dialog[open] input[name="grund"]', 'irrtümlich nachgetragen (E2E)');
+      await ny.click('dialog[open] button[type="submit"]');
+      await ny.waitForFunction(() => !document.querySelector('dialog[open]') && !document.querySelector('#k-schichtliste li'));
+      pruef((await nyApi(`/zeit/buchungen?benutzerId=${person.id}&von=${tagWien}&bis=${tagWien}`)).length === 0, 'C-04: nach „Ganze Schicht löschen“ sind noch Buchungen vorhanden');
+      pruef(nyFehler.length === 0, `Konsolenfehler (New-York-Gerät): ${nyFehler.slice(0, 4).join(' || ')}`);
+      await ctxNy.close();
+    }
 
     /* ============ 8. B-03: Anmeldung mit Personalnummer, wenn die Namensliste abgeschaltet ist ============ */
     const srv2 = await starteServer({ BAUTAG_LOGIN_LISTE: '0' });
