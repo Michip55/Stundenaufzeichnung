@@ -439,3 +439,4 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
 - **E-07:** Der Bauleiter storniert nur **selbst erfasste** Mengeneinträge (sonst 403); fremde nur Büro/GF.
 - **E-08:** Ohne `preise_sehen` werden bei PA-/VE-Positionen (Rechnungsbeträge) `menge`, `mengeAuto`, `mengeManuell` und die Einträge weggelassen; statt `eintraege` kommt `eintraegeAnzahl`.
 - **E-09:** Hinweise auf Mehrfachzuordnung berücksichtigen nur aktive Positionen; mehrere aktive Positionen mit Naturmaterial-Quelle (doppelte Landschaftsabgabe) → Hinweis.
+- **Entscheidungen der GF (13.11.2026):** (1) Der Bauleiter darf in der Nachkalkulation nach Positionen seiner **eigenen** Baustellen manuelle Mengen erfassen (wie umgesetzt); stornieren darf er nur selbst erfasste Einträge (E-07). (2) Der Bauleiter darf den **gesamten Firmen-Positionskatalog mit allen Preisen** sehen (`GET /positionen/katalog`, wie umgesetzt).

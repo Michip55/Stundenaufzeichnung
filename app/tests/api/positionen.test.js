@@ -69,7 +69,13 @@ test('Nachkalkulation nach Positionen', async (t) => {
       assert.equal(r.status, 200);
       assert.deepEqual(euroFelder(r.daten).filter((f) => !/budgetVerbrauchProzent/.test(f)), []);
       for (const k of ['gesamtsumme', 'ergebnis', 'ergebnisProzent', 'auftragGesamt']) assert.ok(!(k in r.daten), k);
-      for (const p of alle(r.daten)) { assert.ok(!('ep' in p) && !('summe' in p)); assert.equal(typeof p.menge, 'number'); }
+      for (const p of alle(r.daten)) {
+        assert.ok(!('ep' in p) && !('summe' in p));
+        if (['PA', 'VE'].includes(p.einheit)) { // E-08: Rechnungsbeträge
+          assert.ok(!('menge' in p) && !('eintraege' in p) && !('mengeManuell' in p));
+          assert.equal(typeof p.eintraegeAnzahl, 'number');
+        } else assert.equal(typeof p.menge, 'number');
+      }
       assert.ok(r.daten.gruppen.every((g) => !('summe' in g)));
       assert.equal((await b2.get(`/baustellen/${BS.pitten}/positionen/export.xlsx`)).status, 403);
       assert.equal((await b2.get('/positionen/katalog')).status, 403);
