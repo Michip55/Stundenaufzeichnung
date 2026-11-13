@@ -25,7 +25,10 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- Servicebuch + Schadensmeldung mit Fotos: PAUSIERT (Nutzungslimit). Zwischenstand lokal im Arbeitsstand `/home/user/bautag-servicebuch` (Branch `servicebuch`, Commit 50f8891), noch nicht getestet/geprüft – wird nach eigener Prüfung als Erweiterung nachgereicht
+- **Servicebuch + Schadensmeldung mit Fotos** (lokal: `/home/user/bautag-servicebuch`, Branch `servicebuch`, Commit e122a3e – noch NICHT auf GitHub):
+  - Server + Oberfläche fertig; Server-Tests 385/385 grün; unabhängige Prüfung 5 + Nachprüfung: alle 16 Befunde behoben, „freigabereif“.
+  - **Offen:** eigener E2E-Kontrolllauf zeigte am Handy einen Fehler im Offline-Schadens-Ablauf („Senden wurde nicht versucht“, Timeout bei `[data-sch-senden]`) – evtl. Last durch parallel laufende Prüfung, muss geklärt werden. Erst danach Übernahme in PR #1.
+  - Pausiert wegen Nutzungslimit (13.11., ~15:30 UTC).
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
