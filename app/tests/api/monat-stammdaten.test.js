@@ -139,7 +139,7 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
   await t.test('Stammdatenlisten', async () => {
     const g = (await ma.get('/geraete')).daten;
     assert.equal(g.length, 23);
-    assert.deepEqual(Object.keys(g[0]).sort(), ['anlagen', 'code', 'gruppe', 'id', 'name', 'vorlage']); // anlagen: Servicebuch (API.md 11.4)
+    assert.deepEqual(Object.keys(g[0]).sort(), ['aktiv', 'anlageId', 'anlagen', 'code', 'einheit', 'gruppe', 'id', 'name', 'vorlage']); // anlagen: Servicebuch (11.4), aktiv/einheit/anlageId: 12.21
     const m = (await ma.get('/materialien')).daten;
     assert.deepEqual(m.filter((x) => x.vorlage).map((x) => x.name), ['Aushub', 'Betonbruch', 'Asphaltbruch', 'Frostschutz', 'Grädermaterial', 'Splitt']);
     assert.ok(!('ep' in (await ma.get('/leistungen')).daten[0]));

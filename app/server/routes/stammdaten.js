@@ -325,8 +325,9 @@ module.exports = function stammdatenRouten(api, bt) {
       if (!jeGeraet.has(A.row.geraet_id)) jeGeraet.set(A.row.geraet_id, []);
       jeGeraet.get(A.row.geraet_id).push({ id: A.row.id, nummer: A.row.nummer, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen, status: A.status.status, gesperrt: A.status.gesperrt });
     }
-    res.json(db.alle('SELECT * FROM geraet ORDER BY sortierung, id').map((g) => {
-      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, vorlage: g.vorlage === 1, anlagen: jeGeraet.get(g.id) || [] };
+    const alle = req.query.inaktiv === '1'; // API.md 12.21: inaktive nur auf Wunsch
+    res.json(db.alle(`SELECT * FROM geraet ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY sortierung, id`).map((g) => {
+      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, einheit: g.einheit, aktiv: g.aktiv === 1, anlageId: g.anlage_id, vorlage: g.vorlage === 1, anlagen: jeGeraet.get(g.id) || [] };
       if (p) { o.kostensatz = g.kostensatz; o.verrechnungssatz = g.verrechnungssatz; }
       return o;
     }));
@@ -334,8 +335,9 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/materialien', (req, res) => {
     const p = req.ctx.hat('preise_sehen');
-    res.json(db.alle('SELECT * FROM material ORDER BY sortierung, id').map((m) => {
-      const o = { id: m.id, code: m.code, name: m.name, einheit: m.einheit, vorlage: m.vorlage === 1, hinweis: m.hinweis };
+    const alle = req.query.inaktiv === '1';
+    res.json(db.alle(`SELECT * FROM material ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY sortierung, id`).map((m) => {
+      const o = { id: m.id, code: m.code, name: m.name, einheit: m.einheit, dichte: m.dichte, naturmaterial: m.naturmaterial === 1, aktiv: m.aktiv === 1, vorlage: m.vorlage === 1, hinweis: m.hinweis };
       if (p) { o.ek = m.ek; o.vk = m.vk; }
       return o;
     }));
@@ -343,8 +345,9 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/leistungen', (req, res) => {
     const p = req.ctx.hat('preise_sehen');
-    res.json(db.alle('SELECT * FROM leistung ORDER BY code').map((l) => {
-      const o = { id: l.id, code: l.code, text: l.text, einheit: l.einheit };
+    const alle = req.query.inaktiv === '1';
+    res.json(db.alle(`SELECT * FROM leistung ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY code`).map((l) => {
+      const o = { id: l.id, code: l.code, text: l.text, einheit: l.einheit, aktiv: l.aktiv === 1 };
       if (p) o.ep = l.ep;
       return o;
     }));

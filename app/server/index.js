@@ -138,7 +138,7 @@ function createApp(opt = {}) {
   const jsonDokumente = express.json({ limit: '35mb', strict: true });
   const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/;
   api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport
-    : /^\/baustellen\/\d+\/(dokumente|lv-import)|^\/import\//.test(req.path) ? jsonDokumente
+    : /^\/baustellen\/\d+\/(dokumente|lv-import)|^\/import\/|^\/stammdaten\/[a-z]+\/import$/.test(req.path) ? jsonDokumente
       : fotoPfad.test(req.path) ? jsonFotos : jsonKlein)(req, res, next));
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
@@ -197,6 +197,7 @@ function createApp(opt = {}) {
   require('./routes/system')(api, bt);
   require('./routes/dienste')(api, bt);
   require('./routes/berichtfotos')(api, bt);
+  require('./routes/stammdatenverwaltung')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);

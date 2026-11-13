@@ -848,6 +848,116 @@ CREATE TABLE login_2fa (
   ip TEXT
 );
 `
+  },
+  {
+    version: 16,
+    name: 'Ausbaustufe 2: Baustellenplaner, Fuhraufträge, Projektzeitplan (12.8–12.8c)',
+    sql: `
+CREATE TABLE plan_einsatz (
+  id INTEGER PRIMARY KEY,
+  datum TEXT NOT NULL,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id),
+  beginn TEXT, treffpunkt TEXT,
+  fahrzeug_anlage_id INTEGER REFERENCES anlage(id), fahrzeug_text TEXT,
+  arbeit TEXT, notiz TEXT, benoetigt TEXT,
+  uebernommen INTEGER NOT NULL DEFAULT 0,
+  geloescht INTEGER NOT NULL DEFAULT 0,
+  veroeffentlicht_stand TEXT, veroeffentlicht_hash TEXT, veroeffentlicht_zeit TEXT,
+  erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id), geaendert TEXT,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX plan_einsatz_zelle ON plan_einsatz(datum, baustelle_id) WHERE geloescht = 0;
+CREATE INDEX plan_einsatz_datum ON plan_einsatz(datum);
+CREATE TABLE plan_person (
+  einsatz_id INTEGER NOT NULL REFERENCES plan_einsatz(id) ON DELETE CASCADE,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
+  kolonne_polier_id INTEGER REFERENCES benutzer(id),
+  notiz TEXT,
+  PRIMARY KEY (einsatz_id, benutzer_id)
+);
+CREATE TABLE plan_anlage (
+  einsatz_id INTEGER NOT NULL REFERENCES plan_einsatz(id) ON DELETE CASCADE,
+  anlage_id INTEGER NOT NULL REFERENCES anlage(id),
+  notiz TEXT,
+  fahrer_id INTEGER REFERENCES benutzer(id),
+  PRIMARY KEY (einsatz_id, anlage_id)
+);
+-- je Person und Tag: zuletzt veröffentlichter Inhalt (Mein Einsatz), Lesebestätigung
+CREATE TABLE plan_mitteilung (
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  datum TEXT NOT NULL,
+  inhalt TEXT,
+  hash TEXT,
+  zeit TEXT NOT NULL,
+  gelesen TEXT,
+  bestaetigt TEXT,
+  PRIMARY KEY (benutzer_id, datum)
+);
+CREATE TABLE plan_anfrage (
+  id INTEGER PRIMARY KEY,
+  datum TEXT NOT NULL,
+  einsatz_id INTEGER REFERENCES plan_einsatz(id) ON DELETE SET NULL,
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  text TEXT NOT NULL,
+  von INTEGER NOT NULL REFERENCES benutzer(id),
+  zeit TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'offen' CHECK (status IN ('offen','erledigt')),
+  antwort TEXT, erledigt_von INTEGER REFERENCES benutzer(id), erledigt_zeit TEXT
+);
+CREATE TABLE plan_abschnitt (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  art TEXT NOT NULL CHECK (art IN ('erdbau','kanal','unterbau','pflaster','asphalt','eigen')),
+  name TEXT NOT NULL,
+  von TEXT NOT NULL, bis TEXT NOT NULL,
+  sortierung INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE plan_fuhre (
+  id INTEGER PRIMARY KEY,
+  datum TEXT NOT NULL,
+  anlage_id INTEGER NOT NULL REFERENCES anlage(id),
+  fahrer_id INTEGER REFERENCES benutzer(id),
+  reihenfolge INTEGER NOT NULL DEFAULT 10,
+  beginn TEXT,
+  material_id INTEGER REFERENCES material(id), material_text TEXT,
+  menge REAL NOT NULL, einheit TEXT NOT NULL CHECK (einheit IN ('t','m3','fuhren')),
+  anzahl_fuhren INTEGER,
+  von TEXT NOT NULL, nach TEXT NOT NULL,
+  notiz TEXT,
+  status TEXT NOT NULL DEFAULT 'geplant' CHECK (status IN ('geplant','unterwegs','erledigt','storniert')),
+  erledigt TEXT,
+  bericht_status TEXT, bericht_id INTEGER REFERENCES bericht(id), bericht_hinweis TEXT, bericht_menge REAL,
+  veroeffentlicht_stand TEXT, veroeffentlicht_hash TEXT, veroeffentlicht_zeit TEXT,
+  erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id), geaendert TEXT,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX plan_fuhre_datum ON plan_fuhre(datum, anlage_id);
+CREATE TABLE plan_fuhre_foto (
+  id INTEGER PRIMARY KEY,
+  fuhre_id INTEGER NOT NULL REFERENCES plan_fuhre(id) ON DELETE CASCADE,
+  datei TEXT NOT NULL, mime TEXT NOT NULL, groesse INTEGER NOT NULL, sha256 TEXT NOT NULL, dateiname TEXT,
+  erstellt TEXT NOT NULL, erstellt_von INTEGER REFERENCES benutzer(id)
+);
+ALTER TABLE material ADD COLUMN dichte REAL;
+`
+  },
+  {
+    version: 17,
+    name: 'Ausbaustufe 2: Stammdaten verwalten (12.21)',
+    sql: `
+ALTER TABLE geraet ADD COLUMN aktiv INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE geraet ADD COLUMN einheit TEXT NOT NULL DEFAULT 'Std.';
+ALTER TABLE geraet ADD COLUMN anlage_id INTEGER REFERENCES anlage(id);
+ALTER TABLE geraet ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE material ADD COLUMN aktiv INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE material ADD COLUMN naturmaterial INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE material ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE lohngruppe ADD COLUMN aktiv INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE lohngruppe ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE leistung ADD COLUMN aktiv INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE leistung ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+`
   }
 ];
 

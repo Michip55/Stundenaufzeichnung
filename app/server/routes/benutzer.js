@@ -88,6 +88,7 @@ module.exports = function benutzerRouten(api, bt) {
       if (body.lohngruppe === null || body.lohngruppe === '') f.lohngruppe_id = null;
       else {
         if (typeof body.lohngruppe !== 'string' || !db.eins('SELECT id FROM lohngruppe WHERE id = ?', body.lohngruppe)) throw ungueltig('lohngruppe ist unbekannt.');
+        if (!db.eins('SELECT id FROM lohngruppe WHERE id = ? AND aktiv = 1', body.lohngruppe)) throw ungueltig('Die Lohngruppe ist deaktiviert.');
         f.lohngruppe_id = body.lohngruppe;
       }
     }
