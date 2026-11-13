@@ -353,3 +353,8 @@ Grundlage: Excel-Vorlage des Betriebs `docs/vorlage/Nachkalkulation_Positionen_V
 
 ### Seed
 Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheiten exakt wie in der Datei). `npm run seed` (Demo) kopiert ihn in alle Demo-Baustellen; `einrichten.js` legt den Katalog ebenfalls an.
+
+### 10a. Vom Kunden bestätigt (13.11.2026)
+- EP der Vorlage sind **Verrechnungspreise**. Nachkalkulation = Wert der Baustelle zu Firmensätzen, verglichen mit der Auftragssumme (Ergebnis = Auftragssumme − Nachkalkulationssumme).
+- **PA-Positionen** (Lieferanten, Asphalt; EP 1,15) und **Maut (VE; EP 1,05)**: Menge = **Rechnungsbetrag netto in €**, EP = Aufschlagsfaktor. Oberfläche: Eingabefeld „Rechnungsbetrag (€)“, Anzeige „+15 %“ bzw. „+5 %“.
+- **Landschaftsabgabe**: **0,25 € je Tonne Naturmaterial**. Menge wird **automatisch** berechnet = Σ Tonnen aller Positionen mit Kennzeichen `naturmaterial:true` (Einheit `t`), zusätzlich manuelle Einträge möglich. Kennzeichen je Katalog- und Projektposition änderbar. Startwert `naturmaterial:true` für: Sande (RK/Bruchsand), Kies, Rollschotter, Splitt, Wandschotter FSM, Grädermaterial; `false` für Recycling (RB, RA, RG, RMH), Erde, Bodenaushub, Bruch/Schutt, Holz/Wurzelstöcke. In der Oberfläche als „bitte prüfen“ markiert.
