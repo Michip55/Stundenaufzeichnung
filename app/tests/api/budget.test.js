@@ -111,7 +111,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     const blVorher = (await budgetMeldungen(bl, BS.pitten)).length;
     const fa = (await buero.get(`/baustellen/${BS.pitten}/positionen`)).daten.gruppen[0].positionen[0];
     assert.equal(fa.bezeichnung, 'Facharbeiter');
-    const r = await buero.put(`/baustellen/${BS.pitten}/positionen/${fa.id}`, { ep: 150, version: fa.version, gueltigAb: '2000-01-01', rueckwirkend: true } // 12.2: ganze Laufzeit);
+    const r = await buero.put(`/baustellen/${BS.pitten}/positionen/${fa.id}`, { ep: 150, version: fa.version, gueltigAb: '2000-01-01', rueckwirkend: true }); // 12.2: ganze Laufzeit
     assert.equal(r.status, 200);
     assert.equal(r.daten.ep, 150);
     const k = await kalk(BS.pitten);

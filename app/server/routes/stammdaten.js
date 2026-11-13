@@ -15,9 +15,12 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
     id: bs.id, kst: bs.kst, name: bs.name, kurz: bs.kurz, auftraggeber: bs.auftraggeber, agAdresse: bs.ag_adresse,
     bauvorhaben: bs.bauvorhaben, adresse: bs.adresse, bauherrVertreter: bs.bauherr_vertreter, art: bs.art,
     status: bs.status, intern: bs.intern === 1, polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
-    beginn: bs.beginn, ende: bs.ende, version: bs.version
+    beginn: bs.beginn, ende: bs.ende, version: bs.version,
+    lat: bs.lat, lng: bs.lng
   };
   const mitPreisen = darfPreise(ctx, bs);
+  Object.assign(o, require('../bauvorhaben').phaseFelder(db, bs, mitPreisen)); // API.md 12.15
+  if (detail && (ctx.hat('stammdaten') || ctx.hat('bericht_freigeben'))) { o.agEmail = bs.ag_email; o.berichtMail = bs.bericht_mail === 1; }
   const mitKalk = darfKalk(ctx, bs);
   if (mitPreisen) o.auftragssumme = bs.auftragssumme;
   if (mitKalk && !bs.intern) {
@@ -80,6 +83,18 @@ function baustellenFelder(db, body, teil) {
   if (body.bauleiterId !== undefined) f.bauleiter_id = pruefeBenutzerRolle(db, body.bauleiterId, ['bauleiter', 'gf'], 'bauleiterId');
   if (body.beginn !== undefined) f.beginn = v.datum(body.beginn, 'beginn', { pflicht: false });
   if (body.ende !== undefined) f.ende = v.datum(body.ende, 'ende', { pflicht: false });
+  // API.md 12.15: Status setzt die passende Phase
+  if (f.status !== undefined) { f.phase = require('../bauvorhaben').phaseAusStatus(f.status); f.phase_seit = require('../datum').wienDatum(db.uhr ? db.uhr() : new Date()); }
+  // API.md 12.4/12.5: Koordinaten, E-Mail des Auftraggebers
+  for (const [k, min, max] of [['lat', 45, 50], ['lng', 8, 18]]) {
+    if (body[k] !== undefined) f[k] = body[k] === null ? null : v.zahl(body[k], k, { min, max });
+  }
+  if (body.agEmail !== undefined) {
+    const e = body.agEmail === null ? '' : v.text(body.agEmail, 'agEmail', { max: 300, pflicht: false });
+    for (const a of e.split(',').map((x) => x.trim()).filter(Boolean)) if (!/^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/.test(a)) throw ungueltig(`agEmail: „${a}“ ist keine gültige E-Mail-Adresse.`);
+    f.ag_email = e || null;
+  }
+  if (body.berichtMail !== undefined) f.bericht_mail = v.bool(body.berichtMail, 'berichtMail') ? 1 : 0;
   return f;
 }
 
@@ -90,7 +105,17 @@ module.exports = function stammdatenRouten(api, bt) {
   /* ---------- Baustellen ---------- */
   api.get('/baustellen', (req, res) => {
     const preise = ladePreise(db);
+    // API.md 12.15: archivierte nur mit ?archiv=1 (nur archivierte) bzw. ?alle=1
+    const q = req.query;
+    const archiv = q.archiv === '1', alleZeigen = q.alle === '1';
+    const jahr = q.jahr && /^\d{4}$/.test(String(q.jahr)) ? String(q.jahr) : null;
+    const ag = typeof q.auftraggeber === 'string' && q.auftraggeber ? q.auftraggeber.toLowerCase().slice(0, 100) : null;
+    const suche = typeof q.suche === 'string' && q.suche ? q.suche.toLowerCase().slice(0, 100) : null;
     const liste = db.alle('SELECT * FROM baustelle ORDER BY intern, kst')
+      .filter((bs) => (alleZeigen ? true : archiv ? bs.phase === 'archiviert' : bs.phase !== 'archiviert'))
+      .filter((bs) => !jahr || String(bs.archiviert_am || bs.ende || bs.phase_seit || '').startsWith(jahr))
+      .filter((bs) => !ag || String(bs.auftraggeber || '').toLowerCase().includes(ag))
+      .filter((bs) => !suche || [bs.kst, bs.name, bs.kurz, bs.auftraggeber].some((x) => String(x || '').toLowerCase().includes(suche)))
       .filter((bs) => sichtbar(req.ctx, bs))
       .map((bs) => baustelleJson(db, req.ctx, bs, { preise }));
     res.json(liste);
@@ -132,6 +157,8 @@ module.exports = function stammdatenRouten(api, bt) {
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `baustelle:${bs.id}`, alt, neu: f, text: `Baustelle ${bs.kst} geändert` });
     res.json(baustelleJson(db, req.ctx, db.eins('SELECT * FROM baustelle WHERE id = ?', bs.id), { detail: true }));
   });
+
+  require('./bauvorhaben')(api, bt, { baustelleJson, sichtbar });
 
   api.put('/baustellen/:id/auftrag', brauche('preise_bearbeiten'), (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);

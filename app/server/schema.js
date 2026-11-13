@@ -705,6 +705,37 @@ CREATE TABLE preis_stand (
 );
 CREATE INDEX preis_stand_ref ON preis_stand(art, ref, feld, gueltig_ab);
 `
+  },
+  {
+    version: 12,
+    name: 'Ausbaustufe 2: Bauvorhaben-Lebenslauf/Archiv (12.15), Koordinaten und AG-E-Mail (12.4/12.5)',
+    sql: `
+ALTER TABLE baustelle ADD COLUMN phase TEXT NOT NULL DEFAULT 'in_arbeit' CHECK (phase IN ('angebot','geplant','in_arbeit','pausiert','fertiggestellt','abgenommen','schlussrechnung','bezahlt','archiviert','storniert'));
+ALTER TABLE baustelle ADD COLUMN phase_seit TEXT;
+ALTER TABLE baustelle ADD COLUMN phase_vor_archiv TEXT;
+ALTER TABLE baustelle ADD COLUMN archiviert_am TEXT;
+ALTER TABLE baustelle ADD COLUMN abnahme_datum TEXT;
+ALTER TABLE baustelle ADD COLUMN gewaehrleistung_bis TEXT;
+ALTER TABLE baustelle ADD COLUMN haftruecklass TEXT;
+ALTER TABLE baustelle ADD COLUMN schlussrechnung TEXT;
+ALTER TABLE baustelle ADD COLUMN fertigmeldung TEXT;
+ALTER TABLE baustelle ADD COLUMN lat REAL;
+ALTER TABLE baustelle ADD COLUMN lng REAL;
+ALTER TABLE baustelle ADD COLUMN ag_email TEXT;
+ALTER TABLE baustelle ADD COLUMN bericht_mail INTEGER NOT NULL DEFAULT 1;
+UPDATE baustelle SET phase = CASE status WHEN 'geplant' THEN 'geplant' WHEN 'abgeschlossen' THEN 'fertiggestellt' ELSE 'in_arbeit' END,
+  phase_seit = substr(erstellt, 1, 10);
+CREATE TABLE baustelle_phase (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id) ON DELETE CASCADE,
+  phase TEXT NOT NULL,
+  datum TEXT NOT NULL,
+  zeit TEXT NOT NULL,
+  von INTEGER REFERENCES benutzer(id),
+  notiz TEXT
+);
+CREATE INDEX baustelle_phase_bs ON baustelle_phase(baustelle_id, zeit);
+`
   }
 ];
 

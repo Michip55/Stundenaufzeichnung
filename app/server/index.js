@@ -71,7 +71,11 @@ function createApp(opt = {}) {
       }
     } catch (e) { console.error('[BauTag] Preis-Abgleich:', e.message); }
   };
-  bt.stuendlich = () => { preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt); };
+  const sicher = (name, f) => { try { f(bt); } catch (e) { console.error(`[BauTag] ${name}:`, e.message); } };
+  bt.stuendlich = () => {
+    preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt);
+    sicher('Bauvorhaben', require('./bauvorhaben').pruefeBauvorhaben);
+  };
   bt.stuendlich();
   bt.fuhrparkTimer = setInterval(() => bt.stuendlich(), 60 * 60 * 1000);
   bt.fuhrparkTimer.unref();

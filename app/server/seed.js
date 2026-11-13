@@ -205,6 +205,10 @@ function seed(db, opt = {}) {
       bsId[b.kst] = db.lauf(`INSERT INTO baustelle (kst, name, kurz, auftraggeber, ag_adresse, bauvorhaben, adresse, bauherr_vertreter, art, status, intern, polier_id, bauleiter_id, beginn, ende, erstellt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, b.kst, b.name, b.kurz, b.ag, b.agAdr, b.bv, b.ort, b.vertreter, b.art, b.intern ? 'aktiv' : status, b.intern ? 1 : 0,
       b.polier, b.bauleiter, d(b.start), d(b.ende), jetztIso).id;
+      // API.md 12.15: Phase passend zum Status (abgeschlossen = fertiggestellt seit Bauende)
+      const st = b.intern ? 'aktiv' : status;
+      db.lauf('UPDATE baustelle SET phase = ?, phase_seit = ? WHERE id = ?', { geplant: 'geplant', aktiv: 'in_arbeit', abgeschlossen: 'fertiggestellt' }[st],
+        st === 'abgeschlossen' ? d(b.ende) : st === 'geplant' ? heute : d(b.start), bsId[b.kst]);
     }
     for (const m of MITARBEITER) db.lauf('UPDATE benutzer SET baustelle_id = ? WHERE id = ?', bsId[m.kst], m.id);
 
