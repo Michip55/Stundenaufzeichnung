@@ -164,6 +164,7 @@ function einsatzJson(e, K, { notizen = true, lesestand = null } = {}) {
     veroeffentlicht: istVeroeffentlicht,
     geaendertNachVeroeffentlichung: istVeroeffentlicht && e.veroeffentlicht_hash !== inhaltsHash(e),
     uebernommen: Boolean(e.uebernommen),
+    veroeffentlichtUm: e.veroeffentlicht_zeit || null,
     version: e.version
   };
   if (!notizen) delete o.notiz;
@@ -334,7 +335,7 @@ function veroeffentlichen(bt, o) {
     db.transaktion(() => {
       for (const { e, st } of neueStaende) db.lauf('UPDATE plan_einsatz SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', JSON.stringify(st), inhaltsHash(e), zeit, e.id);
       for (const e of roh) if (e.geloescht && imBereich(e)) db.lauf('DELETE FROM plan_einsatz WHERE id = ?', e.id);
-      for (const { f, st } of neueFuhren) db.lauf('UPDATE plan_fuhre SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', f.status === 'storniert' ? null : JSON.stringify(st), f.status === 'storniert' ? null : hash(st), zeit, f.id);
+      for (const { f, st } of neueFuhren) db.lauf('UPDATE plan_fuhre SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', f.status === 'storniert' ? null : JSON.stringify(st), f.status === 'storniert' ? null : F.fuhreHash(st), zeit, f.id);
       for (const m of meldungen) {
         db.lauf(`INSERT INTO plan_mitteilung (benutzer_id, datum, inhalt, hash, zeit, gelesen, bestaetigt) VALUES (?, ?, ?, ?, ?, NULL, NULL)
           ON CONFLICT(benutzer_id, datum) DO UPDATE SET inhalt = excluded.inhalt, hash = excluded.hash, zeit = excluded.zeit, gelesen = NULL, bestaetigt = NULL`, m.pid, d, m.neu ? JSON.stringify(m.neu) : null, m.h, zeit);

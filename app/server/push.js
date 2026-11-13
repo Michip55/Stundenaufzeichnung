@@ -108,7 +108,7 @@ async function verteilen(bt) {
       if (neu.length === 200) bt.pushNochmal = true;
     } while (bt.pushNochmal);
   } catch (e) {
-    console.error('[BauTag] Push:', e.message);
+    if (!bt.pushAus) console.error('[BauTag] Push:', e.message);
   } finally {
     bt.pushLaeuft = false;
   }

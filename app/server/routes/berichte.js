@@ -1,6 +1,6 @@
 'use strict';
 const v = require('../validierung');
-const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
+const { ApiFehler, ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler');
 const { baustelleImBereich, darfPreise, bereich } = require('../rechte');
 const { ladeBaustelle, personalVorschlag, kostenTagFuer, parseJson, schichtenAmTag } = require('../daten');
 const { stundenAusBloecken, blockZeitleiste, bloeckeAlsZeitpunkte } = require('../stempel');
@@ -62,7 +62,12 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     gesamtstunden: r2(b.personal.reduce((a, p) => a + p.stunden, 0)),
     seg: { taetigkeit: b.seg_taetigkeit || '', stunden: b.seg_stunden },
     geraete: b.geraete.map((g) => ({ geraetId: g.geraet_id, code: g.code, name: g.name, stunden: g.stunden, ...(g.anlage_id ? { anlageId: g.anlage_id } : {}) })),
-    material: b.material.map((m) => ({ materialId: m.material_id, code: m.code, name: m.name, menge: m.menge, einheit: m.einheit })),
+    material: b.material.map((m) => {
+      // 12.8d: Anteil aus Fuhren
+      const aus = Math.round((db.eins("SELECT COALESCE(SUM(bericht_menge), 0) AS s FROM plan_fuhre WHERE bericht_id = ? AND material_id = ? AND bericht_status = 'uebernommen'", b.id, m.material_id).s) * 1000) / 1000;
+      const quelle = aus <= 0 ? null : aus >= m.menge - 0.0005 ? 'fuhre' : 'gemischt';
+      return { materialId: m.material_id, code: m.code, name: m.name, menge: m.menge, einheit: m.einheit, ausFuhren: aus, quelle };
+    }),
     arbeitsleistung: b.arbeitsleistung,
     materialbeistellung: { eigen: b.mb_eigen, fremd: b.mb_fremd },
     paletten: { euro: b.paletten_euro, weissenboeck: b.paletten_weissenboeck },
@@ -89,6 +94,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
       .map((m) => ({ id: m.id, zeit: m.gesendet || m.erstellt, an: m.an, status: m.status, ...(m.fehler ? { fehler: m.fehler } : {}) }));
   }
   if (typeof module.exports.fotosJson === 'function') o.fotos = module.exports.fotosJson(db, b.id);
+  if (typeof module.exports.fuhrenVorschlag === 'function') o.fuhrenVorschlag = module.exports.fuhrenVorschlag(db, b); // 12.8b
   return o;
 }
 
@@ -228,7 +234,10 @@ function pruefeUpdate(db, body, kontext) {
     u.geraete = body.geraete.map((g, i) => {
       v.objekt(g, `geraete[${i}]`);
       const geraetId = v.id(g.geraetId, `geraete[${i}].geraetId`);
-      if (!db.eins('SELECT id FROM geraet WHERE id = ?', geraetId)) throw ungueltig(`geraete[${i}]: Gerät nicht gefunden.`);
+      const ge = db.eins('SELECT id, aktiv FROM geraet WHERE id = ?', geraetId);
+      if (!ge) throw ungueltig(`geraete[${i}]: Gerät nicht gefunden.`);
+      // 12.8d: deaktivierte Einträge nur, wenn sie schon im Bericht standen
+      if (!ge.aktiv && !(kontext.berichtId && db.eins('SELECT 1 AS x FROM bericht_geraet WHERE bericht_id = ? AND geraet_id = ?', kontext.berichtId, geraetId))) throw new ApiFehler(422, 'UNGUELTIG', `geraete[${i}]: Eintrag ist deaktiviert.`);
       let anlageId = null;
       if (g.anlageId !== undefined && g.anlageId !== null) {
         anlageId = v.id(g.anlageId, `geraete[${i}].anlageId`);
@@ -253,7 +262,9 @@ function pruefeUpdate(db, body, kontext) {
       const materialId = v.id(m.materialId, `material[${i}].materialId`);
       if (gesehen.has(materialId)) throw ungueltig(`material[${i}]: Material ist doppelt eingetragen.`);
       gesehen.add(materialId);
-      if (!db.eins('SELECT id FROM material WHERE id = ?', materialId)) throw ungueltig(`material[${i}]: Material nicht gefunden.`);
+      const ma = db.eins('SELECT id, aktiv FROM material WHERE id = ?', materialId);
+      if (!ma) throw ungueltig(`material[${i}]: Material nicht gefunden.`);
+      if (!ma.aktiv && !(kontext.berichtId && db.eins('SELECT 1 AS x FROM bericht_material WHERE bericht_id = ? AND material_id = ?', kontext.berichtId, materialId))) throw new ApiFehler(422, 'UNGUELTIG', `material[${i}]: Eintrag ist deaktiviert.`);
       return { materialId, menge: v.zahl(m.menge, `material[${i}].menge`, { min: 0, max: 100000 }) };
     }).filter((m) => m.menge > 0);
   }

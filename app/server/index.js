@@ -86,6 +86,7 @@ function createApp(opt = {}) {
   bt.stuendlich = () => {
     preiseTag(); pruefeFuhrparkSicher(bt); pruefeSicherungSicher(bt);
     sicher('Bauvorhaben', require('./bauvorhaben').pruefeBauvorhaben);
+    sicher('Plan-Erinnerung', require('./planer').pruefeErinnerung); // nie automatisch veröffentlichen (12.8c)
     require('./push').anstossen(bt);
   };
   try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }
@@ -198,6 +199,7 @@ function createApp(opt = {}) {
   require('./routes/dienste')(api, bt);
   require('./routes/berichtfotos')(api, bt);
   require('./routes/stammdatenverwaltung')(api, bt);
+  require('./routes/planer')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);

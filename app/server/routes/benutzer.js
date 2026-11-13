@@ -21,8 +21,15 @@ function protokollFuer(ctx, zeilen) {
   return zeilen.filter((p) => !EURO_ARTEN.includes(p.art)).map((p) => ({ ...p, alt: saeubern(p.alt), neu: saeubern(p.neu) }));
 }
 
+/** Dienstliche Telefonnummer (12.8d): Ziffern, +, Leerzeichen, ≤ 30 */
+function telefonPruefen(t) {
+  if (t === null || t === '') return null;
+  if (typeof t !== 'string' || t.length > 30 || !/^\+?[0-9 ]{3,30}$/.test(t.trim())) throw ungueltig('telefon: nur Ziffern, + und Leerzeichen (höchstens 30 Zeichen).');
+  return t.trim();
+}
+
 function benutzerVoll(b) {
-  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1 };
+  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null };
 }
 
 module.exports = function benutzerRouten(api, bt) {
@@ -84,6 +91,7 @@ module.exports = function benutzerRouten(api, bt) {
     const f = {};
     if (!teil || body.name !== undefined) f.name = v.text(body.name, 'name', { max: 100 });
     if (!teil || body.rolle !== undefined) f.rolle = v.auswahl(body.rolle, 'rolle', R.ROLLEN);
+    if (body.telefon !== undefined) f.telefon = telefonPruefen(body.telefon); // 12.8d
     if (body.lohngruppe !== undefined) {
       if (body.lohngruppe === null || body.lohngruppe === '') f.lohngruppe_id = null;
       else {
@@ -225,3 +233,5 @@ module.exports = function benutzerRouten(api, bt) {
     res.json({ ok: true });
   });
 };
+
+module.exports.telefonPruefen = telefonPruefen;

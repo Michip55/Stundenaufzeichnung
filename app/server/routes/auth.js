@@ -101,6 +101,15 @@ module.exports = function authRouten(api, bt) {
     });
   });
 
+  /** Eigene dienstliche Telefonnummer (12.8d) */
+  api.put('/auth/telefon', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const t = require('./benutzer').telefonPruefen(v.objekt(req.body).telefon);
+    db.lauf('UPDATE benutzer SET telefon = ? WHERE id = ?', t, req.ctx.benutzer.id);
+    db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${req.ctx.benutzer.id}`, neu: { telefon: t }, text: 'Eigene Telefonnummer geändert' });
+    res.json({ telefon: t });
+  });
+
   /** Eigene PIN ändern (auch bei erzwungener Änderung) */
   api.post('/auth/pin', async (req, res) => {
     if (!req.ctx) throw nichtAngemeldet();

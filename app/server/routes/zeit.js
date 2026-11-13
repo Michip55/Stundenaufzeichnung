@@ -44,6 +44,7 @@ function zeitStatus(db, benutzerId, jetzt) {
       buchungen: buchungen.filter((b) => wienDatum(new Date(b.zeit)) === heute)
         .map((b) => ({ typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(new Date(b.zeit)), baustelleId: b.baustelleId, quelle: b.quelle }))
     },
+    geplant: require('./planer').geplantHeute(db, benutzerId, heute), // 12.8: nur veröffentlichte Einsätze
     warnungen
   };
 }
@@ -167,12 +168,14 @@ module.exports = function zeitRouten(api, bt) {
     if (!baustelleImBereich(req.ctx.benutzer, bs)) throw keinZugriff('Diese Baustelle gehört nicht zu Ihrer Partie.');
     const jetzt = bt.uhr();
     const out = [];
+    const geplant = new Set(require('./planer').geplantAufBaustelle(db, bs.id, wienDatum(bt.uhr()))); // 12.8
+    const mitPlan = req.query.plan === '1';
     for (const b of db.alle(`SELECT id, name, rolle, baustelle_id FROM benutzer WHERE aktiv = 1 AND rolle IN ('mitarbeiter','polier') ORDER BY name`)) {
       const st = aktuellerStatus(db, b.id);
       const partie = b.baustelle_id === bs.id || bs.polier_id === b.id;
-      if (!partie && st.baustelleId !== bs.id) continue;
+      if (!partie && st.baustelleId !== bs.id && !(mitPlan && geplant.has(b.id))) continue;
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt));
-      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw ? abw.code : null });
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw ? abw.code : null, ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
     }
     res.json(out);
   });
@@ -200,7 +203,8 @@ module.exports = function zeitRouten(api, bt) {
       const st = aktuellerStatus(db, id);
       const inPartie = id === ctx.benutzer.id || (b.baustelle_id != null && baustelleImBereich(ctx.benutzer, m.get(b.baustelle_id)));
       if (typ === 'kommen') {
-        if (!inPartie && !gast) return { benutzerId: id, ok: false, fehler: `${b.name} gehört nicht zu Ihrer Partie (als Gast stempeln: gast:true).` };
+        const eingeplant = typ === 'kommen' && require('./planer').geplantAufBaustelle(db, bsId, wienDatum(bt.uhr())).includes(id); // 12.8
+        if (!inPartie && !gast && !eingeplant) return { benutzerId: id, ok: false, fehler: `${b.name} gehört nicht zu Ihrer Partie (als Gast stempeln: gast:true).` };
       } else if (st.status !== 'aus' && !baustelleImBereich(ctx.benutzer, m.get(st.baustelleId))) {
         return { benutzerId: id, ok: false, fehler: `${b.name} ist nicht auf einer Ihrer Baustellen eingestempelt.` };
       }
