@@ -16,7 +16,8 @@ module.exports = function benachrichtigungsRouten(api, bt) {
   api.get('/benachrichtigungen', (req, res) => {
     res.json(eigene(req.ctx).map((n) => ({
       id: n.id, typ: n.typ, titel: n.titel, text: n.text, zeit: n.zeit, gelesen: n.gelesen === 1,
-      ...(n.baustelle_id ? { baustelleId: n.baustelle_id } : {})
+      ...(n.baustelle_id ? { baustelleId: n.baustelle_id } : {}),
+      ...(n.anlage_id ? { anlageId: n.anlage_id } : {})
     })));
   });
 

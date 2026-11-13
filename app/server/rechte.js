@@ -20,7 +20,8 @@ const RECHTE = [
   { schluessel: 'kalk_sehen', text: 'Nachkalkulation und Budget sehen' },
   { schluessel: 'lohn', text: 'Monatsauswertung und Lohn-/BUAK-Export' },
   { schluessel: 'stammdaten', text: 'Stammdaten pflegen (Baustellen, Mitarbeiter, Abwesenheiten)' },
-  { schluessel: 'benutzer', text: 'Benutzer und Rechte verwalten' }
+  { schluessel: 'benutzer', text: 'Benutzer und Rechte verwalten' },
+  { schluessel: 'fuhrpark', text: 'Fuhrpark und Servicebuch pflegen' }
 ];
 const RECHT_SCHLUESSEL = RECHTE.map((r) => r.schluessel);
 
@@ -28,8 +29,8 @@ const STANDARD_MATRIX = {
   mitarbeiter: { zeit_eigen: true },
   polier: { zeit_eigen: true, kolonne: true, bericht_erstellen: true },
   bauleiter: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, kalk_sehen: true },
-  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true },
-  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true }
+  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
+  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
 };
 
 /** Für diese Rollen technisch gesperrt – weder per Matrix noch per Ausnahme vergebbar. */
@@ -104,7 +105,9 @@ function darfKalk(ctx, bs) {
 const EURO_FELDER = new Set([
   'kostensatz', 'verrechnungssatz', 'regiesatz', 'ek', 'vk', 'ep', 'preis', 'satz', 'betrag',
   'auftragssumme', 'auftragGesamt', 'nachtraege', 'kostenTag', 'kosten', 'erloes', 'db', 'dbProzent',
-  'lohnkosten', 'geraetekosten', 'materialkosten'
+  'lohnkosten', 'geraetekosten', 'materialkosten',
+  // Servicebuch (API.md 11)
+  'kostenJahr', 'kostenGesamt', 'kostenJeStunde'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.

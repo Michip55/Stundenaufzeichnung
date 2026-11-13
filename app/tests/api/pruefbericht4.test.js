@@ -360,7 +360,7 @@ test('E-03: Bestands-Datenbank (Schema vor den Positionen) wird übernommen', ()
     // 2. Upgrade: alle Migrationen + einmalige Übernahme beim Start
     let app = createApp({ dbPath: datei, uhr: () => new Date(START), seed: false, demo: false, loginListe: false });
     let { db, bestand } = app.locals.bt;
-    assert.equal(db.eins('SELECT MAX(version) AS v FROM schema_version').v, 8);
+    assert.equal(db.eins('SELECT MAX(version) AS v FROM schema_version').v, Math.max(...require('../../server/schema').MIGRATIONEN.map((m) => m.version))); // alle Migrationen (ab 9: Servicebuch)
     const katalog = db.eins('SELECT COUNT(*) AS n FROM katalog WHERE aktiv = 1').n;
     assert.equal(katalog, 119);
     assert.deepEqual(bestand.kopiert.sort(), ['25-100', '25-101', 'LAGER']);

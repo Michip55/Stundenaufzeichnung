@@ -19,6 +19,9 @@ import pin, { pinErzwungen } from './views/pin.js';
 import abwesenheiten from './views/abwesenheiten.js';
 import korrektur from './views/korrektur.js';
 import positionen from './views/positionen.js';
+import { fuhrpark } from './views/fuhrpark.js';
+import { anlage } from './views/anlage.js';
+import { schadenNachsenden, schadenUngesendet } from './schaden-offline.js';
 
 const root = document.getElementById('root');
 
@@ -36,6 +39,8 @@ let lauf = 0;              // schützt vor überholten Renderläufen
 let meldungen = [];        // Benachrichtigungen
 let integCache = null;
 let pollTimer = null;
+let schadenNeu = 0;        // neu gemeldete Schäden (für alle, die sie bearbeiten)
+let schadenWartet = 0;     // eigene Schadensmeldungen, die noch auf Verbindung warten
 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
@@ -51,6 +56,8 @@ const NAV = [
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Preise & Stammdaten', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
+  // Fuhrpark & Geräte: für alle (Geräteliste, Schaden/Mangel melden, Zählerstand); Pflege nur mit Recht „fuhrpark“. Am Handy unter „Mehr“.
+  { id: 'fuhrpark', pfad: '/fuhrpark', text: 'Fuhrpark & Geräte', kurz: 'Geräte', icon: 'truck', darf: () => !!ich, nurMehr: true },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
   { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Benutzer', icon: 'shield', darf: () => kann('benutzer') || darfBenutzerPflegen() },
@@ -82,6 +89,8 @@ const ROUTEN = [
   { muster: /^\/kalkulation\/(\d+)$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkDetail, darf: eines('kalk_sehen') },
   { muster: /^\/monat$/, nav: 'monat', titel: 'Monatsauswertung', view: monat, darf: eines('lohn') },
   { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: () => kann('benutzer') || darfBenutzerPflegen() },
+  { muster: /^\/fuhrpark$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: fuhrpark },
+  { muster: /^\/fuhrpark\/anlage\/(\d+)$/, nav: 'fuhrpark', titel: 'Fuhrpark & Geräte', view: anlage },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { muster: /^\/korrektur$/, nav: 'monat', titel: 'Zeiten korrigieren', view: korrektur, darf: eines('stammdaten') },
@@ -90,13 +99,14 @@ const ROUTEN = [
 
 /* ---------- Rahmen ---------- */
 function navLink(n, aktiv) {
-  return `<a class="nav-item${aktiv === n.id ? ' active' : ''}" href="#${n.pfad}" data-nav="${n.id}"${aktiv === n.id ? ' aria-current="page"' : ''}>${ic(n.icon)}<span class="lbl-long">${esc(n.text)}</span><span class="lbl-short">${esc(n.kurz)}</span></a>`;
+  return `<a class="nav-item${aktiv === n.id ? ' active' : ''}" href="#${n.pfad}" data-nav="${n.id}"${aktiv === n.id ? ' aria-current="page"' : ''}>${ic(n.icon)}<span class="lbl-long">${esc(n.text)}</span><span class="lbl-short">${esc(n.kurz)}</span>${n.id === 'fuhrpark' || n.id === 'mehr' ? '<i class="nav-badge" data-badge hidden></i>' : ''}</a>`;
 }
 function rahmen() {
   const u = ich.benutzer;
   const nav = navErlaubt();
   const MEHR = { id: 'mehr', pfad: '/mehr', text: 'Mehr', kurz: 'Mehr', icon: 'more' };
-  const tabs = nav.length > 4 ? [...nav.slice(0, 4), MEHR] : [...nav, MEHR];
+  const tabNav = nav.filter((n) => !n.nurMehr);
+  const tabs = tabNav.length > 4 ? [...tabNav.slice(0, 4), MEHR] : [...tabNav, MEHR];
   root.innerHTML = `
   <a class="skip" href="#view">Zum Inhalt springen</a>
   <div class="app">
@@ -122,6 +132,7 @@ function rahmen() {
   $('#glocke').addEventListener('click', glockeAuf);
   zeigeSync();
   zeigeGlocke();
+  zeigeBadge();
   tick();
 }
 function markiereNav(id) {
@@ -158,7 +169,28 @@ window.addEventListener('bt:sync', zeigeSync);
 async function holeMeldungen() {
   if (!ich) return;
   try { meldungen = await get('/benachrichtigungen'); setzOnline(true); zeigeGlocke(); } catch (e) { if (e.netz) setzOnline(false); }
+  holeSchadenZahl();
 }
+/* ---------- Schäden: Zahl am Menüpunkt, Nachsenden wartender Meldungen ---------- */
+const bearbeitetSchaeden = () => !!ich && (kann('fuhrpark') || ['buero', 'gf'].includes(ich.benutzer.rolle));
+function zeigeBadge() {
+  const n = schadenNeu + schadenWartet;
+  const text = [schadenNeu ? `${schadenNeu} neue Schadensmeldung${schadenNeu > 1 ? 'en' : ''}` : '', schadenWartet ? `${schadenWartet} Schadensmeldung${schadenWartet > 1 ? 'en warten' : ' wartet'} auf Verbindung` : ''].filter(Boolean).join(', ');
+  $$('.nav-badge[data-badge]').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.dataset.schNeu = schadenNeu; b.dataset.schWartet = schadenWartet; b.title = text; });
+}
+async function holeSchadenZahl() {
+  if (!ich) return;
+  const id = ich.benutzer.id;
+  let wartet = (await schadenUngesendet(id)).length;
+  if (wartet) { await schadenNachsenden(id); wartet = (await schadenUngesendet(id)).length; }
+  let neu = schadenNeu;
+  if (bearbeitetSchaeden()) { try { neu = (await get('/fuhrpark/schaeden?status=gemeldet')).length; } catch (e) { /* Zahl bleibt */ } } else neu = 0;
+  if (!ich || ich.benutzer.id !== id) return;
+  schadenNeu = neu; schadenWartet = wartet; zeigeBadge();
+}
+window.addEventListener('bt:schaden', async () => { if (!ich) return; schadenWartet = (await schadenUngesendet(ich.benutzer.id)).length; zeigeBadge(); });
+window.addEventListener('bt:schaden-gesendet', (e) => { toast(e.detail > 1 ? `${e.detail} Schadensmeldungen wurden nachgesendet.` : 'Schadensmeldung wurde nachgesendet.'); holeMeldungen(); });
+window.addEventListener('online', () => { if (ich) holeSchadenZahl(); });
 function zeigeGlocke() {
   const z = $('#glocke-zahl'); if (!z) return;
   const n = meldungen.filter((m) => !m.gelesen).length;
@@ -166,12 +198,13 @@ function zeigeGlocke() {
   $('#glocke').classList.toggle('has', !!n);
   $('#glocke').setAttribute('aria-label', n ? `Benachrichtigungen, ${n} ungelesen` : 'Benachrichtigungen');
 }
-const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar', sicherheit: 'lock' };
+const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar', sicherheit: 'lock', fuhrpark: 'truck' };
 function meldungZiel(m) {
   if (m.typ === 'budget' && m.baustelleId && kann('kalk_sehen')) return `#/kalkulation/${m.baustelleId}`;
   if (m.typ === 'bericht' && (kann('bericht_erstellen') || kann('bericht_freigeben'))) return m.berichtId ? `#/bericht/${m.berichtId}` : '#/berichte';
   if (m.typ === 'azg' && kann('zeit_eigen')) return '#/woche';
   if (m.typ === 'abwesenheit') return '#/abwesenheiten';
+  if (m.typ === 'fuhrpark') return m.schadenId ? `#/fuhrpark?reiter=schaeden&schaden=${m.schadenId}` : /Schaden/.test(m.titel || '') ? '#/fuhrpark?reiter=schaeden' : m.anlageId ? `#/fuhrpark/anlage/${m.anlageId}` : '#/fuhrpark';
   if (m.typ === 'sicherheit' && (kann('benutzer') || darfBenutzerPflegen())) return '#/benutzer';
   return '';
 }
@@ -293,7 +326,7 @@ async function abmelden() {
   lokalAbmelden();
 }
 function lokalAbmelden() {
-  ich = null; meldungen = []; integCache = null;
+  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0;
   speicher.weg('bt_ich'); speicher.weg('bt_status');
   setzBenutzer(null); clearInterval(pollTimer);
   root.innerHTML = '';

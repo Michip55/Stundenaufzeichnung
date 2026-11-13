@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const fp = require('./fuhrpark'); // Servicebuch und Schäden mit Fotos
 
 const APP = path.resolve(__dirname, '..', '..');
 const SHOTS = process.env.BAUTAG_SHOTS || '';
@@ -29,7 +30,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, ...extra };
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -85,12 +86,12 @@ async function laufe(browser, g) {
   const keinEuro = async (wo) => { const t = await text(); pruef(!t.includes('€') && !/\bEUR\b/.test(t), `[${wo}] €-Zeichen sichtbar für eine Rolle ohne Preisrecht`); };
   const toastWeg = async () => { await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 }).catch(() => {}); };
 
-  async function anmelden(rolle) {
+  async function anmelden(rolle, name = NAME[rolle]) {
     await page.goto(srv.url + '/#/login');
     await page.waitForSelector('.login-user');
     await ueberlauf('login');
-    await page.fill('#login-suche', NAME[rolle].split(' ')[1]);
-    await page.click(`.login-user:has-text("${NAME[rolle]}")`);
+    await page.fill('#login-suche', name.split(' ')[1]);
+    await page.click(`.login-user:has-text("${name}")`);
     await page.waitForSelector('.pin-pad');
     await ueberlauf('login-pin');
     for (const z of PIN) await page.click(`.pin-pad [data-z="${z}"]`);
@@ -98,7 +99,7 @@ async function laufe(browser, g) {
     await page.waitForSelector('#view');
     await bereit();
     const ich = (await api('GET', '/auth/ich')).json;
-    pruef(ich && ich.benutzer && ich.benutzer.name === NAME[rolle] && ich.benutzer.rolle === rolle, `Anmeldung ${rolle}: /auth/ich liefert ${ich && ich.benutzer && ich.benutzer.name}`);
+    pruef(ich && ich.benutzer && ich.benutzer.name === name && ich.benutzer.rolle === rolle, `Anmeldung ${rolle}: /auth/ich liefert ${ich && ich.benutzer && ich.benutzer.name}`);
     return ich;
   }
   async function abmelden() {
@@ -110,6 +111,11 @@ async function laufe(browser, g) {
   }
   const navIds = () => page.evaluate(() => [...new Set([...document.querySelectorAll('#nav-seite .nav-item')].map((a) => a.dataset.nav))]);
   const keinZugriff = async (route) => { await geh(route, 'keinzugriff'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 1, `[${route}] zeigt nicht „Kein Zugriff“`); };
+  // Servicebuch-Prüfungen (tests/e2e/fuhrpark.js): Werkzeuge dieses Laufs und gemeinsamer Zustand über die Rollen hinweg
+  const dialogUeberlauf = async (wo) => { const r = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => { const b = d.querySelector('.dlg-body'); return Math.max(d.scrollWidth - d.clientWidth, b ? b.scrollWidth - b.clientWidth : 0, d.getBoundingClientRect().right - window.innerWidth); })); pruef(r.every((x) => x <= 1), `[${wo}] Dialog läuft horizontal über (${r})`); };
+  const heute = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(jetzt()));
+  const h = { page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
+  const z = {};
 
   try {
     /* ============ 0. Falsche PIN ============ */
@@ -219,6 +225,16 @@ async function laufe(browser, g) {
     // Server liefert dem Mitarbeiter keine €-Felder
     const mPreise = await absichtlich(() => api('GET', '/preise'));
     pruef(mPreise.status === 403, `Mitarbeiter: /api/preise liefert ${mPreise.status} statt 403`);
+    /* ---- Servicebuch: Mangel, Zählerstand, Schaden mit Fotos (auch ohne Netz) ---- */
+    await fp.mitarbeiter(h, z);
+    await fp.pruefbericht5(h, z); // Regressionsprüfungen F-01, F-05, F-06, F-12, F-14, F-16
+    await abmelden();
+    await anmelden('mitarbeiter', 'Christian Trimmel');
+    await fp.fremder(h, z);
+    await abmelden();
+    // Polier mit Ausnahme-Recht „fuhrpark“ (Werkstatt): pflegt das Servicebuch, sieht aber nie €
+    await anmelden('polier', 'Gerhard Wallner');
+    await fp.polier(h, z);
     await abmelden();
 
     /* ============ 2. Polier: Kolonne, Bericht, Unterschriften, kein € ============ */
@@ -314,6 +330,7 @@ async function laufe(browser, g) {
     await g1.locator('[data-d="1"]').click(); await g1.locator('[data-d="1"]').click();
     await g2.locator('[data-d="1"]').click();
     await ueberlauf('bericht schritt 2'); await shot('bericht-2-geraete'); await keinEuro('bericht geräte');
+    await fp.berichtGeraete(h, z, berichtId); // Servicebuch 7.2: Anlagen-Auswahl und Warnung bei gesperrtem Gerät
     // Material: erste Position 12,5
     await schritt(3);
     await page.locator('.mat-row').nth(0).locator('input').fill('12,5');
@@ -504,6 +521,7 @@ async function laufe(browser, g) {
     pruef(pKalk.status === 403, `Polier: /api/kalkulation liefert ${pKalk.status} statt 403`);
     const polierMeldungenVorher = (await api('GET', '/benachrichtigungen')).json.filter((m) => m.typ === 'budget').length;
     pruef(polierMeldungenVorher === 0, 'Polier hat Budget-Benachrichtigungen');
+    await fp.polier(h, z);
     await abmelden();
 
     /* ============ 3. Büro: freigeben, PDF, Preis, Nachkalkulation, Budget-Alarm, CSV ============ */
@@ -1090,6 +1108,7 @@ async function laufe(browser, g) {
     await toastWeg();
     await toastWeg();
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
+    await fp.buero(h, z);
     await abmelden();
 
     /* ============ 4. Bauleiter: bekommt den Budget-Alarm ============ */

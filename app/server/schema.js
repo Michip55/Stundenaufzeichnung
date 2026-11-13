@@ -477,6 +477,215 @@ ALTER TABLE projektposition ADD COLUMN herkunft TEXT NOT NULL DEFAULT 'eigen' CH
 UPDATE katalog SET herkunft = 'vorlage_excel';
 UPDATE projektposition SET herkunft = 'vorlage_excel' WHERE katalog_id IS NOT NULL;
 `
+  },
+  {
+    version: 9,
+    name: 'Servicebuch für Fahrzeuge und Geräte (SERVICEBUCH_ENTWURF.md 3, API.md 11) inkl. Schäden mit Fotos',
+    sql: `
+CREATE TABLE anlage (
+  id INTEGER PRIMARY KEY,
+  nummer TEXT UNIQUE,
+  bezeichnung TEXT NOT NULL,
+  klasse TEXT NOT NULL CHECK (klasse IN ('pkw','bus','lkw','anhaenger','baumaschine','walze','brecher','kleingeraet','sonstiges')),
+  fahrzeugklasse TEXT,
+  hersteller TEXT, typ TEXT,
+  kennzeichen TEXT, fin TEXT,
+  baujahr INTEGER, erstzulassung TEXT,
+  hzg_kg INTEGER,
+  eigentum TEXT NOT NULL DEFAULT 'eigen' CHECK (eigentum IN ('eigen','leasing','miete')),
+  vertragsende TEXT,
+  versicherung TEXT,
+  geraet_id INTEGER REFERENCES geraet(id),
+  verantwortlich_id INTEGER REFERENCES benutzer(id),
+  standort_baustelle_id INTEGER REFERENCES baustelle(id),
+  standort_text TEXT,
+  standort_datum TEXT,
+  gesperrt INTEGER NOT NULL DEFAULT 0,
+  sperr_grund TEXT, sperr_typ TEXT, gesperrt_seit TEXT, gesperrt_von INTEGER REFERENCES benutzer(id),
+  ausgeschieden TEXT,
+  notiz TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  erstellt TEXT NOT NULL
+);
+CREATE INDEX anlage_geraet ON anlage(geraet_id);
+
+CREATE TABLE zaehler (
+  id INTEGER PRIMARY KEY,
+  anlage_id INTEGER NOT NULL REFERENCES anlage(id),
+  art TEXT NOT NULL CHECK (art IN ('km','bh','brecher','kran','hub')),
+  startstand REAL NOT NULL DEFAULT 0,
+  startdatum TEXT NOT NULL,
+  versatz REAL NOT NULL DEFAULT 0,
+  aus_bericht INTEGER NOT NULL DEFAULT 0,
+  aktiv INTEGER NOT NULL DEFAULT 1,
+  UNIQUE (anlage_id, art)
+);
+
+CREATE TABLE plan_vorlage (
+  id INTEGER PRIMARY KEY,
+  schluessel TEXT NOT NULL UNIQUE,
+  titel TEXT NOT NULL,
+  art TEXT NOT NULL CHECK (art IN ('gesetzlich','hersteller','intern','vertrag')),
+  klassen TEXT NOT NULL,
+  regel TEXT NOT NULL,
+  rechtsgrundlage TEXT, quelle_url TEXT,
+  pruefen INTEGER NOT NULL DEFAULT 1,
+  gueltig_ab TEXT, aktiv INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE servicebuch_eintrag (
+  id INTEGER PRIMARY KEY,
+  anlage_id INTEGER NOT NULL REFERENCES anlage(id),
+  art TEXT NOT NULL CHECK (art IN ('service','reparatur','pruefung','reifen','sonstiges')),
+  datum TEXT NOT NULL,
+  werkstatt TEXT NOT NULL,
+  titel TEXT NOT NULL,
+  arbeiten TEXT, teile TEXT,
+  arbeitsstunden_intern REAL,
+  kosten REAL,
+  rechnung_nr TEXT,
+  pruef_ergebnis TEXT CHECK (pruef_ergebnis IN ('ohne_maengel','leichte_maengel','schwere_maengel')),
+  pruefer TEXT,
+  storniert TEXT, storno_grund TEXT, storno_von INTEGER REFERENCES benutzer(id),
+  erfasst TEXT NOT NULL, erfasst_von INTEGER REFERENCES benutzer(id),
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX servicebuch_eintrag_anlage ON servicebuch_eintrag(anlage_id, datum);
+
+CREATE TABLE zaehlerstand (
+  id INTEGER PRIMARY KEY,
+  zaehler_id INTEGER NOT NULL REFERENCES zaehler(id),
+  datum TEXT NOT NULL,
+  anzeige REAL NOT NULL,
+  wert REAL NOT NULL,
+  quelle TEXT NOT NULL CHECK (quelle IN ('manuell','eintrag','korrektur','tausch_alt','tausch_neu','start')),
+  status TEXT NOT NULL DEFAULT 'gueltig' CHECK (status IN ('gueltig','unplausibel','ungueltig')),
+  hinweis TEXT,
+  notiz TEXT,
+  eintrag_id INTEGER REFERENCES servicebuch_eintrag(id),
+  erfasst TEXT NOT NULL, erfasst_von INTEGER REFERENCES benutzer(id),
+  grund TEXT
+);
+CREATE INDEX zaehlerstand_z ON zaehlerstand(zaehler_id, datum);
+
+CREATE TABLE planposition (
+  id INTEGER PRIMARY KEY,
+  anlage_id INTEGER NOT NULL REFERENCES anlage(id),
+  vorlage_id INTEGER REFERENCES plan_vorlage(id),
+  titel TEXT NOT NULL,
+  art TEXT NOT NULL CHECK (art IN ('gesetzlich','hersteller','intern','vertrag')),
+  regel TEXT NOT NULL,
+  letzte_datum TEXT,
+  letzte_zaehler TEXT,
+  letzte_eintrag_id INTEGER REFERENCES servicebuch_eintrag(id),
+  start_datum TEXT,
+  start_zaehler TEXT,
+  aktiv INTEGER NOT NULL DEFAULT 1,
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX planposition_anlage ON planposition(anlage_id);
+
+CREATE TABLE eintrag_planposition (
+  eintrag_id INTEGER NOT NULL REFERENCES servicebuch_eintrag(id),
+  planposition_id INTEGER NOT NULL REFERENCES planposition(id),
+  PRIMARY KEY (eintrag_id, planposition_id)
+);
+
+CREATE TABLE mangel (
+  id INTEGER PRIMARY KEY,
+  typ TEXT NOT NULL DEFAULT 'mangel' CHECK (typ IN ('mangel','schaden')),
+  anlage_id INTEGER REFERENCES anlage(id),
+  fremd_geraet TEXT,
+  text TEXT NOT NULL,
+  dringlichkeit TEXT NOT NULL CHECK (dringlichkeit IN ('hinweis','bald','sofort')),
+  status TEXT NOT NULL DEFAULT 'offen' CHECK (status IN ('offen','in_arbeit','behoben','verworfen')),
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  gemeldet TEXT NOT NULL, gemeldet_von INTEGER NOT NULL REFERENCES benutzer(id),
+  bearbeitet TEXT, bearbeitet_von INTEGER REFERENCES benutzer(id), notiz TEXT,
+  eintrag_id INTEGER REFERENCES servicebuch_eintrag(id),
+  schaden_art TEXT CHECK (schaden_art IS NULL OR schaden_art IN ('defekt','verschleiss','unfall','beschaedigung_dritte','sonstiges')),
+  beschreibung TEXT,
+  einsatzfaehig TEXT CHECK (einsatzfaehig IS NULL OR einsatzfaehig IN ('ja','eingeschraenkt','nein')),
+  zeitpunkt TEXT,
+  client_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  CHECK (anlage_id IS NOT NULL OR (typ = 'schaden' AND fremd_geraet IS NOT NULL))
+);
+CREATE INDEX mangel_anlage ON mangel(anlage_id, status);
+CREATE UNIQUE INDEX mangel_client ON mangel(gemeldet_von, client_id) WHERE client_id IS NOT NULL;
+
+CREATE TABLE schaden_foto (
+  id INTEGER PRIMARY KEY,
+  mangel_id INTEGER NOT NULL REFERENCES mangel(id),
+  datei TEXT NOT NULL UNIQUE,
+  mime TEXT NOT NULL CHECK (mime IN ('image/jpeg','image/png','image/webp')),
+  groesse INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  dateiname TEXT,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id),
+  UNIQUE (mangel_id, sha256)
+);
+
+CREATE TABLE fuhrpark_erinnerung (
+  planposition_id INTEGER NOT NULL REFERENCES planposition(id),
+  zyklus TEXT NOT NULL,
+  stufe TEXT NOT NULL CHECK (stufe IN ('bald','faellig','ueberfaellig')),
+  zeit TEXT NOT NULL,
+  PRIMARY KEY (planposition_id, zyklus, stufe)
+);
+
+ALTER TABLE bericht_geraet ADD COLUMN anlage_id INTEGER REFERENCES anlage(id);
+
+ALTER TABLE benachrichtigung RENAME TO benachrichtigung_alt;
+CREATE TABLE benachrichtigung (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  typ TEXT NOT NULL CHECK (typ IN ('budget','azg','bericht','abwesenheit','sicherheit','fuhrpark')),
+  titel TEXT NOT NULL,
+  text TEXT NOT NULL,
+  zeit TEXT NOT NULL,
+  gelesen INTEGER NOT NULL DEFAULT 0,
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  schluessel TEXT,
+  anlage_id INTEGER,
+  UNIQUE (benutzer_id, schluessel)
+);
+INSERT INTO benachrichtigung (id, benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel)
+  SELECT id, benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel FROM benachrichtigung_alt;
+DROP TABLE benachrichtigung_alt;
+DROP INDEX IF EXISTS benachrichtigung_benutzer;
+CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
+
+-- Recht fuhrpark: Büro und GF (nur wenn die Matrix schon existiert; sonst schreibt der Start die Standard-Matrix)
+INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT 'buero', 'fuhrpark', 1 WHERE EXISTS (SELECT 1 FROM rolle_recht);
+INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT 'gf', 'fuhrpark', 1 WHERE EXISTS (SELECT 1 FROM rolle_recht);
+`
+  },
+  {
+    version: 10,
+    name: 'Prüfbericht 5 Servicebuch: fester Bezugspunkt je Planposition (F-02), mehrere Anlagen je Gerät im Bericht (F-11)',
+    sql: `
+ALTER TABLE planposition ADD COLUMN bezug_datum TEXT;
+-- Bestand: EZ-basierte Regeln (folgeMonate) ab Erstzulassung, sonst ab Anlage der Anlage
+UPDATE planposition SET bezug_datum = (SELECT a.erstzulassung FROM anlage a WHERE a.id = planposition.anlage_id)
+  WHERE regel LIKE '%"folgeMonate"%';
+UPDATE planposition SET bezug_datum = (SELECT substr(a.erstellt, 1, 10) FROM anlage a WHERE a.id = planposition.anlage_id)
+  WHERE bezug_datum IS NULL;
+
+ALTER TABLE bericht_geraet RENAME TO bericht_geraet_alt;
+CREATE TABLE bericht_geraet (
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  geraet_id INTEGER NOT NULL REFERENCES geraet(id),
+  stunden REAL NOT NULL,
+  anlage_id INTEGER REFERENCES anlage(id)
+);
+INSERT INTO bericht_geraet (bericht_id, geraet_id, stunden, anlage_id) SELECT bericht_id, geraet_id, stunden, anlage_id FROM bericht_geraet_alt;
+DROP TABLE bericht_geraet_alt;
+CREATE UNIQUE INDEX bericht_geraet_eindeutig ON bericht_geraet(bericht_id, geraet_id, IFNULL(anlage_id, 0));
+CREATE INDEX bericht_geraet_geraet ON bericht_geraet(geraet_id);
+`
   }
 ];
 

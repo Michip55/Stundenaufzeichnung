@@ -218,12 +218,12 @@ Hilfsfunktionen: `plusMonate(d, n)` = Kalendermonat addieren, Tag auf Monatsende
 
 **A) Datumskriterium → `faelligAm`, `spaetestens`, `fruehestens`**
 1. `folgeMonate` (immer `monatsgenau`): `EZ = monat(anlage.erstzulassung)` (Pflicht, sonst Position `status:"unvollstaendig"`). Termine `S1 = EZ + f1`, `Sk = S(k−1) + f(k)` (für k > Länge: letzter Wert). `L = monat(letzte_datum)` (oder leer).
-   - `S` = erstes `Sk` mit `Sk − toleranzVorMonate > L` (ohne `L`: erstes `Sk` mit `Sk + toleranzNachMonate ≥ monat(H)`).
+   - `S` = erstes `Sk` mit `Sk − toleranzVorMonate > L` (ohne `L` – **geändert nach Prüfbericht 5, F-02**: Bezugspunkt `B = monat(planposition.bezug_datum)` (Anlage der Position; Bestand: Erstzulassung bei `folgeMonate`, sonst Anlage der Anlage) statt `H`; `S` = jüngstes `Sk` mit `Sk − toleranzVorMonate ≤ B`, gibt es keines, das erste `Sk`. Der Termin steht damit fest und wird nach Ablauf der Toleranz überfällig, bis ein Eintrag ihn erledigt).
    - `faelligAm = ersterTag(S)`, `fruehestens = ersterTag(S − toleranzVorMonate)`, `spaetestens = letzterTag(S + toleranzNachMonate)`.
    - Eine Durchführung innerhalb des Fensters verschiebt den Rhythmus **nicht** (der nächste Termin ist wieder ein `Sk`).
 2. `intervallMonate`/`intervallTage`: `basis = letzte_datum ?? erstzulassung ?? zaehler.startdatum ?? anlage.erstellt`; `faelligAm = basis + Intervall` (bei `monatsgenau`: `ersterTag(monat(...))`); `spaetestens = plusMonate(faelligAm, toleranzNachMonate)` bzw. `faelligAm + toleranzNachTage` (bei `monatsgenau`: `letzterTag(...)`).
-3. `jaehrlichAm`: `faelligAm` = erstes Datum `D` mit Monat-Tag = Stichtag und `D − vorlaufEff > letzte_datum` (eine Durchführung im Vorlauf-Fenster gilt für diesen Stichtag; ohne `letzte_datum`: erstes `D ≥ H − toleranzNachTage`); `spaetestens = faelligAm + toleranzNachTage`.
-4. `einmaligAm`: `faelligAm = einmaligAm`; nach Erledigung `status:"erledigt"`.
+3. `jaehrlichAm`: `faelligAm` = erstes Datum `D` mit Monat-Tag = Stichtag und `D − vorlaufEff > letzte_datum` (eine Durchführung im Vorlauf-Fenster gilt für diesen Stichtag; ohne `letzte_datum` – **F-02**: jüngstes `D` mit `D − vorlaufEff ≤ bezug_datum`, fest); `spaetestens = faelligAm + toleranzNachTage`.
+4. `einmaligAm`: `faelligAm = einmaligAm`; nach Erledigung (`letzte_datum ≥ bezug_datum`, F-15) `status:"erledigt"`.
 5. **Vorlauf (effektiv):** `vorlaufEff = min(vorlaufTage, floor(intervallDauerTage / 3))`. `intervallDauerTage` = aktueller Abstand (`f(k)`, `intervallMonate` bzw. `intervallTage`) × 30,44 bzw. Tage; bei `jaehrlichAm` 365; bei `einmaligAm` = `vorlaufTage`.
 6. **Status Datum:** `H > spaetestens` → `ueberfaellig`; `H ≥ faelligAm` → `faellig`; `H ≥ faelligAm − vorlaufEff` → `bald`; sonst `ok`.
 

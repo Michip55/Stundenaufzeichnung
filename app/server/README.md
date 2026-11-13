@@ -30,6 +30,10 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 
 **Notfall – alle Verwaltungs-Konten gesperrt:** lokal am Server `node server/entsperren.js <Personalnummer>` (wird protokolliert). Kontosperren laufen außerdem von selbst ab (24 h, dann 48 h, dann 7 Tage).
 
+### Sicherung
+
+Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mit `sqlite3 … ".backup"` im laufenden Betrieb) **und der Fotoordner** der Schadensmeldungen (`BAUTAG_UPLOADS`, Standard: Ordner `uploads` neben der Datenbank). Beide gehören zusammen – Fotos ohne Datenbank sind nicht zuordenbar, die Datenbank ohne Fotos zeigt fehlende Bilder.
+
 ## Umgebungsvariablen
 
 | Variable | Standard | Bedeutung |
@@ -43,6 +47,7 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 | `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier – Konzept-Vorschlag für das Polier-Tablet: `10` |
 | `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
 | `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
+| `BAUTAG_UPLOADS` | `uploads` neben der Datenbank | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
 | `NODE_ENV` | – | ohne Sonderbedeutung |
 
 ## Aufbau
@@ -63,6 +68,9 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 | `daten.js` | gemeinsame Lade-Funktionen |
 | `routes/*.js` | HTTP-Routen je Bereich (u. a. `abwesenheiten.js` Antrag/Genehmigung, `zeit.js` mit Zeitkorrektur durch das Büro) |
 | `seed.js`, `png.js` | Testdaten, Demo-Unterschriften |
+| `fuhrpark.js` | Servicebuch (API.md 11): reine Rechenfunktionen – Zählerstand/Schätzung aus Bautagesberichten, Wochenschnitt, Prognose, Fälligkeit „was zuerst eintritt“ (§57a-Rhythmus, Intervalle, Stichtage, Zähler), Anlagenstatus, Plausibilität |
+| `fuhrpark-daten.js`, `fuhrpark-erinnerung.js` | Fuhrpark-Stand aus der Datenbank (Zurechnung der Gerätestunden, Standort), JSON ohne € ohne `preise_sehen`; Prüflauf mit Erinnerungen je Stufe/Zyklus, Wochen-Zusammenfassung, Zählerabfrage |
+| `fuhrpark-vorlagen.js`, `fuhrpark-demo.js`, `fuhrpark-export.js`, `fuhrpark-bild.js` | Plan-Vorlagen („Prüfen“), Demo-Fuhrpark, CSV/PDF (Standard ohne €), Fotoprüfung und Entfernen der Metadaten (JPEG/PNG/WebP) |
 
 ### Sicherheitsgrundsätze
 

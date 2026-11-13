@@ -32,6 +32,7 @@ function createApp(opt = {}) {
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
+  db.uhr = uhr; // für Hilfsfunktionen ohne bt (z. B. Anlagenstatus im Bericht)
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
@@ -42,11 +43,21 @@ function createApp(opt = {}) {
   // Positionskatalog (Firmenvorlage, API.md 10) beim ersten Start anlegen
   require('./positionen').katalogAnlegen(db, uhr());
   require('./positionen').katalogAnpassungenAnwenden(db, uhr()); // versionierte Anpassungen (API.md 10d), einmalig
+  require('./fuhrpark-vorlagen').vorlagenAnlegen(db); // Servicebuch-Vorlagen (API.md 11), einmalig
   // E-03: Bestands-Datenbanken – Positionen übernehmen, Budget-Alarme auf neuer Basis neu bewerten
   const bestand = require('./positionen').bestandUebernehmen(db, uhr());
   bt.bestand = bestand;
   if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
+  // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
+  bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
+  bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS
+    || (db.pfad === ':memory:' ? path.join(require('node:os').tmpdir(), `bautag-uploads-${process.pid}-${require('node:crypto').randomBytes(6).toString('hex')}`) : path.join(path.dirname(path.resolve(db.pfad)), 'uploads')); // F-14: neben der Datenbank
+  // Servicebuch-Prüflauf: beim Start und stündlich (SERVICEBUCH_ENTWURF.md 6)
+  const { pruefeFuhrparkSicher } = require('./fuhrpark-erinnerung');
+  pruefeFuhrparkSicher(bt);
+  bt.fuhrparkTimer = setInterval(() => pruefeFuhrparkSicher(bt), 60 * 60 * 1000);
+  bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
   const verwalter = require('./rechte').entsperrKonten(db);
@@ -86,10 +97,11 @@ function createApp(opt = {}) {
     }
     next();
   });
-  // JSON-Grenze 2 MB; nur der Excel-Import (Datei ≤ 5 MB als Base64) bis 7 MB (E-02)
+  // JSON-Grenze 2 MB; Excel-Import (Datei ≤ 5 MB als Base64) bis 7 MB (E-02); Schadensfotos (max. 8 MB je Foto, Base64) bis 12 MB (API.md 11.9)
   const jsonKlein = express.json({ limit: '2mb', strict: true });
   const jsonImport = express.json({ limit: '7mb', strict: true });
-  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport : jsonKlein)(req, res, next));
+  const jsonFotos = express.json({ limit: '12mb', strict: true });
+  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport : req.path.startsWith('/fuhrpark/schaeden') ? jsonFotos : jsonKlein)(req, res, next));
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (typeof req.body !== 'object' || Array.isArray(req.body))) {
@@ -137,6 +149,7 @@ function createApp(opt = {}) {
   require('./routes/monat')(api, bt);
   require('./routes/benutzer')(api, bt);
   require('./routes/integrationen')(api, bt);
+  require('./routes/fuhrpark')(api, bt);
 
   api.use((req, res, next) => next(nichtGefunden('Unbekannte API-Adresse.')));
   app.use('/api', api);
@@ -170,7 +183,11 @@ function createApp(opt = {}) {
   });
 
   app.bt = bt;
-  app.schliessen = () => db.schliessen();
+  app.schliessen = () => {
+    clearInterval(bt.fuhrparkTimer);
+    db.schliessen();
+    if (bt.uploadsTemp) { try { fs.rmSync(bt.uploads, { recursive: true, force: true }); } catch (_) { /* egal */ } }
+  };
   return app;
 }
 

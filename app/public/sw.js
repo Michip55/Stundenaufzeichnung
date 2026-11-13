@@ -4,10 +4,11 @@
 const VERSION = 'bautag-huelle-v10';
 const HUELLE = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
-  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/offline.js',
+  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/offline.js', '/js/schaden-offline.js',
   '/js/views/login.js', '/js/views/stempeln.js', '/js/views/kolonne.js', '/js/views/woche.js', '/js/views/berichte.js',
   '/js/views/dashboard.js', '/js/views/baustellen.js', '/js/views/preise.js', '/js/views/kalkulation.js',
   '/js/views/monat.js', '/js/views/benutzer.js', '/js/views/mehr.js', '/js/views/pin.js', '/js/views/abwesenheiten.js', '/js/views/korrektur.js', '/js/views/positionen.js', '/js/views/katalog.js',
+  '/js/views/fuhrpark.js', '/js/views/fuhrpark-dialoge.js', '/js/views/anlage.js', '/js/views/schaeden.js',
   '/icons/favicon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png',
 ];
 
