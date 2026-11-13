@@ -147,9 +147,15 @@ export async function baustelle(el, ctx) {
   if (reiter === 'dokumente') return dokumenteTab($('#reiter-inhalt', el), b, ctx);
   if (reiter === 'rechnungen') return rechnungenTab($('#reiter-inhalt', el), b, ctx);
   lebenslaufBinden(el, b, ctx);
+  // LV-Positionen ansehen und einer Position der Nachkalkulation zuordnen (Soll/Ist-Vergleich)
+  async function lvDialog() {
+    const pos = darfAuftrag ? ((await get(`/baustellen/${id}/positionen`).catch(() => ({ gruppen: [] }))).gruppen || []).flatMap((g) => (g.positionen || []).filter((p) => p.aktiv !== false).map((p) => ({ id: p.id, text: `${g.name || g.schluessel}: ${p.bezeichnung}` }))) : [];
+    const d2 = dialog({ titel: `Leistungsverzeichnis · ${lv.positionen.length} Positionen`, breit: true, inhalt: `<div class="tbl-wrap imp-hoch"><table class="tbl" id="lv-tabelle"><thead><tr><th>OZ</th><th>Kurztext</th><th>EH</th><th class="num">Menge</th><th class="num">EP</th><th class="num">GP</th>${pos.length ? '<th>Position der Nachkalkulation</th>' : ''}</tr></thead><tbody>${lv.positionen.map((p) => `<tr data-lv="${p.id}"><td>${esc(p.oz || '')}</td><td>${esc(p.kurztext || '')}</td><td>${esc(p.einheit || '')}</td><td class="num">${fmt.zahl(p.menge, 3)}</td><td class="num">${p.ep != null ? fmt.eur(p.ep) : '–'}</td><td class="num">${p.gp != null ? fmt.eur(p.gp) : '–'}</td>${pos.length ? `<td><select class="input" data-lv-zu="${p.id}" aria-label="LV-Position ${esc(p.oz || '')} zuordnen"><option value="">– nicht zugeordnet –</option>${pos.map((x) => `<option value="${x.id}" ${Number(p.projektpositionId) === Number(x.id) ? 'selected' : ''}>${esc(x.text)}</option>`).join('')}</select></td>` : ''}</tr>`).join('')}</tbody></table></div>${pos.length ? '<p class="muted sm">Zugeordnete Positionen zeigen in der Nachkalkulation Soll und Ist nebeneinander.</p>' : ''}`, fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
+    d2.el.addEventListener('change', async (ev) => { const sel = ev.target.closest('[data-lv-zu]'); if (!sel) return; try { await put(`/baustellen/${id}/lv/${sel.dataset.lvZu}`, { projektpositionId: sel.value ? Number(sel.value) : null }); toast('Zuordnung gespeichert.'); } catch (x) { toast(x.message, 'warn'); } });
+  }
   el.addEventListener('click', (e) => {
     if (e.target.closest('#lv-import')) return importAssistent(ctx, 'lv', { baustelle: b, fertig: () => ctx.neuLaden() });
-    if (e.target.closest('#lv-zeigen') && lv) dialog({ titel: `Leistungsverzeichnis · ${lv.positionen.length} Positionen`, breit: true, inhalt: `<div class="tbl-wrap imp-hoch"><table class="tbl" id="lv-tabelle"><thead><tr><th>OZ</th><th>Kurztext</th><th>EH</th><th class="num">Menge</th><th class="num">EP</th><th class="num">GP</th></tr></thead><tbody>${lv.positionen.map((p) => `<tr><td>${esc(p.oz || '')}</td><td>${esc(p.kurztext || '')}</td><td>${esc(p.einheit || '')}</td><td class="num">${fmt.zahl(p.menge, 3)}</td><td class="num">${p.ep != null ? fmt.eur(p.ep) : '–'}</td><td class="num">${p.gp != null ? fmt.eur(p.gp) : '–'}</td></tr>`).join('')}</tbody></table></div>`, fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
+    if (e.target.closest('#lv-zeigen') && lv) lvDialog();
   });
 
   el.addEventListener('click', async (e) => {
