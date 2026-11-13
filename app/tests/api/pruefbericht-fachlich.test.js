@@ -218,7 +218,8 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
     assert.match(r.daten.fehler, /Inhalt gesperrt/);
     assert.equal((await pol.post(`/berichte/${nacht}/personal-aktualisieren`)).status, 409);
     assert.equal((await pol.del(`/berichte/${nacht}/unterschrift/an`)).status, 404);
-    r = await pol.del(`/berichte/${nacht}/unterschrift/bh`);
+    assert.equal((await pol.del(`/berichte/${nacht}/unterschrift/bh`)).status, 403); // C-06: Bauherr-Unterschrift nur Büro/GF
+    r = await buero.del(`/berichte/${nacht}/unterschrift/bh`);
     assert.equal(r.status, 200);
     assert.deepEqual(r.daten.unterschriften, {});
     assert.equal((await pol.putV(`/berichte/${nacht}`, { vorkommnisse: 'Nachtbaustelle, Absicherung lt. Bescheid' })).status, 200);
@@ -231,9 +232,10 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
     assert.equal(vorher.seg, 0); // Entwurf zählt nicht
     assert.equal(vorher.tage['2026-12-07'].stunden, 7.5); // noch Stempelzeit
     assert.equal(vorher.tage['2026-12-07'].quelle, 'stempel');
-    await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: sig });
-    await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: sig });
-    assert.equal((await pol.del(`/berichte/${nacht}/unterschrift/bh`)).status, 409); // vollständig unterschrieben
+    assert.equal((await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('an-neu') })).status, 200);
+    assert.equal((await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: sig })).status, 400); // C-06: zurückgezogenes Bild
+    assert.equal((await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: demoUnterschrift('bh-neu') })).status, 200);
+    assert.equal((await buero.del(`/berichte/${nacht}/unterschrift/bh`)).status, 409); // vollständig unterschrieben
     const unterschrieben = (await buero.get('/monat?monat=2026-12')).daten.mitarbeiter.find((x) => x.id === 7);
     assert.equal(unterschrieben.seg, 0); // unterschrieben, aber noch nicht freigegeben
     assert.equal((await (await s.login(U.bauleiter)).post(`/berichte/${nacht}/freigeben`)).status, 200);

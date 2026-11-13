@@ -248,6 +248,16 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   textAbschnitt('REGIELEISTUNGEN:', regieText, 2);
   textAbschnitt('BESONDERE VORKOMMNISSE:', bericht.vorkommnisse, 2, 'z.B.: Anweisungen AG, Beschädigungen, Sonstiges');
 
+  /* ---- Vermerk: Unterschrift zurückgezogen (C-06) ---- */
+  const gnu = bericht.geaendertNachUnterschrift;
+  if (gnu) {
+    const z = new Date(gnu.zeit);
+    neueSeiteWennNoetig(ZEILE + 4);
+    t(`Vermerk: Unterschrift ${gnu.rolle === 'bh' ? 'Bauherr' : 'Auftragnehmer'} am ${deDatum(wienDatum(z))} ${wienZeit(z)} zurückgezogen (${gnu.von}) – Bericht danach geändert und neu unterschrieben.`,
+      X0, y, { gr: 8, fett: true, b: BREITE });
+    y += ZEILE + 2;
+  }
+
   /* ---- Unterschriften ---- */
   const uH = 60;
   neueSeiteWennNoetig(ZEILE + 2 + uH + 10);

@@ -119,7 +119,7 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
       { personal: [{ benutzerId: 2, code: 'X' }] },
       { personal: [{ benutzerId: 2 }, { benutzerId: 2 }] },
       { personal: [{ benutzerId: 99999 }] },
-      { personal: [{ benutzerId: 2, stunden: 30 }] },
+      { personal: [{ benutzerId: 2, von1: '07:00', bis1: '08:00', pauseMin: 90 }] }, // Pause länger als Arbeit
       { paletten: { euro: -1 } },
       { paletten: { euro: 1.5 } },
       { regie: [{ text: '', stunden: 1 }] },
