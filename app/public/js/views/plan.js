@@ -7,6 +7,7 @@ import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, rolleText, spei
 import { wienHeute, wienLokal } from '../zahl.js';
 import { ziehbar } from '../ziehen.js';
 import { zeitplanHtml, zeitplanLaden, zeitplanBinden } from './zeitplan.js';
+import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, partieFuhrenHtml } from './fuhren.js';
 
 export const montag = (iso) => { const w = fmt.dt(iso).getDay(); return fmt.addTage(iso, w === 0 ? -6 : 1 - w); };
 export const kw = (iso) => { const d = fmt.dt(iso); const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const n = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - n); const j = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - j) / 86400000 + 1) / 7); };
@@ -26,12 +27,12 @@ export default async function plan(el, ctx) {
   const naechsterTag = (iso, schritt = 1) => { let t = fmt.addTage(iso, schritt); while ([0, 6].includes(fmt.dt(t).getDay())) t = fmt.addTage(t, schritt); return t; };
   const morgen = naechsterTag(heute);
   const stunde = Number(wienLokal(new Date().toISOString()).slice(11, 13));
-  // Tagsüber (06–16 Uhr) geht es ums Einteilen für morgen – dann startet der Planer in der Tagesansicht
-  let ansicht = ['woche', 'tag', 'zeitplan', 'geraete'].includes(ctx.query.get('ansicht')) ? ctx.query.get('ansicht') : planer && !ctx.query.get('datum') && stunde >= 6 && stunde < 16 ? 'tag' : 'woche';
+  // Eingeteilt wird am Nachmittag für morgen – ab 12 Uhr startet der Planer in der Tagesansicht „Morgen“, davor in der Woche
+  let ansicht = ['woche', 'tag', 'zeitplan', 'geraete'].includes(ctx.query.get('ansicht')) ? ctx.query.get('ansicht') : planer && !ctx.query.get('datum') && stunde >= 12 ? 'tag' : 'woche';
   let mitWe = speicher.lies('bt_plan_we') === true;
   let tagWahl = ctx.query.get('datum') || (ansicht === 'tag' ? morgen : '');
   let von = montag(ctx.query.get('datum') || (ansicht === 'tag' ? morgen : speicher.lies('bt_plan_woche') || heute));
-  let d = null, anfragen = [], suche = '', fehler = '';
+  let d = null, anfragen = [], fuhren = [], suche = '', fehler = '';
   const wahl = new Map(); // Auswahl für „Einteilen“ ohne Ziehen: schluessel → {art, id, name, vonEinsatz?}
   let zp = null; // Projektzeitplan-Zustand
 
@@ -43,13 +44,24 @@ export default async function plan(el, ctx) {
     } catch (e) { if (e.status === 401 || e.netz) throw e; fehler = e.status === 403 ? 'Kein Zugriff auf den Baustellenplaner.' : e.message; d = { tage: [], baustellen: [], einsaetze: [], frei: {}, konflikte: [], kennzahlen: {}, unveroeffentlicht: 0 }; }
     const tage = d.tage.map((t) => t.datum);
     if (!tage.includes(tagWahl)) tagWahl = tage.includes(morgen) ? morgen : tage.includes(heute) ? heute : tage[0] || von;
-    anfragen = planer || ich.rolle === 'bauleiter' ? await get('/plan/anfragen?status=offen').catch(() => []) : [];
+    // Vorschau-Zellen („wie Vortag“) sind noch nicht gespeichert und haben keine Nummer – für die Oberfläche bekommen sie eine vorläufige
+    d.einsaetze.forEach((e) => { if (e.id == null) { e.vorschau = true; e.id = `v:${e.datum}:${e.baustelleId}`; } });
+    [anfragen, fuhren] = await Promise.all([get('/plan/anfragen?status=offen').catch(() => []), tage.length ? fuhrenLaden(tage[0], tage[tage.length - 1]).catch(() => []) : []]);
+  }
+  const tagInfo = (datum) => d.tage.find((t) => t.datum === datum) || { datum };
+  // Vorschau-Tag speichern („Tag übernehmen“) und den nun gespeicherten Einsatz liefern
+  async function echt(e) {
+    if (!e || !e.vorschau) return e;
+    await post('/plan/tag/uebernehmen', { datum: e.datum });
+    const { datum, baustelleId } = e; await lade();
+    return einsatz(datum, baustelleId) || null;
   }
   await lade();
 
   const einsatz = (datum, bsId) => d.einsaetze.find((e) => e.datum === datum && Number(e.baustelleId) === Number(bsId));
-  const einsatzId = (id) => d.einsaetze.find((e) => Number(e.id) === Number(id));
-  const konflikteVon = (e) => (d.konflikte || []).filter((k) => (k.einsatzIds || []).map(Number).includes(Number(e.id)));
+  const einsatzId = (id) => d.einsaetze.find((e) => String(e.id) === String(id));
+  const konflikteVon = (e) => [...(d.konflikte || []).filter((k) => !e.vorschau && (k.einsatzIds || []).map(String).includes(String(e.id))), ...(e.vorschau ? e.konflikte || [] : [])];
+  const serie = (art, id, datum) => (((d.serien || {})[art === 'a' ? 'anlagen' : 'personen'] || {})[id] || {})[datum] || null;
   const bsName = (id) => { const b = d.baustellen.find((x) => Number(x.id) === Number(id)); return b ? b.kurz || b.name : 'Baustelle'; };
 
   /* ---------- Chips ---------- */
@@ -57,6 +69,15 @@ export default async function plan(el, ctx) {
   // Chip in einer Zelle: Text-Knopf (Details/Verschieben/Entfernen) + kleiner Notiz-Knopf; als Ganzes ziehbar
   function chip(art, id, name, e, schreib, { cls, notiz = '', label, konflikt, extra = '' } = {}) {
     const hat = !!notiz;
+    // Serie: dieselbe Person / dasselbe Gerät mehrere Arbeitstage auf derselben Baustelle → durchgehender Balken „seit n Tagen“
+    const se = serie(art, id, e.datum);
+    if (se && se.tage > 1 && Number(se.baustelleId) === Number(e.baustelleId)) {
+      const idx = d.tage.findIndex((t) => t.datum === e.datum);
+      const gleich = (t) => { const x = t && serie(art, id, t.datum); return !!x && x.seit === se.seit && Number(x.baustelleId) === Number(e.baustelleId); };
+      const links = gleich(d.tage[idx - 1]), rechts = gleich(d.tage[idx + 1]);
+      cls += ` serie${links ? ' ser-l' : ''}${rechts ? ' ser-r' : ''}`;
+      if (!links) { const n = Math.round((fmt.dt(e.datum) - fmt.dt(se.seit)) / 86400000); extra += `<small class="wp-serie" data-serie="${se.tage}">${e.datum > se.seit ? `seit ${fmt.datumKurz(se.seit).slice(4)}` : `${se.tage} Tage`}${n >= 0 ? '' : ''}</small>`; }
+    }
     return `<span class="wp-chip ${cls}${hat ? ' mit-notiz' : ''}" ${schreib ? 'data-zieh' : ''} ${chipAttr(art, id, name, e)}${konflikt ? ` data-konflikt="${esc(konflikt.typ)}" title="${esc(konflikt.text)}"` : ''}${hat ? ` data-notiz="${esc(notiz)}"` : ''}>
       <button type="button" class="wp-chip-t" data-chip-auf aria-label="${konflikt ? 'Konflikt: ' + esc(konflikt.text) : esc(name) + ' – Details, verschieben oder entfernen'}">${konflikt ? ic('alert', 'xs') : ''}<span>${label || esc(name)}</span>${extra}</button>
       ${schreib || hat ? `<button type="button" class="wp-nb${hat ? ' an' : ''}" data-notiz-auf aria-label="Notiz zu ${esc(name)}${hat ? ': ' + esc(notiz) : ' hinzufügen'}" title="${hat ? esc(notiz) : 'Notiz hinzufügen'}">${ic(hat ? 'file' : 'edit', 'xs')}</button>` : ''}</span>`;
@@ -91,12 +112,19 @@ export default async function plan(el, ctx) {
     const info = [e.beginn ? `${esc(e.beginn)} Uhr` : '', e.arbeit ? esc(e.arbeit) : ''].filter(Boolean).join(' · ');
     return `${t.personen.join('')}${t.geraete.join('')}${t.noten.join('')}${info || e.notiz || e.benoetigt ? `<span class="wp-info">${info}${e.benoetigt ? `${info ? ' · ' : ''}<b>Mitnehmen:</b> ${esc(e.benoetigt)}` : ''}${e.notiz ? `${info || e.benoetigt ? ' · ' : ''}${esc(e.notiz)}` : ''}</span>` : ''}`;
   }
+  const hatVortagNotizen = (e) => { const v = e.vortagNotizen; return !!v && !!(v.notiz || v.benoetigt || Object.keys(v.personen || {}).length || Object.keys(v.anlagen || {}).length); };
+  // Kopf einer Vorschau-Zelle: „wie Vortag“, Ausgelassenes als Warnung, Notizen von gestern
+  function vorschauKopf(e, schreib) {
+    return `<span class="wp-wie" data-wie-vortag="${esc(e.quelleDatum || '')}">wie ${e.quelleDatum ? esc(fmt.WTK[fmt.dt(e.quelleDatum).getDay()]) : 'Vortag'} · noch nicht gespeichert</span>
+      ${(e.uebersprungen || []).map((u) => `<span class="wp-chip konflikt" data-uebersprungen="${esc(u.typ)}">${ic('alert', 'xs')}<span>${esc(u.text)}${['abwesenheit', 'inaktiv', 'anlage_gesperrt'].includes(u.typ) ? ' – Ersatz einteilen' : ''}</span></span>`).join('')}
+      ${schreib && hatVortagNotizen(e) ? `<button type="button" class="wp-mini notizen" data-vortag-notizen="${esc(e.id)}">${ic('copy', 'xs')}Notizen von gestern übernehmen</button>` : ''}`;
+  }
   function zelle(t, b) {
     const e = einsatz(t.datum, b.id), schreib = darfBs(b.id);
-    const zustand = !e ? 'leer' : e.veroeffentlicht && !e.geaendertNachVeroeffentlichung ? 'veroeffentlicht' : e.veroeffentlicht ? 'geaendert' : 'entwurf';
+    const zustand = !e ? 'leer' : e.vorschau ? 'vorschau' : e.veroeffentlicht && !e.geaendertNachVeroeffentlichung ? 'veroeffentlicht' : e.veroeffentlicht ? 'geaendert' : 'entwurf';
     const ort = `${b.kurz || b.name}, ${tagKurz(t.datum)}`;
-    return `<div class="wp-zelle${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}${t.feiertag ? ' frei' : ''}" role="cell" data-zelle data-datum="${t.datum}" data-bs="${b.id}" data-zustand="${zustand}" ${schreib ? 'data-ablage' : ''}>
-      ${e ? zellChips(e, schreib) : ''}
+    return `<div class="wp-zelle${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}${t.feiertag ? ' frei' : ''}${e && e.vorschau ? ' vorschau' : ''}" role="cell" data-zelle data-datum="${t.datum}" data-bs="${b.id}" data-zustand="${zustand}" ${e && e.vorschau ? 'data-vorschau' : ''} ${schreib ? 'data-ablage' : ''}>
+      ${e && e.vorschau ? vorschauKopf(e, schreib) : ''}${e ? zellChips(e, schreib) : ''}
       ${schreib ? `<div class="wp-zelle-fuss">${e ? `<button type="button" class="wp-mini" data-details="${e.id}" aria-label="Einsatz ${esc(ort)}: Beginn, Treffpunkt, Fahrzeug, Arbeit">${ic('edit', 'xs')}</button>` : ''}<button type="button" class="wp-mini hier" data-hier aria-label="Auswahl hier einteilen: ${esc(ort)}">${ic('check', 'xs')}Einteilen</button><button type="button" class="wp-mini" data-plus aria-label="Einteilen: ${esc(ort)}">${ic('plus', 'xs')}</button>${e ? `<i class="wp-stand" data-stand="${zustand}" title="${zustand === 'veroeffentlicht' ? 'veröffentlicht' : zustand === 'geaendert' ? 'seit der Veröffentlichung geändert' : 'noch nicht veröffentlicht'}"></i>` : ''}</div>` : ''}
     </div>`;
   }
@@ -154,8 +182,9 @@ export default async function plan(el, ctx) {
         <div class="wp-tage" role="tablist" aria-label="Tag wählen">${d.tage.map((t) => `<button type="button" role="tab" aria-selected="${t.datum === tagWahl}" class="${t.datum === tagWahl ? 'on' : ''}" data-tagwahl="${t.datum}"><small>${fmt.WTK[fmt.dt(t.datum).getDay()]}</small><b>${fmt.dt(t.datum).getDate()}</b></button>`).join('')}</div>
         ${wahl.size ? `<div class="wp-auswahl" id="wp-auswahl" role="status"><b>${wahl.size} ausgewählt:</b> ${[...wahl.values()].map((w) => esc(w.name)).join(', ')} – jetzt in der gewünschten Zelle „Einteilen“ drücken. <button type="button" class="btn ghost sm" data-wahl-weg>Auswahl aufheben</button></div>` : ''}
         <div class="wp-scroll" data-zieh-scroll><div class="wp-gitter${wahl.size ? ' mit-wahl' : ''}" role="table" data-spalten="${sp}" data-st="--sp:${sp}">
-          <div class="wp-zeile kopf" role="row"><div class="wp-bs" role="columnheader">Baustelle</div>${d.tage.map((t) => `<button type="button" class="wp-tag${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}" role="columnheader" data-tagwahl="${t.datum}" aria-pressed="${t.datum === tagWahl}" title="Tag für „Noch frei“ wählen">${esc(fmt.WTK[fmt.dt(t.datum).getDay()])} <span>${String(fmt.dt(t.datum).getDate()).padStart(2, '0')}.${String(fmt.dt(t.datum).getMonth() + 1).padStart(2, '0')}.</span>${t.feiertag ? `<small>${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}</small>` : ''}</button>`).join('')}</div>
+          <div class="wp-zeile kopf" role="row"><div class="wp-bs" role="columnheader">Baustelle</div>${d.tage.map((t) => `<button type="button" class="wp-tag${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}" role="columnheader" data-tagwahl="${t.datum}" aria-pressed="${t.datum === tagWahl}" title="Tag für „Noch frei“ wählen">${esc(fmt.WTK[fmt.dt(t.datum).getDay()])} <span>${String(fmt.dt(t.datum).getDate()).padStart(2, '0')}.${String(fmt.dt(t.datum).getMonth() + 1).padStart(2, '0')}.</span>${t.feiertag ? `<small>${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}</small>` : ''}${t.vorschau ? '<small class="wie">wie Vortag</small>' : ''}</button>`).join('')}</div>
           ${d.baustellen.length ? d.baustellen.map((b) => `<div class="wp-zeile" role="row" data-bs-zeile="${b.id}"><div class="wp-bs" role="rowheader"><small>KST ${esc(b.kst || '–')}</small><b>${esc(b.kurz || b.name)}</b><small>${b.polier ? 'Polier ' + esc(b.polier.name) : 'kein Polier'}</small></div>${d.tage.map((t) => zelle(t, b)).join('')}</div>`).join('') : `<div class="pad">${leer('Keine Baustelle in Planung oder Arbeit.', 'pin')}</div>`}
+          ${fuhrenBahn(fuhren, d.tage, planer || ich.rolle === 'bauleiter')}
         </div></div>
       </section>
       ${planer || ich.rolle === 'bauleiter' ? pool() : ''}
@@ -167,52 +196,77 @@ export default async function plan(el, ctx) {
   function offenFuer(tag) {
     const es = d.einsaetze.filter((e) => e.datum === tag && darfBs(e.baustelleId) && (!e.veroeffentlicht || e.geaendertNachVeroeffentlichung));
     const ids = new Set(); es.forEach((e) => (e.personen || []).forEach((p) => ids.add(Number(p.benutzerId))));
-    return { einsaetze: es, personen: ids.size };
+    const alle = d.einsaetze.filter((e) => e.datum === tag);
+    return { einsaetze: es, personen: ids.size, erst: !alle.some((e) => e.veroeffentlicht), fuhren: fuhren.filter((f) => f.datum === tag && f.status !== 'storniert' && (!f.veroeffentlicht || f.geaendertNachVeroeffentlichung)).length };
   }
   function tagHtml() {
     const tag = tagWahl, t = d.tage.find((x) => x.datum === tag) || { datum: tag };
     const offen = offenFuer(tag);
-    return `<div class="tg-kopf"><div class="wp-nav"><button type="button" class="icon-btn" data-tag-weiter="-1" aria-label="Vorheriger Arbeitstag">${ic('left')}</button><b id="tg-tag" data-datum="${tag}">${tag === morgen ? 'Morgen · ' : tag === heute ? 'Heute · ' : ''}${esc(fmt.WT[fmt.dt(tag).getDay()])} ${esc(tagKurz(tag).slice(3))}${t.feiertag ? ` · ${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}` : ''}</b><button type="button" class="icon-btn" data-tag-weiter="1" aria-label="Nächster Arbeitstag">${ic('right')}</button>${tag === morgen ? '' : '<button type="button" class="btn ghost sm" data-tag-morgen>Morgen</button>'}</div>
+    const abw = d.einsaetze.filter((e) => e.datum === tag && e.vorschau).reduce((n, e) => n + (e.uebersprungen || []).length, 0);
+    const tagEs = d.einsaetze.filter((e) => e.datum === tag);
+    const zustandTag = !tagEs.length ? 'leer' : offen.einsaetze.length || offen.fuhren ? (offen.erst ? 'offen' : 'geaendert') : 'veroeffentlicht';
+    const pubZeit = tagEs.map((e) => e.veroeffentlichtUm || e.veroeffentlichtAm || '').filter(Boolean).sort().pop();
+    const wort = tag === morgen ? 'Morgen' : tag === heute ? 'Heute' : tagKurz(tag);
+    const wie = t.vorschau ? `vorbereitet wie ${t.quelleDatum === heute ? 'heute' : t.quelleDatum ? tagKurz(t.quelleDatum) : 'am Vortag'}, ${abw} Abweichung${abw === 1 ? '' : 'en'}` : '';
+    return `${zustandTag === 'leer' ? '' : `<div class="tg-auto ${zustandTag}" id="tg-stand" data-zustand="${zustandTag}" data-abweichungen="${abw}" role="status">${ic(zustandTag === 'veroeffentlicht' ? 'check' : 'alert')}<span>${zustandTag === 'veroeffentlicht' ? `<b>Veröffentlicht${pubZeit ? ' ' + esc(fmt.uhr(pubZeit)) : ''}</b> – alle Eingeteilten sind benachrichtigt.` : `<b>${esc(wort)} – ${zustandTag === 'geaendert' ? 'Änderungen noch nicht veröffentlicht' : 'noch nicht veröffentlicht'}</b>${wie ? ` · ${esc(wie)}` : ''}. Gesendet wird erst mit der Schaltfläche unten.`}</span>${t.vorschau ? `<button type="button" class="btn ghost sm" id="tg-uebernehmen" data-datum="${tag}">Tag übernehmen</button>` : ''}</div>`}
+      <div class="tg-kopf"><div class="wp-nav"><button type="button" class="icon-btn" data-tag-weiter="-1" aria-label="Vorheriger Arbeitstag">${ic('left')}</button><b id="tg-tag" data-datum="${tag}">${tag === morgen ? 'Morgen · ' : tag === heute ? 'Heute · ' : ''}${esc(fmt.WT[fmt.dt(tag).getDay()])} ${esc(tagKurz(tag).slice(3))}${t.feiertag ? ` · ${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}` : ''}</b><button type="button" class="icon-btn" data-tag-weiter="1" aria-label="Nächster Arbeitstag">${ic('right')}</button>${tag === morgen ? '' : '<button type="button" class="btn ghost sm" data-tag-morgen>Morgen</button>'}</div>
         <div class="wp-legende"><span><i class="wp-leg person"></i>Person</span><span><i class="wp-leg geraet"></i>Gerät</span><span><i class="wp-leg konflikt"></i>Konflikt</span></div></div>
       ${wahl.size ? `<div class="wp-auswahl" id="wp-auswahl" role="status"><b>${wahl.size} ausgewählt:</b> ${[...wahl.values()].map((w) => esc(w.name)).join(', ')} – jetzt auf der gewünschten Baustelle „Einteilen“ drücken. <button type="button" class="btn ghost sm" data-wahl-weg>Auswahl aufheben</button></div>` : ''}
       <div class="wp-wrap">
         <section class="tg-spalten${wahl.size ? ' mit-wahl' : ''}" id="tg-spalten" aria-label="Einteilung ${esc(tagKurz(tag))}" data-zieh-scroll>
           ${d.baustellen.length ? d.baustellen.map((b) => {
             const e = einsatz(tag, b.id), schreib = darfBs(b.id);
-            const zustand = !e ? 'leer' : e.veroeffentlicht && !e.geaendertNachVeroeffentlichung ? 'veroeffentlicht' : e.veroeffentlicht ? 'geaendert' : 'entwurf';
+            const zustand = !e ? 'leer' : e.vorschau ? 'vorschau' : e.veroeffentlicht && !e.geaendertNachVeroeffentlichung ? 'veroeffentlicht' : e.veroeffentlicht ? 'geaendert' : 'entwurf';
             const teile = e ? chipTeile(e, schreib) : { personen: [], geraete: [], noten: [] };
             const ort = `${b.kurz || b.name}, ${tagKurz(tag)}`;
             const feld = (k, v, kl = '') => `<div class="${kl}"><dt>${k}</dt><dd>${v ? esc(v) : '<span class="muted">–</span>'}</dd></div>`;
-            return `<article class="tg-karte card" data-zelle data-datum="${tag}" data-bs="${b.id}" data-zustand="${zustand}" ${schreib ? 'data-ablage' : ''} aria-label="${esc(b.kurz || b.name)}">
-              <header><div><small>KST ${esc(b.kst || '–')} · ${b.polier ? 'Polier ' + esc(b.polier.name) : 'kein Polier'}</small><b>${esc(b.kurz || b.name)}</b></div><span class="chip xs ${zustand === 'veroeffentlicht' ? 'st-green' : zustand === 'leer' ? 'st-grey' : 'st-amber'}" data-stand="${zustand}">${zustand === 'veroeffentlicht' ? 'veröffentlicht' : zustand === 'geaendert' ? 'geändert' : zustand === 'entwurf' ? 'Entwurf' : 'leer'}</span></header>
+            return `<article class="tg-karte card${e && e.vorschau ? ' vorschau' : ''}" data-zelle data-datum="${tag}" data-bs="${b.id}" data-zustand="${zustand}" ${e && e.vorschau ? 'data-vorschau' : ''} ${schreib ? 'data-ablage' : ''} aria-label="${esc(b.kurz || b.name)}">
+              <header><div><small>KST ${esc(b.kst || '–')} · ${b.polier ? 'Polier ' + esc(b.polier.name) : 'kein Polier'}</small><b>${esc(b.kurz || b.name)}</b></div><span class="chip xs ${zustand === 'veroeffentlicht' ? 'st-green' : zustand === 'leer' ? 'st-grey' : 'st-amber'}" data-stand="${zustand}">${zustand === 'veroeffentlicht' ? 'veröffentlicht' : zustand === 'geaendert' ? 'geändert' : zustand === 'entwurf' ? 'Entwurf' : zustand === 'vorschau' ? 'wie Vortag' : 'leer'}</span></header>
+              ${e && e.vorschau ? `<div class="tg-chips">${vorschauKopf(e, schreib)}</div>` : ''}
               <dl class="tg-daten">${feld('Beginn', e && e.beginn ? e.beginn + ' Uhr' : '')}${feld('Treffpunkt', e && e.treffpunkt)}${feld('Arbeit', e && e.arbeit, 'breit')}${feld('Benötigt / Mitnehmen', e && e.benoetigt, 'breit benoetigt')}${feld('Baustellen-Notiz', e && e.notiz, 'breit')}</dl>
               ${schreib ? `<button type="button" class="btn ghost sm" data-details="${e ? e.id : `neu:${tag}:${b.id}`}" aria-label="Einsatz ${esc(ort)} bearbeiten: Beginn, Treffpunkt, Arbeit, Benötigt, Notiz">${ic('edit', 'xs')}Angaben bearbeiten</button>` : ''}
               <h4 class="sub-h">Personal <span class="count">${e ? (e.personen || []).length : 0}</span></h4><div class="tg-chips" data-tg-personen>${teile.personen.join('') || '<p class="muted sm">Noch niemand eingeteilt.</p>'}</div>
               <h4 class="sub-h">Geräte / LKW <span class="count">${e ? (e.anlagen || []).length : 0}</span></h4><div class="tg-chips" data-tg-geraete>${teile.geraete.join('') || '<p class="muted sm">Kein Gerät eingeteilt.</p>'}</div>
               ${teile.noten.length ? `<div class="tg-chips">${teile.noten.join('')}</div>` : ''}
+              ${fuhrenZone(fuhren.filter((f) => f.datum === tag && f.nach && Number(f.nach.baustelleId) === Number(b.id)), tag, b.id, schreib)}
               ${schreib ? `<div class="wp-zelle-fuss"><button type="button" class="wp-mini hier" data-hier aria-label="Auswahl hier einteilen: ${esc(ort)}">${ic('check', 'xs')}Einteilen</button><button type="button" class="btn ghost sm" data-plus aria-label="Einteilen: ${esc(ort)}">${ic('plus', 'xs')}Person / Gerät</button></div>` : ''}
             </article>`; }).join('') : `<div class="card pad">${leer('Keine Baustelle in Planung oder Arbeit.', 'pin')}</div>`}
         </section>
         ${pool()}
       </div>
-      <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" ${offen.einsaetze.length ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})</button>${offen.einsaetze.length ? '' : '<span class="muted sm">Alles veröffentlicht – keine offenen Änderungen.</span>'}</div>`;
+      <section class="card tg-fuhren" id="tg-fuhren" aria-label="Fuhren ${esc(tagKurz(tag))}"><div class="card-h pad-h"><h3>${ic('truck')}Fuhren · je LKW</h3>${planer || ich.rolle === 'bauleiter' ? `<span class="btn-row"><button type="button" class="btn ghost sm" id="fu-wie-gestern" data-datum="${tag}">${ic('copy')}Fuhren wie gestern</button><button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}">${ic('plus')}Fuhre</button></span>` : ''}</div>
+        <div class="wp-scroll"><div class="wp-gitter fu-tag" data-st="--sp:1">${fuhrenBahn(fuhren.filter((f) => f.datum === tag), [tagInfo(tag)], false)}</div></div></section>
+      <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" ${offen.einsaetze.length || offen.fuhren ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen${offen.einsaetze.length ? ` (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})` : ''}</button><span class="muted sm" id="tg-pub-info">${offen.einsaetze.length || offen.fuhren ? 'Vor dem Senden sehen Sie, wer eine Nachricht bekommt.' : 'Alles veröffentlicht – keine offenen Änderungen.'}</span></div>`;
   }
-  function pubVorschau(tag) {
-    const offen = offenFuer(tag); if (!offen.einsaetze.length) return;
-    const rot = (d.konflikte || []).filter((k) => k.typ !== 'wetter' && k.datum === tag);
-    const dlg = dialog({ titel: `Einteilung für ${tagWort(tag)} veröffentlichen`, breit: true, inhalt: `<div class="stack-s" id="pub-vorschau">
-      <p>Diese <b>${offen.personen} Person${offen.personen === 1 ? '' : 'en'}</b> werden benachrichtigt (in der App und per Push, wenn eingeschaltet). Wer schon Bescheid weiß und nicht betroffen ist, bekommt keine neue Meldung.</p>
+  // Bestätigung vor dem Senden: Der Server sagt im Probelauf (ohne Versand), wer eine Nachricht bekäme
+  async function pubVorschau(von, bis = von) {
+    let probe;
+    try { probe = await post('/plan/veroeffentlichen', { von, bis, vorschau: true }); } catch (x) { toast(x.message, 'warn'); return; }
+    const emp = probe.empfaenger || [], n = probe.anzahl ?? emp.length;
+    const erst = emp.length > 0 && emp.every((x) => x.art === 'neu');
+    const rot = (d.konflikte || []).filter((k) => k.typ !== 'wetter' && k.datum >= von && k.datum <= bis);
+    const ART = { neu: ['Einsatz', 'st-blue'], geaendert: ['geändert', 'st-amber'], entfaellt: ['entfällt', 'st-red'] };
+    const wann = von === bis ? tagWort(von) : `KW ${kw(von)}`;
+    const dlg = dialog({ titel: `Einteilung für ${wann} veröffentlichen?`, breit: true, inhalt: `<div class="stack-s" id="pub-vorschau" data-anzahl="${n}">
+      <p id="pub-text"><b>${n} Person${n === 1 ? '' : 'en'}${erst ? '' : ' mit Änderungen'}</b> ${n === 1 ? 'wird' : 'werden'} benachrichtigt (in der App und per Push, wenn eingeschaltet). Vorher wird nichts gesendet.</p>
       ${rot.length ? banner('warn', `${rot.length} Konflikt${rot.length === 1 ? '' : 'e'} offen: ${rot.slice(0, 3).map((k) => esc(k.text)).join(' · ')}`) : ''}
-      ${offen.einsaetze.map((e) => `<section data-pub-einsatz="${e.id}"><h4 class="sub-h">${esc(bsName(e.baustelleId))}${e.beginn ? ' · ' + esc(e.beginn) + ' Uhr' : ''}${e.treffpunkt ? ' · Treffpunkt ' + esc(e.treffpunkt) : ''} <span class="chip xs ${e.veroeffentlicht ? 'st-amber' : 'st-blue'}">${e.veroeffentlicht ? 'geändert' : 'neu'}</span></h4>
-        <ul class="plain rows">${(e.personen || []).map((p) => `<li data-pub-person="${p.benutzerId}"><span class="grow"><b>${esc(p.name)}</b><small>${esc(rolleText(p.rolle))}${p.notiz ? ' · Notiz: ' + esc(p.notiz) : ''}</small></span></li>`).join('') || '<li class="muted">Nur Geräte – niemand zu benachrichtigen.</li>'}</ul>
-        ${e.benoetigt ? `<p class="sm"><b>Mitnehmen:</b> ${esc(e.benoetigt)}</p>` : ''}</section>`).join('')}</div>`,
-      fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="button" id="pub-ok">Jetzt veröffentlichen</button>' });
-    $('#pub-ok', dlg.el).addEventListener('click', async (ev) => { ev.target.disabled = true; try { const r = await post('/plan/veroeffentlichen', { von: tag, bis: tag }); dlg.zu(); toast(`Veröffentlicht – ${r.benachrichtigt ?? 0} Person${r.benachrichtigt === 1 ? '' : 'en'} benachrichtigt.`); ctx.meldungenNeu(); } catch (x) { ev.target.disabled = false; toast(x.message, 'warn'); } neu(); });
+      ${emp.length ? `<ul class="plain rows pub-liste" id="pub-empfaenger">${emp.map((x) => { const [t, c] = ART[x.art] || [x.art, 'st-grey']; return `<li data-pub-person="${x.benutzerId}" data-art="${esc(x.art)}"><span class="grow"><b>${esc(x.name)}</b></span><span class="chip xs ${c}">${esc(t)}</span></li>`; }).join('')}</ul>` : '<p class="muted">Niemand bekommt eine neue Nachricht.</p>'}</div>`,
+      fuss: '<button class="btn ghost" type="button" data-zu id="pub-abbrechen">Abbrechen</button><button class="btn primary" type="button" id="pub-ok">Jetzt veröffentlichen</button>' });
+    $('#pub-ok', dlg.el).addEventListener('click', async (ev) => {
+      ev.target.disabled = true;
+      try { const r = await post('/plan/veroeffentlichen', { von, bis }); dlg.zu(); toast(`Veröffentlicht – ${r.benachrichtigt ?? 0} Person${r.benachrichtigt === 1 ? '' : 'en'} benachrichtigt.`); ctx.meldungenNeu(); } catch (x) { ev.target.disabled = false; toast(x.message, 'warn'); }
+      neu();
+    });
   }
   /* ---------- Notiz direkt am Chip (≤ 200 Zeichen), bei Geräten/LKW mit Fahrer ---------- */
-  function notizEditor(c) {
-    const e = einsatzId(c.dataset.einsatz); if (!e) return;
+  async function notizEditor(c) {
+    let e = einsatzId(c.dataset.einsatz); if (!e) return;
     const art = c.dataset.chip, id = Number(c.dataset.id);
+    if (e.vorschau) { // Vorschau-Tag zuerst speichern, dann am gespeicherten Einsatz weiterarbeiten
+      try { e = await echt(e); } catch (x) { toast(x.message, 'warn'); return; }
+      zeichne(); if (!e) return;
+      c = $(`[data-chip="${art}"][data-id="${id}"][data-einsatz="${e.id}"]`, el); if (!c) return;
+    }
     if (art === 'k') return chipDialog(c);
     const stueck = art === 'a' ? (e.anlagen || []).find((a) => Number(a.anlageId) === id) : (e.personen || []).find((p) => Number(p.benutzerId) === id);
     if (!stueck) return;
@@ -232,11 +286,36 @@ export default async function plan(el, ctx) {
   }
   function einstellungenDialog() {
     get('/einstellungen/plan').then((ein) => {
-      const dlg = dialog({ titel: 'Planer-Erinnerung', inhalt: `<form id="pef" class="stack-s" novalidate><p class="muted sm">Ist die Einteilung für den nächsten Arbeitstag zu dieser Uhrzeit noch nicht veröffentlicht, bekommen Büro, Geschäftsführung und Bauleiter eine Erinnerung.</p>
-        <label class="switch-row flat"><span><b>Erinnerung einschalten</b></span><input type="checkbox" class="vh" name="an" ${ein.planErinnerung ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
-        <label class="field"><span class="field-label">Uhrzeit</span><input class="input lg" type="time" name="zeit" value="${esc(ein.planErinnerung || '14:00')}"></label><p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="pef">Speichern</button>' });
-      $('#pef', dlg.el).addEventListener('submit', async (ev) => { ev.preventDefault(); const f = new FormData(ev.target); const zeit = f.get('an') === 'on' ? f.get('zeit') || '14:00' : null; try { await put('/einstellungen/plan', { planErinnerung: zeit }); dlg.zu(); toast(zeit ? `Erinnerung um ${zeit} Uhr.` : 'Erinnerung ausgeschaltet.'); } catch (x) { const err = $('.form-err', dlg.el); err.hidden = false; err.textContent = x.message; } });
+      const g = ein.grube || {};
+      const sch = (name, an, titel, text) => `<label class="switch-row flat"><span><b>${titel}</b>${text ? `<small>${text}</small>` : ''}</span><input type="checkbox" class="vh" name="${name}" ${an ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>`;
+      const dlg = dialog({ titel: 'Einstellungen Baustellenplaner', breit: true, inhalt: `<form id="pef" class="stack-s" novalidate>
+        ${sch('fort', ein.planFortschreiben !== false, 'Einteilung automatisch fortschreiben', 'Ein Tag ohne Einteilung wird wie der letzte Arbeitstag vorbereitet (nicht gespeichert, nicht gesendet) – nur Abweichungen anpassen.')}
+        <p class="muted sm">Veröffentlicht wird nie automatisch – immer nur mit der Schaltfläche „veröffentlichen“.</p>
+        ${sch('erAn', !!ein.planErinnerung, 'Erinnerung, wenn morgen noch nicht veröffentlicht', 'Büro, Geschäftsführung und Bauleiter bekommen zu dieser Uhrzeit einmal am Tag eine Erinnerung.')}
+        <label class="field"><span class="field-label">Uhrzeit der Erinnerung</span><input class="input lg" type="time" name="zeit" id="plan-erinnerung" value="${esc(ein.planErinnerung || '17:00')}"></label>
+        <fieldset class="field"><legend class="field-label">Firmen-Grube (Standard-Ladestelle der Fuhren)</legend><div class="form-grid"><label class="field full"><span class="vh">Name der Grube</span><input class="input lg" name="grubeText" maxlength="120" value="${esc(g.text || '')}" placeholder="Grube Breitenau"></label>
+          <label class="field"><span class="field-label">Breitengrad</span><input class="input lg num" name="grubeLat" inputmode="decimal" value="${g.lat != null ? String(g.lat).replace('.', ',') : ''}"></label><label class="field"><span class="field-label">Längengrad</span><input class="input lg num" name="grubeLon" inputmode="decimal" value="${g.lon != null ? String(g.lon).replace('.', ',') : ''}"></label></div></fieldset>
+        <p class="form-err" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="pef">Speichern</button>' });
+      $('#pef', dlg.el).addEventListener('submit', async (ev) => {
+        ev.preventDefault(); const f = new FormData(ev.target); const err = $('.form-err', dlg.el);
+        const grad = (k) => { const t = String(f.get(k) || '').trim().replace(',', '.'); return t === '' ? null : Number(t); };
+        const lat = grad('grubeLat'), lon = grad('grubeLon');
+        if (Number.isNaN(lat) || Number.isNaN(lon) || (lat === null) !== (lon === null)) { err.hidden = false; err.textContent = 'Koordinaten der Grube bitte beide als Dezimalgrad eintragen – oder beide leer lassen.'; return; }
+        const body = { planFortschreiben: f.get('fort') === 'on', planErinnerung: f.get('erAn') === 'on' ? f.get('zeit') || '17:00' : null, grube: { text: String(f.get('grubeText') || '').trim() || 'Grube', lat, lon } };
+        try { await put('/einstellungen/plan', body); stammVergessen(); dlg.zu(); toast('Einstellungen gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
+      });
     }).catch((x) => toast(x.message, 'warn'));
+  }
+  async function vortagNotizen(eid) {
+    try {
+      const vor = einsatzId(eid); if (!vor) return; const v = vor.vortagNotizen || {};
+      const e = await echt(vor); if (!e) return;
+      if (v.notiz || v.benoetigt) await put(`/plan/einsaetze/${e.id}`, { version: e.version, ...(v.notiz ? { notiz: v.notiz } : {}), ...(v.benoetigt ? { benoetigt: v.benoetigt } : {}) });
+      for (const [pid, text] of Object.entries(v.personen || {})) if ((e.personen || []).some((p) => String(p.benutzerId) === String(pid))) await put(`/plan/einsaetze/${e.id}/personen/${pid}`, { notiz: text });
+      for (const [aid, text] of Object.entries(v.anlagen || {})) if ((e.anlagen || []).some((a) => String(a.anlageId) === String(aid))) await put(`/plan/einsaetze/${e.id}/anlagen/${aid}`, { notiz: text });
+      toast('Notizen von gestern übernommen.');
+    } catch (x) { toast(x.message, 'warn'); }
+    neu();
   }
 
   /* ---------- Geräte-Disposition (aus dem Wochenplan abgeleitet) ---------- */
@@ -253,7 +332,7 @@ export default async function plan(el, ctx) {
     const n = d.unveroeffentlicht || 0;
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
-        ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Planer-Erinnerung einstellen" title="Planer-Erinnerung">${ic('bell')}</button>` : ''}<button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
+        ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
       <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', 'Morgen'], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
       ${fehler ? banner('err', esc(fehler)) : ''}
       <div id="wp-inhalt">${ansicht === 'woche' ? wocheHtml() : ansicht === 'tag' ? tagHtml() : ansicht === 'geraete' ? geraeteHtml() : zp ? zeitplanHtml(zp, ctx) : '<div class="state">Lädt …</div>'}</div>
@@ -264,7 +343,10 @@ export default async function plan(el, ctx) {
 
   /* ---------- Einteilen ---------- */
   async function zielEinsatz(datum, bsId) {
-    const e = einsatz(datum, bsId); if (e) return e.id;
+    let e = einsatz(datum, bsId);
+    if (!e && tagInfo(datum).vorschau) { await post('/plan/tag/uebernehmen', { datum }); await lade(); e = einsatz(datum, bsId); }
+    if (e && e.vorschau) e = await echt(e);
+    if (e) return e.id;
     try { return eins(await post('/plan/einsaetze', { datum, baustelleId: Number(bsId) })).id; }
     catch (x) { if (x.status === 409 && x.daten && x.daten.id) return x.daten.id; throw x; }
   }
@@ -272,11 +354,13 @@ export default async function plan(el, ctx) {
   async function einteilen(stuecke, datum, bsId) {
     if (!stuecke.length) return;
     try {
+      // Herkunft aus einer Vorschau-Zelle: Tag zuerst speichern, dann gelten echte Nummern
+      for (const s of stuecke) { const q = s.vonEinsatz ? einsatzId(s.vonEinsatz) : null; if (q && q.vorschau) { const neuQ = await echt(q); s.vonEinsatz = neuQ ? neuQ.id : null; } }
       const ziel = await zielEinsatz(datum, bsId);
       const gruppen = new Map(); // je Herkunft ein Aufruf, damit „verschiebenVon“ stimmt
       for (const s of stuecke) {
         const quelle = s.vonEinsatz ? einsatzId(s.vonEinsatz) : null;
-        if (quelle && Number(quelle.id) === Number(ziel)) continue;
+        if (quelle && String(quelle.id) === String(ziel)) continue;
         const versch = quelle && quelle.datum === datum ? quelle.id : null; // anderer Tag = zusätzlich einteilen
         const k = String(versch || 0);
         if (!gruppen.has(k)) gruppen.set(k, { versch, p: [], a: [], k: [] });
@@ -304,8 +388,9 @@ export default async function plan(el, ctx) {
     neu();
   }
   // Klick auf einen Chip in der Zelle: Details, Verschieben (ohne Ziehen), Entfernen
-  function chipDialog(c) {
-    const e = einsatzId(c.dataset.einsatz); if (!e) return;
+  async function chipDialog(c) {
+    let e = einsatzId(c.dataset.einsatz); if (!e) return;
+    if (e.vorschau && darfBs(e.baustelleId)) { try { e = await echt(e); } catch (x) { toast(x.message, 'warn'); return; } zeichne(); if (!e) return; }
     const art = c.dataset.chip, id = Number(c.dataset.id), name = c.dataset.name;
     const schreib = darfBs(e.baustelleId);
     const ks = konflikteVon(e).filter((k) => (art === 'a' ? Number(k.anlageId) === id : Number(k.benutzerId) === id));
@@ -338,6 +423,7 @@ export default async function plan(el, ctx) {
     });
   }
   async function detailsDialog(eid) {
+    if (String(eid).startsWith('v:')) { try { const e0 = await echt(einsatzId(eid)); zeichne(); if (!e0) return; eid = e0.id; } catch (x) { toast(x.message, 'warn'); return; } }
     if (String(eid).startsWith('neu:')) { const [, datum, bsId] = String(eid).split(':'); try { eid = await zielEinsatz(datum, bsId); await lade(); zeichne(); } catch (x) { toast(x.message, 'warn'); return; } }
     const e = einsatzId(eid); if (!e) return;
     const dlg = dialog({ titel: `Einsatz · ${bsName(e.baustelleId)} · ${tagKurz(e.datum)}`, breit: true, inhalt: `<form id="edf" class="form-grid" novalidate>
@@ -373,6 +459,15 @@ export default async function plan(el, ctx) {
     const tw2 = e.target.closest('[data-tag-weiter]') || e.target.closest('[data-tag-morgen]');
     if (tw2) { tagWahl = tw2.dataset.tagWeiter ? naechsterTag(tagWahl, Number(tw2.dataset.tagWeiter)) : morgen; wahl.clear(); if (!d.tage.some((t) => t.datum === tagWahl)) { von = montag(tagWahl); return neu(); } return zeichne(); }
     if (e.target.closest('#tg-pub')) return pubVorschau(tagWahl);
+    const tu = e.target.closest('#tg-uebernehmen');
+    if (tu) { try { const r = await post('/plan/tag/uebernehmen', { datum: tu.dataset.datum }); toast(`Tag übernommen – ${r.angelegt ?? 0} Einsätze gespeichert.`); } catch (x) { toast(x.message, 'warn'); } return neu(); }
+    const vn = e.target.closest('[data-vortag-notizen]');
+    if (vn) return vortagNotizen(vn.dataset.vortagNotizen);
+    const fn = e.target.closest('[data-fuhre-neu]');
+    if (fn) return fuhreDialog(ctx, { datum: fn.dataset.datum || tagWahl, nachBaustelleId: fn.dataset.nach ? Number(fn.dataset.nach) : null }, neu);
+    const fk = e.target.closest('[data-fuhre]');
+    if (fk) { const f = fuhren.find((x) => String(x.id) === fk.dataset.fuhre); if (f) fuhreDialog(ctx, { fuhre: f }, neu); return; }
+    if (e.target.closest('#fu-wie-gestern')) { try { const r = await post('/plan/fuhren/wie-vortag', { datum: tagWahl }); const n = (r.angelegt || []).length; toast(n ? `${n} Fuhre${n === 1 ? '' : 'n'} vom Vortag übernommen.` : 'Am Vortag gab es keine Fuhren.', n ? 'ok' : 'warn'); } catch (x) { toast(x.message, 'warn'); } return neu(); }
     if (e.target.closest('#wp-einst')) return einstellungenDialog();
     if (e.target.closest('[data-notiz-zu]')) { e.target.closest('.wp-notiz-ed').remove(); return; }
     const nb = e.target.closest('[data-notiz-auf]');
@@ -392,13 +487,7 @@ export default async function plan(el, ctx) {
       $('#aof', dlg.el).addEventListener('submit', async (ev) => { ev.preventDefault(); try { await put(`/plan/anfragen/${ao.dataset.anfrageOk}`, { status: 'erledigt', antwort: String(new FormData(ev.target).get('antwort') || '').trim() }); dlg.zu(); toast('Erledigt – der Polier wird benachrichtigt.'); } catch (x) { toast(x.message, 'warn'); } neu(); });
       return;
     }
-    if (e.target.closest('#wp-pub')) {
-      const n = d.unveroeffentlicht || 0, rot = (d.konflikte || []).filter((k) => k.typ !== 'wetter').length;
-      const t = d.tage.map((x) => x.datum);
-      if (!(await bestaetigen('Plan veröffentlichen?', `${n} Änderung${n === 1 ? '' : 'en'} in KW ${kw(von)}: Alle Betroffenen erfahren ihren Einsatz in der App (und per Push, wenn eingeschaltet).${rot ? ` Achtung: ${rot} Konflikt${rot === 1 ? '' : 'e'} offen.` : ''}`, 'Veröffentlichen'))) return;
-      try { const r = await post('/plan/veroeffentlichen', { von: t[0], bis: t[t.length - 1] }); toast(`Veröffentlicht – ${r.benachrichtigt ?? 0} Person${r.benachrichtigt === 1 ? '' : 'en'} benachrichtigt.`); ctx.meldungenNeu(); } catch (x) { toast(x.message, 'warn'); }
-      return neu();
-    }
+    if (e.target.closest('#wp-pub')) { const t = d.tage.map((x) => x.datum); return pubVorschau(ansicht === 'tag' ? tagWahl : t[0], ansicht === 'tag' ? tagWahl : t[t.length - 1]); }
     if (e.target.closest('#wp-vorwoche')) {
       if (!(await bestaetigen('Vorwoche übernehmen?', `Die Einsätze der KW ${kw(fmt.addTage(von, -7))} werden auf dieselben Wochentage der KW ${kw(von)} kopiert. Bereits belegte Zellen bleiben, Abwesende und gesperrte Geräte werden ausgelassen.`, 'Übernehmen'))) return;
       try {
@@ -413,8 +502,10 @@ export default async function plan(el, ctx) {
   el.addEventListener('change', (e) => { if (e.target.id === 'wp-we') { mitWe = e.target.checked; speicher.setz('bt_plan_we', mitWe); neu(); } });
   el.addEventListener('input', (e) => { if (e.target.id === 'wp-suche') { suche = e.target.value; const pos = e.target.selectionStart; zeichne(); const s = $('#wp-suche', el); if (s) { s.focus(); s.setSelectionRange(pos, pos); } } });
   const loese = ziehbar(el, {
-    quelle: '.wp-page [data-zieh][data-chip]', ziel: '[data-ablage]',
-    ablegen: (q, z) => einteilen([{ art: q.dataset.chip, id: Number(q.dataset.id), vonEinsatz: q.dataset.einsatz || null }], z.dataset.datum, z.dataset.bs),
+    quelle: '.wp-page [data-zieh][data-chip]', ziel: '[data-fuhr-ablage], [data-ablage]',
+    // Fuhren-Flächen nehmen nur Fahrzeuge an (LKW auf die Fuhren einer Baustelle ziehen → Formular)
+    darf: (q, z) => !z.hasAttribute('data-fuhr-ablage') || (q.dataset.chip === 'a' && (!z.dataset.anlage || z.dataset.anlage === q.dataset.id)),
+    ablegen: (q, z) => (z.hasAttribute('data-fuhr-ablage') ? fuhreDialog(ctx, { datum: z.dataset.datum, anlageId: Number(q.dataset.id), nachBaustelleId: z.dataset.nach ? Number(z.dataset.nach) : null }, neu) : einteilen([{ art: q.dataset.chip, id: Number(q.dataset.id), vonEinsatz: q.dataset.einsatz || null }], z.dataset.datum, z.dataset.bs)),
   });
   const loeseZp = zeitplanBinden(el, ctx, () => zp, zeigZeitplan);
   zeichne();
@@ -428,6 +519,8 @@ export async function einsatz(el, ctx) {
   const heute = wienHeute();
   const d = await get(`/plan/ich?von=${heute}&bis=${fmt.addTage(heute, 6)}`);
   const tage = d.tage || [];
+  const uid = ctx.ich.benutzer.id;
+  fuhrenNachsenden(uid).then((n) => { if (n && ctx.aktuell()) ctx.neuLaden(); });
   const haupt = d.morgen && d.morgen.einsatz ? d.morgen : tage.find((t) => t.datum === heute && t.einsatz) || null;
   const istMorgen = haupt && haupt.datum === fmt.addTage(heute, 1);
   function karte(t) {
@@ -435,7 +528,7 @@ export async function einsatz(el, ctx) {
     const fz = e.fahrzeug ? e.fahrzeug.bezeichnung || e.fahrzeug.text : (e.anlagen || [])[0] && e.anlagen[0].bezeichnung;
     const feld = (k, v) => (v ? `<div><small>${k}</small><b>${esc(v)}</b></div>` : '');
     return `<section class="me-karte" id="einsatz-karte" data-datum="${t.datum}" aria-label="Einsatz ${istMorgen ? 'morgen' : 'heute'}">
-      <span class="me-wann">${istMorgen ? 'Morgen' : 'Heute'} · ${esc(fmt.WT[fmt.dt(t.datum).getDay()])} ${esc(tagKurz(t.datum).slice(3))}${t.geaendert ? ' · geändert' : ''}</span>
+      <span class="me-wann">${istMorgen ? 'Morgen' : 'Heute'} · ${esc(fmt.WT[fmt.dt(t.datum).getDay()])} ${esc(tagKurz(t.datum).slice(3))}${t.geaendert ? ' · geändert' : ''}${t.wieVortag ? ' <i class="me-wie" data-wie-vortag>wie heute</i>' : ''}</span>
       <div class="me-haupt"><b class="me-zeit">${e.beginn ? esc(e.beginn) + ' Uhr' : 'Beginn wie üblich'}</b><b class="me-bs">${esc(b.name || 'Baustelle')}</b><span>${esc(b.adresse || '')}</span></div>
       <div class="me-felder">${feld('Treffpunkt', e.treffpunkt)}${feld('Polier', e.polier && e.polier.name)}${feld('Fahrzeug', fz)}${feld('Arbeit', e.arbeit)}</div>
       ${e.meineNotiz ? `<p class="me-meine" id="me-meine-notiz"><small>Notiz für mich</small>${esc(e.meineNotiz)}</p>` : ''}
@@ -449,13 +542,18 @@ export async function einsatz(el, ctx) {
   el.innerHTML = `<div class="page narrow me-page">
     ${haupt ? karte(haupt) : `<section class="card pad" id="einsatz-leer">${leer('Für heute und morgen ist noch kein Einsatz veröffentlicht.', 'calendar')}</section>`}
     ${haupt ? `<div class="me-hinweis">Am Morgen schlägt die Stempeluhr diese Baustelle automatisch vor.</div>` : ''}
+    ${meineFuhrenHtml(tage, heute, uid)}
     <section class="card" aria-labelledby="h-mw"><h2 class="me-h" id="h-mw">Diese Woche</h2>
-      <ul class="plain me-woche" id="einsatz-woche">${tage.map((t) => { const e = t.einsatz; return `<li data-tag="${t.datum}" class="${e ? '' : 'leer'}"><span class="me-tag"><small>${esc(fmt.WTK[fmt.dt(t.datum).getDay()])}</small><b>${fmt.dt(t.datum).getDate()}</b></span><span class="grow"><b>${e ? esc((e.baustelle && e.baustelle.name) || 'Baustelle') : 'noch nicht eingeteilt'}</b><small>${e ? [t.datum === heute ? 'heute' : t.datum === fmt.addTage(heute, 1) ? 'morgen' : '', e.beginn, e.arbeit, t.geaendert ? 'neu eingeteilt' : '', e.wetterHinweis].filter(Boolean).map(esc).join(' · ') : ''}</small></span></li>`; }).join('') || '<li class="leer"><span class="grow muted">Noch nichts veröffentlicht.</span></li>'}</ul></section>
+      <ul class="plain me-woche" id="einsatz-woche">${tage.map((t) => { const e = t.einsatz; return `<li data-tag="${t.datum}" class="${e ? '' : 'leer'}"><span class="me-tag"><small>${esc(fmt.WTK[fmt.dt(t.datum).getDay()])}</small><b>${fmt.dt(t.datum).getDate()}</b></span><span class="grow"><b>${e ? esc((e.baustelle && e.baustelle.name) || 'Baustelle') : 'noch nicht eingeteilt'}</b><small>${e ? [t.datum === heute ? 'heute' : t.datum === fmt.addTage(heute, 1) ? 'morgen' : '', e.beginn, e.arbeit, t.geaendert ? 'neu eingeteilt' : '', e.wetterHinweis].filter(Boolean).map(esc).join(' · ') : ''}</small></span>${t.wieVortag ? '<span class="chip xs st-grey" data-wie-vortag>wie Vortag</span>' : ''}</li>`; }).join('') || '<li class="leer"><span class="grow muted">Noch nichts veröffentlicht.</span></li>'}</ul></section>
   </div>`;
+  meineFuhrenBinden(el, tage, uid, () => ctx.neuLaden());
+  const online = () => fuhrenNachsenden(uid).then((n) => { if (n && ctx.aktuell()) ctx.neuLaden(); });
+  window.addEventListener('online', online);
   el.addEventListener('click', async (e) => {
     const ok = e.target.closest('#me-ok'); if (!ok) return;
     try { await post('/plan/ich/bestaetigen', { datum: ok.dataset.datum }); toast('Bestätigt.'); ctx.neuLaden(); } catch (x) { toast(x.message, 'warn'); }
   });
+  return () => window.removeEventListener('online', online);
 }
 
 /* ================= Polier: „Meine Partie morgen“ ================= */
@@ -479,8 +577,11 @@ export async function partie(el, ctx) {
         <div class="stack-s">${ctx.kann('kolonne') ? (datum === heute ? `<a class="btn primary lg" data-alle-stempeln href="#/kolonne?baustelleId=${e.baustelleId}&plan=1">${ic('users')}Alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</a>` : `<button type="button" class="btn primary lg" data-alle-stempeln disabled>${ic('users')}Morgen alle einstempeln${e.beginn ? ` (${esc(e.beginn)})` : ''}</button><p class="muted sm">Morgen früh hier mit einem Tipp – die eingeplante Mannschaft ist dann schon ausgewählt.</p>`) : ''}
           <button type="button" class="btn ghost lg" data-anfrage="${e.id}">Änderung beim Büro anfragen</button></div>
       </div>`).join('') : `<section class="card pad" id="partie-leer">${leer(`Für ${wort} ist noch kein Plan veröffentlicht.`, 'calendar')}<button type="button" class="btn ghost" data-anfrage="">Änderung beim Büro anfragen</button></section>`}
+      ${partieFuhrenHtml(d.fuhren)}
     </div>`;
   }
+  // Status der Fuhren laufend nachladen (geplant → unterwegs → abgeladen), solange nichts offen ist
+  const takt = setInterval(async () => { if (!ctx.aktuell() || document.querySelector('dialog[open]') || document.hidden) return; try { await lade(); zeichne(); } catch (x) { /* nächster Versuch */ } }, 30000);
   el.addEventListener('click', async (e) => {
     const t = e.target.closest('[data-partie-tag]');
     if (t) { datum = t.dataset.partieTag; try { await lade(); } catch (x) { toast(x.message, 'warn'); } return zeichne(); }
@@ -495,4 +596,5 @@ export async function partie(el, ctx) {
     }
   });
   zeichne();
+  return () => clearInterval(takt);
 }
