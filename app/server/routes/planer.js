@@ -903,6 +903,154 @@ module.exports = function planerRouten(api, bt) {
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `materialien:${m.id}`, alt: { dichte: m.dichte }, neu: { dichte }, text: `Dichte ${m.name} geändert` });
     res.json({ id: m.id, code: m.code, name: m.name, einheit: m.einheit, dichte });
   });
+  /* ---------- Druckbarer Tages-/Wochenplan (12.23) – nie €-Werte ---------- */
+  const WT_LANG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  const ROLLE_KURZ = { mitarbeiter: 'Mitarbeiter', polier: 'Polier', bauleiter: 'Bauleiter', buero: 'Büro', gf: 'GF' };
+  const zeitHM = (iso) => (iso ? wienZeit(new Date(iso)) : null);
+  function bsFilterAus(q) {
+    if (q.baustelleIds === undefined || q.baustelleIds === '') return null;
+    const ids = String(q.baustelleIds).split(',').map((x) => x.trim()).filter(Boolean);
+    if (!ids.length || ids.length > 100 || ids.some((x) => !/^\d{1,9}$/.test(x))) throw ungueltig('baustelleIds: Liste von IDs (Komma).');
+    return new Set(ids.map(Number));
+  }
+  function druckRolle(ctx) {
+    if (istPlaner(ctx)) return 'planer';
+    if (ctx.benutzer.rolle === 'bauleiter') return 'bauleiter';
+    if (ctx.benutzer.rolle === 'polier') return 'polier';
+    throw keinZugriff('Den Einteilungsplan drucken Büro, GF, Bauleiter und Poliere.');
+  }
+  /** Partie des Poliers: Stamm-Baustelle eine seiner Baustellen bzw. über seine Kolonne eingeteilt */
+  function partieVon(ich, K) {
+    const meine = new Set([...K.baustellen.values()].filter((b) => b.polier_id === ich.id).map((b) => b.id));
+    return new Set([ich.id, ...[...K.personen.values()].filter((p) => p.baustelle_id != null && meine.has(p.baustelle_id)).map((p) => p.id)]);
+  }
+  const fahrzeugText = (f) => (f ? [f.bezeichnung, f.kennzeichen ? `(${f.kennzeichen})` : null, f.text].filter(Boolean).join(' ') : '');
+  function fuhrZeile(f) {
+    const menge = `${String(f.menge).replace('.', ',')} ${f.einheit === 'm3' ? 'm³' : f.einheit}${f.anzahlFuhren ? ` (${f.anzahlFuhren} Fuhren)` : ''}`;
+    const nach = `${(f.nach && f.nach.text) || ''}${f.nach && f.nach.abladestelle ? ` – ${f.nach.abladestelle}` : ''}`;
+    return { zeit: f.beginn || '', material: f.material ? f.material.name : f.materialText || '', menge, strecke: `${(f.von && f.von.text) || ''} » ${nach}`, fahrer: f.fahrer ? f.fahrer.name : '', reihenfolge: f.reihenfolge || 0 };
+  }
+  function fuhrGruppen(liste) {
+    const g = new Map();
+    for (const f of liste) {
+      const lkw = f.anlage ? `${f.anlage.bezeichnung || ''}${f.anlage.kennzeichen ? ` (${f.anlage.kennzeichen})` : ''}` : 'LKW';
+      if (!g.has(lkw)) g.set(lkw, []);
+      g.get(lkw).push(fuhrZeile(f));
+    }
+    return [...g].sort((a, b) => a[0].localeCompare(b[0])).map(([lkw, z]) => ({ lkw, zeilen: z.sort((a, b) => (a.zeit || '99').localeCompare(b.zeit || '99') || a.reihenfolge - b.reihenfolge) }));
+  }
+
+  /**
+   * Druckmodell eines Tages nach Rechten → {bloecke, fuhren, nichtEingeteilt, entwurf, veroeffentlichtUm, nichtsVeroeffentlicht}
+   */
+  function druckTag(ctx, rolle, d, K, filter) {
+    const ich = ctx.benutzer;
+    const voll = zeigtAbwesenheit(ctx);
+    const tel = (id) => (id ? (db.eins('SELECT telefon FROM benutzer WHERE id = ?', id) || {}).telefon || null : null);
+    let einsaetze, fuhren, eingeteilt, entwurf, partie = null;
+    if (rolle === 'polier') {
+      partie = partieVon(ich, K);
+      const st = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => ({ e, st: JSON.parse(e.veroeffentlicht_stand) }));
+      eingeteilt = new Set(st.flatMap(({ st: x }) => x.personen.map((p) => p.benutzerId)));
+      einsaetze = st.filter(({ st: x }) => x.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(x.baustelleId))).map(({ e, st: x }) => {
+        const eigen = baustelleImBereich(ich, K.baustellen.get(x.baustelleId));
+        return {
+          ...x, veroeffentlichtUm: e.veroeffentlicht_zeit,
+          notiz: eigen ? x.notiz : '', benoetigt: x.benoetigt,
+          personen: x.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })),
+          anlagen: x.anlagen.map((a) => ({ ...a, notiz: eigen ? a.notiz : '' }))
+        };
+      });
+      fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL AND status <> 'storniert'", d).map((f) => JSON.parse(f.veroeffentlicht_stand))
+        .filter((f) => f.nach && f.nach.baustelleId && baustelleImBereich(ich, K.baustellen.get(f.nach.baustelleId)));
+      entwurf = false;
+    } else {
+      const sicht = (bsId) => rolle === 'planer' || eigeneBs(ctx, bsId);
+      const { einsaetze: liste, vorschau } = tagEinsaetze(d, K, voll);
+      eingeteilt = new Set(liste.flatMap((e) => e.personen.map((p) => p.benutzer_id)));
+      einsaetze = liste.filter((e) => sicht(e.baustelle_id)).map((e) => ({ ...P.einsatzJson(e, K, { notizen: true }), vorschau: Boolean(vorschau) }));
+      for (const e of einsaetze) { const bs = K.baustellen.get(e.baustelleId) || {}; e.polier = bs.polier_id ? { id: bs.polier_id, name: (K.personen.get(bs.polier_id) || {}).name } : null; }
+      fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND status <> 'storniert' ORDER BY anlage_id, reihenfolge, id", d)
+        .filter((f) => fuhreRechte(ctx, f)).map((f) => F.fuhreJson(db, f, K));
+      entwurf = Boolean(vorschau) || !einsaetze.length || einsaetze.some((e) => !e.veroeffentlicht || e.geaendertNachVeroeffentlichung)
+        || fuhren.some((f) => !f.veroeffentlicht);
+    }
+    if (filter) {
+      einsaetze = einsaetze.filter((e) => filter.has(e.baustelleId));
+      fuhren = fuhren.filter((f) => [f.von, f.nach].some((h) => h && filter.has(h.baustelleId)));
+    }
+    const zeiten = einsaetze.map((e) => e.veroeffentlichtUm).filter(Boolean).sort();
+    const bloecke = einsaetze.sort((a, b) => String(a.baustelle.kst).localeCompare(String(b.baustelle.kst))).map((e) => ({
+      baustelleId: e.baustelleId, kst: e.baustelle.kst, name: e.baustelle.name, adresse: e.baustelle.adresse || '',
+      polier: e.polier ? { name: e.polier.name, telefon: tel(e.polier.id) } : null,
+      beginn: e.beginn || '', treffpunkt: e.treffpunkt || '', arbeit: e.arbeit || '', fahrzeug: fahrzeugText(e.fahrzeug),
+      personen: e.personen.map((p) => ({ name: p.name, rolle: ROLLE_KURZ[p.rolle] || '', notiz: p.notiz || '' })),
+      anlagen: e.anlagen.map((a) => ({ bezeichnung: a.bezeichnung || `Gerät ${a.anlageId}`, kennzeichen: a.kennzeichen || '', fahrer: a.fahrer ? a.fahrer.name : '', notiz: a.notiz || '' })),
+      benoetigt: e.benoetigt || '', notiz: e.notiz || ''
+    }));
+    const kandidaten = [...K.personen.values()].filter((b) => b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle) && !eingeteilt.has(b.id) && (!partie || partie.has(b.id)));
+    const nichtEingeteilt = kandidaten.sort((a, b) => a.name.localeCompare(b.name)).map((b) => {
+      const a = K.abw.get(`${b.id}|${d}`);
+      return { name: b.name, rolle: ROLLE_KURZ[b.rolle], status: a ? P.abwText(a, voll) : 'frei' };
+    });
+    return { bloecke, fuhren: fuhrGruppen(fuhren), nichtEingeteilt, entwurf, veroeffentlichtUm: zeiten.length ? zeitHM(zeiten[zeiten.length - 1]) : null, nichtsVeroeffentlicht: !zeiten.length };
+  }
+  const gedruckt = () => `${P.de(heute())} ${wienZeit(bt.uhr())}`;
+  const firma = () => db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
+  function pdfSenden(res, buf, name) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${name}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buf);
+  }
+
+  api.get('/plan/tag.pdf', async (req, res) => {
+    const rolle = druckRolle(req.ctx);
+    const d = v.datum(String(req.query.datum ?? ''), 'datum');
+    const filter = bsFilterAus(req.query);
+    const K = kontext(plusTage(d, -60), plusTage(d, 1));
+    K.heute = heute();
+    const t = druckTag(req.ctx, rolle, d, K, filter);
+    if (rolle === 'polier' && t.nichtsVeroeffentlicht) throw nichtGefunden('Für diesen Tag ist noch keine Einteilung veröffentlicht.');
+    const m = { ...t, titel: `Einteilung ${WT_LANG[wochentag(d)]} ${P.de(d)}`, gedruckt: gedruckt() };
+    const buf = await require('../planer-pdf').tagesplanPdf(m, { unkomprimiert: Boolean(bt.pdfUnkomprimiert), firma: firma() });
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: `plan:${d}`, text: `Tagesplan ${P.de(d)} gedruckt${m.entwurf ? ' (Entwurf)' : ''}` });
+    pdfSenden(res, buf, `Einteilung_${d}.pdf`);
+  });
+
+  api.get('/plan/woche.pdf', async (req, res) => {
+    const rolle = druckRolle(req.ctx);
+    const von0 = req.query.von ? v.datum(String(req.query.von), 'von') : heute();
+    const wt = wochentag(von0);
+    const von = plusTage(von0, wt === 0 ? -6 : 1 - wt);
+    const filter = bsFilterAus(req.query);
+    const K = kontext(plusTage(von, -60), plusTage(von, 5));
+    K.heute = heute();
+    const tage = [], zeilen = new Map();
+    let entwurf = false, zuletzt = null, irgendwas = false;
+    for (let i = 0; i < 5; i++) {
+      const d = plusTage(von, i);
+      const t = druckTag(req.ctx, rolle, d, K, filter);
+      if (!t.nichtsVeroeffentlicht) irgendwas = true;
+      const tagEntwurf = rolle !== 'polier' && t.entwurf && t.bloecke.length > 0; // leere Tage ohne Einsätze nicht markieren
+      entwurf = entwurf || tagEntwurf;
+      if (t.veroeffentlichtUm && (!zuletzt || d >= zuletzt.d)) zuletzt = { d, um: t.veroeffentlichtUm };
+      tage.push({ datum: d, label: `${['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][wochentag(d)]} ${d.slice(8, 10)}.${d.slice(5, 7)}.${feiertag(d) ? ` ${feiertag(d)}` : ''}`, entwurf: tagEntwurf });
+      for (const b of t.bloecke) {
+        if (!zeilen.has(b.baustelleId)) zeilen.set(b.baustelleId, { kst: b.kst, name: b.name, zellen: {} });
+        zeilen.get(b.baustelleId).zellen[d] = [...(b.beginn ? [b.beginn] : []), ...b.personen.map((p) => p.name)];
+      }
+    }
+    if (rolle === 'polier' && !irgendwas) throw nichtGefunden('Für diese Woche ist noch keine Einteilung veröffentlicht.');
+    const m = {
+      titel: `Wochenplan ${P.de(von)} – ${P.de(plusTage(von, 4))}`, gedruckt: gedruckt(), entwurf,
+      veroeffentlichtUm: zuletzt ? `${P.de(zuletzt.d).slice(0, 6)} ${zuletzt.um}` : null,
+      tage, zeilen: [...zeilen.values()].sort((a, b) => String(a.kst).localeCompare(String(b.kst)))
+    };
+    const buf = await require('../planer-pdf').wochenplanPdf(m, { unkomprimiert: Boolean(bt.pdfUnkomprimiert), firma: firma() });
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: `plan:woche:${von}`, text: `Wochenplan ab ${P.de(von)} gedruckt${entwurf ? ' (Entwurf)' : ''}` });
+    pdfSenden(res, buf, `Wochenplan_${von}.pdf`);
+  });
 };
 
 /** Stempeluhr (12.8): heutiger veröffentlichter Einsatz */

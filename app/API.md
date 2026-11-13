@@ -814,9 +814,9 @@ Keine €-Werte. A4 quer, große Schrift (Text ≥ 11 pt, Baustellen-Kopf 15 pt)
 - `GET /plan/tag.pdf?datum=JJJJ-MM-TT[&baustelleIds=1,2]` → `application/pdf` (`Content-Disposition: inline; filename="Einteilung_<JJJJ-MM-TT>.pdf"`, `Cache-Control: no-store`).
   - Kopf: „Einteilung <Wochentag TT.MM.JJJJ>“, „gedruckt TT.MM.JJJJ HH:MM“, „veröffentlicht HH:MM“ (jüngste Veröffentlichung der gezeigten Einsätze). Ist der Tag eine **Vorschau**, nichts davon veröffentlicht oder ein gezeigter Einsatz seit der Veröffentlichung geändert → schräges Wasserzeichen **„ENTWURF – nicht veröffentlicht“** auf jeder Seite.
   - Je Baustelle ein Block: KST, Name, Adresse · Polier mit dienstlicher Telefonnummer · Beginn, Treffpunkt, Arbeit · Personen mit Rolle (und Notiz je Person, siehe Rechte) · Geräte/LKW mit Fahrer und Notiz · Benötigt/Mitnehmen · Baustellen-Notiz.
-  - Danach Fuhren je LKW: Zeit, Material, Menge/Einheit, von → nach (mit Abladestelle), Fahrer (stornierte nicht).
+  - Danach Fuhren je LKW: Zeit, Material, Menge/Einheit, von » nach (mit Abladestelle), Fahrer (stornierte nicht). Seitenumbruch nur zwischen Tabellenzeilen.
   - Danach „Nicht eingeteilt“: aktive Mitarbeiter/Poliere ohne Einsatz, als „abwesend“ oder „frei“; den Grund (Urlaub, Krank …) nur mit `stammdaten`/`lohn` (Datenschutz wie 12.8).
-- `GET /plan/woche.pdf?von=JJJJ-MM-TT[&baustelleIds=…]` → Raster Baustellen (Zeilen) × Mo–Fr (Spalten) mit Beginn und Namen je Zelle (Woche ab dem Montag der Woche von `von`); Wasserzeichen wie oben, wenn ein Tag nicht oder nicht aktuell veröffentlicht ist.
+- `GET /plan/woche.pdf?von=JJJJ-MM-TT[&baustelleIds=…]` → Raster Baustellen (Zeilen) × Mo–Fr (Spalten) mit Beginn und Namen je Zelle (Woche ab dem Montag der Woche von `von`); Wasserzeichen wie oben, wenn ein Tag mit Einsätzen nicht oder nicht aktuell veröffentlicht ist (solche Tage im Spaltenkopf mit `*`; leere Tage nicht).
 - **Rechte (beide):**
   - Büro/GF (Planer): alle Baustellen, aktueller Stand (auch unveröffentlicht/Vorschau, dann mit Wasserzeichen), alle Notizen.
   - Bauleiter: nur eigene Baustellen, aktueller Stand, Notizen seiner Baustellen; Fuhren mit eigener Baustelle als von/nach.
