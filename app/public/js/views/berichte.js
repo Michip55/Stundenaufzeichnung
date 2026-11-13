@@ -146,6 +146,23 @@ export async function bericht(el, ctx) {
   const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ['buero', 'gf'].includes(ctx.ich.benutzer.rolle) : signierbar());
   const dis = () => (editierbar() ? '' : 'disabled');
   const gStd = (gid) => (b.geraete.find((g) => g.geraetId === gid) || {}).stunden || 0;
+  // Servicebuch 7.2: konkrete Anlage je Gerätezeile (Auswahl bei mehreren, Warnung bei gesperrten)
+  const gAnlagen = (gid) => ((geraeteKat.find((g) => g.id === gid) || {}).anlagen || []);
+  const gZeile = (gid) => b.geraete.find((g) => g.geraetId === gid);
+  const gAnlage = (gid) => { const z = gZeile(gid), l = gAnlagen(gid); if (!z || !(z.stunden > 0)) return null; return l.find((a) => a.id === z.anlageId) || (l.length === 1 ? l[0] : null); };
+  let anlageHinweise = [];
+  function anlagenZeile(gid) {
+    const l = gAnlagen(gid), z = gZeile(gid);
+    if (!l.length || !z || !(z.stunden > 0)) return '';
+    const wahl = gAnlage(gid);
+    const name = (a) => `${esc(a.bezeichnung)}${a.kennzeichen ? ' · ' + esc(a.kennzeichen) : ''}`;
+    const chips = l.length > 1
+      ? `<div class="pf-ga-chips" role="radiogroup" aria-label="Welches Gerät war im Einsatz?">${l.map((a) => `<button type="button" class="chip-btn${wahl && wahl.id === a.id ? ' on' : ''}${a.gesperrt ? ' gesperrt' : ''}" role="radio" aria-checked="${!!(wahl && wahl.id === a.id)}" data-anlage-wahl="${gid}:${a.id}" ${dis()}>${a.gesperrt ? ic('lock') + '<span class="vh">gesperrt: </span>' : ''}${name(a)}</button>`).join('')}</div>${wahl ? '' : '<small class="pf-ga-frage">Welches Gerät war im Einsatz?</small>'}`
+      : `<small class="pf-ga-eins">${ic(l[0].gesperrt ? 'lock' : 'truck', 'xs')} ${name(l[0])}</small>`;
+    const warn = wahl && wahl.gesperrt ? `<p class="pf-ga-warn" role="alert" data-anlage-gesperrt="${wahl.id}">${ic('lock')}<span><b>${name(wahl)} ist gesperrt.</b> Das Gerät darf nicht verwendet werden – bitte im Büro bzw. in der Werkstatt nachfragen.</span></p>` : '';
+    return chips + warn;
+  }
+  const zeigHinweise = () => { const h = $('#anlage-hinweise', el); if (!h) return; h.hidden = !anlageHinweise.length; h.innerHTML = anlageHinweise.length ? banner('warn', `<b>Gesperrtes Gerät im Bericht:</b> ${anlageHinweise.map((x) => esc(x.text)).join(' · ')} – der Bericht wird trotzdem gespeichert, das Büro wird verständigt.`, 'lock') : ''; };
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
   const gesamt = () => rund2(b.personal.reduce((s, p) => s + (Number(p.stunden) || 0), 0));
 
@@ -192,7 +209,7 @@ export async function bericht(el, ctx) {
     }
   };
   const wert = (feld) => {
-    if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden }));
+    if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden, ...(g.anlageId != null ? { anlageId: g.anlageId } : {}) }));
     if (feld === 'material') return b.material.filter((m) => m.menge > 0).map((m) => ({ materialId: m.materialId, menge: m.menge }));
     if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0, ...(p.gast ? { gast: true } : {}) })); // Stunden berechnet der Server
     if (feld === 'regie') return b.regie.filter((r) => (r.text || '').trim() || r.stunden > 0).map((r) => ({ text: r.text || '', stunden: Number(r.stunden) || 0 }));
@@ -211,6 +228,7 @@ export async function bericht(el, ctx) {
       const neu = await put(`/berichte/${id}`, body);
       if (neu && neu.version != null) b.version = neu.version;
       if (neu && 'kostenTag' in neu) { b.kostenTag = neu.kostenTag; zeichneKosten(); }
+      if (neu && Array.isArray(neu.hinweise) && felder.includes('geraete')) { anlageHinweise = neu.hinweise.filter((h) => h.typ === 'anlage_gesperrt'); zeigHinweise(); }
       // Die vom Server berechneten Stunden sind maßgeblich – Anzeige danach richten
       if (neu && Array.isArray(neu.personal) && felder.includes('personal') && !offen.has('personal')) {
         neu.personal.forEach((np) => { const p = b.personal.find((x) => x.benutzerId === np.benutzerId); if (p) { p.stunden = np.stunden; p.hinweis = np.hinweis; } });
@@ -325,7 +343,7 @@ export async function bericht(el, ctx) {
   const pads = {};
   function zeichne() {
     const halb = Math.ceil(geraeteKat.length / 2);
-    const gSpalte = (liste) => liste.map((g) => `<div class="pf-g${gStd(g.id) ? ' on' : ''}" data-g="${g.id}"><span>${esc(g.name)}</span>${stepper(`data-geraet="${g.id}"`, gStd(g.id), 0.5, 'Stunden', g.name)}<small>Std.</small></div>`).join('');
+    const gSpalte = (liste) => liste.map((g) => `<div class="pf-g${gStd(g.id) ? ' on' : ''}" data-g="${g.id}"><span>${esc(g.name)}</span>${stepper(`data-geraet="${g.id}"`, gStd(g.id), 0.5, 'Stunden', g.name)}<small>Std.</small></div>${(g.anlagen || []).length ? `<div class="pf-ga" data-ga="${g.id}">${anlagenZeile(g.id)}</div>` : ''}`).join('');
     const wetter = b.wetter ? (typeof b.wetter === 'string' ? b.wetter : [b.wetter.text || b.wetter.beschreibung, b.wetter.temperatur != null ? `${fmt.zahl(b.wetter.temperatur, 1)} °C` : ''].filter(Boolean).join(', ')) : '';
     el.innerHTML = `
     <div class="page form-page">
@@ -340,6 +358,7 @@ export async function bericht(el, ctx) {
       ${b.geaendertNachUnterschrift ? `<div id="nach-unterschrift">${banner('warn', `<b>Achtung – Unterschrift wurde zurückgezogen:</b> ${b.geaendertNachUnterschrift.zeit ? `am ${esc(fmt.zeitpunkt(b.geaendertNachUnterschrift.zeit))} Uhr` : ''}${b.geaendertNachUnterschrift.rolle ? ` (${b.geaendertNachUnterschrift.rolle === 'bh' ? 'Bauherr' : 'Auftragnehmer'})` : ''}${b.geaendertNachUnterschrift.von ? ` durch ${esc(typeof b.geaendertNachUnterschrift.von === 'object' ? b.geaendertNachUnterschrift.von.name || '' : (mitarbeiter.find((m) => m.id === b.geaendertNachUnterschrift.von) || {}).name || b.geaendertNachUnterschrift.von)}` : ''}. Der Inhalt kann danach geändert worden sein – vor der Freigabe bitte genau prüfen. Der Vermerk steht auch im PDF.`)}</div>` : ''}
       <div class="banner err" id="unsaved" role="alert" hidden>${ic('alert')}<span></span></div>
       ${b.status !== 'entwurf' ? banner(b.status === 'freigegeben' ? 'ok' : 'info', b.status === 'freigegeben' ? 'Dieser Bericht ist freigegeben und abgeschlossen.' : 'Dieser Bericht ist unterschrieben und kann nicht mehr geändert werden.', b.status === 'freigegeben' ? 'check' : 'lock') : ''}
+      <div id="anlage-hinweise" hidden></div>
       <div class="kosten-zeile" id="kosten" hidden></div>
 
       <nav class="wiz-steps" aria-label="Schritte">
@@ -390,7 +409,7 @@ export async function bericht(el, ctx) {
       <button type="button" class="btn primary lg grow" id="wiz-weiter">Weiter${ic('right')}</button>
     </div></div>`;
     Object.keys(pads).forEach((k) => delete pads[k]);
-    alleZeilenStatus(); anzeige(); zeichneKosten(); setzSchritt(schritt, false); sigInit();
+    alleZeilenStatus(); anzeige(); zeichneKosten(); zeigHinweise(); setzSchritt(schritt, false); sigInit();
   }
 
   function sigInit() {
@@ -429,7 +448,10 @@ export async function bericht(el, ctx) {
     if (sp.dataset.geraet) {
       const gid = Number(sp.dataset.geraet); let g = b.geraete.find((x) => x.geraetId === gid);
       if (!g) { g = { geraetId: gid, stunden: 0 }; b.geraete.push(g); }
+      // Bei mehreren Anlagen je Gerät: zuletzt auf dieser Baustelle verwendete vorbelegen
+      if (v > 0 && !(g.stunden > 0) && g.anlageId == null && gAnlagen(gid).length > 1) { const vor = (b.anlagenVorschlag || {})[gid]; if (gAnlagen(gid).some((a) => a.id === vor)) g.anlageId = vor; }
       g.stunden = v; sp.closest('.pf-g').classList.toggle('on', v > 0); geaendert('geraete');
+      const ga = $(`[data-ga="${gid}"]`, el); if (ga) ga.innerHTML = anlagenZeile(gid);
     } else if (sp.dataset.material) {
       const mid = Number(sp.dataset.material); let m = b.material.find((x) => x.materialId === mid);
       if (!m) { m = { materialId: mid, menge: 0 }; b.material.push(m); }
@@ -439,6 +461,12 @@ export async function bericht(el, ctx) {
   el.addEventListener('click', async (e) => {
     const d = e.target.closest('[data-stepper] [data-d]');
     if (d) { const sp = d.closest('[data-stepper]'); setzStepper(sp, zahl($('input', sp).value) + Number(d.dataset.d) * Number(sp.dataset.schritt)); return; }
+    const aw = e.target.closest('[data-anlage-wahl]');
+    if (aw && !aw.disabled) {
+      const [gid, aid] = aw.dataset.anlageWahl.split(':').map(Number); const g = gZeile(gid);
+      if (g) { g.anlageId = g.anlageId === aid ? null : aid; $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); geaendert('geraete'); }
+      return;
+    }
     const sn = e.target.closest('[data-schritt-nr]');
     if (sn) { setzSchritt(Number(sn.dataset.schrittNr)); return; }
     if (e.target.closest('[data-konflikt-laden]')) { ctx.neuLaden(); return; }

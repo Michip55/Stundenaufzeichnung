@@ -2,6 +2,8 @@
 // Ohne Netz wird die Buchung lokal gemerkt und später nachgesendet (siehe offline.js).
 import { get, post } from '../api.js';
 import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
+import { schadenMelden } from './schaeden.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
 
 const TYP = {
@@ -126,6 +128,7 @@ export default async function stempeln(el, ctx) {
           <div class="sum-grid"><div><small>Arbeitszeit</small><b>${fmt.hm(st.heute.stunden || 0)} <i>Std.</i></b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
           ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
+        <button type="button" class="card pad link-card" id="schaden-kurz" data-akt="schaden">${ic('camera')}<span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span>${ic('right')}</button>
         <a class="card pad link-card" href="#/woche">${ic('calendar')}<span><b>Meine Woche</b><small>Stunden, Überstunden und Abwesenheiten</small></span>${ic('right')}</a>
       </div>
     </div></div>`;
@@ -149,13 +152,15 @@ export default async function stempeln(el, ctx) {
     $$('[data-stempel],[data-akt]', el).forEach((b) => { b.disabled = true; });
     const zeit = new Date().toISOString();
     const body = { typ };
+    let abfrage = null;
     if (baustelleId != null) body.baustelleId = baustelleId;
     try {
       const ort = await standortHolen();
       if (ort) body.standort = ort;
       if (warteschlange().length) await nachsenden(); // Reihenfolge wahren
       if (warteschlange().length) throw { netz: navigator.onLine === false, status: 503 };
-      await post('/zeit/stempeln', body);
+      const antwort = await post('/zeit/stempeln', body);
+      if (typ === 'gehen' && antwort && Array.isArray(antwort.zaehlerAbfrage) && antwort.zaehlerAbfrage.length) abfrage = antwort.zaehlerAbfrage;
       setzOnline(true);
       toast((TYP[typ] || [typ])[0] + ' – gebucht.');
     } catch (e) {
@@ -171,6 +176,8 @@ export default async function stempeln(el, ctx) {
     beschaeftigt = false;
     if (!ctx.aktuell()) return;
     try { await lade(); zeichne(); } catch (e) { toast(e.message, 'warn'); }
+    // Servicebuch 7.3: nach dem Ausstempeln um den Kilometer-/Betriebsstundenstand bitten (überspringbar)
+    if (abfrage) zaehlerAbfrage(ctx, abfrage);
   }
 
   el.addEventListener('click', async (e) => {
@@ -191,6 +198,7 @@ export default async function stempeln(el, ctx) {
     }
     const a = e.target.closest('[data-akt]');
     if (!a || a.disabled) return;
+    if (a.dataset.akt === 'schaden') { schadenMelden(ctx, { baustelleId: st.status !== 'aus' && st.baustelleId != null ? st.baustelleId : null }); return; }
     if (a.dataset.akt === 'waehlen') {
       const id = await waehleBaustelle('Baustelle wählen');
       if (id != null) { wahl = id; speicher.setz('bt_baustelle', id); zeichne(); }

@@ -2,6 +2,7 @@
 import { get } from '../api.js';
 import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
+import { schadenMelden } from './schaeden.js';
 
 const INTEG_ICON = { diktat: 'mic', scan_lieferschein: 'scan', scan_papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud' };
 
@@ -21,6 +22,7 @@ export default async function mehr(el, ctx) {
   el.innerHTML = `
   <div class="page narrow wide-md">
     <section class="card pad profile">${avatar(u.name, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(rolleText(u.rolle))}${u.lohngruppe ? ' · ' + esc(u.lohngruppe) : ''}</p></div></section>
+    <button type="button" class="punch out sch-melden" id="mehr-schaden"><span class="punch-ic">${ic('camera')}</span><span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span></button>
     <nav class="card menu-list" aria-label="Alle Bereiche">
       ${ctx.navErlaubt().map((n) => `<a href="#${n.pfad}">${ic(n.icon)}<span>${esc(n.text)}</span>${ic('right')}</a>`).join('')}
     </nav>
@@ -40,6 +42,7 @@ export default async function mehr(el, ctx) {
     speicher.setz('bt_standort', e.target.checked);
     toast(e.target.checked ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Standort wird nicht mehr erfasst.');
   });
+  $('#mehr-schaden', el).addEventListener('click', () => schadenMelden(ctx));
   $('#sync-jetzt', el).addEventListener('click', async () => { await nachsenden(); if (ctx.aktuell()) ctx.neuLaden(); });
   $('#abmelden', el).addEventListener('click', async () => {
     const offen = syncStatus().ausstehend;
