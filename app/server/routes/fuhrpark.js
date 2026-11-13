@@ -734,7 +734,9 @@ module.exports = function fuhrparkRouten(api, bt) {
     const e = db.eins(`SELECT e.* FROM eintrag_planposition ep JOIN servicebuch_eintrag e ON e.id = ep.eintrag_id
       WHERE ep.planposition_id = ? AND e.storniert IS NULL ORDER BY e.datum DESC, e.id DESC LIMIT 1`, pid);
     if (e) {
-      const lz = {};
+      // Altbestand ohne Zählerstand-Zeilen (Werte aus den Papieren): Startwert desselben Tages ergänzt die Werte
+      const pos = db.eins('SELECT start_datum, start_zaehler FROM planposition WHERE id = ?', pid);
+      const lz = pos.start_datum === e.datum ? { ...parseJson(pos.start_zaehler, {}) } : {};
       for (const s of db.alle('SELECT s.wert, z.art FROM zaehlerstand s JOIN zaehler z ON z.id = s.zaehler_id WHERE s.eintrag_id = ?', e.id)) lz[s.art] = s.wert;
       db.lauf('UPDATE planposition SET letzte_datum = ?, letzte_zaehler = ?, letzte_eintrag_id = ?, version = version + 1 WHERE id = ?', e.datum, Object.keys(lz).length ? JSON.stringify(lz) : null, e.id, pid);
     } else {
