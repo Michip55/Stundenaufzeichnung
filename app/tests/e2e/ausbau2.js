@@ -232,13 +232,35 @@ async function stammdatenUndLebenslauf(h, z) {
   pruef(await page.locator('[data-imp-neu="0"]').count() === 1 && await page.locator('[data-imp-geaendert="0"]').count() === 1 && await page.locator('#st-imp-ok').isDisabled(), 'A2-Stamm: unveränderte Excel-Datei zeigt Änderungen an');
   await dialogUeberlauf('stammdaten import'); await shot('stammdaten-import');
   await page.click('dialog[open] [data-zu]');
+  // in Excel geänderter Code: erscheint als neu + fehlend, mit dem Hinweis, Codes im Programm umzubenennen (nichts wird übernommen)
+  const ExcelJS = require('exceljs');
+  const xlBuch = new ExcelJS.Workbook(); await xlBuch.xlsx.load(await dl.body());
+  const xlBlatt = xlBuch.worksheets[0]; const kopf = xlBlatt.getRow(1).values; const spCode = kopf.findIndex((x) => String(x).toLowerCase() === 'code');
+  pruef(spCode > 0 && xlBlatt.rowCount >= 3, `A2-Stamm: Excel-Export ohne Spalte „code“ (${JSON.stringify(kopf)})`);
+  const codeXl = String(xlBlatt.getRow(2).getCell(spCode).value);
+  xlBlatt.getRow(2).getCell(spCode).value = `xl-${k.toLowerCase()}-neu`;
+  await page.setInputFiles('#stamm-datei', { name: 'material-code.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(await xlBuch.xlsx.writeBuffer()) });
+  await page.waitForSelector('dialog[open] #st-import');
+  pruef(await page.locator('[data-imp-neu="1"]').count() === 1 && await page.locator('[data-imp-fehlend="1"]').count() === 1 && (await page.locator('#st-imp-fehlend').innerText()).includes(codeXl), `A2-Stamm: geänderter Code erscheint nicht als 1 neu + 1 fehlend (${(await page.locator('#st-import').innerText()).replace(/\s+/g, ' ').slice(0, 160)})`);
+  pruef(await page.locator('#st-imp-code-hinweis').count() === 1 && /Codes bitte im Programm umbenennen, nicht in Excel/.test(await page.locator('#st-imp-code-hinweis').innerText()), 'A2-Stamm: Hinweis „Codes bitte im Programm umbenennen, nicht in Excel“ fehlt');
+  await dialogUeberlauf('stammdaten import code');
+  await page.click('dialog[open] [data-zu]');
+  pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.some((m) => m.code === codeXl), 'A2-Stamm: abgebrochene Excel-Vorschau hat etwas geändert');
   // 12.21: Code eines verwendeten Materials umbenennen – Vorschau nennt die Verweise, die Nachkalkulation bleibt gleich; doppelter Code → Feldfehler
-  const posVor = (await api('GET', `/baustellen/${w}/positionen`)).json;
   const flach = (pz) => (pz.gruppen || []).flatMap((gr) => (gr.positionen || []).map((x) => ({ id: x.id, menge: x.menge, summe: x.summe, quelle: x.quelle })));
   const stammMat = (await api('GET', '/stammdaten/materialien?inaktiv=1')).json;
-  const mitQuelle = flach(posVor).find((x) => x.quelle && x.quelle.art === 'material' && stammMat.some((m) => m.aktiv !== false && m.code === x.quelle.ref));
-  const umb = mitQuelle ? stammMat.find((m) => m.code === mitQuelle.quelle.ref) : stammMat.find((m) => m.aktiv !== false);
+  const refs = (x) => [].concat((x.quelle && x.quelle.ref) || []); // Quelle nennt einen oder mehrere Codes
+  // eine Position, die ein Material über den Code verwendet und schon Menge hat – in den Testdaten vorhanden (Schotter/Kies …)
+  let bsCode = null, posVor = null, mitQuelle = null;
+  for (const bx of (await api('GET', '/baustellen')).json) {
+    const pz = (await api('GET', `/baustellen/${bx.id}/positionen`)).json;
+    const treffer = flach(pz).find((x) => x.quelle && x.quelle.art === 'material' && x.menge > 0 && stammMat.some((m) => m.aktiv !== false && refs(x).includes(m.code)));
+    if (treffer) { bsCode = bx.id; posVor = pz; mitQuelle = treffer; break; }
+  }
+  if (!mitQuelle) throw new Error('A2-Code: Die Testdaten enthalten keine Position mit Material-Quelle und Menge > 0 – die Umbenennung lässt sich so nicht prüfen (Seed prüfen).');
+  const umb = stammMat.find((m) => m.aktiv !== false && refs(mitQuelle).includes(m.code));
   const codeAlt = umb.code, codeNeu = `${umb.code}-x`.slice(0, 20), codeFremd = stammMat.find((m) => m.id !== umb.id && m.aktiv !== false).code;
+  pruef(mitQuelle.menge > 0, 'A2-Code: Menge der Position vor dem Umbenennen ist 0');
   await page.uncheck('#stamm-inaktiv');
   await page.click(`#stamm-tabelle tr[data-id="${umb.id}"] [data-edit]`);
   await page.waitForSelector('dialog[open] #stf');
@@ -247,15 +269,18 @@ async function stammdatenUndLebenslauf(h, z) {
   await page.click('#st-ok');
   await page.waitForSelector('dialog[open] [data-ok]');
   const frage = (await page.locator('dialog[open]').last().innerText()).replace(/\s+/g, ' ');
-  pruef(frage.includes(`„${codeAlt}“ → „${codeNeu}“`) && /\d+ Verweise? in der Nachkalkulation/.test(frage) && (!mitQuelle || !/ 0 Verweise/.test(frage)), `A2-Code: Rückfrage vor dem Umbenennen falsch („${frage.slice(0, 160)}“)`);
+  const nVerweise = Number((/(\d+) Verweise? in der Nachkalkulation/.exec(frage) || [])[1]);
+  pruef(frage.includes(`„${codeAlt}“ → „${codeNeu}“`) && nVerweise > 0, `A2-Code: Rückfrage vor dem Umbenennen falsch („${frage.slice(0, 160)}“)`);
   pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id).code === codeAlt, 'A2-Code: schon vor der Bestätigung umbenannt');
   await dialogUeberlauf('code umbenennen'); await shot('stammdaten-code');
   await page.locator('dialog[open] [data-ok]').last().click();
   await page.waitForFunction(() => !document.querySelector('dialog[open] #stf'));
   await toastWeg();
-  const posNach = (await api('GET', `/baustellen/${w}/positionen`)).json;
+  const posNach = (await api('GET', `/baustellen/${bsCode}/positionen`)).json;
+  const nachher = flach(posNach).find((x) => x.id === mitQuelle.id);
+  pruef(nachher && nachher.menge === mitQuelle.menge && nachher.menge > 0 && nachher.summe === mitQuelle.summe, `A2-Code: Menge der Position ändert sich durch das Umbenennen (${mitQuelle.menge} → ${nachher && nachher.menge})`);
   pruef(JSON.stringify(flach(posNach).map((x) => [x.id, x.menge, x.summe])) === JSON.stringify(flach(posVor).map((x) => [x.id, x.menge, x.summe])), 'A2-Code: Mengen/Summen der Nachkalkulation ändern sich durch das Umbenennen');
-  pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id).code === codeNeu && (!mitQuelle || flach(posNach).find((x) => x.id === mitQuelle.id).quelle.ref === codeNeu), 'A2-Code: Code oder Verweis der Position nicht mitgezogen');
+  pruef((await api('GET', '/stammdaten/materialien?inaktiv=1')).json.find((m) => m.id === umb.id).code === codeNeu && refs(nachher).includes(codeNeu) && !refs(nachher).includes(codeAlt), `A2-Code: Code oder Verweis der Position nicht mitgezogen (${JSON.stringify(nachher.quelle)})`);
   // doppelter Code → Fehler am Feld, nichts geändert
   await page.click(`#stamm-tabelle tr[data-id="${umb.id}"] [data-edit]`);
   await page.waitForSelector('dialog[open] #stf');
