@@ -2,8 +2,8 @@
 import { get } from '../api.js';
 import { ic, esc, fmt, laden, fehlerBox, $ } from '../ui.js';
 
-const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', F: 'Feiertag' };
-export const codeBadge = (c) => (c ? `<span class="code-badge c-${esc(c)}" title="${esc(CODES[c] || c)}">${esc(c)}</span>` : '');
+const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', F: 'Feiertag', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
+export const codeBadge = (c) => (c ? `<span class="code-badge c-${esc(c)}" title="${esc(CODES[c] || c)}">${c === 'abwesend' ? 'abw.' : esc(c)}</span>` : '');
 
 export default async function woche(el, ctx) {
   let datum = ctx.query.get('datum') || fmt.iso();

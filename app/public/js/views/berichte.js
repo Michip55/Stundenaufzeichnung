@@ -134,6 +134,8 @@ export function signaturFeld(canvas) {
 /* =================== Bearbeitung =================== */
 const SCHRITTE = ['Personal', 'Geräte', 'Material', 'Leistung', 'Regie & Vorkommnisse', 'Unterschrift'];
 const CODES = [['', '–'], ['K', 'K · Krank'], ['U', 'U · Urlaub'], ['SW', 'SW · Schlechtwetter'], ['ZA', 'ZA · Zeitausgleich']];
+// R-01: Den Krankenstand anderer sehen und setzen nur Büro/Lohn – alle anderen bekommen vom Server „abwesend“ (Anzeige „abw.“)
+const ABW = ['abwesend', 'abw. · abwesend'];
 const rund2 = (n) => Math.round(n * 100) / 100;
 export async function bericht(el, ctx) {
   const id = ctx.params[0];
@@ -187,6 +189,8 @@ export async function bericht(el, ctx) {
   // Fotos, Anhänge und Wetter erhöhen am Server die Version des Berichts – danach den Stand nachziehen, sonst scheitert das nächste Speichern (409)
   const versionHolen = async () => { try { const frisch = await get(`/berichte/${id}`); if (frisch.version != null) b.version = frisch.version; } catch (x) { /* folgt beim nächsten Laden */ } };
   const versionAus = async (r) => { if (r && r.berichtVersion != null) b.version = r.berichtVersion; else await versionHolen(); };
+  const darfKrank = (p) => ctx.kann('stammdaten') || ctx.kann('lohn') || Number(p.benutzerId) === Number(ctx.ich.benutzer.id);
+  const codesFuer = (p) => [...CODES.filter(([k]) => k !== 'K' || darfKrank(p) || p.code === 'K'), ...(p.code === 'abwesend' ? [ABW] : [])];
   const matZeile = (mid) => b.material.find((m) => m.materialId === mid) || {};
   const fuhrMarke = (m) => { const z = matZeile(m.id); if (!z.quelle || !(z.ausFuhren > 0)) return ''; return ` <i class="chip xs st-outline" data-aus-fuhre="${esc(z.quelle)}">${ic('truck')}${z.quelle === 'fuhre' ? 'aus Fuhre' : `davon ${esc(fmt.zahl(z.ausFuhren, 2))} ${esc(m.einheit || '')} aus Fuhren`}</i>`; };
   // Material, das im Bericht steht, aber inzwischen deaktiviert ist: bleibt sichtbar, steht aber in keiner neuen Auswahl
@@ -304,7 +308,7 @@ export async function bericht(el, ctx) {
           <label role="cell"><span class="bp-l">Pause (min)</span><input type="text" inputmode="numeric" class="input s num" data-p="pauseMin" value="${p.pauseMin || ''}" placeholder="0" aria-label="${esc(p.name || '')} Pause in Minuten" ${dis()}></label>
           <span role="cell" class="bp-std"><span class="bp-l">Arbeitsstd.</span><output data-p-std aria-label="${esc(p.name || '')} Arbeitsstunden (berechnet aus den Zeiten)" title="Wird aus den Zeiten und der Pause berechnet">${fmt.zahl(p.stunden || 0)}</output></span>
           <label role="cell"><span class="bp-l">SEG-Std.</span><input type="text" inputmode="decimal" class="input s num" data-p="segStunden" value="${p.segStunden ? fmt.zahl(p.segStunden) : ''}" placeholder="0" aria-label="${esc(p.name || '')} SEG-Stunden (Schmutz, Erschwernis, Gefahr)" ${dis()}></label>
-          <label role="cell"><span class="bp-l">Code</span><select class="input s" data-p="code" aria-label="${esc(p.name || '')} Abwesenheits-Code" ${dis()}>${CODES.map(([k, t]) => `<option value="${k}" ${(p.code || '') === k ? 'selected' : ''}>${k ? esc(k) : '–'}</option>`).join('')}</select></label>
+          <label role="cell"><span class="bp-l">Code</span><select class="input s" data-p="code" aria-label="${esc(p.name || '')} Abwesenheits-Code" ${dis()}>${codesFuer(p).map(([k, t]) => `<option value="${k}" title="${esc(t)}" ${(p.code || '') === k ? 'selected' : ''}>${k === 'abwesend' ? 'abw.' : k ? esc(k) : '–'}</option>`).join('')}</select></label>
           <span role="cell" class="bp-del">${editierbar() ? `<button type="button" class="icon-btn sm" data-p-weg aria-label="${esc(p.name || 'Person')} entfernen">${ic('trash')}</button>` : ''}</span>
         </div>`).join('') : `<div class="state empty small">${ic('users')}<p>Für diesen Tag wurde auf dieser Baustelle niemand gestempelt. Personen können händisch ergänzt werden.</p></div>`}
         <div class="bp-foot"><span>Gesamtstunden</span><b id="gesamt">${fmt.zahl(gesamt())}</b></div>

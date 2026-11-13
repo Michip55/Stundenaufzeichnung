@@ -4,10 +4,10 @@ import { get, post, put, del } from '../api.js';
 import { zeitraumDialog } from './zeitraum.js';
 import { ic, esc, fmt, avatar, laden, leer, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
 
-export const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich' };
+export const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
 const STATUS = { beantragt: ['Beantragt', 'st-amber'], genehmigt: ['Genehmigt', 'st-green'], abgelehnt: ['Abgelehnt', 'st-red'] };
 export const abwChip = (s) => { const [t, c] = STATUS[s] || [s || '–', 'st-grey']; return `<span class="chip ${c}" data-abw-status="${esc(s || '')}"><i class="dot"></i>${esc(t)}</span>`; };
-const badge = (c) => `<span class="code-badge c-${esc(c)}">${esc(c)}</span>`;
+const badge = (c) => `<span class="code-badge c-${esc(c)}">${c === 'abwesend' ? 'abw.' : esc(c)}</span>`; // „abwesend“ = vom Server verdeckter Grund (z. B. Krankenstand anderer)
 
 export default async function abwesenheiten(el, ctx) {
   const ich = ctx.ich.benutzer;
@@ -58,7 +58,7 @@ export default async function abwesenheiten(el, ctx) {
       <section class="card" id="abw-andere" aria-labelledby="h-andere">
         <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3>${istBauleiter ? '' : `<button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button>`}</div>
         ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: darfEntscheiden ? `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` : '' })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
-        ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankenstand trägt das Büro ein.</p>' : ''}
+        ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankmeldungen trägt das Büro ein.</p>' : ''}
       </section>` : ''}
     </div>`;
   }

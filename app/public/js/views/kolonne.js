@@ -38,7 +38,7 @@ export default async function kolonne(el, ctx) {
     const an = gewaehlt.has(m.benutzerId);
     const [st, cls] = ST[m.status] || ['', ''];
     const info = erg ? (erg.ok ? '<span class="chip xs st-green">gebucht</span>' : `<span class="crew-err">${esc(erg.fehler || 'nicht gebucht')}</span>`)
-      : m.code ? `<span class="code-badge c-${esc(m.code)}">${esc(m.code)}</span>`
+      : m.code ? `<span class="code-badge c-${esc(m.code)}">${m.code === 'abwesend' ? 'abw.' : esc(m.code)}</span>`
       : m.geplant && m.status === 'aus' ? '<span class="chip xs st-blue" data-eingeplant>eingeplant</span>'
       : st ? `<span class="chip xs ${cls}">${st}${m.status !== 'aus' && m.seit ? ' seit ' + fmt.uhr(m.seit) : ''}</span>` : '';
     return `<label class="crew-row${an ? ' sel' : ''}${erg && !erg.ok ? ' err' : ''}"><input type="checkbox" class="vh" data-ma="${m.benutzerId}" ${an ? 'checked' : ''}><span class="check">${ic('check')}</span>${avatar(m.name, m.status === 'arbeit' ? 'on' : m.status === 'pause' ? 'pause' : '')}<span class="crew-txt"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.extra ? ' · Gast (nicht in der Partie, wird protokolliert)' : ''}</small></span>${info}</label>`;

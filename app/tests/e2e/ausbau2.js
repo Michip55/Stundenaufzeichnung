@@ -1481,6 +1481,50 @@ async function geteilt(h) {
   await h.abmelden();
 }
 
+/* ================= R-01: Krankenstand anderer ist für Polier nur „abwesend“ – in der Anzeige und im Netzwerk ================= */
+async function krank(h) {
+  const { page, api, geh, pruef, g, anmelden, abmelden } = h;
+  const heute = h.heute();
+  const tag = naechsterArbeitstag(heute, 4);
+  await anmelden('buero');
+  const leute = (await api('GET', '/mitarbeiter')).json;
+  const polier = leute.find((m) => m.name === 'Josef Haidbauer');
+  const kollege = leute.find((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false && m.baustelleId === polier.baustelleId && m.name !== 'Lukas Brandstätter');
+  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tag}`)).json.filter((x) => x.benutzerId === kollege.id)) await api('DELETE', `/abwesenheiten/${a.id}`);
+  const k = await api('POST', '/abwesenheiten/zeitraum', { benutzerId: kollege.id, von: tag, bis: tag, code: 'K', notiz: 'DIAGNOSE-GEHEIM' });
+  pruef(k.status === 201 && k.json.status === 'genehmigt', `R-01: Krankenstand eintragen → ${k.status}`);
+  await abmelden();
+
+  await anmelden('polier');
+  const antworten = [];
+  const lausche = async (r) => { if (!r.url().includes('/api/') || !/json/.test(r.headers()['content-type'] || '')) return; try { antworten.push([r.url().replace(h.srv.url, ''), await r.text()]); } catch (e) { /* Antwort schon weg */ } };
+  page.on('response', lausche);
+  const entwurf = (await api('GET', '/berichte?status=entwurf')).json[0];
+  const sichtbar = [];
+  for (const r of [`/urlaub?monat=${tag.slice(0, 7)}`, '/abwesenheiten', '/partie', '/kolonne', '/einsatz', '/woche', ...(entwurf ? [`/bericht/${entwurf.id}`] : [])]) {
+    await geh(r); await page.waitForTimeout(250);
+    const t = (await h.text()).replace(/K\s*=\s*Krank/g, '').replace(/ZA\s+Zeitausgleich\s+K\s+Krank\s+SW\s+Schlechtwetter/g, '');
+    if (/\bKrank(enstand)?\b|DIAGNOSE-GEHEIM/.test(t)) sichtbar.push(r);
+  }
+  page.off('response', lausche);
+  pruef(sichtbar.length === 0, `R-01: „Krank“ oder die Notiz ist für den Polier sichtbar auf ${sichtbar.join(', ')}`);
+  const leck = antworten.filter(([, t]) => /"code":"K"/.test(t) || /DIAGNOSE-GEHEIM/.test(t)).map(([u]) => u);
+  pruef(antworten.length > 5 && leck.length === 0, `R-01: Netzwerkantworten an den Polier enthalten Code K oder die Notiz (${leck.slice(0, 4).join(', ')})`);
+  if (!g.mobil) {
+    await geh(`/urlaub?monat=${tag.slice(0, 7)}`);
+    const z = page.locator(`#ur-kalender [data-zelle][data-person="${kollege.id}"][data-datum="${tag}"]`);
+    pruef(await z.getAttribute('data-code') === 'abwesend' && /abwesend/.test(await z.getAttribute('aria-label')), `R-01: Kalender zeigt den Tag nicht als „abwesend“ (${await z.getAttribute('data-code')})`);
+  }
+  // Bericht: Für andere Personen bietet die Code-Auswahl kein „K“ an
+  if (entwurf) {
+    await geh(`/bericht/${entwurf.id}`);
+    const mitK = await page.evaluate((ich) => [...document.querySelectorAll('.bp-row')].filter((row) => [...row.querySelectorAll('select[data-p="code"] option')].some((o) => o.value === 'K')).length, polier.id);
+    const zeilen = await page.locator('.bp-row').count();
+    pruef(zeilen >= 1 && mitK <= 1, `R-01: Die Code-Auswahl bietet „K“ für ${mitK} von ${zeilen} Personen an (höchstens die eigene Zeile)`);
+  }
+  await abmelden();
+}
+
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

@@ -1049,3 +1049,5 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 
 .dok-kat { position: relative; } .dok-kat-edit { align-self: flex-end; margin: -38px 4px 4px 0; opacity: .5; } .dok-kat-edit:hover, .dok-kat-edit:focus-visible { opacity: 1; } .dok-kat-btn { padding-right: 40px; } .dok-kat-btn b { margin-right: 0; }
 @media (max-width: 899px) { .dok-kat-edit { margin: 0 6px 0 -6px; align-self: center; } .dok-kat-btn { padding-right: 10px; } }
+
+.c-abwesend, .c-BU, .c-ZA { background: #eceef1; color: #4a525c; }
