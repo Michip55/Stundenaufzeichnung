@@ -405,3 +405,9 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
 | Randleiste 8/25/100 (lfm) | Leistenstein 100/10/20 (Stk, Faktor 1) |
 | Asphalt AC 11 deck (to) | – (Vorlage: Lieferantenrechnung „Asphalt“ PA, Betrag manuell) |
 | Σ Tonnen Naturmaterial (10a) | Landschaftsabgabe (PA × 0,25) |
+
+### 10c. Vom Kunden bestätigt (13.11.2026, zweite Runde)
+- Maut **und** Landschaftsabgabe zählen beide zur „Summe Abgaben“ (die Excel-Formel `SUM(O113:O113)` war unvollständig).
+- Für den Gräder wird **keine** Position angelegt (bleibt ohne Zuordnung).
+- Stunden von LKW-Fahrern und Maschinisten sind in den Fahrzeug-/Gerätesätzen enthalten (keine eigene Arbeitsposition) – Zuordnung wie umgesetzt korrekt.
+- Aktuelle Preislisten 2026 liegen unter `docs/preislisten/` (Geräte, Grube Breitenau, Pichler Kies). Abgleich mit dem Katalog: siehe Antwort an den Kunden; Änderungen am Katalog erst nach Kundenentscheid.
