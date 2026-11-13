@@ -1,16 +1,22 @@
 // Benutzer & Rechte: Rechte-Matrix (mit gesperrten Zellen), Ausnahmen je Benutzer, Benutzerverwaltung, Protokoll.
+// Geschäftsführung: alles. Büro (Prüfbericht 2, C-14): nur Benutzer der Rollen Mitarbeiter/Polier/Bauleiter anlegen,
+// PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
 import { get, post, put } from '../api.js';
 import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, toast, speicher, $, $$ } from '../ui.js';
 
 export default async function benutzer(el, ctx) {
-  let r, leute, lohngruppen = [];
-  let tab = ['matrix', 'benutzer', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
+  const voll = ctx.kann('benutzer');
+  const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter'];
+  let r = {}, leute, lohngruppen = [], baustellen = [];
+  let tab = !voll ? 'benutzer' : ['matrix', 'benutzer', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
+  const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle);
+  const istGesperrt = (m) => !!(m.gesperrt || m.kontoGesperrt || m.sperre || m.gesperrtSeit);
   async function lade() {
-    [r, leute] = await Promise.all([get('/rechte'), get('/mitarbeiter')]);
+    [r, leute, baustellen] = await Promise.all([voll ? get('/rechte') : {}, get('/benutzer'), get('/baustellen').catch(() => [])]);
     if (!lohngruppen.length && ctx.kann('preise_sehen')) { try { lohngruppen = (await get('/preise')).lohngruppen || []; } catch (e) { /* optional */ } }
   }
   await lade();
-  const rollen = () => (r.rollen || Object.keys(ROLLEN)).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
+  const rollen = () => (voll ? r.rollen || Object.keys(ROLLEN) : BUERO_ROLLEN).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
   const gesperrt = (rolle, recht) => ((r.gesperrt || {})[rolle] || []).includes(recht);
   const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
   const rechtText = (k) => ((r.rechte || []).find((x) => x.schluessel === k) || {}).text || k;
@@ -33,8 +39,14 @@ export default async function benutzer(el, ctx) {
       </section>`;
   }
   function benutzerHtml() {
-    return `<div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
-      <section class="card">${leute.length ? `<ul class="plain rows" id="benutzerliste">${leute.map((m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}">${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.lohngruppe ? ' · ' + esc(m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span><button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button></li>`).join('')}</ul>` : leer('Keine Benutzer.', 'users')}</section>`;
+    const gesperrte = leute.filter(istGesperrt);
+    const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
+      ${istGesperrt(m) ? `<span class="chip st-red">${ic('lock')}Gesperrt</span><button type="button" class="btn primary sm" data-entsperren="${m.id}">Entsperren</button>` : ''}
+      ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : '<span class="muted sm nw">nur durch GF</span>'}</li>`;
+    return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter, Poliere und Bauleiter an, setzen PINs zurück und entsperren Konten. Rollen Büro/Geschäftsführung und die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
+      ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto gesperrt. „Entsperren“ hebt die Sperre auf; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben.</p></section>` : ''}
+      <div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
+      <section class="card">${leute.length ? `<ul class="plain rows" id="benutzerliste">${leute.map(zeile).join('')}</ul>` : leer('Keine Benutzer.', 'users')}</section>`;
   }
   function protokollHtml() {
     const p = r.protokoll || [];
@@ -42,7 +54,7 @@ export default async function benutzer(el, ctx) {
       <p class="card-note">Das Protokoll ist unveränderbar – Einträge können weder geändert noch gelöscht werden.</p></section>`;
   }
   function zeichne() {
-    const T = [['matrix', 'Rechte'], ['benutzer', 'Benutzer'], ['protokoll', 'Protokoll']];
+    const T = voll ? [['matrix', 'Rechte'], ['benutzer', 'Benutzer'], ['protokoll', 'Protokoll']] : [['benutzer', 'Benutzer']];
     el.innerHTML = `<div class="page">
       <div class="tabs" role="tablist" aria-label="Bereiche">${T.map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === tab}" class="${k === tab ? 'on' : ''}" data-tab="${k}">${t}</button>`).join('')}</div>
       <div class="stack" role="tabpanel">${tab === 'matrix' ? matrixHtml() : tab === 'benutzer' ? benutzerHtml() : protokollHtml()}</div></div>`;
@@ -52,21 +64,32 @@ export default async function benutzer(el, ctx) {
   function benutzerDialog(m) {
     const lg = lohngruppen.length ? `<select class="input lg" name="lohngruppe"><option value="">– keine –</option>${lohngruppen.map((l) => `<option value="${esc(l.id)}" ${m && (m.lohngruppe === l.id || m.lohngruppe === l.name || m.lohngruppeId === l.id) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>`
       : `<input class="input lg" name="lohngruppe" value="${esc((m && m.lohngruppe) || '')}">`;
-    const d = dialog({ titel: m ? 'Benutzer bearbeiten' : 'Neuer Benutzer', inhalt: `<form id="bf" class="stack-s" autocomplete="off">
+    const d = dialog({ titel: m ? 'Benutzer bearbeiten' : 'Neuer Benutzer', breit: true, inhalt: `<form id="bf" class="stack-s" autocomplete="off">
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
       <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle">${rollen().map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
-      <label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
+      <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
+      <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label></div>
+      <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
       <label class="field"><span class="field-label">${m ? 'PIN zurücksetzen (leer lassen = unverändert)' : 'Start-PIN'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" aria-describedby="pin-hinweis" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
       <p class="muted sm" id="pin-hinweis">4 bis 12 Ziffern (Bauleiter, Büro und Geschäftsführung mindestens 6), keine Folgen wie 1234. Die Person muss die PIN bei der nächsten Anmeldung selbst ändern.</p>
+      ${m ? `<button type="button" class="btn ghost sm" data-entsperren="${m.id}">${ic('lock')}Anmeldesperre aufheben</button>` : ''}
       ${m ? `<label class="switch-row flat"><span><b>Aktiv</b><small>Inaktive Benutzer können sich nicht anmelden.</small></span><input type="checkbox" class="vh" name="aktiv" ${m.aktiv === false || m.aktiv === 0 ? '' : 'checked'}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bf">Speichern</button>' });
+    const entB = $('[data-entsperren]', d.el);
+    if (entB) entB.addEventListener('click', async () => {
+      entB.disabled = true;
+      try { await post(`/benutzer/${m.id}/entsperren`); toast('Konto entsperrt – Anmeldung ist wieder möglich.'); lade(); }
+      catch (x) { toast(x.message, 'warn'); entB.disabled = false; }
+    });
     $('#bf', d.el).addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      const body = { name: f.get('name').trim(), rolle: f.get('rolle'), lohngruppe: f.get('lohngruppe') || null };
+      const body = { name: f.get('name').trim(), rolle: f.get('rolle'), lohngruppe: f.get('lohngruppe') || null, baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null };
+      if (f.get('pnr')) body.pnr = Number(f.get('pnr'));
+      if (m && m.id === ctx.ich.benutzer.id) { delete body.rolle; } // eigene Rolle ändert niemand selbst
       if (f.get('pin')) body.pin = f.get('pin');
-      if (m) body.aktiv = f.get('aktiv') === 'on';
+      if (m && m.id !== ctx.ich.benutzer.id) body.aktiv = f.get('aktiv') === 'on';
       try { if (m) await put(`/benutzer/${m.id}`, body); else await post('/benutzer', body); d.zu(); toast(m ? 'Benutzer gespeichert.' : 'Benutzer angelegt.'); neuLaden(); }
       catch (x) { const err = $('.form-err', d.el); err.hidden = false; err.textContent = x.message; }
     });
@@ -92,6 +115,13 @@ export default async function benutzer(el, ctx) {
     const a = e.target.closest('[data-akt]');
     if (a && a.dataset.akt === 'neu') return benutzerDialog(null);
     if (a && a.dataset.akt === 'ausnahme') return ausnahmeDialog();
+    const ent = e.target.closest('[data-entsperren]');
+    if (ent) {
+      ent.disabled = true;
+      try { await post(`/benutzer/${ent.dataset.entsperren}/entsperren`); toast('Konto entsperrt – Anmeldung ist wieder möglich.'); if (!ent.closest('dialog')) neuLaden(); else lade(); }
+      catch (x) { toast(x.message, 'warn'); ent.disabled = false; }
+      return;
+    }
     const b = e.target.closest('[data-bearb]');
     if (b) return benutzerDialog(leute.find((m) => String(m.id) === b.dataset.bearb));
     const w = e.target.closest('[data-aus-weg]');

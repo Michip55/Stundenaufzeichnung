@@ -41,7 +41,7 @@ export async function berichte(el, ctx) {
       return `<li><a class="rep-row" href="#/bericht/${b.id}" data-status="${esc(b.status)}">
         <span class="rep-date"><b>${esc(fmt.datumKurz(b.datum))}</b><small>${fmt.dt(b.datum).getFullYear()}</small></span>
         <span class="rep-txt"><b>${esc(bs.name || b.baustelleName || 'Baustelle')}</b><small>${esc([bs.kst || b.kst, bs.auftraggeber].filter(Boolean).join(' · '))}</small></span>
-        <span class="rep-meta">${b.stunden != null ? `<span class="muted sm nw">${fmt.zahl(b.stunden)} Std.</span>` : ''}${b.unterschriften ? `<span class="muted sm nw" title="Unterschriften">${ic('sign')}${(u.an ? 1 : 0) + (u.bh ? 1 : 0)}/2</span>` : ''}${statusChip(b.status)}</span>
+        <span class="rep-meta">${b.geaendertNachUnterschrift ? `<span class="chip xs st-amber" title="Eine Unterschrift wurde zurückgezogen – Inhalt kann danach geändert worden sein">${ic('alert')}nach Unterschrift geändert</span>` : ''}${b.stunden != null ? `<span class="muted sm nw">${fmt.zahl(b.stunden)} Std.</span>` : ''}${b.unterschriften ? `<span class="muted sm nw" title="Unterschriften">${ic('sign')}${(u.an ? 1 : 0) + (u.bh ? 1 : 0)}/2</span>` : ''}${statusChip(b.status)}</span>
         ${ic('right')}</a></li>`;
     }).join('')}</ul>` : leer(f.status || f.baustelleId ? 'Keine Berichte für diese Auswahl.' : 'Noch kein Bautagesbericht vorhanden.', 'clipboard');
   }
@@ -153,6 +153,19 @@ export async function bericht(el, ctx) {
   const offen = new Set();
   let speichert = false, fehlerText = '';
   let gespeichertUm = null;
+  let konflikt = false;
+  // Fehlermeldung des Servers der betroffenen Personalzeile zuordnen („personal[2]: …“ oder über den Namen)
+  function zeigeServerFehler(text) {
+    $$('#personal .bp-row .bp-srv', el).forEach((x) => x.remove());
+    $$('#personal .bp-row.srv', el).forEach((x) => x.classList.remove('srv'));
+    const m = /personal\[(\d+)\]/.exec(text || '');
+    let i = m ? Number(m[1]) : b.personal.findIndex((p) => p.name && String(text || '').includes(p.name));
+    const pr = i >= 0 ? $(`#personal .bp-row[data-i="${i}"]`, el) : null;
+    if (!pr) return;
+    pr.classList.add('srv');
+    const h = document.createElement('p'); h.className = 'bp-err bp-srv'; h.setAttribute('role', 'alert'); h.textContent = String(text).replace(/^personal\[\d+\]:?\s*/, '');
+    pr.appendChild(h);
+  }
   const anzeige = () => {
     const s = $('#save-state', el);
     const inv = ungueltig();
@@ -168,20 +181,25 @@ export async function bericht(el, ctx) {
     const u = $('#unsaved', el);
     if (u) {
       u.hidden = !(inv || fehlerText);
+      u.dataset.art = konflikt ? 'konflikt' : inv ? 'ungueltig' : 'fehler';
+      let nl = $('[data-konflikt-laden]', u);
+      if (konflikt && !nl) { nl = document.createElement('button'); nl.type = 'button'; nl.className = 'btn ghost sm'; nl.dataset.konfliktLaden = '1'; nl.textContent = 'Neu laden'; u.appendChild(nl); }
+      if (!konflikt && nl) nl.remove();
       $('span', u).textContent = inv
         ? 'Nicht gespeichert: Beim Personal sind Zeiten unvollständig oder widersprüchlich (rot markiert). Bitte korrigieren – vorher kann nicht unterschrieben werden.'
+        : konflikt ? 'Inzwischen von jemand anderem geändert. Ihre letzten Eingaben wurden NICHT gespeichert und überschreiben nichts. Bitte neu laden und die Änderung noch einmal eintragen.'
         : fehlerText ? `Nicht gespeichert: ${fehlerText}${/Verbindung/.test(fehlerText) ? ' Die Eingaben bleiben am Bildschirm und werden bei der nächsten Änderung erneut gesendet.' : ''}` : '';
     }
   };
   const wert = (feld) => {
     if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden }));
     if (feld === 'material') return b.material.filter((m) => m.menge > 0).map((m) => ({ materialId: m.materialId, menge: m.menge }));
-    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0 })); // Stunden berechnet der Server
+    if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0, ...(p.gast ? { gast: true } : {}) })); // Stunden berechnet der Server
     if (feld === 'regie') return b.regie.filter((r) => (r.text || '').trim() || r.stunden > 0).map((r) => ({ text: r.text || '', stunden: Number(r.stunden) || 0 }));
     return b[feld];
   };
   async function sichern() {
-    if (speichert || !offen.size) return;
+    if (speichert || !offen.size || konflikt) return;
     // Ungültiges Personal wird nicht gesendet – es bleibt als „offen“ stehen, bis es stimmt
     const felder = [...offen].filter((f) => f !== 'personal' || !ungueltig());
     if (!felder.length) { anzeige(); return; }
@@ -189,7 +207,9 @@ export async function bericht(el, ctx) {
     speichert = true; anzeige();
     try {
       const body = {}; felder.forEach((f) => { body[f] = wert(f); });
+      body.version = b.version; // C-08: der Server lehnt veraltete Stände ab
       const neu = await put(`/berichte/${id}`, body);
+      if (neu && neu.version != null) b.version = neu.version;
       if (neu && 'kostenTag' in neu) { b.kostenTag = neu.kostenTag; zeichneKosten(); }
       // Die vom Server berechneten Stunden sind maßgeblich – Anzeige danach richten
       if (neu && Array.isArray(neu.personal) && felder.includes('personal') && !offen.has('personal')) {
@@ -202,15 +222,19 @@ export async function bericht(el, ctx) {
       felder.forEach((f) => offen.add(f)); // nichts gilt als gespeichert, was der Server nicht bestätigt hat
       fehlerText = e.netz ? 'Keine Verbindung zum Server.' : e.message;
       speichert = false; anzeige();
-      if (e.status === 409) { toast('Der Bericht wurde inzwischen unterschrieben oder geändert – er wird neu geladen.', 'warn'); offen.clear(); ctx.neuLaden(); }
+      if (e.status === 409 && e.daten && e.daten.version != null) {
+        // C-08: jemand anderer hat inzwischen gespeichert – nichts überschreiben, Eingaben stehen lassen, Neu-Laden anbieten
+        konflikt = true; fehlerText = 'Inzwischen von jemand anderem geändert.'; anzeige();
+      } else if (e.status === 409) { toast('Der Bericht wurde inzwischen unterschrieben – er wird neu geladen.', 'warn'); offen.clear(); ctx.neuLaden(); }
+      else if (e.status === 400) zeigeServerFehler(e.message); // C-01: z. B. Überschneidung – an der betroffenen Zeile zeigen
       return;
     }
     speichert = false; anzeige();
     if ([...offen].some((f) => f !== 'personal' || !ungueltig())) sichern();
   }
   const spaeter = entprellt(sichern, 600);
-  const geaendert = (feld) => { if (!editierbar()) return; offen.add(feld); fehlerText = ''; anzeige(); spaeter(); };
-  const allesSichern = async () => { if (ungueltig()) return false; spaeter.sofort(); for (let i = 0; i < 40 && (speichert || offen.size) && !fehlerText; i++) await new Promise((r) => setTimeout(r, 100)); return !fehlerText && !offen.size && !speichert; };
+  const geaendert = (feld) => { if (!editierbar()) return; offen.add(feld); if (!konflikt) fehlerText = ''; if (feld === 'personal') zeigeServerFehler(''); anzeige(); spaeter(); };
+  const allesSichern = async () => { if (ungueltig() || konflikt) return false; spaeter.sofort(); for (let i = 0; i < 40 && (speichert || offen.size) && !fehlerText; i++) await new Promise((r) => setTimeout(r, 100)); return !fehlerText && !offen.size && !speichert; };
 
   /* ---- Bausteine ---- */
   const stepper = (attr, val, schrittw, einheit, label) => `
@@ -221,13 +245,16 @@ export async function bericht(el, ctx) {
     </span>`;
 
   function personalHtml() {
-    const frei = mitarbeiter.filter((m) => m.aktiv !== false && m.aktiv !== 0 && !b.personal.some((p) => p.benutzerId === m.id));
+    const waehlbar = mitarbeiter.filter((m) => m.aktiv !== false && m.aktiv !== 0 && ['mitarbeiter', 'polier'].includes(m.rolle) && !b.personal.some((p) => p.benutzerId === m.id));
+    const inPartie = (m) => m.baustelleId === b.baustelleId || m.id === bs.polierId;
+    const partie = waehlbar.filter(inPartie), gaeste = waehlbar.filter((m) => !inPartie(m));
+    const frei = waehlbar;
     return `
       <div class="bp" role="table" aria-label="Personal">
         <div class="bp-head" role="row"><span role="columnheader">Name</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">von</span><span role="columnheader">bis</span><span role="columnheader">Pause</span><span role="columnheader">Arbstd.</span><span role="columnheader">SEG</span><span role="columnheader">Code</span><span></span></div>
         ${b.personal.length ? b.personal.map((p, i) => `
         <div class="bp-row" role="row" data-i="${i}">
-          <span class="bp-name" role="cell"><b>${esc(p.name || (mitarbeiter.find((m) => m.id === p.benutzerId) || {}).name || 'Mitarbeiter')}</b>${p.hinweis ? `<small class="bp-hinweis">${ic('alert', 'xs')} ${esc(p.hinweis)}</small>` : ''}</span>
+          <span class="bp-name" role="cell"><b>${esc(p.name || (mitarbeiter.find((m) => m.id === p.benutzerId) || {}).name || 'Mitarbeiter')}</b>${p.gast ? '<span class="chip xs st-amber" data-gast>Gast</span>' : ''}${p.hinweis ? `<small class="bp-hinweis">${ic('alert', 'xs')} ${esc(p.hinweis)}</small>` : ''}</span>
           ${['von1', 'bis1', 'von2', 'bis2'].map((k, n) => `<label role="cell"><span class="bp-l">${n % 2 ? 'bis' : 'von'}${n > 1 ? ' (2)' : ''}</span><input type="time" class="input s" data-p="${k}" value="${esc(p[k] || '')}" aria-label="${esc(p.name || '')} ${n % 2 ? 'bis' : 'von'} ${n > 1 ? 'Nachmittag' : 'Vormittag'}" ${dis()}></label>`).join('')}
           <label role="cell"><span class="bp-l">Pause (min)</span><input type="text" inputmode="numeric" class="input s num" data-p="pauseMin" value="${p.pauseMin || ''}" placeholder="0" aria-label="${esc(p.name || '')} Pause in Minuten" ${dis()}></label>
           <span role="cell" class="bp-std"><span class="bp-l">Arbeitsstd.</span><output data-p-std aria-label="${esc(p.name || '')} Arbeitsstunden (berechnet aus den Zeiten)" title="Wird aus den Zeiten und der Pause berechnet">${fmt.zahl(p.stunden || 0)}</output></span>
@@ -238,7 +265,7 @@ export async function bericht(el, ctx) {
         <div class="bp-foot"><span>Gesamtstunden</span><b id="gesamt">${fmt.zahl(gesamt())}</b></div>
       </div>
       <p class="pf-legend">K = Krank · U = Urlaub · SW = Schlechtwetter · ZA = Zeitausgleich</p>
-      ${editierbar() ? `<div class="add-line">${frei.length ? `<select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${frei.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn ghost sm" data-p-sync>${ic('sync')}Aus Stempelungen neu übernehmen</button></div>` : ''}`;
+      ${editierbar() ? `<div class="add-line">${frei.length ? `<select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${partie.length ? `<optgroup label="Partie dieser Baustelle">${partie.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</optgroup>` : ''}${gaeste.length ? `<optgroup label="Gast aus anderer Partie (wird protokolliert)">${gaeste.map((m) => `<option value="${m.id}" data-gast="1">${esc(m.name)} (Gast)</option>`).join('')}</optgroup>` : ''}</select>` : ''}<button type="button" class="btn ghost sm" data-p-sync>${ic('sync')}Aus Stempelungen neu übernehmen</button></div>` : ''}`;
   }
   function zeilenStatus(pr, p) {
     const fehler = personalFehler(p);
@@ -309,6 +336,7 @@ export async function bericht(el, ctx) {
         ${editierbar() ? '<span class="save-state neutral" id="save-state" role="status"></span>' : ''}
       </div>
       ${b.status === 'entwurf' && signiert() ? `<div id="gesperrt-hinweis">${banner('info', '<b>Inhalt gesperrt:</b> Es liegt bereits eine Unterschrift vor. Der Bericht kann nicht mehr geändert werden – es fehlt nur noch die zweite Unterschrift.', 'lock')}</div>` : !editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
+      ${b.geaendertNachUnterschrift ? `<div id="nach-unterschrift">${banner('warn', `<b>Achtung – Unterschrift wurde zurückgezogen:</b> ${b.geaendertNachUnterschrift.zeit ? `am ${esc(fmt.zeitpunkt(b.geaendertNachUnterschrift.zeit))} Uhr` : ''}${b.geaendertNachUnterschrift.rolle ? ` (${b.geaendertNachUnterschrift.rolle === 'bh' ? 'Bauherr' : 'Auftragnehmer'})` : ''}${b.geaendertNachUnterschrift.von ? ` durch ${esc(typeof b.geaendertNachUnterschrift.von === 'object' ? b.geaendertNachUnterschrift.von.name || '' : (mitarbeiter.find((m) => m.id === b.geaendertNachUnterschrift.von) || {}).name || b.geaendertNachUnterschrift.von)}` : ''}. Der Inhalt kann danach geändert worden sein – vor der Freigabe bitte genau prüfen. Der Vermerk steht auch im PDF.`)}</div>` : ''}
       <div class="banner err" id="unsaved" role="alert" hidden>${ic('alert')}<span></span></div>
       ${b.status !== 'entwurf' ? banner(b.status === 'freigegeben' ? 'ok' : 'info', b.status === 'freigegeben' ? 'Dieser Bericht ist freigegeben und abgeschlossen.' : 'Dieser Bericht ist unterschrieben und kann nicht mehr geändert werden.', b.status === 'freigegeben' ? 'check' : 'lock') : ''}
       <div class="kosten-zeile" id="kosten" hidden></div>
@@ -412,6 +440,7 @@ export async function bericht(el, ctx) {
     if (d) { const sp = d.closest('[data-stepper]'); setzStepper(sp, zahl($('input', sp).value) + Number(d.dataset.d) * Number(sp.dataset.schritt)); return; }
     const sn = e.target.closest('[data-schritt-nr]');
     if (sn) { setzSchritt(Number(sn.dataset.schrittNr)); return; }
+    if (e.target.closest('[data-konflikt-laden]')) { ctx.neuLaden(); return; }
     if (e.target.closest('#wiz-zurueck')) { setzSchritt(schritt - 1); return; }
     if (e.target.closest('#wiz-weiter')) { setzSchritt(schritt + 1); return; }
     if (e.target.closest('[data-p-weg]')) {
@@ -421,7 +450,7 @@ export async function bericht(el, ctx) {
     }
     if (e.target.closest('[data-p-sync]')) {
       if (!(await bestaetigen('Personal neu übernehmen?', 'Die Zeiten werden aus den Stempelungen dieses Tages neu eingetragen. Händische Änderungen am Personal gehen verloren.', 'Übernehmen'))) return;
-      try { const neu = await post(`/berichte/${id}/personal-aktualisieren`); b.personal = neu.personal || []; offen.delete('personal'); $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); anzeige(); toast('Personal aus den Stempelungen übernommen.'); } catch (x) { toast(x.message, 'warn'); }
+      try { const neu = await post(`/berichte/${id}/personal-aktualisieren`, { version: b.version }); if (neu.version != null) b.version = neu.version; b.personal = neu.personal || []; offen.delete('personal'); $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); anzeige(); toast('Personal aus den Stempelungen übernommen.'); } catch (x) { toast(x.message, 'warn'); }
       return;
     }
     if (e.target.closest('[data-r-neu]')) { b.regie.push({ text: '', stunden: 0 }); $('#regie', el).innerHTML = regieHtml(); const ins = $$('#regie [data-r="text"]', el); ins[ins.length - 1].focus(); return; }
@@ -432,7 +461,7 @@ export async function bericht(el, ctx) {
     const sw = e.target.closest('[data-sig-weg]');
     if (sw) {
       if (!(await bestaetigen('Unterschrift zurückziehen?', 'Die Unterschrift wird gelöscht. Danach kann der Bericht wieder geändert werden und muss neu unterschrieben werden.', 'Zurückziehen', 'danger'))) return;
-      try { const neu = await del(`/berichte/${id}/unterschrift/${sw.dataset.sigWeg}`); b.unterschriften = (neu && neu.unterschriften) || {}; if (neu && neu.status) b.status = neu.status; toast('Unterschrift zurückgezogen.'); zeichne(); }
+      try { const neu = await del(`/berichte/${id}/unterschrift/${sw.dataset.sigWeg}`); b.unterschriften = (neu && neu.unterschriften) || {}; if (neu && neu.status) b.status = neu.status; if (neu && neu.version != null) b.version = neu.version; if (neu) b.geaendertNachUnterschrift = neu.geaendertNachUnterschrift; toast('Unterschrift zurückgezogen.'); zeichne(); }
       catch (x) { toast(x.message, 'warn'); }
       return;
     }
@@ -447,7 +476,9 @@ export async function bericht(el, ctx) {
     }
     if (t.id === 'p-neu' && t.value) {
       const m = mitarbeiter.find((x) => String(x.id) === t.value);
-      b.personal.push({ benutzerId: m.id, name: m.name, von1: '', bis1: '', von2: '', bis2: '', pauseMin: 0, stunden: 0, code: '' });
+      const gast = t.selectedOptions[0].dataset.gast === '1';
+      b.personal.push({ benutzerId: m.id, name: m.name, von1: '', bis1: '', von2: '', bis2: '', pauseMin: 0, stunden: 0, code: '', ...(gast ? { gast: true } : {}) });
+      if (gast) toast(`${m.name} wird als Gast eingetragen – das wird protokolliert.`, 'warn');
       $('#personal', el).innerHTML = personalHtml(); alleZeilenStatus(); geaendert('personal'); return;
     }
     const pr = t.closest('.bp-row');
@@ -492,7 +523,7 @@ export async function bericht(el, ctx) {
     try {
       const r = await post(`/berichte/${id}/unterschrift`, { rolle, name, bildPng: pad.png() });
       const neu = r && r.unterschriften ? r : await get(`/berichte/${id}`);
-      b.unterschriften = neu.unterschriften || {}; b.status = neu.status;
+      b.unterschriften = neu.unterschriften || {}; b.status = neu.status; if (neu.version != null) b.version = neu.version;
       delete pads[rolle];
       toast(b.status === 'unterschrieben' ? 'Beide Unterschriften vorhanden – Bericht abgeschlossen.' : 'Unterschrift gespeichert.');
       zeichne(); // Inhalt ist ab jetzt gesperrt (M-02)
@@ -503,7 +534,7 @@ export async function bericht(el, ctx) {
     if (!(await bestaetigen('Bericht freigeben?', 'Der Bericht fließt damit in Nachkalkulation und Monatsauswertung ein.', 'Freigeben'))) return;
     try {
       const r = await post(`/berichte/${id}/freigeben`);
-      b.status = (r && r.status) || 'freigegeben';
+      b.status = (r && r.status) || 'freigegeben'; if (r && r.version != null) b.version = r.version;
       toast('Bericht freigegeben.'); zeichne(); ctx.meldungenNeu();
     } catch (e) { toast(e.message, 'warn'); }
   }

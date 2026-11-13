@@ -106,10 +106,11 @@ export default async function login(root, { angemeldet }) {
     } catch (e) {
       sendet = false; pin = '';
       const text = e.netz ? 'Keine Verbindung zum Server. Bitte später erneut versuchen.'
+        : e.status === 423 || e.code === 'KONTO_GESPERRT' ? `${e.message || 'Dieses Konto ist gesperrt.'}${/Büro/i.test(e.message || '') ? '' : ' Bitte im Büro melden – dort wird das Konto entsperrt.'}`
         : e.status === 429 ? (e.message || 'Zu viele Fehlversuche. Bitte später erneut versuchen.')
         : e.status === 401 || e.status === 400 ? (e.message || 'PIN falsch. Bitte erneut eingeben.')
         : e.message;
-      zeigePin(text, e.status === 429);
+      zeigePin(text, e.status === 429 || e.status === 423);
     }
   }
   function ziffer(z) {

@@ -5,6 +5,14 @@ import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, d
 const STATUS = { geplant: ['Geplant', 'st-blue'], aktiv: ['Aktiv', 'st-green'], abgeschlossen: ['Abgeschlossen', 'st-grey'] };
 const stChip = (s) => { const [t, c] = STATUS[s] || [s || '–', 'st-grey']; return `<span class="chip ${c}">${esc(t)}</span>`; };
 
+// C-08: veralteter Stand → nichts überschreiben, Neu-Laden anbieten
+function konfliktText(err, x, ctx, d) {
+  if (x.status === 409 && x.daten && x.daten.version != null) {
+    err.dataset.konflikt = '1';
+    err.innerHTML = 'Inzwischen von jemand anderem geändert – Ihre Eingabe wurde nicht gespeichert. <button type="button" class="btn ghost sm" data-konflikt-laden>Neu laden</button>';
+    err.querySelector('[data-konflikt-laden]').addEventListener('click', () => { if (d) d.zu(); ctx.neuLaden(); });
+  } else err.textContent = x.message;
+}
 function stammDialog(ctx, leute, b) {
   const wahl = (feld, rollen) => `<select class="input lg" name="${feld}"><option value="">– niemand –</option>${leute.filter((m) => rollen.includes(m.rolle) && m.aktiv !== false && m.aktiv !== 0).map((m) => `<option value="${m.id}" ${b && b[feld] === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`;
   const d = dialog({ titel: b ? 'Baustelle bearbeiten' : 'Neue Baustelle', breit: true, inhalt: `<form id="bsf" class="form-grid">
@@ -21,10 +29,10 @@ function stammDialog(ctx, leute, b) {
     e.preventDefault(); const f = new FormData(e.target);
     const body = { kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), status: f.get('status'), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
     try {
-      const neu = b ? await put(`/baustellen/${b.id}`, body) : await post('/baustellen', body);
+      const neu = b ? await put(`/baustellen/${b.id}`, { ...body, version: b.version }) : await post('/baustellen', body);
       d.zu(); toast('Baustelle gespeichert.');
       if (!b && neu && neu.id) location.hash = `#/baustelle/${neu.id}`; else ctx.neuLaden();
-    } catch (x) { const err = $('.form-err', d.el); err.hidden = false; err.textContent = x.message; }
+    } catch (x) { const err = $('.form-err', d.el); err.hidden = false; konfliktText(err, x, ctx, d); }
   });
 }
 
@@ -121,8 +129,8 @@ export async function baustelle(el, ctx) {
     if (sw.length !== 3 || sw.some((n) => n <= 0 || n > 200)) { err.hidden = false; err.textContent = 'Bitte drei Schwellen zwischen 1 und 200 % eingeben.'; return; }
     err.hidden = true; $('#auftrag-ok', form).disabled = true;
     try {
-      await put(`/baustellen/${id}/auftrag`, { auftragssumme: summe, schwellen: sw.sort((x, y) => x - y), empfaenger: { bauleiter: f.get('e_bauleiter') === 'on', buero: f.get('e_buero') === 'on', gf: f.get('e_gf') === 'on' } });
+      await put(`/baustellen/${id}/auftrag`, { version: b.version, auftragssumme: summe, schwellen: sw.sort((x, y) => x - y), empfaenger: { bauleiter: f.get('e_bauleiter') === 'on', buero: f.get('e_buero') === 'on', gf: f.get('e_gf') === 'on' } });
       toast(summe === null ? 'Auftrag gespeichert – ohne Auftragssumme.' : `Auftrag gespeichert: ${fmt.eur(summe)}.`); await ctx.meldungenNeu(); ctx.neuLaden();
-    } catch (x) { err.hidden = false; err.textContent = x.message; $('#auftrag-ok', form).disabled = false; }
+    } catch (x) { err.hidden = false; konfliktText(err, x, ctx, null); $('#auftrag-ok', form).disabled = false; }
   });
 }

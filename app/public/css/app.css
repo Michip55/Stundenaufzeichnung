@@ -608,3 +608,13 @@ a.link { color: var(--blue); font-weight: 600; text-decoration: underline; }
 
 /* C-02: Arbeitsstunden werden berechnet, nicht eingegeben */
 .bp-std { text-align: center; min-width: 0; } .bp-std output { display: grid; place-items: center; height: 38px; border-radius: 8px; background: #f1f3f5; font-weight: 800; font-variant-numeric: tabular-nums; font-size: 14.5px; color: #17307a; }
+
+/* Prüfbericht 2: Konflikt, Server-Fehler je Zeile, Gast */
+#unsaved { align-items: center; flex-wrap: wrap; } #unsaved .btn { background: #fff; }
+.bp-row.srv { background: #fff6f5; } .bp-name .chip { margin-left: 6px; vertical-align: 1px; }
+
+.notif.t-sicherheit .notif-ic { background: var(--red-bg); color: var(--red-d); }
+.form-err .btn { margin-left: 8px; vertical-align: middle; }
+
+/* C-04: Schichten in der Zeitkorrektur */
+.korr-datum { width: 92px; flex: none; } .korr li { flex-wrap: wrap; } .sf-std { display: flex; align-items: center; min-height: 52px; font-weight: 800; font-size: 17px; color: #17307a; }

@@ -38,6 +38,8 @@ let pollTimer = null;
 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
+// C-14: Das Büro pflegt Benutzer (Mitarbeiter, Polier, Bauleiter) – laut API eine Regel der Rolle, kein eigenes Recht
+const darfBenutzerPflegen = () => !!ich && ich.benutzer.rolle === 'buero';
 
 const NAV = [
   { id: 'dashboard', pfad: '/dashboard', text: 'Übersicht', kurz: 'Übersicht', icon: 'grid', darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
@@ -50,7 +52,7 @@ const NAV = [
   { id: 'preise', pfad: '/preise', text: 'Preise', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
   { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
-  { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Rechte', icon: 'shield', darf: eines('benutzer') },
+  { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Benutzer', icon: 'shield', darf: () => kann('benutzer') || darfBenutzerPflegen() },
 ];
 const navErlaubt = () => {
   const liste = NAV.filter((n) => n.darf());
@@ -77,7 +79,7 @@ const ROUTEN = [
   { muster: /^\/kalkulation$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkUebersicht, darf: eines('kalk_sehen') },
   { muster: /^\/kalkulation\/(\d+)$/, nav: 'kalkulation', titel: 'Nachkalkulation', view: kalkDetail, darf: eines('kalk_sehen') },
   { muster: /^\/monat$/, nav: 'monat', titel: 'Monatsauswertung', view: monat, darf: eines('lohn') },
-  { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: eines('benutzer') },
+  { muster: /^\/benutzer$/, nav: 'benutzer', titel: 'Benutzer & Rechte', view: benutzer, darf: () => kann('benutzer') || darfBenutzerPflegen() },
   { muster: /^\/mehr$/, nav: 'mehr', titel: 'Mehr', view: mehr },
   { muster: /^\/abwesenheiten$/, nav: 'abwesenheiten', titel: 'Abwesenheiten', view: abwesenheiten, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { muster: /^\/korrektur$/, nav: 'monat', titel: 'Zeiten korrigieren', view: korrektur, darf: eines('stammdaten') },
@@ -162,12 +164,13 @@ function zeigeGlocke() {
   $('#glocke').classList.toggle('has', !!n);
   $('#glocke').setAttribute('aria-label', n ? `Benachrichtigungen, ${n} ungelesen` : 'Benachrichtigungen');
 }
-const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar' };
+const MELD_ICON = { budget: 'chart', azg: 'clock', bericht: 'clipboard', abwesenheit: 'calendar', sicherheit: 'lock' };
 function meldungZiel(m) {
   if (m.typ === 'budget' && m.baustelleId && kann('kalk_sehen')) return `#/kalkulation/${m.baustelleId}`;
   if (m.typ === 'bericht' && (kann('bericht_erstellen') || kann('bericht_freigeben'))) return m.berichtId ? `#/bericht/${m.berichtId}` : '#/berichte';
   if (m.typ === 'azg' && kann('zeit_eigen')) return '#/woche';
   if (m.typ === 'abwesenheit') return '#/abwesenheiten';
+  if (m.typ === 'sicherheit' && (kann('benutzer') || darfBenutzerPflegen())) return '#/benutzer';
   return '';
 }
 async function glockeAuf() {
