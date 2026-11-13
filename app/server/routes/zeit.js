@@ -84,6 +84,10 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
     if (letzte && zeitpunkt.getTime() < new Date(letzte.zeit).getTime()) {
       throw konflikt(`Der Zeitpunkt liegt vor der letzten Buchung (${wienZeit(new Date(letzte.zeit))}).`);
     }
+    if (typ === 'kommen') {
+      const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U')", benutzerId, wienDatum(zeitpunkt));
+      if (abw) throw konflikt(`Für diesen Tag ist ${abw.code === 'K' ? 'Krankenstand' : 'Urlaub'} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
+    }
     const p = pruefeBuchung(akt, typ, bsId);
     if (!p.ok) {
       const seit = akt.seit ? ` (seit ${deDatum(wienDatum(new Date(akt.seit)))} ${wienZeit(new Date(akt.seit))})` : '';
@@ -236,6 +240,9 @@ module.exports = function zeitRouten(api, bt) {
     if (nachher > vorher) throw konflikt('Die Korrektur ergibt eine ungültige Stempelfolge (z. B. zweimal „kommen“ oder „gehen“ ohne „kommen“).');
   }
   const fehlerVorher = (benutzerId) => ungueltigeUebergaenge(db.alle('SELECT typ FROM buchung WHERE benutzer_id = ? ORDER BY zeit, id', benutzerId));
+  const nichtSelbst = (ctx, benutzerId) => {
+    if (benutzerId === ctx.benutzer.id) throw keinZugriff('Eigene Stempelzeiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
+  };
   const grundAus = (body) => v.text(body.grund, 'grund', { max: 300, min: 3 });
   function korrekturZeit(wert, feld = 'zeit') {
     const z = zeitMitZone(wert, feld);
@@ -253,6 +260,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/buchungen', brauche('stammdaten'), (req, res) => {
     const body = v.objekt(req.body);
     const benutzerId = v.id(body.benutzerId, 'benutzerId');
+    nichtSelbst(req.ctx, benutzerId);
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
     const zeit = korrekturZeit(body.zeit);
@@ -274,6 +282,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
+    nichtSelbst(req.ctx, alt.benutzer_id);
     const body = v.objekt(req.body);
     const grund = grundAus(body);
     const f = {};
@@ -299,6 +308,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
+    nichtSelbst(req.ctx, alt.benutzer_id);
     const grund = grundAus(v.objekt(req.body || {}));
     const jetzt = bt.uhr().toISOString();
     db.transaktion(() => {
@@ -309,6 +319,116 @@ module.exports = function zeitRouten(api, bt) {
         alt: { benutzerId: alt.benutzer_id, typ: alt.typ, zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, erfasstVon: alt.erfasst_von }, text: `Buchung gelöscht: ${grund}` });
     });
     res.json({ ok: true });
+  });
+
+  /* ---------- Ganze Schichten nachtragen / löschen (C-04) ---------- */
+
+  function schichtJson(benutzerId, sch) {
+    return {
+      id: sch.buchungen[0].id, benutzerId, datum: sch.datum,
+      beginn: new Date(sch.start).toISOString(), ende: sch.offen ? null : new Date(sch.ende).toISOString(),
+      baustellen: [...new Set(sch.intervalle.map((i) => i.baustelleId).filter(Boolean))],
+      arbeitMin: sch.arbeitMin, pauseMin: sch.pauseMin, offen: sch.offen, unplausibel: Boolean(sch.unplausibel),
+      buchungIds: sch.buchungen.map((b) => b.id)
+    };
+  }
+
+  api.get('/zeit/schichten', (req, res) => {
+    const ctx = req.ctx;
+    const heute = wienDatum(bt.uhr());
+    const benutzerId = req.query.benutzerId === undefined ? ctx.benutzer.id : v.pfadId(String(req.query.benutzerId), 'benutzerId');
+    if (benutzerId !== ctx.benutzer.id && !ctx.hat('stammdaten')) throw keinZugriff('Schichten anderer sieht nur das Büro.');
+    const von = req.query.von === undefined ? plusTage(heute, -14) : v.datum(String(req.query.von), 'von');
+    const bis = req.query.bis === undefined ? heute : v.datum(String(req.query.bis), 'bis');
+    if (bis < von) throw ungueltig('bis liegt vor von.');
+    if (plusTage(von, 93) < bis) throw ungueltig('Zeitraum höchstens 93 Tage.');
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
+      benutzerId, wienZuDate(plusTage(von, -1)).toISOString(), wienZuDate(plusTage(bis, 2)).toISOString());
+    const jetzt = bt.uhr();
+    res.json(plausibilisieren(schichten(b, jetzt), jetzt).filter((x) => x.datum >= von && x.datum <= bis).map((x) => schichtJson(benutzerId, x)));
+  });
+
+  api.post('/zeit/schichten', brauche('stammdaten'), (req, res) => {
+    const body = v.objekt(req.body);
+    const benutzerId = v.id(body.benutzerId, 'benutzerId');
+    nichtSelbst(req.ctx, benutzerId);
+    if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
+    const bsId = korrekturBaustelle(body.baustelleId);
+    const datum = v.datum(body.datum, 'datum');
+    const vonHm = v.uhrzeit(body.von, 'von');
+    const bisHm = v.uhrzeit(body.bis, 'bis');
+    if (!vonHm || !bisHm) throw ungueltig('von und bis (HH:MM) sind Pflicht.');
+    const pauseMin = v.zahl(body.pauseMin ?? 0, 'pauseMin', { min: 0, max: 240, ganz: true });
+    const grund = grundAus(body);
+    const start = wienZuDate(datum, vonHm);
+    let ende = wienZuDate(datum, bisHm);
+    if (ende <= start) ende = wienZuDate(plusTage(datum, 1), bisHm); // über Mitternacht
+    const dauerMin = Math.round((ende - start) / 60000);
+    if (dauerMin <= 0 || dauerMin > 16 * 60) throw ungueltig('Eine Schicht muss zwischen 1 Minute und 16 Stunden dauern.');
+    if (pauseMin >= dauerMin) throw ungueltig('Die Pause ist länger als die Schicht.');
+    const jetzt = bt.uhr();
+    if (ende.getTime() > jetzt.getTime() + MAX_VOR_MS) throw ungueltig('Die Schicht darf nicht in der Zukunft enden.');
+    if (start.getTime() < jetzt.getTime() - 400 * 86400000) throw ungueltig('Die Schicht liegt zu weit zurück.');
+    let pauseStart = null;
+    if (pauseMin > 0) {
+      if (body.pauseVon !== undefined && body.pauseVon !== null) {
+        const pv = v.uhrzeit(body.pauseVon, 'pauseVon');
+        pauseStart = wienZuDate(datum, pv);
+        if (pauseStart < start) pauseStart = wienZuDate(plusTage(datum, 1), pv);
+        if (pauseStart <= start || pauseStart.getTime() + pauseMin * 60000 >= ende.getTime()) throw ungueltig('Die Pause muss innerhalb der Schicht liegen.');
+      } else {
+        pauseStart = new Date(start.getTime() + Math.round((dauerMin - pauseMin) / 2) * 60000);
+      }
+    }
+    // Überschneidung mit anderen Schichten der Person
+    const umgebung = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
+      benutzerId, new Date(start.getTime() - 3 * 86400000).toISOString(), new Date(ende.getTime() + 3 * 86400000).toISOString());
+    for (const x of schichten(umgebung, jetzt)) {
+      const xEnde = x.offen ? jetzt.getTime() : x.ende;
+      if (x.start < ende.getTime() && xEnde > start.getTime()) {
+        throw konflikt(`Die Schicht überschneidet sich mit einer bestehenden Schicht (${deDatum(x.datum)} ${wienZeit(new Date(x.start))}–${x.offen ? 'offen' : wienZeit(new Date(x.ende))}).`);
+      }
+    }
+    const t = jetzt.toISOString();
+    const kommenId = db.transaktion(() => {
+      const vorher = fehlerVorher(benutzerId);
+      const ins = (typ, zeit, bs) => db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst) VALUES (?, ?, ?, ?, 'buero', ?, ?)`,
+        benutzerId, typ, zeit.toISOString(), bs, req.ctx.benutzer.id, t).id;
+      const id = ins('kommen', start, bsId);
+      if (pauseStart) { ins('pause_start', pauseStart, null); ins('pause_ende', new Date(pauseStart.getTime() + pauseMin * 60000), null); }
+      ins('gehen', ende, null);
+      pruefeFolge(benutzerId, vorher);
+      db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
+        neu: { benutzerId, baustelleId: bsId, datum, von: vonHm, bis: bisHm, pauseMin }, text: `Schicht nachgetragen: ${grund}` });
+      return id;
+    });
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit <= ? ORDER BY zeit, id', benutzerId, start.toISOString(), ende.toISOString());
+    const sch = schichten(b, jetzt).find((x) => x.buchungen[0].id === kommenId);
+    res.status(201).json(schichtJson(benutzerId, sch));
+  });
+
+  api.delete('/zeit/schichten/:id', brauche('stammdaten'), (req, res) => {
+    const id = v.pfadId(req.params.id, 'Schicht-ID');
+    const k = db.eins('SELECT * FROM buchung WHERE id = ?', id);
+    if (!k || k.typ !== 'kommen') throw nichtGefunden('Schicht nicht gefunden (ID der „kommen“-Buchung angeben).');
+    nichtSelbst(req.ctx, k.benutzer_id);
+    const grund = grundAus(v.objekt(req.body || {}));
+    const folgende = db.alle('SELECT * FROM buchung WHERE benutzer_id = ? AND (zeit > ? OR (zeit = ? AND id > ?)) ORDER BY zeit, id', k.benutzer_id, k.zeit, k.zeit, k.id);
+    const teil = [k];
+    for (const b of folgende) {
+      if (b.typ === 'kommen') break;
+      teil.push(b);
+      if (b.typ === 'gehen') break;
+    }
+    const t = bt.uhr().toISOString();
+    db.transaktion(() => {
+      const vorher = fehlerVorher(k.benutzer_id);
+      for (const b of teil) db.lauf('DELETE FROM buchung WHERE id = ?', b.id);
+      pruefeFolge(k.benutzer_id, vorher);
+      db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
+        alt: teil.map((b) => ({ id: b.id, typ: b.typ, zeit: b.zeit, baustelleId: b.baustelle_id, quelle: b.quelle })), text: `Schicht gelöscht: ${grund}` });
+    });
+    res.json({ ok: true, geloescht: teil.length });
   });
 };
 
