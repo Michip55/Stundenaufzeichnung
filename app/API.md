@@ -411,3 +411,13 @@ Der Katalog wird aus der Excel-Vorlage befüllt (alle Positionen, EP und Einheit
 - Für den Gräder wird **keine** Position angelegt (bleibt ohne Zuordnung).
 - Stunden von LKW-Fahrern und Maschinisten sind in den Fahrzeug-/Gerätesätzen enthalten (keine eigene Arbeitsposition) – Zuordnung wie umgesetzt korrekt.
 - Aktuelle Preislisten 2026 liegen unter `docs/preislisten/` (Geräte, Grube Breitenau, Pichler Kies). Abgleich mit dem Katalog: siehe Antwort an den Kunden; Änderungen am Katalog erst nach Kundenentscheid.
+
+### 10d. Katalog-Anpassungen nach Abgleich mit den Preislisten 2026 (vom Kunden freigegeben, 13.11.2026)
+- **Preis:** Rollschotter RK 16/63 → **12,50 €/t** (statt 14,50). Sand RK 0/8 und 0/16 gewaschen **bleiben 17,70 €/t** (keine zweite Werksposition).
+- **Gerätenamen an Gerätepreisliste angleichen (Preise unverändert):** „Komatsu PC27 3 to“ → „Minibagger Takeuchi 3,0 t“; „Mobilbagger 9-11 to“ → „Mobilbagger 7-11 t“; „Minilader Bobcat 3,3 to“ → „Minilader CASE 3,5 t“; außerdem „Bagger 1,8 to.“ → „Minibagger Cat 1,8 t“, „Kettenbagger 23 to“ → „Kettenbagger CAT 320 23,0 t“, „Radlader Case 2,5 m3“ → „Radlader CASE 721 2,5 m3“, „Radlader Cat 3,5 m3“ → „Radlader CAT 950 M 3,5 m3“. Zuordnungen aus dem Bautagesbericht bleiben erhalten.
+- **Neue Positionen** (Kennzeichen `herkunft:"preisliste_2026"`, in der Oberfläche „neu aus Preisliste 2026“):
+  - Geräte: „Aufzahlung Meißel/Abbruchzange (50 % vom Regiepreis)“ – Einheit `Std.`, EP = 50 % des Stundensatzes; je eine Position für Minibagger Takeuchi (39,20), Mobilbagger (47,20), Kettenbagger CAT 320 (51,70).
+  - Eigenmaterial (Deponie/Entsorgung, Pichler Kies, je t): Aushubmaterial Inertabfallqualität < 30 % b.f. Bestandteile 38,60; > 30 % 49,50; Aushubmaterial techn. Schüttmaterial < 5 Vol% 38,60; > 5 Vol% 49,50; verunreinigtes Aushubmaterial BRM-Deponiequalität < 30 % 38,60; > 30 % 49,50; Gleisschottermaterial o. ALSAG 38,60; Sortierkostenpauschale 20,00.
+  - Eigenmaterial (Material, je t): Wandschotter KK ungewaschen 8,30 (`naturmaterial:true`); RMH III 0/32, U-A 1,70 (`naturmaterial:false`).
+  - Abgaben/Gebühren (je Stk): Gefälligkeitswiegung 15,00; Abfallinformation 35,00; Fehlende grundlegende Charakterisierung 2.500,00.
+- Betrifft den Firmenkatalog und – über „Aus Vorlage übernehmen“ – neue Baustellen; bestehende Baustellen werden nicht automatisch geändert. Demo-Seed verwendet den angepassten Katalog.
