@@ -47,7 +47,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
   await t.test('Schwelle 80 % wird genau einmal gemeldet – an Bauleiter, Büro, GF', async () => {
     const k = await kalk(BS.pitten);
     const summe = Math.round((k.kosten.gesamt / 0.85) * 100) / 100;
-    let r = await buero.put(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: summe });
+    let r = await buero.putV(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: summe });
     assert.equal(r.status, 200);
     assert.equal(r.daten.auftragssumme, summe);
     for (const c of [bl, buero, gf]) {
@@ -59,7 +59,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.equal((await budgetMeldungen(pol)).length, 0);
     assert.equal((await budgetMeldungen(ma)).length, 0);
     // erneutes Speichern, Preisänderung ohne neue Schwelle: keine weitere Meldung
-    r = await buero.put(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: summe });
+    r = await buero.putV(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: summe });
     assert.equal((await buero.put('/preise/geraete/1', { feld: 'kostensatz', wert: 52.5 })).status, 200);
     assert.equal((await budgetMeldungen(bl, BS.pitten)).length, 1);
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM budget_alarm WHERE baustelle_id = ?', BS.pitten).n, 1);
@@ -98,7 +98,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
   });
 
   await t.test('Empfänger-Einstellung (ohne GF) und Preisänderung → 100 %', async () => {
-    assert.equal((await gf.put(`/baustellen/${BS.pitten}/auftrag`, { empfaenger: { gf: false } })).status, 200);
+    assert.equal((await gf.putV(`/baustellen/${BS.pitten}/auftrag`, { empfaenger: { gf: false } })).status, 200);
     const gfVorher = (await budgetMeldungen(gf, BS.pitten)).length;
     const blVorher = (await budgetMeldungen(bl, BS.pitten)).length;
     const r = await buero.put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 95 });
@@ -119,7 +119,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
   await t.test('nie an Polier/Mitarbeiter – auch wenn als Bauleiter eingetragen', async () => {
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.polier, BS.neustadt);
     const k = await kalk(BS.neustadt);
-    await gf.put(`/baustellen/${BS.neustadt}/auftrag`, { auftragssumme: Math.round(k.kosten.gesamt / 0.95) });
+    await gf.putV(`/baustellen/${BS.neustadt}/auftrag`, { auftragssumme: Math.round(k.kosten.gesamt / 0.95) });
     assert.equal((await budgetMeldungen(pol)).length, 0);
     assert.ok((await budgetMeldungen(buero, BS.neustadt)).length >= 1);
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.bauleiter, BS.neustadt);
@@ -131,7 +131,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.ok(e > 100);
     const k = await kalk(BS.ternitz);
     const summe = Math.round(((k.kosten.gesamt + e / 2) / 0.9) * 100) / 100;
-    await gf.put(`/baustellen/${BS.ternitz}/auftrag`, { auftragssumme: summe });
+    await gf.putV(`/baustellen/${BS.ternitz}/auftrag`, { auftragssumme: summe });
     const vorher = (await budgetMeldungen(bl, BS.ternitz)).length;
     const sig = require('../../server/png').demoUnterschrift('x');
     await gf.post(`/berichte/${entwurf}/unterschrift`, { rolle: 'an', name: 'Manfred Puchegger', bildPng: sig });

@@ -28,8 +28,8 @@ test('Ausnahmen erweitern die Rolle', () => {
   assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['kolonne']).has('kolonne'), true);
 });
 
-test('Bauleiter: Preise bearbeiten und Lohn gesperrt (Konzept 2.2)', () => {
-  assert.equal(R.effektiveRechte('bauleiter', {}, ['preise_bearbeiten', 'lohn']).size, 0);
+test('Bauleiter: Preise bearbeiten, Lohn und Stammdaten gesperrt (Konzept 2.2, C-05)', () => {
+  assert.equal(R.effektiveRechte('bauleiter', {}, ['preise_bearbeiten', 'lohn', 'stammdaten']).size, 0);
 });
 
 test('GF behält immer das Recht benutzer', () => {
@@ -78,7 +78,7 @@ test('B-01: benutzer nur GF; stammdaten für Polier/Mitarbeiter gesperrt', () =>
     assert.equal(R.effektiveRechte(rolle, { benutzer: true }, ['benutzer']).has('benutzer'), false, rolle);
   }
   assert.equal(R.effektiveRechte('polier', { stammdaten: true }, ['stammdaten']).has('stammdaten'), false);
-  assert.equal(R.effektiveRechte('bauleiter', {}, ['stammdaten']).has('stammdaten'), true);
+  assert.equal(R.effektiveRechte('bauleiter', {}, ['stammdaten']).has('stammdaten'), false); // C-05
 });
 
 test('B-03: PIN-Regeln je Rolle', () => {

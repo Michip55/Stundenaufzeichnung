@@ -57,22 +57,23 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const heute = wienDatum(bt.uhr());
     const ich = ctx.benutzer;
     let status, rueck;
-    if (ctx.hat('stammdaten')) {
-      status = 'genehmigt'; rueck = 62;
-    } else if (benutzerId === ich.id) {
+    if (benutzerId === ich.id) {
+      // Vier-Augen-Prinzip (C-09): eigene Anträge sind immer „beantragt“, auch für Büro/GF
       if (!['U', 'ZA'].includes(code)) throw keinZugriff('Selbst können nur Urlaub (U) oder Zeitausgleich (ZA) beantragt werden.');
       status = 'beantragt'; rueck = 7;
+    } else if (ctx.hat('stammdaten')) {
+      status = 'genehmigt'; rueck = 62;
     } else if (ich.rolle === 'polier' && code === 'SW') {
       const partie = ziel.baustelle_id && db.eins('SELECT id FROM baustelle WHERE id = ? AND polier_id = ?', ziel.baustelle_id, ich.id);
       if (!partie) throw keinZugriff('Schlechtwetter kann der Polier nur für seine Partie melden.');
-      status = 'genehmigt'; rueck = 3;
+      status = 'beantragt'; rueck = 3; // C-13: Büro bestätigt
     } else {
       throw keinZugriff('Abwesenheiten anderer erfasst das Büro.');
     }
     if (datum < plusTage(heute, -rueck)) throw ungueltig(`Das Datum darf höchstens ${rueck} Tage zurückliegen.`);
     if (datum > plusTage(heute, 366)) throw ungueltig('Das Datum liegt zu weit in der Zukunft.');
     const vorhanden = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, datum);
-    if (vorhanden && vorhanden.status !== 'abgelehnt' && !ctx.hat('stammdaten')) throw konflikt(`Für ${deDatum(datum)} ist bereits „${vorhanden.code}“ eingetragen.`);
+    if (vorhanden && vorhanden.status !== 'abgelehnt' && (!ctx.hat('stammdaten') || benutzerId === ich.id)) throw konflikt(`Für ${deDatum(datum)} ist bereits „${vorhanden.code}“ eingetragen.`);
     const zeit = bt.uhr().toISOString();
     let id;
     db.transaktion(() => {
@@ -84,7 +85,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       }
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, alt: vorhanden ? { datum, code: vorhanden.code, status: vorhanden.status } : null, neu: { datum, code, status } });
       if (status === 'beantragt') {
-        for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')")) {
+        for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", benutzerId)) {
           benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Antrag: ${CODE_TEXT[code]} – ${ziel.name}`, text: `${ziel.name} beantragt ${CODE_TEXT[code]} am ${deDatum(datum)}.`, zeit, schluessel: `abw:${id}:${zeit}` });
         }
       }
@@ -98,6 +99,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'ID');
     const a = db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
     if (!a) throw nichtGefunden('Abwesenheit nicht gefunden.');
+    if (a.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Anträge entscheidet eine andere Person (Vier-Augen-Prinzip).');
     const status = v.auswahl(v.objekt(req.body).status, 'status', ['genehmigt', 'abgelehnt']);
     const zeit = bt.uhr().toISOString();
     db.transaktion(() => {

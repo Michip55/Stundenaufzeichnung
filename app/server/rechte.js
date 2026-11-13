@@ -38,8 +38,9 @@ const GESPERRT = {
   // Polier/Mitarbeiter: nie Preise/Kalkulation/Lohn, keine Stammdaten, keine Benutzerverwaltung
   mitarbeiter: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
   polier: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
-  // Konzept 2.2: Preis-Bearbeitung und Lohnauswertung nie für Bauleiter (dafür Rolle Büro)
-  bauleiter: ['preise_bearbeiten', 'lohn', 'benutzer'],
+  // Konzept 2.2: Preis-Bearbeitung und Lohnauswertung nie für Bauleiter (dafür Rolle Büro);
+  // Stammdaten (u. a. Bauleiter-Zuordnung) pflegt nur das Büro (Prüfbericht 2, C-05)
+  bauleiter: ['preise_bearbeiten', 'lohn', 'benutzer', 'stammdaten'],
   // „Rollen und Ausnahmen vergeben“ nur Geschäftsführung
   buero: ['benutzer'],
   gf: []
@@ -173,6 +174,13 @@ function ladeRechteFuer(db, benutzer) {
   return effektiveRechte(benutzer.rolle, matrix, ausnahmen);
 }
 
+/** Büro verwaltet Benutzer dieser Rollen (C-14); GF alle */
+const BUERO_VERWALTBAR = ['mitarbeiter', 'polier', 'bauleiter'];
+function darfBenutzerVerwalten(ctx, zielRolle) {
+  if (ctx.hat('benutzer')) return true;
+  return ctx.benutzer.rolle === 'buero' && ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
+}
+
 /** Kontext für eine Anfrage */
 function kontext(db, benutzer) {
   const rechte = ladeRechteFuer(db, benutzer);
@@ -189,5 +197,5 @@ module.exports = {
   ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, PREIS_LOHN_RECHTE,
   istGesperrt, istImmer, effektiveRechte, bereich, baustelleImBereich, darfPreise, darfKalk,
   EURO_FELDER, KALK_FELDER, entferneEuroFelder, findeEuroFelder,
-  ladeMatrix, schreibeStandardMatrix, ladeRechteFuer, kontext, eigeneBaustellenIds
+  BUERO_VERWALTBAR, darfBenutzerVerwalten, ladeMatrix, schreibeStandardMatrix, ladeRechteFuer, kontext, eigeneBaustellenIds
 };

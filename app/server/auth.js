@@ -18,6 +18,9 @@ const SPERRSTUFEN_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
 const SPERRE_MS = SPERRSTUFEN_MS[0];
 const IP_FENSTER_MS = 5 * 60 * 1000;
 const IP_MAX_FEHLVERSUCHE = 30;
+/** Kontoweite Grenze über alle IPs (C-07): 20 Fehlversuche in 24 h → Konto gesperrt bis zur Entsperrung */
+const KONTO_MAX_FEHLVERSUCHE = 20;
+const KONTO_FENSTER_MS = 24 * 3600 * 1000;
 const FELD_ROLLEN = ['mitarbeiter', 'polier'];
 
 function zahlEnv(name, standard) {
@@ -216,6 +219,35 @@ class LoginBremse {
 
   erfolg(benutzerId, ip) {
     this.db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
+    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId);
+  }
+
+  /** Konto gesperrt? → 423 */
+  pruefeKonto(benutzerId) {
+    if (!benutzerId) return;
+    const k = this.db.eins('SELECT gesperrt FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    if (k && k.gesperrt) {
+      throw new ApiFehler(423, 'KONTO_GESPERRT', 'Das Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte im Büro entsperren lassen.');
+    }
+  }
+
+  /** Fehlversuch kontoweit zählen; @returns {boolean} true, wenn das Konto jetzt gesperrt wurde */
+  kontoFehlversuch(benutzerId) {
+    if (!benutzerId) return false;
+    const jetzt = this.uhr().getTime();
+    const k = this.db.eins('SELECT * FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    const neuesFenster = !k || !k.erster || jetzt - new Date(k.erster).getTime() > KONTO_FENSTER_MS;
+    const n = neuesFenster ? 1 : k.fehlversuche + 1;
+    const erster = neuesFenster ? new Date(jetzt).toISOString() : k.erster;
+    const sperren = n >= KONTO_MAX_FEHLVERSUCHE;
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = excluded.gesperrt, gesperrt_seit = excluded.gesperrt_seit`,
+    benutzerId, n, erster, sperren ? 1 : 0, sperren ? new Date(jetzt).toISOString() : null);
+    return sperren;
+  }
+
+  kontoEntsperren(benutzerId) {
+    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', benutzerId);
   }
 
   /** Büro/GF entsperrt (PIN-Reset): alle Sperren des Benutzers aufheben */
@@ -225,7 +257,7 @@ class LoginBremse {
 }
 
 module.exports = {
-  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, pinFehler,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse

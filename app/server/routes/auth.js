@@ -1,6 +1,7 @@
 'use strict';
 const v = require('../validierung');
-const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
+const { nichtAngemeldet, ungueltig, nichtGefunden, ApiFehler } = require('../fehler');
+const { benachrichtige } = require('../budget');
 const auth = require('../auth');
 const { eigeneBaustellenIds } = require('../rechte');
 
@@ -8,6 +9,20 @@ function benutzerJson(b, mitLohngruppe) {
   const o = { id: b.id, name: b.name, rolle: b.rolle };
   if (mitLohngruppe && b.lohngruppe_id) o.lohngruppe = b.lohngruppe_id;
   return o;
+}
+
+/** Fehlversuch zählen (IP und Konto); bei Kontosperre Büro/GF benachrichtigen */
+function fehlversuch(bt, b, ip) {
+  const gesperrt = bt.bremse.fehlversuch(b ? b.id : null, ip);
+  if (b && bt.bremse.kontoFehlversuch(b.id)) {
+    const zeit = bt.uhr().toISOString();
+    bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})` });
+    for (const e of bt.db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", b.id)) {
+      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} gesperrt. Bitte prüfen und entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
+    }
+    throw new ApiFehler(423, 'KONTO_GESPERRT', 'Das Konto ist nach zu vielen Fehlversuchen gesperrt. Bitte im Büro entsperren lassen.');
+  }
+  if (gesperrt) throw bt.bremse.fehler(gesperrt);
 }
 
 const clientIp = (req) => req.ip || (req.socket && req.socket.remoteAddress) || '?';
@@ -38,10 +53,10 @@ module.exports = function authRouten(api, bt) {
     }
     const ip = clientIp(req);
     bt.bremse.pruefe(benutzerId, ip);
+    bt.bremse.pruefeKonto(b ? b.id : null);
     const ok = await auth.pruefePin(body.pin, b ? b.pin_hash : auth.DUMMY_HASH);
     if (!b || !ok) {
-      const gesperrt = bt.bremse.fehlversuch(b ? b.id : null, ip);
-      if (gesperrt) throw bt.bremse.fehler(gesperrt);
+      fehlversuch(bt, b, ip);
       throw nichtAngemeldet('Benutzer oder PIN falsch.');
     }
     bt.bremse.erfolg(b.id, ip);
@@ -81,8 +96,7 @@ module.exports = function authRouten(api, bt) {
     const ip = clientIp(req);
     bt.bremse.pruefe(ich.id, ip);
     if (!(await auth.pruefePin(body.alt, ich.pin_hash))) {
-      const gesperrt = bt.bremse.fehlversuch(ich.id, ip);
-      if (gesperrt) throw bt.bremse.fehler(gesperrt);
+      fehlversuch(bt, ich, ip);
       throw nichtAngemeldet('Die bisherige PIN ist falsch.');
     }
     const hash = await auth.hashPin(body.neu);

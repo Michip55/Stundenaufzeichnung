@@ -342,6 +342,55 @@ CREATE UNIQUE INDEX benutzer_pnr ON benutzer(pnr) WHERE pnr IS NOT NULL;
     version: 3,
     name: 'Hinweis je Personalzeile (z. B. Ausstempeln fehlt)',
     sql: `ALTER TABLE bericht_personal ADD COLUMN hinweis TEXT;`
+  },
+  {
+    version: 4,
+    name: 'Prüfbericht 2: Versionen, Gast-Zeilen, Unterschrift-Hash/Widerruf, Kontosperre, Sicherheits-Meldungen',
+    sql: `
+ALTER TABLE bericht_personal ADD COLUMN gast INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bericht ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE bericht ADD COLUMN geaendert_nach_unterschrift TEXT;
+ALTER TABLE baustelle ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE unterschrift ADD COLUMN bild_hash TEXT;
+CREATE INDEX unterschrift_hash ON unterschrift(bild_hash);
+
+CREATE TABLE unterschrift_widerruf (
+  id INTEGER PRIMARY KEY,
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  rolle TEXT NOT NULL,
+  name TEXT,
+  bild_hash TEXT,
+  unterschrieben TEXT,
+  zeit TEXT NOT NULL,
+  von INTEGER REFERENCES benutzer(id)
+);
+
+CREATE TABLE login_konto (
+  benutzer_id INTEGER PRIMARY KEY,
+  fehlversuche INTEGER NOT NULL DEFAULT 0,
+  erster TEXT,
+  gesperrt INTEGER NOT NULL DEFAULT 0,
+  gesperrt_seit TEXT
+);
+
+ALTER TABLE benachrichtigung RENAME TO benachrichtigung_alt;
+CREATE TABLE benachrichtigung (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  typ TEXT NOT NULL CHECK (typ IN ('budget','azg','bericht','abwesenheit','sicherheit')),
+  titel TEXT NOT NULL,
+  text TEXT NOT NULL,
+  zeit TEXT NOT NULL,
+  gelesen INTEGER NOT NULL DEFAULT 0,
+  baustelle_id INTEGER REFERENCES baustelle(id),
+  schluessel TEXT,
+  UNIQUE (benutzer_id, schluessel)
+);
+INSERT INTO benachrichtigung SELECT * FROM benachrichtigung_alt;
+DROP TABLE benachrichtigung_alt;
+DROP INDEX IF EXISTS benachrichtigung_benutzer;
+CREATE INDEX benachrichtigung_benutzer ON benachrichtigung(benutzer_id, zeit);
+`
   }
 ];
 

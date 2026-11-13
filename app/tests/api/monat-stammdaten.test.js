@@ -101,11 +101,11 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     for (const b of [{ ...neu, kst: '2606' }, { ...neu, kst: '26-061', name: '' }, { ...neu, kst: '26-061', polierId: U.mitarbeiter }, { ...neu, kst: '26-061', bauleiterId: U.polier }, { ...neu, kst: '26-061', status: 'fertig' }, { ...neu, kst: '26-061', beginn: '2026-02-30' }]) {
       assert.equal((await buero.post('/baustellen', b)).status, 400, JSON.stringify(b));
     }
-    const u = await buero.put(`/baustellen/${r.daten.id}`, { status: 'aktiv', adresse: '2620 Neunkirchen' });
+    const u = await buero.putV(`/baustellen/${r.daten.id}`, { status: 'aktiv', adresse: '2620 Neunkirchen' });
     assert.equal(u.status, 200);
     assert.equal(u.daten.status, 'aktiv');
-    assert.equal((await buero.put(`/baustellen/${r.daten.id}`, { kst: '26-041' })).status, 409);
-    assert.equal((await buero.put('/baustellen/99999', { name: 'x' })).status, 404);
+    assert.equal((await buero.putV(`/baustellen/${r.daten.id}`, { kst: '26-041' })).status, 409);
+    assert.equal((await buero.putV('/baustellen/99999', { name: 'x' })).status, 404);
     // neue Baustelle erscheint beim Mitarbeiter (aktiv), ohne €
     assert.ok((await ma.get('/baustellen')).daten.some((b) => b.kst === '26-060'));
   });
@@ -113,9 +113,9 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
   await t.test('Auftrag/Nachtrag/Leistung/Fremdleistung: Eingabeprüfung', async () => {
     const a = `/baustellen/${BS.pitten}`;
     for (const [m, p, b] of [
-      ['put', `${a}/auftrag`, { auftragssumme: -5 }], ['put', `${a}/auftrag`, { auftragssumme: '100000' }], ['put', `${a}/auftrag`, { schwellen: [] }],
-      ['put', `${a}/auftrag`, { schwellen: [80, 80] }], ['put', `${a}/auftrag`, { schwellen: [300] }], ['put', `${a}/auftrag`, { empfaenger: { polier: true } }],
-      ['put', `${a}/auftrag`, { empfaenger: { gf: 'ja' } }], ['put', `${a}/auftrag`, {}],
+      ['putV', `${a}/auftrag`, { auftragssumme: -5 }], ['putV', `${a}/auftrag`, { auftragssumme: '100000' }], ['putV', `${a}/auftrag`, { schwellen: [] }],
+      ['putV', `${a}/auftrag`, { schwellen: [80, 80] }], ['putV', `${a}/auftrag`, { schwellen: [300] }], ['putV', `${a}/auftrag`, { empfaenger: { polier: true } }],
+      ['putV', `${a}/auftrag`, { empfaenger: { gf: 'ja' } }], ['putV', `${a}/auftrag`, {}],
       ['post', `${a}/nachtraege`, { betrag: 100 }], ['post', `${a}/nachtraege`, { text: 'x', betrag: 'viel' }],
       ['post', `${a}/leistungen`, { leistungId: 999, menge: 1, datum: '2026-11-12' }], ['post', `${a}/leistungen`, { leistungId: 1, menge: 0, datum: '2026-11-12' }],
       ['post', `${a}/leistungen`, { leistungId: 1, menge: 1, datum: 'heute' }],
@@ -127,7 +127,7 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     }
     assert.equal((await gf.post('/baustellen/99999/nachtraege', { text: 'x', betrag: 1 })).status, 404);
     assert.equal((await gf.post('/baustellen/abc/nachtraege', { text: 'x', betrag: 1 })).status, 400);
-    const ok = await gf.put(`${a}/auftrag`, { schwellen: [90, 75, 100], empfaenger: { bauleiter: true, buero: false } });
+    const ok = await gf.putV(`${a}/auftrag`, { schwellen: [90, 75, 100], empfaenger: { bauleiter: true, buero: false } });
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.daten.schwellen, [75, 90, 100]);
     assert.deepEqual(ok.daten.empfaenger, { bauleiter: true, buero: false, gf: true });

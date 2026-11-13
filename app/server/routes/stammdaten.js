@@ -15,7 +15,7 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
     id: bs.id, kst: bs.kst, name: bs.name, kurz: bs.kurz, auftraggeber: bs.auftraggeber, agAdresse: bs.ag_adresse,
     bauvorhaben: bs.bauvorhaben, adresse: bs.adresse, bauherrVertreter: bs.bauherr_vertreter, art: bs.art,
     status: bs.status, intern: bs.intern === 1, polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
-    beginn: bs.beginn, ende: bs.ende
+    beginn: bs.beginn, ende: bs.ende, version: bs.version
   };
   const mitPreisen = darfPreise(ctx, bs);
   const mitKalk = darfKalk(ctx, bs);
@@ -48,6 +48,19 @@ function pruefeBenutzerRolle(db, id, rollen, feld) {
   if (!b) throw ungueltig(`${feld}: Benutzer nicht gefunden.`);
   if (!rollen.includes(b.rolle)) throw ungueltig(`${feld}: Benutzer hat nicht die passende Rolle (${rollen.join('/')}).`);
   return b.id;
+}
+
+/** Optimistische Sperre (C-08): version muss zum gespeicherten Stand passen */
+function pruefeVersion(body, aktuell, was = 'Die Baustelle') {
+  const version = v.zahl(body.version, 'version', { min: 1, max: 1e9, ganz: true });
+  if (version !== aktuell) throw konflikt(`${was} wurde inzwischen von jemand anderem geändert. Bitte neu laden und die Änderung wiederholen.`, { version: aktuell });
+}
+
+/** Bauleiter-/Polier-Zuordnung ändern nur Büro und GF (C-05) */
+function pruefeZuordnung(ctx, body) {
+  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !['buero', 'gf'].includes(ctx.benutzer.rolle)) {
+    throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet nur das Büro bzw. die Geschäftsführung zu.');
+  }
 }
 
 function baustellenFelder(db, body, teil) {
@@ -90,6 +103,7 @@ module.exports = function stammdatenRouten(api, bt) {
   });
 
   api.post('/baustellen', brauche('stammdaten'), (req, res) => {
+    pruefeZuordnung(req.ctx, v.objekt(req.body));
     const f = baustellenFelder(db, v.objekt(req.body), false);
     if (db.eins('SELECT id FROM baustelle WHERE kst = ?', f.kst)) throw konflikt(`Die Kostenstelle ${f.kst} gibt es bereits.`);
     f.erstellt = jetzt();
@@ -101,11 +115,14 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.put('/baustellen/:id', brauche('stammdaten'), (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    const f = baustellenFelder(db, v.objekt(req.body), true);
+    const body = v.objekt(req.body);
+    pruefeZuordnung(req.ctx, body);
+    const f = baustellenFelder(db, body, true);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
+    pruefeVersion(body, bs.version);
     if (f.kst && f.kst !== bs.kst && db.eins('SELECT id FROM baustelle WHERE kst = ?', f.kst)) throw konflikt(`Die Kostenstelle ${f.kst} gibt es bereits.`);
     const spalten = Object.keys(f);
-    db.lauf(`UPDATE baustelle SET ${spalten.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, ...spalten.map((k) => f[k]), bs.id);
+    db.lauf(`UPDATE baustelle SET ${spalten.map((k) => `${k} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...spalten.map((k) => f[k]), bs.id);
     const alt = {};
     for (const k of spalten) alt[k] = bs[k];
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `baustelle:${bs.id}`, alt, neu: f, text: `Baustelle ${bs.kst} geändert` });
@@ -134,8 +151,9 @@ module.exports = function stammdatenRouten(api, bt) {
       f.empfaenger = JSON.stringify({ bauleiter: true, buero: true, gf: true, ...o });
     }
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
+    pruefeVersion(body, bs.version, 'Auftrag und Budget-Einstellungen');
     const spalten = Object.keys(f);
-    db.lauf(`UPDATE baustelle SET ${spalten.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, ...spalten.map((k) => f[k]), bs.id);
+    db.lauf(`UPDATE baustelle SET ${spalten.map((k) => `${k} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...spalten.map((k) => f[k]), bs.id);
     const alt = {};
     for (const k of spalten) alt[k] = bs[k];
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'auftrag', objekt: `baustelle:${bs.id}`, alt, neu: f, text: `Auftragssumme/Budget-Einstellungen ${bs.kst} geändert` });

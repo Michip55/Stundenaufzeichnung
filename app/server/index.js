@@ -143,6 +143,7 @@ function createApp(opt = {}) {
       if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
       return res.status(err.status).json({ fehler: err.message, code: err.code, ...(err.extra || {}) });
     }
+    if (err && /UNIQUE constraint failed/.test(String(err.message))) return res.status(409).json({ fehler: 'Der Eintrag ist bereits vorhanden (doppelter Wert).', code: 'KONFLIKT' });
     if (err && err.type === 'entity.parse.failed') return res.status(400).json({ fehler: 'Ungültiges JSON.', code: 'UNGUELTIG' });
     if (err && err.type === 'entity.too.large') return res.status(413).json({ fehler: 'Anfrage zu groß.', code: 'UNGUELTIG' });
     if (err && err.status >= 400 && err.status < 500) return res.status(err.status).json({ fehler: 'Ungültige Anfrage.', code: 'UNGUELTIG' });

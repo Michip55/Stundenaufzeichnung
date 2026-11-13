@@ -20,7 +20,7 @@ const MATRIX = [
   ['GET', '/monat/export.csv?monat=2026-11', null, [NEIN, NEIN, NEIN, OK, OK]],
   ['GET', '/monat/buak.csv?monat=2026-11', null, [NEIN, NEIN, NEIN, OK, OK]],
   ['GET', '/rechte', null, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['GET', '/benutzer', null, [NEIN, NEIN, NEIN, NEIN, OK]],
+  ['GET', '/benutzer', null, [NEIN, NEIN, NEIN, OK, OK]], // C-14: Büro verwaltet Mitarbeiter/Polier/Bauleiter
   ['GET', '/zeit/anwesend', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/berichte', null, [NEIN, OK, OK, OK, OK]],
   ['GET', `/zeit/kolonne?baustelleId=${BS.pitten}`, null, [NEIN, OK, OK, NEIN, OK]],
@@ -35,8 +35,9 @@ const MATRIX = [
   ['PUT', `/baustellen/${BS.pitten}`, {}, [NEIN, NEIN, NEIN, OK, OK]],
   ['PUT', '/rechte/matrix', { rolle: 'buero', recht: 'kolonne', wert: false }, [NEIN, NEIN, NEIN, NEIN, OK]],
   ['PUT', '/rechte/ausnahme', { benutzerId: 2, recht: 'kolonne', wert: false }, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['POST', '/benutzer', {}, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['PUT', '/benutzer/2', {}, [NEIN, NEIN, NEIN, NEIN, OK]],
+  ['POST', '/benutzer', {}, [NEIN, NEIN, NEIN, OK, OK]],
+  ['PUT', '/benutzer/2', {}, [NEIN, NEIN, NEIN, OK, OK]],
+  ['PUT', `/benutzer/${U.gf}`, { name: 'X' }, [NEIN, NEIN, NEIN, NEIN, OK]],
   ['POST', '/zeit/kolonne', {}, [NEIN, OK, OK, NEIN, OK]],
   ['POST', '/berichte', {}, [NEIN, OK, OK, OK, OK]]
 ];
@@ -163,6 +164,7 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
 
   await t.test('Bauleiter: Preise bearbeiten/Lohn nicht vergebbar; GF behält benutzer', async () => {
     assert.equal((await c.gf.put('/rechte/matrix', { rolle: 'bauleiter', recht: 'preise_bearbeiten', wert: true })).status, 400);
+    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'stammdaten', wert: true })).status, 400); // C-05
     assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.bauleiter, recht: 'lohn', wert: true })).status, 400);
     const r = await c.gf.put('/rechte/matrix', { rolle: 'gf', recht: 'benutzer', wert: false });
     assert.equal(r.status, 400);

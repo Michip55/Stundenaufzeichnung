@@ -43,7 +43,7 @@ test('B-01: jede Rolle × jedes vergebbare Recht × jede Route – keine €-Lec
               if (['/preise', '/kalkulation', `/kalkulation/${BS.pitten}`, '/monat?monat=2026-11', `/baustellen/${BS.pitten}/fremdleistungen`].includes(p)) assert.equal(r.status, 403, p);
               if (r.status === 200) assert.deepEqual(euroFelder(r.daten), [], `${rolle}+${recht} ${p}`);
             }
-            if (['/rechte', '/benutzer'].includes(p)) assert.equal(r.status, 403, `${rolle}+${recht} ${p}`);
+            if (p === '/rechte' || (p === '/benutzer' && rolle !== 'buero')) assert.equal(r.status, 403, `${rolle}+${recht} ${p}`);
           }
           // keine Selbstbeförderung, keine Rechtevergabe
           assert.equal((await c.put(`/benutzer/${uid}`, { rolle: 'gf' })).status, 403);
@@ -64,7 +64,7 @@ test('B-01: jede Rolle × jedes vergebbare Recht × jede Route – keine €-Lec
 
   await t.test('B-01: Protokoll mit €-Bezug nur mit preise_sehen', async () => {
     await gf.put('/preise/lohngruppen/fa', { feld: 'kostensatz', wert: 44.44 });
-    await gf.put(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: 123456.78 });
+    await gf.putV(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: 123456.78 });
     await gf.post(`/baustellen/${BS.pitten}/nachtraege`, { text: 'NT', betrag: 9999.99 });
     let p = (await gf.get('/rechte')).daten.protokoll;
     assert.ok(p.some((x) => x.art === 'preis' && x.neu.includes('44.44')));
@@ -129,9 +129,9 @@ test('B-03: Anmeldung – Sperre je (Benutzer, IP) mit steigender Dauer, IP-Gren
   });
 
   await t.test('B-03: neue Benutzer und PIN-Reset → PIN-Änderung erzwungen (403 PIN_AENDERN)', async () => {
-    const n = await gf.post('/benutzer', { name: 'Neu Pflicht', rolle: 'mitarbeiter', pin: '5917', pnr: 2002 });
+    const n = await gf.post('/benutzer', { name: 'Neu Pflicht', rolle: 'mitarbeiter', pin: '5917', pnr: 3002 });
     const c = s.client(null, '10.0.1.1');
-    const l = await c.post('/auth/login', { pnr: 2002, pin: '5917' });
+    const l = await c.post('/auth/login', { pnr: 3002, pin: '5917' });
     assert.equal(l.status, 200);
     assert.equal(l.daten.mussPinAendern, true);
     const ich = await c.get('/auth/ich');
@@ -147,7 +147,7 @@ test('B-03: Anmeldung – Sperre je (Benutzer, IP) mit steigender Dauer, IP-Gren
     assert.equal((await c.post('/auth/pin', { alt: '5917', neu: '5917' })).status, 400);
     assert.equal((await c.post('/auth/pin', { alt: '5917', neu: '12' })).status, 400);
     const zweite = s.client(null, '10.0.1.2');
-    await zweite.post('/auth/login', { pnr: 2002, pin: '5917' });
+    await zweite.post('/auth/login', { pnr: 3002, pin: '5917' });
     const ok = await c.post('/auth/pin', { alt: '5917', neu: '8264' });
     assert.equal(ok.status, 200);
     assert.equal((await c.get('/baustellen')).status, 200);

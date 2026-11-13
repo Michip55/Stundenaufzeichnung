@@ -71,7 +71,7 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
   });
 
   await t.test('PUT: Teil-Update aller Abschnitte', async () => {
-    const r = await pol.put(`/berichte/${id}`, {
+    const r = await pol.putV(`/berichte/${id}`, {
       geraete: [{ geraetId: 15, stunden: 8 }, { geraetId: 22, stunden: 6 }, { geraetId: 1, stunden: 0 }],
       material: [{ materialId: 4, menge: 42 }, { materialId: 7, menge: 38 }],
       arbeitsleistung: 'Frostschutz 0/63 eingebracht und verdichtet.\nRandleisten versetzt.',
@@ -97,7 +97,7 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
     const pers = r.daten.personal.map((p) => ({ ...p }));
     const i2 = pers.findIndex((p) => p.benutzerId === 2);
     pers[i2] = { ...pers[i2], von1: '07:00', bis1: '16:00', von2: null, bis2: null, pauseMin: 30, stunden: undefined, segStunden: 3 };
-    const r2 = await pol.put(`/berichte/${id}`, { personal: pers });
+    const r2 = await pol.putV(`/berichte/${id}`, { personal: pers });
     assert.equal(r2.status, 200, JSON.stringify(r2.daten));
     const p2 = r2.daten.personal.find((p) => p.benutzerId === 2);
     assert.deepEqual([p2.von1, p2.bis1, p2.von2, p2.stunden, p2.segStunden], ['07:00', '16:00', null, 8.5, 3]);
@@ -129,7 +129,7 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
       {}
     ];
     for (const b of bad) {
-      const r = await pol.put(`/berichte/${id}`, b);
+      const r = await pol.putV(`/berichte/${id}`, b);
       assert.equal(r.status, 400, JSON.stringify(b).slice(0, 80));
       assert.equal(r.daten.code, 'UNGUELTIG');
       assert.ok(r.daten.fehler.length > 3);
@@ -159,7 +159,7 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
     assert.equal(r.daten.status, 'unterschrieben');
     assert.equal(r.daten.bearbeitbar, false);
     assert.match(r.daten.unterschriften.bh.bildPng, /^data:image\/png;base64,/);
-    assert.equal((await pol.put(`/berichte/${id}`, { vorkommnisse: 'nachträglich' })).status, 409);
+    assert.equal((await pol.putV(`/berichte/${id}`, { vorkommnisse: 'nachträglich' })).status, 409);
     assert.equal((await pol.post(`/berichte/${id}/unterschrift`, { rolle: 'bh', name: 'X', bildPng: demoUnterschrift('x') })).status, 409);
     assert.equal((await pol.post(`/berichte/${id}/personal-aktualisieren`)).status, 409);
     // Hinweis „wartet auf Freigabe“ an Bauleiter, Büro, GF – nicht an Polier

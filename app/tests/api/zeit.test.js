@@ -166,7 +166,7 @@ test('Zeiterfassung', async (t) => {
     assert.equal((await ma.post('/abwesenheiten', { benutzerId: 3, datum: '2026-12-01', code: 'U' })).status, 403);
     r = await pol.post('/abwesenheiten', { benutzerId: 5, datum: '2026-11-13', code: 'SW' });
     assert.equal(r.status, 201);
-    assert.equal(r.daten.status, 'genehmigt');
+    assert.equal(r.daten.status, 'beantragt'); // C-13: Büro bestätigt
     assert.equal((await pol.post('/abwesenheiten', { benutzerId: 9, datum: '2026-11-13', code: 'SW' })).status, 403);
     assert.equal((await pol.post('/abwesenheiten', { benutzerId: 5, datum: '2026-11-16', code: 'K' })).status, 403);
     r = await buero.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2026-11-30', code: 'U' });

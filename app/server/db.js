@@ -29,6 +29,7 @@ class Datenbank {
     this.cache = new Map();
     this.tiefe = 0;
     this.migrieren();
+    this.nachMigration();
   }
 
   stmt(sql) {
@@ -86,6 +87,13 @@ class Datenbank {
     }
   }
 
+  /** Nachträge, die SQL allein nicht kann (z. B. Hash der Unterschriftsbilder) */
+  nachMigration() {
+    for (const u of this.alle('SELECT bericht_id, rolle, bild_png FROM unterschrift WHERE bild_hash IS NULL AND bild_png IS NOT NULL')) {
+      this.lauf('UPDATE unterschrift SET bild_hash = ? WHERE bericht_id = ? AND rolle = ?', bildHash(u.bild_png), u.bericht_id, u.rolle);
+    }
+  }
+
   einstellung(schluessel, standard) {
     const z = this.eins('SELECT wert FROM einstellung WHERE schluessel = ?', schluessel);
     if (!z) return standard;
@@ -108,8 +116,14 @@ class Datenbank {
   }
 }
 
+/** SHA-256 der Bilddaten einer PNG-data-URL */
+function bildHash(dataUrl) {
+  const b64 = String(dataUrl).slice(String(dataUrl).indexOf(',') + 1);
+  return require('node:crypto').createHash('sha256').update(Buffer.from(b64, 'base64')).digest('hex');
+}
+
 function oeffneDatenbank(dbPfad) {
   return new Datenbank(dbPfad);
 }
 
-module.exports = { oeffneDatenbank, Datenbank };
+module.exports = { oeffneDatenbank, Datenbank, bildHash };

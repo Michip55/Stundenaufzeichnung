@@ -76,7 +76,7 @@ module.exports = function benutzerRouten(api, bt) {
   });
 
   /* ---------- Benutzer ---------- */
-  function pruefeFelder(body, teil, rolleAlt) {
+  function pruefeFelder(body, teil, rolleAlt, eigeneId = null) {
     const f = {};
     if (!teil || body.name !== undefined) f.name = v.text(body.name, 'name', { max: 100 });
     if (!teil || body.rolle !== undefined) f.rolle = v.auswahl(body.rolle, 'rolle', R.ROLLEN);
@@ -98,7 +98,7 @@ module.exports = function benutzerRouten(api, bt) {
     if (body.pnr !== undefined) f.pnr = v.zahl(body.pnr, 'pnr', { min: 1, max: 999999, ganz: true, pflicht: false });
     if (f.pnr != null) {
       const vergeben = db.eins('SELECT id, name FROM benutzer WHERE pnr = ?', f.pnr);
-      if (vergeben && vergeben.id !== body.__id) throw konflikt(`Die Personalnummer ${f.pnr} ist bereits an ${vergeben.name} vergeben.`);
+      if (vergeben && vergeben.id !== eigeneId) throw konflikt(`Die Personalnummer ${f.pnr} ist bereits an ${vergeben.name} vergeben.`);
     }
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
     let pin = null;
@@ -110,12 +110,19 @@ module.exports = function benutzerRouten(api, bt) {
     return { f, pin };
   }
 
-  api.get('/benutzer', brauche('benutzer'), (req, res) => {
+  const verwalterPruefen = (req, res, next) => (R.darfBenutzerVerwalten(req.ctx) ? next() : next(keinZugriff()));
+
+  api.get('/benutzer', verwalterPruefen, (req, res) => {
     res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map(benutzerVoll));
   });
 
-  api.post('/benutzer', brauche('benutzer'), async (req, res) => {
+  api.post('/benutzer', verwalterPruefen, async (req, res) => {
     const { f, pin } = pruefeFelder(v.objekt(req.body), false);
+    if (!R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung legt nur die GF an.');
+    if (f.pnr == null) {
+      const max = db.eins('SELECT MAX(pnr) AS m FROM benutzer').m;
+      f.pnr = Math.max(1000, max || 0) + 1; // nächste freie Personalnummer (C-12)
+    }
     f.pin_hash = await auth.hashPin(pin);
     f.muss_pin_aendern = 1; // Start-PIN muss beim ersten Anmelden geändert werden
     f.erstellt = jetzt();
@@ -126,12 +133,14 @@ module.exports = function benutzerRouten(api, bt) {
     res.status(201).json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
   });
 
-  api.put('/benutzer/:id', brauche('benutzer'), async (req, res) => {
+  api.put('/benutzer/:id', verwalterPruefen, async (req, res) => {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const alt = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
     const body = v.objekt(req.body);
-    const { f, pin } = pruefeFelder({ ...body, __id: id }, true, alt.rolle);
+    const { f, pin } = pruefeFelder(body, true, alt.rolle, id);
+    if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Büro und Geschäftsführung vergibt nur die GF.');
     if (!Object.keys(f).length && !pin) throw ungueltig('Keine Änderungen angegeben.');
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
@@ -150,7 +159,7 @@ module.exports = function benutzerRouten(api, bt) {
         for (const r of R.GESPERRT[f.rolle]) db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', id, r);
       }
       if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) auth.beendeAlleSitzungen(db, id);
-      if (pin) bt.bremse.entsperre(id);
+      if (pin) { bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id); }
       const altW = {}, neuW = {};
       for (const x of k) {
         if (x === 'pin_hash' || x === 'muss_pin_aendern') continue;
@@ -163,5 +172,19 @@ module.exports = function benutzerRouten(api, bt) {
       });
     });
     res.json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)));
+  });
+
+  /** Konto entsperren (C-07): Büro für Mitarbeiter/Polier/Bauleiter, GF für alle */
+  api.post('/benutzer/:id/entsperren', verwalterPruefen, (req, res) => {
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
+    if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung entsperrt nur die GF.');
+    db.transaktion(() => {
+      bt.bremse.entsperre(id);
+      bt.bremse.kontoEntsperren(id);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, text: `Anmeldung von ${b.name} entsperrt` });
+    });
+    res.json({ ok: true });
   });
 };

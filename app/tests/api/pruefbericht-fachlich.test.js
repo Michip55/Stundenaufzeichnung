@@ -71,7 +71,7 @@ test('B-02, M-03, N-01, N-02, N-04, N-06', async (t) => {
   });
 
   await t.test('N-04: Geldbeträge kaufmännisch gerundet', async () => {
-    const r = await buero.put(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: 100000.005 });
+    const r = await buero.putV(`/baustellen/${BS.pitten}/auftrag`, { auftragssumme: 100000.005 });
     assert.equal(r.daten.auftragssumme, 100000.01);
     const n = await buero.post(`/baustellen/${BS.pitten}/nachtraege`, { text: 'Rundung', betrag: 1.005 });
     assert.equal(n.daten.betrag, 1.01);
@@ -146,7 +146,7 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
     const zeile = b.daten.personal.find((p) => p.benutzerId === 6);
     assert.equal(zeile.stunden, 0);
     assert.match(zeile.hinweis, /Ausstempeln fehlt/);
-    assert.equal((await pol.put(`/berichte/${b.daten.id}`, { personal: b.daten.personal })).status, 200);
+    assert.equal((await pol.putV(`/berichte/${b.daten.id}`, { personal: b.daten.personal })).status, 200);
   });
 
   await t.test('B-05: Büro korrigiert Buchungen mit Grund (Protokoll), Folge wird geprüft', async () => {
@@ -193,12 +193,12 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
     const z = b.daten.personal.find((p) => p.benutzerId === 7);
     assert.deepEqual([z.von1, z.bis1, z.von2, z.bis2, z.pauseMin, z.stunden], ['22:00', '02:00', '02:30', '06:00', 30, 7.5]);
     // unverändert zurück → 200 (früher 400)
-    let r = await pol.put(`/berichte/${nacht}`, { personal: b.daten.personal });
+    let r = await pol.putV(`/berichte/${nacht}`, { personal: b.daten.personal });
     assert.equal(r.status, 200, JSON.stringify(r.daten));
     // ohne Stunden → aus den Blöcken über Mitternacht gerechnet
-    r = await pol.put(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '02:00', von2: '02:30', bis2: '06:00', pauseMin: 30 }] });
+    r = await pol.putV(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '02:00', von2: '02:30', bis2: '06:00', pauseMin: 30 }] });
     assert.equal(r.daten.personal[0].stunden, 7.5);
-    r = await pol.put(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '06:00', pauseMin: 30 }] });
+    r = await pol.putV(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '06:00', pauseMin: 30 }] });
     assert.equal(r.daten.personal[0].stunden, 7.5);
     const pdf = await pol.get(`/berichte/${nacht}/pdf`);
     assert.equal(pdf.status, 200);
@@ -211,9 +211,9 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
   });
 
   await t.test('M-02: ab der ersten Unterschrift ist der Inhalt gesperrt; Unterschrift zurückziehen', async () => {
-    await pol.put(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '04:00', pauseMin: 0, segStunden: 2 }] });
+    await pol.putV(`/berichte/${nacht}`, { personal: [{ benutzerId: 7, von1: '22:00', bis1: '04:00', pauseMin: 0, segStunden: 2 }] });
     assert.equal((await pol.post(`/berichte/${nacht}/unterschrift`, { rolle: 'bh', name: 'Ing. Helga Auer', bildPng: sig })).status, 200);
-    let r = await pol.put(`/berichte/${nacht}`, { vorkommnisse: 'GEÄNDERT' });
+    let r = await pol.putV(`/berichte/${nacht}`, { vorkommnisse: 'GEÄNDERT' });
     assert.equal(r.status, 409);
     assert.match(r.daten.fehler, /Inhalt gesperrt/);
     assert.equal((await pol.post(`/berichte/${nacht}/personal-aktualisieren`)).status, 409);
@@ -221,7 +221,7 @@ test('B-05, B-06, M-01, M-02, M-07: Nachtschicht, vergessenes Ausstempeln, Korre
     r = await pol.del(`/berichte/${nacht}/unterschrift/bh`);
     assert.equal(r.status, 200);
     assert.deepEqual(r.daten.unterschriften, {});
-    assert.equal((await pol.put(`/berichte/${nacht}`, { vorkommnisse: 'Nachtbaustelle, Absicherung lt. Bescheid' })).status, 200);
+    assert.equal((await pol.putV(`/berichte/${nacht}`, { vorkommnisse: 'Nachtbaustelle, Absicherung lt. Bescheid' })).status, 200);
     assert.equal((await pol.del(`/berichte/${nacht}/unterschrift/xx`)).status, 400);
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE text LIKE '%zurückgezogen%'").n === 1);
   });

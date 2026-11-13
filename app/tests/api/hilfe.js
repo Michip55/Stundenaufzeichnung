@@ -54,7 +54,16 @@ async function starte(opt = {}) {
       get: (p, h) => c.anfrage('GET', p, undefined, h),
       post: (p, body = {}, h) => c.anfrage('POST', p, body, h),
       put: (p, body = {}, h) => c.anfrage('PUT', p, body, h),
-      del: (p, h) => c.anfrage('DELETE', p, undefined, h)
+      del: (p, h) => c.anfrage('DELETE', p, undefined, h),
+      /** PUT mit aktueller version (C-08): lädt die Ressource vorher */
+      async putV(p, body = {}) {
+        if (body.version === undefined) {
+          const quelle = p.replace(/\/auftrag$/, '');
+          const g = await c.get(quelle);
+          if (g.status === 200 && g.daten && g.daten.version !== undefined) body = { ...body, version: g.daten.version };
+        }
+        return c.anfrage('PUT', p, body);
+      }
     };
     return c;
   }
