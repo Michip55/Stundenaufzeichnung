@@ -16,12 +16,13 @@
 2. Rollen, Berechtigungen und Geräte
 3. Funktionen im Detail
 4. Innovative Funktionen und Benutzerfreundlichkeit
-5. Österreich-spezifische und rechtliche Punkte
-6. Datenmodell und Rechenlogik
-7. Technik und Betrieb
-8. Kaufen oder bauen?
-9. Umsetzung in Phasen, Kosten, Einführung
-10. Offene Fragen an den Betrieb
+5. Servicebuch für Fahrzeuge und Geräte
+6. Österreich-spezifische und rechtliche Punkte
+7. Datenmodell und Rechenlogik
+8. Technik und Betrieb
+9. Kaufen oder bauen?
+10. Umsetzung in Phasen, Kosten, Einführung
+11. Offene Fragen an den Betrieb
 - Quellen
 - Anhang: Begriffe
 
@@ -29,7 +30,7 @@
 
 ## 0 Zusammenfassung
 
-**Was ist geplant?** Eine App für Handy, Tablet und PC. Es ist eine einzige Web-App (PWA), die auch ohne Empfang funktioniert. Sie umfasst fünf Teile:
+**Was ist geplant?** Eine App für Handy, Tablet und PC. Es ist eine einzige Web-App (PWA), die auch ohne Empfang funktioniert. Sie umfasst sechs Teile:
 
 1. **Stempeln:** Jeder stempelt selbst, oder der Polier stempelt die ganze Partie mit einem Tipp. Der Standort wird nur im Moment des Stempelns erfasst.
 2. **Bautagesbericht:** im Aufbau Ihrer Papiervorlage, vorbefüllt aus den Stempelungen. Der Bauherr unterschreibt am Tablet oder per SMS-Link, und das PDF geht sofort per Mail hinaus. Papierberichte lassen sich einscannen und werden mit Prüfschritt erkannt.
@@ -41,6 +42,11 @@
    - Warnungen bei Pause und Höchstarbeitszeit;
    - Gerätestunden per NFC-/QR-Tag;
    - Bericht diktieren und Lieferscheine fotografieren. Die KI schlägt vor, der Polier bestätigt.
+6. **Servicebuch für Fahrzeuge und Geräte (Kapitel 5):** alle PKW, Busse, LKW, Anhänger, Baumaschinen und Kleingeräte mit Reparaturen, Services und Prüfungen (Pickerl, Kranprüfung, Tacho).
+   - Kilometer- und Betriebsstundenstände kommen vom Fahrer bzw. aus den Bautagesberichten.
+   - Meldung 3 Monate vor jedem Termin, auch bei Stunden- und km-Intervallen über ein voraussichtliches Datum.
+   - Mängelmeldung von der Baustelle; Status „gesperrt“.
+   - Kosten sieht nur, wer das Preisrecht hat.
 
 **Wer sieht was (Kapitel 2.2):**
 
@@ -59,7 +65,7 @@
   - Was verlässlich funktioniert, kommt gleich in Phase 1.
   - KI-Diktat, Lieferschein- und Papier-Erkennung kommen erst nach einem Test mit echten Aufnahmen und Formularen (Dialekt, Baulärm, Handschrift).
   - Geofence-Hinweis und „KI-Fragen an die Daten“ sind optional und kommen später.
-- **Gegenprobe:** Vor der Beauftragung zwei Wochen lang 123erfasst testen. Passt es ohne Verbiegen, ist Kaufen deutlich günstiger (Kapitel 8).
+- **Gegenprobe:** Vor der Beauftragung zwei Wochen lang 123erfasst testen. Passt es ohne Verbiegen, ist Kaufen deutlich günstiger (Kapitel 9).
 - **Vor dem Start:** Betriebsvereinbarung bzw. schriftliche Zustimmung jedes Mitarbeiters (Standort, Rollen, KI-Funktionen).
 
 **Kosten (Richtwerte, netto):**
@@ -85,14 +91,14 @@
 
 - Realistisch **rund 10 Monate** ab Start, also bis Ende September 2027.
 - Im besten Fall ca. 7½ Monate (Ende Juni 2027), wenn es zäh läuft 13–14 Monate (Jänner 2028).
-- Die reine Programmierung dauert mit 2 Entwicklern nur ca. 4–7 Monate. Den Termin bestimmen die Abstimmung des Lohnexports, die Betriebsvereinbarung, der KI-Test und der Pilot in der Bausaison (Kapitel 9.2).
+- Die reine Programmierung dauert mit 2 Entwicklern nur ca. 4–7 Monate. Den Termin bestimmen die Abstimmung des Lohnexports, die Betriebsvereinbarung, der KI-Test und der Pilot in der Bausaison (Kapitel 10.2).
 - Die optionale Phase 3 dauert weitere 3–4 Monate (bis ca. März 2028).
 
-Förderung: KMU.DIGITAL prüfen (Kapitel 9).
+Förderung: KMU.DIGITAL prüfen (Kapitel 10).
 
 **Nächste Schritte:**
 
-1. Die offenen Fragen (Kapitel 10) und die Rechte-Matrix mit Büro und einem Polier klären.
+1. Die offenen Fragen (Kapitel 11) und die Rechte-Matrix mit Büro und einem Polier klären.
 2. Das Exportformat mit der Lohnverrechnung abstimmen; Mitarbeiter bzw. Betriebsrat informieren.
 3. Den Prototyp mit zwei Polieren testen, den KI-Test machen (ca. 20 Diktate, 30 Lieferscheine, 20 ausgefüllte Papierberichte) und die Gegenprobe mit 123erfasst starten.
 4. Angebote von 2–3 Entwicklern einholen und entscheiden.
@@ -107,7 +113,7 @@ Der Betrieb hat rund 30 Mitarbeiter: Poliere, Vorarbeiter, Pflasterer bzw. Facha
 
 ### 1.2 Der heutige Ablauf auf Papier
 
-Den folgenden Ablauf nehmen wir an; bitte bestätigen oder korrigieren (siehe Kapitel 10):
+Den folgenden Ablauf nehmen wir an; bitte bestätigen oder korrigieren (siehe Kapitel 11):
 
 1. Der Polier schreibt täglich je Baustelle einen Bautagesbericht auf Papier: Personal mit Uhrzeiten, Geräte, Material, Leistung, Regie und Vorkommnisse.
 2. Stunden werden zusätzlich auf Stundenzetteln oder in Listen für die Lohnverrechnung geführt.
@@ -197,6 +203,9 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 | Stammdaten (Baustellen, Geräte, Material, Positionen; ohne Preise) | – | – | Baustellen und Positionen anlegen | ja | ja |
 | Benutzer anlegen, PIN zurücksetzen, Gerät abmelden | – | – | – | ja | ja |
 | Rollen und Ausnahmen vergeben | – | – | – | – | ja |
+| Servicebuch: Status der Fahrzeuge/Geräte sehen, Mangel melden, Zählerstand eintragen (ohne €) | ja | ja | ja | ja | ja |
+| Servicebuch pflegen (Anlagen, Pläne, Einträge, Sperre), Recht `fuhrpark` | per Ausnahme (z. B. Werkstatt) | per Ausnahme | per Ausnahme | ja | ja |
+| Reparatur- und Servicekosten sehen | **nie** | **nie** | nur lesen | ja | ja |
 | Änderungsprotokoll einsehen | eigene Daten | eigene Partie (ohne Preise) | eigene Baustellen | ja | alles, inkl. Rechte |
 | KI-Fragen an die Daten (Phase 3, optional) | – | – | im Rahmen der eigenen Rechte | im Rahmen der eigenen Rechte | ja |
 
@@ -238,7 +247,7 @@ Zusammen sind das **rund 40.000–50.000 € pro Jahr** an messbarem Potenzial, 
 - Der Bauleiter sieht in der Nachkalkulation Lohnkosten nur über die **Kostensätze je Lohngruppe**. Das sind Durchschnittssätze, keine Einzellöhne. Bei einer Lohngruppe mit nur einer Person wird mit der nächsten Gruppe zusammengefasst, damit man nicht auf den Lohn eines Einzelnen schließen kann.
 - Der Polier sieht die Stunden seiner Partie, weil er sie verantwortet, aber nicht deren Löhne.
 - Beim Krankenstand wird nur das Kürzel „K“ gespeichert, nie eine Diagnose. Die Krankmeldung als Beleg sieht nur das Büro.
-- Das Rollenkonzept wird Teil der Betriebsvereinbarung bzw. der Mitarbeiterinformation (Kapitel 5.7).
+- Das Rollenkonzept wird Teil der Betriebsvereinbarung bzw. der Mitarbeiterinformation (Kapitel 6.7).
 
 **Verlorene oder gemeinsam genutzte Geräte:**
 
@@ -262,7 +271,7 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 | **Terminal im Bauhof / Kieswerk** | Fix montiertes Tablet für Werkstatt und Kieswerk | Sinnvoll für Mitarbeiter, die immer am selben Ort arbeiten |
 | **Privates Handy (freiwillig)** | Stempeln, „Meine Woche“, Urlaubsantrag | Nur freiwillig, nie Pflicht. Den Umgang mit privaten Geräten in der Betriebsvereinbarung regeln. |
 
-> **Empfehlung:** Standard ist das Partie-Stempeln durch den Polier. Wer mit dem eigenen Handy stempeln will, darf das. Für Bauhof und Kieswerk kommt ein fixes Tablet dazu. NFC-Chips sind eine Option, wenn die Firmen-Tablets Android-Geräte sind, was wir ohnehin empfehlen (Kapitel 7).
+> **Empfehlung:** Standard ist das Partie-Stempeln durch den Polier. Wer mit dem eigenen Handy stempeln will, darf das. Für Bauhof und Kieswerk kommt ein fixes Tablet dazu. NFC-Chips sind eine Option, wenn die Firmen-Tablets Android-Geräte sind, was wir ohnehin empfehlen (Kapitel 8).
 
 ### 2.4 Ein Tag mit der App (Beispiel)
 
@@ -323,7 +332,7 @@ Nicht jeder hat ein Smartphone oder will das private Handy dienstlich verwenden.
 |---|---|---|---|
 | **K** | Krankenstand | Büro (nach Krankmeldung) | Bestätigung als Foto hochladbar; im Bericht als „K“ |
 | **U** | Urlaub | Mitarbeiter beantragt, Büro genehmigt | Am Bau läuft das Urlaubsentgelt über die BUAK, deshalb fließt U in den BUAK-Export |
-| **SW** | Schlechtwetter | Polier für die Partie (mit Uhrzeit und Grund), Büro bestätigt | Zähler je Mitarbeiter gegen die Höchstgrenzen; Export für die BUAK-Rückerstattung (Kapitel 5.4) |
+| **SW** | Schlechtwetter | Polier für die Partie (mit Uhrzeit und Grund), Büro bestätigt | Zähler je Mitarbeiter gegen die Höchstgrenzen; Export für die BUAK-Rückerstattung (Kapitel 6.4) |
 | **ZA** | Zeitausgleich | Antrag oder Büro | Abbuchung vom Zeitkonto |
 | FT | Feiertag | automatisch (Kalender Niederösterreich) | – |
 | BS | Berufsschule (Lehrlinge) | Büro | Zählt bei Jugendlichen als Arbeitszeit (KJBG) |
@@ -354,7 +363,7 @@ Die App verhindert nichts, sie macht aufmerksam. Entscheiden müssen Polier und 
 - Gespeichert wird vor allem die Information „im Umkreis der Baustelle: ja/nein“ (z. B. 300 m). Die Koordinaten werden nach dem Monatsabschluss plus 2 Monaten gelöscht.
 - **Keine laufende Ortung, kein Bewegungsprofil, keine Ortung in Pausen oder nach Arbeitsende.**
 - Wer nicht zustimmt, stempelt ohne Standort. Dann bestätigt der Polier die Anwesenheit.
-- Die rechtlichen Hintergründe stehen in Kapitel 5.7.
+- Die rechtlichen Hintergründe stehen in Kapitel 6.7.
 
 ### 3.2 Bautagesbericht
 
@@ -386,7 +395,7 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 | 7 | Arbeitszeit von–bis (1. Block) | Erster Zeitblock | Stempel Arbeitsbeginn bis Pause bzw. Wechsel | Arbeitszeitaufzeichnung (AZG) |
 | 8 | Arbeitszeit von–bis (2. Block) | Zweiter Zeitblock; weitere Blöcke möglich und im PDF als Zusatzzeile | Stempel nach Pause bzw. Rückkehr | wie oben |
 | 9 | Pause | Pausendauer | Pausenstempel oder Standardpause laut Vereinbarung | AZG-Prüfung |
-| 10 | Arbstd. | Arbeitsstunden je Person | Berechnet: Zeitblöcke minus Pause (Fahrt und Laden als eigene Spalte, siehe Kapitel 10) | Lohn, Nachkalkulation |
+| 10 | Arbstd. | Arbeitsstunden je Person | Berechnet: Zeitblöcke minus Pause (Fahrt und Laden als eigene Spalte, siehe Kapitel 11) | Lohn, Nachkalkulation |
 | 11 | Gesamtstunden | Summe | Berechnet | Nachkalkulation (Lohnstunden) |
 | 12 | K = Krank, U = Urlaub, SW = Schlechtwetter | Kennzeichen je Person in der Stundenspalte | Abwesenheiten (Büro bzw. Antrag) oder Schlechtwetter-Meldung des Poliers | Lohn, BUAK (Schlechtwetter-Rückerstattung) |
 | 13 | SEG-Zulagen: Tätigkeit | Zulagenart aus dem Firmenkatalog, z. B. Heißasphalt, Arbeiten in Künette | Polier wählt; Vorschlag aus Tätigkeit bzw. Position | Lohn; Nachweis für § 68 EStG |
@@ -425,7 +434,7 @@ Jeder Schritt kann leer bleiben („heute keine Regie“). Der Bericht ist auch 
 
 - **Fotos:** Die App verkleinert Fotos automatisch (ca. 300–500 KB), damit die Übertragung auch bei schlechtem Netz klappt. Zu jedem Foto gibt es Zeitstempel, Baustelle und Kategorie (Leistungsstand, Vorkommnis, Lieferschein, Mangel). Personen sollen nicht im Mittelpunkt der Fotos stehen.
 - **Unterschrift:** Der Bauherr unterschreibt mit Finger oder Stift am Tablet, darüber steht eine Zusammenfassung des Berichts. Gespeichert werden das Unterschriftsbild, der Name in Druckschrift, Zeitpunkt, Gerät und eine Prüfsumme des PDFs. So ist erkennbar, falls das PDF später verändert wurde.
-- **Ist der Bauherr nicht vor Ort,** bekommt er einen Link per SMS oder Mail und unterschreibt am eigenen Handy (Fernunterschrift, Kapitel 4). Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 5.9).
+- **Ist der Bauherr nicht vor Ort,** bekommt er einen Link per SMS oder Mail und unterschreibt am eigenen Handy (Fernunterschrift, Kapitel 4). Wird der Bericht nicht binnen einer vereinbarten Frist beanstandet, wird das vermerkt (Kapitel 6.9).
 - **PDF:** Gleicher Aufbau und gleiche Reihenfolge wie die Papiervorlage, damit Bauherren und Bauleiter ihn sofort wiedererkennen. Fotos kommen auf Folgeseiten, Regie zusätzlich als eigener Regieschein.
 - **Zwei Fassungen:** Die Fassung für den Auftraggeber enthält nie €-Werte und keine Kürzel K/U. Die interne Fassung ist vollständig (Kapitel 2.2).
 - **Mail:** Das PDF geht automatisch an den Ansprechpartner des Auftraggebers und ans Büro, auf Wunsch auch an die örtliche Bauaufsicht. Jeder Versand wird protokolliert.
@@ -632,7 +641,7 @@ Der Polier sieht die Vorschläge markiert und bestätigt oder ändert sie mit ei
   - Zerknitterte, nasse oder handschriftliche Lieferscheine und viele verschiedene Formulare verschlechtern die Erkennung.
   - Deshalb testen wir vorher **ca. 30 echte Lieferscheine der 5 häufigsten Lieferanten**.
   - Für Material aus dem **eigenen Kieswerk** ist ein digitaler Lieferschein (Phase 3) besser als die Foto-Erkennung des eigenen Papiers.
-- **Datenschutz:** Lieferscheine enthalten Fahrernamen und Kennzeichen. Sie werden nur für Abrechnung und Nachkalkulation verwendet und mit dem Bericht aufbewahrt (Kapitel 5.8).
+- **Datenschutz:** Lieferscheine enthalten Fahrernamen und Kennzeichen. Sie werden nur für Abrechnung und Nachkalkulation verwendet und mit dem Bericht aufbewahrt (Kapitel 6.8).
 - **Laufende Kosten:** wenige € pro Monat.
 - **Phase:** 2, nach dem Test.
 
@@ -642,7 +651,7 @@ Der Polier sieht die Vorschläge markiert und bestätigt oder ändert sie mit ei
   - Für den Baustellenort holt die App stündliche Werte (Temperatur, Niederschlag, Wind, Schnee) der nächstgelegenen Messstation, z. B. vom **Data Hub der GeoSphere Austria**, und trägt sie in den Bericht ein.
   - Überschreitet ein Wert die Schlechtwetter-Kriterien der BUAK (z. B. über 32,5 °C im Schatten, Regen ab 1 mm), schlägt die App vor: „Schlechtwetter ab 13:00 prüfen?“
   - **Entscheiden muss der Arbeitgeber bzw. der Polier in seinem Auftrag (§ 5 BSchEG).** Die App entscheidet nie selbst.
-  - Die Werte werden als Nachweis beim Bericht und für den eBUAK-Antrag gespeichert (Kapitel 5.4).
+  - Die Werte werden als Nachweis beim Bericht und für den eBUAK-Antrag gespeichert (Kapitel 6.4).
 - **Nutzen:** Nachweis für die BUAK-Rückerstattung und für Behinderungen gegenüber dem Auftraggeber, ohne händisches Eintragen.
 - **Technik heute:** Die Daten-Schnittstelle des GeoSphere Data Hub ist ohne Schlüssel nutzbar. Die Quellenangabe ist Pflicht, die Lizenz ist je Datensatz zu prüfen. Weil die nächste Station einige Kilometer entfernt sein kann, darf der Polier ergänzen („vor Ort stärker“).
 - **Risiko:** gering.
@@ -710,7 +719,7 @@ So funktioniert es technisch:
   - Die Übersetzung freier Texte läuft über einen EU-Dienst (z. B. DeepL; nicht im Detail geprüft).
 - **Risiko:** gering. Jede neue Funktion braucht ihre Texte in allen Sprachen, das ist ein kleiner laufender Aufwand.
 - **Laufende Kosten:** wenige € pro Monat für die Übersetzung freier Texte.
-- **Phase:** Baustellen-Modus, das Grundgerüst und die 2 wichtigsten Fremdsprachen in Phase 1, die übrigen in Phase 2. Welche Sprachen wirklich gebraucht werden, steht in den offenen Fragen (Kapitel 10).
+- **Phase:** Baustellen-Modus, das Grundgerüst und die 2 wichtigsten Fremdsprachen in Phase 1, die übrigen in Phase 2. Welche Sprachen wirklich gebraucht werden, steht in den offenen Fragen (Kapitel 11).
 
 ### 4.9 (G) Nachkalkulation mit Hochrechnung und automatischen Hinweisen
 
@@ -747,7 +756,7 @@ So funktioniert es technisch:
   - Ist der Bauherr nicht vor Ort, tippt der Polier „per SMS senden“.
   - Der Bauherr bekommt einen Link, der z. B. 7 Tage gültig ist. Er sieht den Bericht in der Fassung für den Auftraggeber, also ohne €, und unterschreibt mit dem Finger oder lehnt mit Kommentar ab.
   - Das Büro sieht den Status. Nach 2 Tagen geht automatisch eine Erinnerung hinaus.
-- **Rechtlich:** Das ist eine einfache elektronische Signatur wie am Tablet (Kapitel 5.9). Der Beweiswert entsteht durch das Protokoll: Telefonnummer, Zeitpunkt, Einmal-Link, Prüfsumme des PDFs. Die Telefonnummer des Vertreters sollte im Auftrag als Kontakt festgehalten sein.
+- **Rechtlich:** Das ist eine einfache elektronische Signatur wie am Tablet (Kapitel 6.9). Der Beweiswert entsteht durch das Protokoll: Telefonnummer, Zeitpunkt, Einmal-Link, Prüfsumme des PDFs. Die Telefonnummer des Vertreters sollte im Auftrag als Kontakt festgehalten sein.
 - **Laufende Kosten:** SMS über einen Anbieter in der EU kosten ca. 5–10 Cent je SMS (Richtwert), also wenige € pro Monat. Per Mail ist es kostenlos.
 - **Phase:** 1.
 
@@ -864,7 +873,7 @@ Ein Budget-Verbrauch von 80 % ist bei 95 % Leistungsstand gut (am Ende bleiben c
 **Datenschutz und Rechtliches:**
 
 - Scans enthalten Namen, Arbeitszeiten und Unterschriften. Sie werden von einem EU-gehosteten Dienst mit Auftragsverarbeitungsvertrag verarbeitet, ohne Nutzung zum Training; Zwischendaten beim Anbieter werden gelöscht.
-- Der Scan liegt beim Bericht und unterliegt denselben Rechten und Fristen (Kapitel 2.2 und 5.8).
+- Der Scan liegt beim Bericht und unterliegt denselben Rechten und Fristen (Kapitel 2.2 und 6.8).
 - Steuerlich ist eine urschriftgetreue elektronische Aufbewahrung grundsätzlich möglich (§ 132 BAO). Für den Beweiswert der Unterschrift des Bauherrn empfehlen wir trotzdem, **unterschriebene Papier-Originale aufzubewahren**. **Prüfen:** Steuerberater bzw. Rechtsberatung.
 
 **Kosten:**
@@ -902,7 +911,7 @@ Ein Budget-Verbrauch von 80 % ist bei 95 % Leistungsstand gut (am Ende bleiben c
   - KI zur **Leistungsbewertung oder Verhaltensüberwachung von Beschäftigten** gilt als Hochrisiko (Anhang III Nr. 4; die Pflichten dafür wurden laut Quellen auf 2027 verschoben). Das machen wir ausdrücklich **nicht**: keine Bewertung von Polieren oder Mitarbeitern durch KI, keine Ranglisten je Person. Aufwandswerte werden je Baustelle und Position ausgewertet, nicht je Person.
   - **Prüfen:** die aktuelle Fassung, da 2026 Änderungen („Digital Omnibus“) diskutiert bzw. beschlossen wurden.
 - **DSGVO:** Auftragsverarbeitungsverträge mit den KI-Anbietern, Verarbeitung in der EU, keine Nutzung der Daten zum Training, Löschung der Audioaufnahmen. Die Fotos bleiben beim Bericht.
-- **Mitbestimmung:** Diktat, Papier-Erkennung, Geräte-Tags, AZG-Wächter und ein allfälliger Geofence werden in die Betriebsvereinbarung bzw. die Zustimmungserklärung aufgenommen (Kapitel 5.7).
+- **Mitbestimmung:** Diktat, Papier-Erkennung, Geräte-Tags, AZG-Wächter und ein allfälliger Geofence werden in die Betriebsvereinbarung bzw. die Zustimmungserklärung aufgenommen (Kapitel 6.7).
 
 ### 4.15 Aufwand und laufende Kosten der Neuerungen
 
@@ -929,15 +938,245 @@ Ein Budget-Verbrauch von 80 % ist bei 95 % Leistungsstand gut (am Ende bleiben c
 | Plantafel / Einsatzplanung mit Push | 3 | 80–150 Std. | 7.000–18.000 € | – |
 | KI-Fragen an die Daten | 3, optional | 40–80 Std. | 3.500–9.500 € | 5–30 € |
 
-Alle Werte sind Richtwerte bei 90–120 €/Std. Sie sind in den Phasen in Kapitel 9 enthalten.
+Alle Werte sind Richtwerte bei 90–120 €/Std. Sie sind in den Phasen in Kapitel 10 enthalten.
 
 ---
 
-## 5 Österreich-spezifische und rechtliche Punkte
+## 5 Servicebuch für Fahrzeuge und Geräte
+
+> Wunsch des Inhabers (13.11.2026): „Eine Art Servicebuch, wo von allen Geräten, PKWs, LKWs, Bussen usw. die Reparaturen hineinkommen und auch wann welches Service fällig ist, mit Meldung 3 Monate vor dem Termin. Eventuell auch Kilometer, Betriebsstunden usw.“
+
+**Kurz gesagt:** Jedes Fahrzeug und jedes Gerät bekommt eine eigene Seite: Stammdaten, Zählerstände, alle fälligen Termine und ein lückenloses Servicebuch. Die App weiß, was als Nächstes fällig ist (Pickerl, Kranprüfung, Tacho, Ölwechsel nach Betriebsstunden …), und meldet es rechtzeitig. Das gilt auch für Termine nach Stunden oder Kilometern: Aus den Zählerständen errechnet sie, **wann** das voraussichtlich ist.
+
+Die Umsetzung baut auf der bestehenden App auf (Rechte, Benachrichtigungen, Bautagesbericht mit Gerätestunden). Der technische Vertrag für die Entwickler steht in `app/SERVICEBUCH_ENTWURF.md`.
+
+### 5.1 Was das Servicebuch leistet
+
+| Baustein | Was es tut | Wer nutzt es |
+|---|---|---|
+| **Anlagenregister** | Alle Fahrzeuge, Baumaschinen, Anhänger und Kleingeräte mit Kennzeichen, Fahrgestell- bzw. Seriennummer, Baujahr, Erstzulassung und Standort | Büro, Werkstatt |
+| **Zählerstände** | Kilometer, Betriebsstunden und Brecherstunden. Sie kommen vom Fahrer am Handy, als Schätzung aus den Gerätestunden der Bautagesberichte und bei jedem Service. Mit Plausibilitätsprüfung und Verlauf. | alle (Eingabe), Büro (Korrektur) |
+| **Wartungs- und Prüfplan** | Je Anlage: gesetzliche Prüfungen, Herstellerservice, eigene Kontrollen und Vertragsfristen. Intervalle nach Datum, Stunden oder km, je nachdem, was zuerst eintritt. | Büro, Werkstatt |
+| **Erinnerungen** | Standard 3 Monate vorher (höchstens ⅓ des Intervalls), dann „fällig“ und „überfällig“ | Büro, Geschäftsführung, Werkstatt, zuständiger Fahrer/Maschinist |
+| **Servicebuch** | Jede Reparatur, jedes Service, jede Prüfung mit Datum, Zählerstand, Werkstatt, Arbeiten, Teilen, Kosten, Rechnungsnummer und später Belegen | Büro, Werkstatt (Kosten nur mit Preisrecht) |
+| **Mängelmeldung** | Jeder kann von der Baustelle in 3 Tipps einen Mangel melden, bei Gefahr mit „sofort stilllegen“ | alle |
+| **Ampel und Status** | Einsatzbereit, Service bald, fällig/überfällig, gesperrt; sichtbar auch für Polier und Fahrer, ohne Kosten | alle |
+| **Übersicht und Exporte** | Fristenliste der nächsten Monate, Ampel-Übersicht, Servicebuch als PDF, CSV für Werkstatt und Steuerberater, Reparaturkosten je Betriebsstunde | Büro, Geschäftsführung |
+
+### 5.2 Anlagenregister
+
+**Klassen:** PKW, Bus (Mannschaftsbus), LKW, Anhänger/Auflieger, Baumaschine, Walze, Brecher, Kleingerät, Sonstiges. Die Klasse bestimmt, welche Prüf-Vorlagen vorgeschlagen werden (Kapitel 5.4).
+
+**Je Anlage:**
+
+- Bezeichnung (z. B. „Kettenbagger CAT 320“) und interne Nummer
+- Kennzeichen, Fahrgestellnummer (FIN) bzw. Seriennummer
+- Hersteller, Typ, Baujahr, Erstzulassung, EG-Fahrzeugklasse (M1, N1, N3, O4 …), höchstzulässiges Gesamtgewicht
+- Eigentum, Leasing oder Miete, mit Leasingende bzw. Mietende
+- Versicherung (Polizze, Hauptfälligkeit)
+- zuständige Person (Fahrer bzw. Maschinist; bekommt die Zählerabfrage), aktueller Standort (Bauhof oder Baustelle)
+- Verknüpfung mit dem **Gerät der Papiervorlage** (z. B. „Bagger 23 to.“) und damit mit der Nachkalkulations-Position (z. B. „Kettenbagger CAT 320 23,0 t“)
+- Zähler (km, Betriebsstunden, Brecherstunden), Notiz, Status, „ausgeschieden am“ (Verkauf, Verschrottung; das Servicebuch bleibt erhalten)
+
+**Bautagesbericht und echte Maschine:** Der Bautagesbericht kennt nur Gerätetypen (eine Zeile „Radlader“). Der Betrieb hat aber z. B. zwei Radlader (CASE 721 und CAT 950 M). Deshalb gilt:
+
+- **Ein Gerät je Typ:** Die Stunden werden dieser Maschine automatisch zugerechnet.
+- **Mehrere Geräte je Typ:** Der Polier wählt im Bericht mit einem Tipp, welches Gerät es war. Die App schlägt das zuletzt auf dieser Baustelle verwendete vor.
+- **Nicht zugeordnet:** Solche Stunden zeigt das Büro als Hinweis „12 Std. Radlader nicht zugeordnet“.
+
+Nebenbei ergibt sich daraus der Standort („zuletzt verwendet auf KST 26-041 am 12.11.“).
+
+**Fuhrpark laut Gerätepreisliste 2026** (Startbestand; PKW, Busse, Anhänger und Kleingeräte ergänzt das Büro):
+
+| Gruppe | Anlagen | Zähler |
+|---|---|---|
+| Bagger | Minibagger Cat 1,8 t; Minibagger Takeuchi 3,0 t; Mobilbagger 7–11 t; Kettenbagger CAT 320 23,0 t | Betriebsstunden (Mobilbagger zusätzlich km möglich) |
+| Lader | Minilader CASE 3,5 t; Radlader CASE 721 2,5 m³; Radlader CAT 950 M 3,5 m³ | Betriebsstunden |
+| Walzen | Walze HAMM 3,0 t; Walze BOMAG 7,0 t | Betriebsstunden |
+| LKW | LKW 3-Achser; 3-Achser mit Kran; 4-Achser; 4-Achser Mulde und Kran; Zug/Sattel (mit Auflieger); LKW mit Tieflader | km (Kran: zusätzlich Kran-Betriebsstunden, falls vorhanden) |
+| Brecher | Mobilbrecher RM 100 | Betriebs- bzw. Brecherstunden |
+| PKW, Busse | laut Fuhrparkliste | km |
+| Anhänger | Sattelauflieger, Tieflader-Anhänger, Pkw-Anhänger | – (datumsbasiert) |
+| Kleingeräte | Rüttelplatten, Grabenwalze, Schneidgerät, Kompressor, Dumper, Verlegemaschine, Handwalze | Betriebsstunden, wo ein Zähler vorhanden ist, sonst nur Datum |
+
+### 5.3 Zählerstände: Kilometer, Betriebsstunden, Brecherstunden
+
+Je Anlage gibt es einen oder mehrere Zähler: Kilometer, Betriebsstunden, Brecherstunden, Kranstunden und optional die Hubzahl, sofern die Kransteuerung sie anzeigt.
+
+**Woher die Werte kommen:**
+
+1. **Fahrer bzw. Maschinist am Handy.** Bei der zuständigen Person fragt die App beim Ausstempeln nach, wenn der letzte Stand älter als 7 Tage ist: „Kilometerstand LKW NK-…?“ Das ist ein großes Zahlenfeld mit zwei Tipps. Montags kommt zusätzlich eine Sammelerinnerung, falls etwas fehlt. Eintragen dürfen alle, weil Fahrer wechseln. Jeder Eintrag wird mit Person und Zeit protokolliert.
+2. **Schätzung aus den Bautagesberichten.** Gerätestunden aus unterschriebenen bzw. freigegebenen Berichten werden ab dem letzten echten Ablesewert dazugezählt. Die App zeigt das als „≈ 4.312 Std. (geschätzt)“. Ein echter Ablesewert hat immer Vorrang.
+3. **Bei jedem Service und jeder Reparatur** ist der Zählerstand ein Pflichtfeld. Damit startet auch das nächste Stunden- bzw. km-Intervall.
+4. **Korrektur durch das Büro** (Recht Fuhrpark), immer mit Grund. Es gibt einen eigenen Ablauf für den Zählertausch (alter Endstand, neuer Anfangsstand).
+
+**Plausibilität:**
+
+- Ein Stand **kleiner** als der letzte gültige wird abgelehnt (Ausnahme: Korrektur oder Zählertausch durch das Büro).
+- **Unrealistische Sprünge** werden gespeichert, aber als „unplausibel“ markiert und dem Büro vorgelegt:
+  - mehr als 24 Betriebsstunden je Kalendertag;
+  - mehr als 1.500 km je Tag (LKW) bzw. 1.200 km je Tag (PKW/Bus).
+- **Abgleich mit dem Bautagesbericht:** Weicht der abgelesene Zuwachs stark von den berichteten Gerätestunden ab (unter 50 % oder über 200 %, ab 30 Std.), gibt es einen Hinweis. Das ist ein guter Kontrollpunkt für vergessene Gerätestunden im Bericht.
+
+**Verlauf und Prognose:**
+
+- Je Zähler gibt es eine **Verlaufskurve** mit echten Ablesewerten als Punkten und Schätzungen gestrichelt.
+- Der **Wochenschnitt** errechnet sich aus den echten Ständen der letzten 8 Wochen (mindestens 2 Werte im Abstand von mindestens 14 Tagen). Ersatzweise nimmt die App den Schnitt der Berichtsstunden.
+- Damit wird jedes Stunden- oder km-Intervall zu einem **voraussichtlichen Datum**, z. B.:
+
+> Kettenbagger CAT 320: Stand 4.180 Std., Service 4.500 Std. fällig, Schnitt 22 Std./Woche → noch 320 Std. ≈ 14½ Wochen → **voraussichtlich fällig am 23.02.2027**.
+
+So greift die „Meldung 3 Monate vorher“ auch bei Betriebsstunden und Kilometern. Im Winter, wenn Maschinen stehen, verschiebt sich die Prognose von selbst nach hinten. Bei Stillstand ohne Zuwachs gibt es keine Prognose, nur den Abstand in Stunden.
+
+### 5.4 Wartungs- und Prüfpläne: „was zuerst eintritt“
+
+Jede Anlage hat einen Plan aus Planpositionen. Eine Position hat:
+
+- eine **Art**: gesetzliche Prüfung, Herstellerservice, eigene Kontrolle oder Vertragsfrist;
+- ein **Intervall**: in Monaten, Betriebsstunden und/oder km, je nachdem, was zuerst eintritt. Für das Pickerl gibt es eine Folge wie „3-2-1 Jahre ab Erstzulassung“;
+- eine **Toleranz** (z. B. beim Pickerl Monate davor und danach);
+- eine **Vorwarnzeit**;
+- das Merkmal **„sperrt bei Überfälligkeit“**, z. B. Pickerl oder Kranprüfung.
+
+Das Büro übernimmt Positionen aus **Vorlagen je Klasse** (unten) und passt sie an. Herstellerintervalle kommen aus Betriebsanleitung bzw. Serviceheft der jeweiligen Maschine.
+
+**Vorlagen (Startvorschlag, Stand Recherche 13.11.2026, jeweils mit „Prüfen“ gekennzeichnet; Details in 5.10):**
+
+| Klasse | Gesetzlich (Vorlage) | Hersteller / intern (Vorlage, an Serviceheft anpassen) |
+|---|---|---|
+| PKW, Bus bis 9 Sitze (M1) | §57a-Begutachtung 3-2-1 ab Erstzulassung (ab 19.5.2027 voraussichtlich 4-2-2-2-1); Verbandkasten-Sichtprüfung jährlich | Service laut Serviceheft (z. B. 30.000 km oder 1 Jahr); Reifenwechsel Herbst/Frühjahr |
+| Bus über 9 Sitze (M2/M3) | §57a jährlich | Service laut Serviceheft |
+| LKW über 3,5 t (N2/N3) | §57a jährlich; Fahrtenschreiber-Nachprüfung alle 2 Jahre; Massenspeicher auslesen alle 90 Tage; Winterausrüstung bis 31.10.; Verbandkasten; Feuerlöscher alle 2 Jahre | Service z. B. jährlich oder laut km-Intervall; Bremsen- und Achsprüfung |
+| LKW mit Ladekran | zusätzlich Kranprüfung nach AM-VO jährlich, längstens 15 Monate (sperrt) | Kranservice laut Hersteller |
+| Anhänger über 3,5 t (O3/O4) | §57a jährlich | Bremsen, Reifen |
+| Anhänger bis 3,5 t (O1/O2) | §57a wie PKW | – |
+| Bagger, Radlader | Prüfung nach AM-VO, wenn zum Heben von Einzellasten verwendet (Intervall Prüfen); Feuerlöscher | 250 / 500 / 1.000 / 2.000 Betriebsstunden (z. B. Cat PM1–PM4), mindestens jährlich |
+| Walzen, Minilader, Dumper | – (Evaluierung, Prüfen) | laut Hersteller, meist 250/500 Std. bzw. jährlich |
+| Mobilbrecher | – (Evaluierung, Prüfen) | laut Hersteller nach Brecherstunden, Verschleißteile |
+| Kleingeräte | – | jährliche Sichtprüfung bzw. laut Hersteller |
+| alle | Vertragsfristen: Versicherung, Leasing- bzw. Mietende, Garantieende, Vignette bzw. GO-Box | – |
+
+**Wann ist etwas fällig? (vereinfacht; die exakte Rechnung steht im Entwurf)**
+
+- **Nach Datum:** letzte Durchführung + Intervall. Beim Pickerl zählt der **Begutachtungsmonat** ab Erstzulassung. Eine vorzeitige oder verspätete Begutachtung innerhalb der Toleranz verschiebt den Rhythmus nicht.
+- **Nach Stunden bzw. km:** Zählerstand bei der letzten Durchführung + Intervall. Daraus folgen der Abstand („noch 320 Std.“) und das voraussichtliche Datum aus dem Wochenschnitt.
+- **Mehrere Kriterien:** Es gilt, was zuerst eintritt. Mit der Durchführung (Eintrag im Servicebuch) beginnen alle Kriterien neu.
+
+### 5.5 Erinnerungen ohne Alarm-Müdigkeit
+
+- **Vorwarnung:** Standard **3 Monate vorher**, aber höchstens ein Drittel des Intervalls. Für „Massenspeicher alle 90 Tage“ sind das also 30 Tage, nicht 3 Monate. Bei Stunden und km kommt die Vorwarnung zusätzlich, sobald der Rest unter 50 Std. bzw. 2.000 km fällt. Alles ist je Position einstellbar.
+- **Fällig:** am Fälligkeitstag bzw. beim Erreichen des Zählerstands.
+- **Überfällig:** nach Ablauf der Toleranz bzw. 14 Tage nach dem Fälligkeitstag. Bei Positionen mit „sperrt“ gilt die Anlage dann als **gesperrt**.
+- Jede Stufe meldet sich **einmal**. Danach erscheint die Position nur noch in der **Montags-Zusammenfassung** („2 überfällig, 5 in den nächsten 3 Monaten“).
+- **Empfänger:**
+  - alle mit Recht **Fuhrpark** (Büro, Geschäftsführung, Werkstatt);
+  - die **zuständige Person** der Anlage (ohne Kosten);
+  - bei „überfällig/gesperrt“ zusätzlich der **Polier der Baustelle**, auf der das Gerät gerade steht, damit es dort nicht weiter verwendet wird.
+- **Kanäle:** Glocke in der App (vorhanden). E-Mail und Push, sobald die Integrationen angebunden sind; bis dahin werden sie ehrlich als „nicht angebunden“ angezeigt.
+
+### 5.6 Servicebuch-Einträge
+
+Ein Eintrag hat diese Felder:
+
+- Art: Service, Reparatur, Prüfung, Reifen, Sonstiges
+- Datum, Werkstatt (intern oder externer Betrieb)
+- **Zählerstände** (Pflicht, wo ein Zähler existiert)
+- durchgeführte Arbeiten, verwendete Teile, interne Arbeitsstunden
+- **Kosten netto** und **Rechnungsnummer**
+- bei Prüfungen das **Ergebnis** (ohne Mängel, leichte Mängel, schwere Mängel) und der Prüfer bzw. die Prüfstelle
+- welche Planpositionen damit **erledigt** sind (setzt deren Fälligkeit neu)
+- verknüpfte Mängelmeldungen
+- später Belege und Fotos (Rechnung, Prüfbefund; vorgesehen, sobald der Datei-Upload kommt)
+
+Einträge werden nie gelöscht, nur storniert (mit Grund, im Protokoll).
+
+### 5.7 Mängel von der Baustelle und Status „gesperrt“
+
+**Mängel melden:**
+
+- Jeder (auch Mitarbeiter und Polier) wählt das Gerät, schreibt bzw. diktiert den Mangel und wählt die Dringlichkeit: *Hinweis*, *bald beheben* oder *sofort stilllegen*.
+- Bei „sofort stilllegen“ ist das Gerät **sofort gesperrt**: Sicherheit geht vor. Werkstatt bzw. Büro bekommen eine Nachricht.
+- Die Meldung läuft über die Stufen offen → in Arbeit → behoben (verknüpft mit dem Servicebuch-Eintrag) bzw. verworfen. Die meldende Person sieht den Status.
+
+**Status je Anlage:**
+
+| Status | Bedeutung |
+|---|---|
+| Einsatzbereit (grün) | nichts in Vorwarnung oder fällig |
+| Service bald (gelb) | mindestens eine Position in Vorwarnung |
+| Fällig/überfällig (rot) | mindestens eine Position fällig oder überfällig |
+| Gesperrt (rot mit Schloss) | von Hand gesperrt, „sofort stilllegen“ gemeldet oder eine sperrende Prüfung überfällig |
+
+**Gesperrte Geräte im Bautagesbericht:** Wählt der Polier ein gesperrtes Gerät, zeigt die App einen deutlichen Hinweis „gesperrt seit … – Grund …“. Die Erfassung wird nicht verhindert, weil Stunden ehrlich dokumentiert werden sollen, aber der Vorgang wird dem Büro gemeldet.
+
+### 5.8 Wer sieht was
+
+| Funktion | Mitarbeiter | Polier | Bauleiter | Büro | GF | Werkstatt (Recht „Fuhrpark“ als Ausnahme) |
+|---|---|---|---|---|---|---|
+| Anlagen, Status, Ampel, nächste Termine sehen (ohne €) | ja | ja | ja | ja | ja | ja |
+| Mangel melden, Zählerstand eintragen | ja | ja | ja | ja | ja | ja |
+| Servicebuch lesen (ohne €) | – | ja | ja | ja | ja | ja |
+| Anlagen, Pläne, Einträge, Mängel bearbeiten; sperren/entsperren | – | – | – | ja | ja | ja |
+| Kosten, Rechnungsbeträge, Kosten je Betriebsstunde | **nie** | **nie** | nur lesen (Preisrecht) | ja | ja | nur mit Preisrecht |
+
+- **Neues Recht `fuhrpark`:** Standard für Büro und Geschäftsführung. Es kann einzelnen Personen gegeben werden, z. B. dem Werkstattleiter, auch wenn er die Rolle Mitarbeiter oder Polier hat.
+- **€-Werte nur mit `preise_sehen`.** Dieses Recht bleibt für Polier und Mitarbeiter **technisch gesperrt**. Ein Werkstattmitarbeiter mit `fuhrpark` pflegt also alles, sieht aber keine Beträge. Wie überall werden die Beträge dann gar nicht erst übertragen.
+
+### 5.9 Übersicht, Auswertungen, Exporte
+
+- **Fuhrpark-Übersicht (PC/Tablet):** Ampel-Kacheln (einsatzbereit / bald / fällig / gesperrt), eine Liste mit Filtern (Klasse, Status, Standort) und die **Fristenliste** der nächsten 3, 6 bzw. 12 Monate. Sie ist nach Datum sortiert; Stunden- und km-Termine stehen dort mit ihrem voraussichtlichen Datum.
+- **Anlagenseite:** Stammdaten, Zähler mit Verlaufskurve, Plan mit Fälligkeiten, Servicebuch als Zeitleiste und offene Mängel.
+- **Kosten** (nur mit Preisrecht):
+  - Reparatur- und Servicekosten je Anlage und Jahr;
+  - **Kosten je Betriebsstunde** im Vergleich zum Gerätesatz der Preisliste. Das zeigt, wann eine Maschine teurer wird, als sie einbringt.
+  - Reparaturkosten werden **nicht** automatisch in die Nachkalkulation der Baustellen gebucht, denn die Verrechnungssätze der Preisliste enthalten Reparaturen schon. Optional kann eine Reparatur einer Baustelle als Fremdleistung zugeordnet werden, z. B. bei einem Schaden durch Dritte.
+- **Exporte:** Servicebuch je Anlage als PDF (ohne €; mit € nur mit Preisrecht), Fristenliste und Einträge als CSV.
+
+### 5.10 Österreichische Pflichten und gute Praxis (Recherche)
+
+Stand der Recherche: 13.11.2026, über Websuche; Gesetzestexte nicht direkt im RIS geöffnet. **Alles vor Übernahme in die Vorlagen prüfen** (Prüfstelle bzw. Werkstatt, WKO, AUVA bzw. Arbeitsinspektorat, Steuerberater).
+
+| Thema | Was gilt (laut Quellen) | Prüfen |
+|---|---|---|
+| **§57a-Begutachtung („Pickerl“) PKW, Kleinbus M1, Anhänger bis 3,5 t** | Derzeit 3-2-1-1… Jahre ab Erstzulassung; Toleranz: 1 Monat vor bis 4 Monate nach dem Begutachtungsmonat. Mit der **42. KFG-Novelle (BGBl. I Nr. 79/2026)** gilt laut Quellen ab **19.05.2027** für M1 der Rhythmus **4-2-2-2-1**, auch für bereits zugelassene Fahrzeuge. Die WKO-Tabelle nennt eine Toleranz von −4/+0 Monaten. | Endfassung, Toleranz und Übergang im RIS. Die Vorlage hat deshalb ein Gültig-ab-Datum. |
+| **§57a LKW über 3,5 t, Busse über 9 Sitze, Anhänger über 3,5 t** | jährlich; Toleranz laut Quellen nur **vorher** (bis 3 Monate), nicht danach | Toleranz; Einstufung von **N1** (Pritschen- und Kastenwagen bis 3,5 t) |
+| **Fahrtenschreiber-Nachprüfung** | mindestens alle **2 Jahre** in einer ermächtigten Werkstatt (Art. 23 VO (EU) 165/2014) | österreichische Durchführung (KFG) |
+| **Tacho-Daten herunterladen** | Fahrerkarte spätestens alle **28 Tage**, Massenspeicher spätestens alle **90 Tage** bzw. 3 Monate (WKO) | Rechtsgrundlage und Aufbewahrungsdauer (Quellen: 1 bzw. 2 Jahre). Die Fahrerkarte betrifft Personen, nicht Fahrzeuge; das Servicebuch erinnert nur an den Massenspeicher. |
+| **Ladekran auf LKW** | wiederkehrende Prüfung **mindestens einmal im Kalenderjahr, längstens alle 15 Monate** (§ 8 AM-VO); Prüfbefund (§ 11 AM-VO), Kopie am Einsatzort; Prüfung durch fachkundige Personen (§ 8 Abs. 3 iVm § 7 AM-VO) | Wer intern prüfen darf; Lastaufnahme- und Anschlagmittel |
+| **Bagger/Radlader im Hebezeugbetrieb** (Heben von Einzellasten) | wiederkehrend prüfpflichtig nach § 8 AM-VO; laut WKO-Merkblatt bei Prüfung durch eigene Fachkundige **mindestens alle 4 Jahre extern** | genaues Intervall und Einstufung je Maschine (Lasthaken, Überlastwarneinrichtung) |
+| **Sonstige Erdbaumaschinen, Walzen, Brecher** | keine eigene Frist in § 8 AM-VO gefunden → Herstellervorgaben und Arbeitsplatz-Evaluierung | mit AUVA bzw. Arbeitsinspektorat |
+| **Winterausrüstung LKW über 3,5 t** | 1.11.–15.4.: Winterreifen mindestens an einer Antriebsachse und Schneeketten für 2 Antriebsräder mitführen (§ 102 KFG) | Busse (abweichende Regeln), Ausnahmen |
+| **Verbandkasten** | in jedem Kfz Pflicht (§ 102 KFG), **kein** gesetzliches Ablaufdatum; Erneuerung der sterilen Teile nach spätestens ca. 5 Jahren empfohlen | – |
+| **Feuerlöscher** (Fahrzeuge, Werkstatt, Kieswerk) | Überprüfung alle **2 Jahre** nach ÖNORM F 1053 ist gängige Praxis (AUVA-Checkliste) | wo genau Pflicht (Arbeitsstätte, Fahrzeug) |
+| **Herstellerservice Baumaschinen** | z. B. Caterpillar Planned Maintenance: **250 / 500 / 1.000 / 2.000 Std.** (PM1–PM4); Motoröl oft 500 Std., bei schwerem Einsatz kürzer | immer die Betriebsanleitung der Maschine (Garantie hängt daran) |
+| **Vertragsfristen** | Versicherung (Hauptfälligkeit), Leasing- bzw. Mietende, Garantie, Vignette (Fahrzeuge bis 3,5 t) bzw. GO-Box (über 3,5 t) | Daten aus den Verträgen |
+| **Aufbewahrung** | Rechnungen 7 Jahre (§ 132 BAO); Prüfbefunde nach AM-VO mindestens bis zur nächsten Prüfung, besser bis zum Ausscheiden des Geräts | genaue Fristen. Empfehlung: Servicebuch bis zum Verkauf + 7 Jahre, auch als Nachweis beim Verkauf. |
+
+**Praxis-Empfehlungen für einen Betrieb mit 30 Mitarbeitern:**
+
+- Eine Person (z. B. Werkstattleiter oder Büro) ist für den Fuhrpark verantwortlich und bekommt das Recht `fuhrpark`.
+- Beim Start alle Pickerl-Monate, die letzten Kranprüfungen und die Tacho-Nachprüfungen aus den Papieren übernehmen. Das sind ca. 1–2 Stunden je 10 Anlagen.
+- Prüfbefunde (Kran, Hebezeug) sollen auch auf der Baustelle verfügbar sein. Das PDF des Servicebuchs bzw. später der hochgeladene Befund am Handy erfüllt das voraussichtlich. **Prüfen** mit dem Arbeitsinspektorat.
+
+### 5.11 Umsetzung, Aufwand, Grenzen
+
+- **Umfang** laut `app/SERVICEBUCH_ENTWURF.md`: Anlagen, Zähler, Pläne mit Vorlagen, Fälligkeitsrechnung, Erinnerungen, Einträge, Mängel, Sperre, Übersicht, PDF und CSV, Demo-Fuhrpark.
+- **Aufwand:** ca. **150–240 Std.**; davon Backend 70–110, Oberfläche 60–100 und Tests 20–30. Das sind ca. **13.500–29.000 € netto**. Mit zwei Entwicklern dauert es **3–5 Wochen**.
+- **Ersetzt** die bisherige Phase-3-Position „Geräteverwaltung“ in Kapitel 10.1.
+- **Laufende Kosten:** keine zusätzlichen. E-Mail und Push kommen erst mit diesen Integrationen.
+- **Später:** Belege und Fotos hochladen; QR-/NFC-Aufkleber am Gerät (Kapitel 4.7) öffnen direkt die Anlagenseite und die Mängelmeldung; Hersteller-Telematik für Betriebsstunden; digitale Prüfbefunde.
+- **Ehrliche Grenzen:**
+  - Die Vorlagen sind ein Startvorschlag und ersetzen keine Prüfung der eigenen Pflichten.
+  - Schätzungen aus Berichten sind nur so gut wie die erfassten Gerätestunden.
+  - Die App erinnert, aber die Verantwortung für Prüfungen bleibt beim Betrieb.
+
+---
+
+## 6 Österreich-spezifische und rechtliche Punkte
 
 Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments. Die Gesetzestexte konnten aus der Arbeitsumgebung nicht direkt im RIS geöffnet werden. Die Aussagen beruhen auf Fundstellen von Gesetzesportalen, WKO, BUAK und Fachverlagen. **Vor der Umsetzung im RIS (ris.bka.gv.at) bzw. mit den genannten Stellen gegenprüfen.**
 
-### 5.1 Arbeitszeitgesetz (AZG)
+### 6.1 Arbeitszeitgesetz (AZG)
 
 - **Aufzeichnungspflicht (§ 26 AZG):** Der Arbeitgeber muss Aufzeichnungen über die geleisteten Arbeitsstunden führen, und zwar so, dass Dauer und Lage der Arbeitszeit samt Pausen überprüfbar sind.
   - Auch wenn Mitarbeiter selbst stempeln, **bleibt der Arbeitgeber verantwortlich**. Er muss anleiten, die Aufzeichnungen einsammeln und kontrollieren. In der App ist das die Freigabe durch das Büro.
@@ -951,7 +1190,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Für die App heißt das:** lückenlose, unveränderbare Aufzeichnung mit Änderungsprotokoll, Warnungen bei Grenzwerten, Freigabe durch das Büro und ein Export je Mitarbeiter und Monat.
 
-### 5.2 Lehrlinge und LKW-Lenker
+### 6.2 Lehrlinge und LKW-Lenker
 
 - **Jugendliche unter 18 (KJBG):**
   - höchstens 8 Stunden pro Tag und 40 Stunden pro Woche;
@@ -963,10 +1202,10 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
   Die App braucht deshalb das Merkmal „jugendlich bis Datum“ und strengere Warnregeln.
 - **LKW-Lenker:** Für Lenker gelten zusätzlich die EU-Lenk- und Ruhezeiten (Verordnung (EG) Nr. 561/2006, Tachograph) und die Sonderbestimmungen für Lenker im AZG. **Die App ersetzt den Tachographen nicht.** Sie erfasst nur Arbeits-, Fahrt- und Ladezeit für Lohn und Nachkalkulation. **Prüfen** (WKO / Fachgruppe Güterbeförderung): ob und welche Ausnahmen für Baustellenverkehr gelten.
 
-### 5.3 Kollektivvertrag Bauindustrie und Baugewerbe (Arbeiter)
+### 6.3 Kollektivvertrag Bauindustrie und Baugewerbe (Arbeiter)
 
 - **Normalarbeitszeit:** Die Lohntafel geht von einer 39-Stunden-Woche aus (169,5 Std. pro Monat).
-- **Löhne:** Neue Löhne gelten jeweils ab 1. Mai. Laut WKO gilt ab 1. 5. 2026 für Facharbeiter (IIb) ein Mindestlohn von 19,99 €/Std. Seit 2025 gibt es optional ein **Jahresarbeitszeitmodell**. **Prüfen:** welches Arbeitszeitmodell im Betrieb gilt (Kapitel 10).
+- **Löhne:** Neue Löhne gelten jeweils ab 1. Mai. Laut WKO gilt ab 1. 5. 2026 für Facharbeiter (IIb) ein Mindestlohn von 19,99 €/Std. Seit 2025 gibt es optional ein **Jahresarbeitszeitmodell**. **Prüfen:** welches Arbeitszeitmodell im Betrieb gilt (Kapitel 11).
 - **Taggeld, Nächtigungsgeld, Reiseaufwandsvergütung:**
   - Taggeld gebührt grundsätzlich bei Einsatz auf Baustellen außerhalb des ständigen Betriebs mit täglicher Heimkehr, und zwar unabhängig davon, ob von zu Hause, vom Bauhof oder vom Quartier aus gefahren wird.
   - Die Höhe hängt u. a. von der Dauer des Arbeitstages und von einer Nächtigung ab.
@@ -976,7 +1215,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen** (Lohnverrechnung / WKO Landesinnung Bau NÖ): Zuschlagssätze, Taggeld-Regeln und Fahrzeitregeln im Detail, weil sie direkt in Export und Warnregeln einfließen.
 
-### 5.4 Schlechtwetter (BSchEG)
+### 6.4 Schlechtwetter (BSchEG)
 
 - **Wer entscheidet:** Der Arbeitgeber entscheidet nach Anhörung des Betriebsrats, ob wegen Schlechtwetters die Arbeit eingestellt, fortgesetzt oder wieder aufgenommen wird (§ 5 BSchEG). In der Praxis handelt der Polier im Auftrag. Während des Schlechtwetters müssen Arbeiter andere zumutbare Arbeit im Betrieb leisten.
 - **Höhe:** 60 % des Lohnes für die ausgefallenen Stunden (§ 6 BSchEG).
@@ -994,13 +1233,13 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen:** Laut einer Rechtsdatenbank wurde das BSchEG 2026 geändert (Inkrafttreten 1. 8. 2026). Die aktuellen Grenzwerte und Fristen deshalb bei der BUAK bestätigen lassen.
 
-### 5.5 BUAK (Urlaubs- und Abfertigungskasse)
+### 6.5 BUAK (Urlaubs- und Abfertigungskasse)
 
 - Bauarbeitgeber melden monatlich über das eBUAK-Portal. Die BUAK rechnet daraus die Zuschläge und schickt eine Vorschreibung. Urlaubsmeldungen fließen in die monatliche Zuschlagsmeldung ein.
 - **Frist:** Ältere Angaben nennen den 1. bis 15. des Folgemonats, eine BUAK-Anleitung aus 2025 nennt künftig den 22. des Folgemonats. **Prüfen** bei der BUAK bzw. der Lohnverrechnung.
 - **Für die App:** keine eigene BUAK-Schnittstelle in Phase 1. Die App liefert die Zahlen geprüft und vollständig: Tage, Urlaub, Schlechtwetter. Gemeldet wird weiter aus dem Lohnprogramm. Eine direkte Übergabe kann in Phase 3 geprüft werden (eBUAK bietet eine Datenübertragung an).
 
-### 5.6 SEG-Zulagen (§ 68 EStG)
+### 6.6 SEG-Zulagen (§ 68 EStG)
 
 - **Was steuerfrei ist:** Schmutz-, Erschwernis- und Gefahrenzulagen sind zusammen mit Sonn-, Feiertags- und Nachtzuschlägen (und den dazugehörigen Überstundenzuschlägen) bis zu einem gemeinsamen Höchstbetrag steuerfrei. Nach der aktuellen Fassung von § 68 Abs. 1 EStG sind das **400 € pro Monat**; früher waren es 360 €. Seit 2026 ist auch das Feiertagsarbeitsentgelt ausdrücklich in diesem Rahmen.
 - **Voraussetzungen:** Die Steuerfreiheit gilt nur, wenn die Zulage auf einer lohngestaltenden Vorschrift beruht (z. B. KV, Betriebsvereinbarung) und die Arbeiten überwiegend unter verschmutzenden, erschwerenden bzw. gefährlichen Umständen erfolgen. Die Zulage muss außerdem angemessen sein.
@@ -1009,7 +1248,7 @@ Stand der Recherche: 12. November 2026. Die Quellen stehen am Ende des Dokuments
 
 **Prüfen** (Steuerberater): aktuelle Höhe, Grundlage im Betrieb, Angemessenheit und Nachweisform.
 
-### 5.7 Datenschutz, Standort und Mitbestimmung
+### 6.7 Datenschutz, Standort und Mitbestimmung
 
 - **DSGVO:**
   - Arbeitszeitaufzeichnungen sind gesetzlich vorgeschrieben (Rechtsgrundlage: rechtliche Verpflichtung).
@@ -1034,7 +1273,7 @@ In die Betriebsvereinbarung bzw. Zustimmungserklärung gehören außerdem:
 - das Rollen- und Rechtekonzept: Wer sieht welche Zeiten, wer sieht Lohndaten (Kapitel 2.2);
 - die zusätzlichen Datenflüsse der Neuerungen: Sprachaufnahmen, Lieferschein-Fotos, eingescannte Papierberichte, Geräte-Tags, AZG-Wächter und ein allfälliger Geofence-Hinweis, der nur am Gerät ausgewertet wird (Kapitel 4.14).
 
-### 5.8 Aufbewahrungsfristen
+### 6.8 Aufbewahrungsfristen
 
 | Daten | Empfohlene Frist | Grundlage / Begründung |
 |---|---|---|
@@ -1046,7 +1285,7 @@ In die Betriebsvereinbarung bzw. Zustimmungserklärung gehören außerdem:
 
 Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 
-### 5.9 Rechtliche Wirkung der elektronischen Unterschrift
+### 6.9 Rechtliche Wirkung der elektronischen Unterschrift
 
 - **Einfache elektronische Signatur:** Eine Unterschrift am Tablet ist eine einfache elektronische Signatur. Nach der eIDAS-Verordnung (Art. 25 Abs. 1) darf sie als Beweismittel nicht allein deshalb abgelehnt werden, weil sie elektronisch ist. Das Gericht würdigt sie frei, wie eine Unterschrift auf Papier, die bestritten wird.
 - **Qualifizierte Signatur:** Nur die qualifizierte elektronische Signatur (z. B. mit ID Austria) ist der eigenhändigen Unterschrift gleichgestellt (eIDAS Art. 25 Abs. 2) und erfüllt eine gesetzliche Schriftform nach § 886 ABGB (§ 4 SVG).
@@ -1058,7 +1297,7 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 > 3. Bei öffentlichen Auftraggebern (Gemeinden, Land NÖ) deren Vertragsbestimmungen beachten; manche verlangen eigene Formulare.
 > 4. **Prüfen:** Rechtsberatung für die Vertragsklausel.
 
-### 5.10 ÖNORMen
+### 6.10 ÖNORMen
 
 - **ÖNORM B 2110** (Werkvertragsnorm, aktuelle Ausgabe 2023-05-01; gilt nur, wenn sie vereinbart ist):
   - regelt eine allgemeine Dokumentationspflicht der Vertragspartner; Bautagesberichte führt der Auftragnehmer, das Baubuch ist davon zu unterscheiden;
@@ -1068,14 +1307,14 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 - **ÖNORM B 2061** (Preisermittlung für Bauleistungen, Ausgabe 2020): Sie gliedert die Kalkulation in K-Blätter: K2 Gesamtzuschläge, K3 Personalpreis (Mittellohnpreis), K4 Material, K6 Geräte, K7 Preisermittlung. **Die Preis-Stammdaten der App folgen dieser Gliederung**, damit Kalkulation und Nachkalkulation dieselbe Sprache sprechen.
 - **ÖNORM A 2063** (elektronischer Austausch von Leistungsverzeichnissen): Sie ist als späteres Importformat für Angebotspositionen interessant, wenn Ihr Angebotsprogramm sie unterstützt (nicht im Detail geprüft).
 
-### 5.11 E-Rechnung
+### 6.11 E-Rechnung
 
 - **Bund:** Rechnungen an Bundesdienststellen müssen seit 2014 als strukturierte E-Rechnung über USP oder PEPPOL eingebracht werden.
 - **Firmen (B2B) im Inland:** Laut Recherche gibt es Stand Herbst 2026 keine allgemeine Pflicht.
 - **EU:** Für grenzüberschreitende B2B-Umsätze sieht das EU-Paket „ViDA“ ab 1. 7. 2030 E-Rechnungen vor.
 - **Für die App:** keine eigene Rechnungslegung. Regie und Leistungsmengen werden an das bestehende Rechnungsprogramm übergeben (Phase 3).
 
-### 5.12 Wer muss was prüfen?
+### 6.12 Wer muss was prüfen?
 
 | Thema | Stelle |
 |---|---|
@@ -1091,9 +1330,9 @@ Die App löscht nach diesen Fristen automatisch bzw. schlägt die Löschung vor.
 
 ---
 
-## 6 Datenmodell und Rechenlogik
+## 7 Datenmodell und Rechenlogik
 
-### 6.1 Überblick
+### 7.1 Überblick
 
 ```mermaid
 erDiagram
@@ -1143,7 +1382,7 @@ erDiagram
     BAUTAGESBERICHT ||--o| PAPIERSCAN : "Scan"
 ```
 
-### 6.2 Die wichtigsten Datenobjekte
+### 7.2 Die wichtigsten Datenobjekte
 
 | Objekt | Wichtige Inhalte |
 |---|---|
@@ -1167,6 +1406,7 @@ erDiagram
 | **Gerätebuchung** | Gerät, KST, Beginn, Ende, Bediener, Quelle (NFC, QR, händisch), Status |
 | **Hinweis** | Baustelle, Art (Mehrverbrauch, Regie offen, Menge überschritten …), mit €-Bezug ja/nein (steuert, wer ihn sieht), Status (offen, erledigt) |
 | **Einsatzplan** (Phase 3) | Datum, Baustelle, Mitarbeiter, Geräte, Treffpunkt, Push gesendet |
+| **Anlage, Zähler, Zählerstand, Planposition, Servicebuch-Eintrag, Mangel** (Servicebuch, Kapitel 5) | Fahrzeug/Gerät mit Kennzeichen, FIN, Klasse, Verknüpfung zum Gerät der Papiervorlage; Zähler (km, Std.) mit Ablesewerten (Quelle, Plausibilität); Planpositionen (Intervall Monate/Std./km, Toleranz, Vorwarnung, sperrt); Einträge (Zählerstände, Arbeiten, Kosten nur mit Preisrecht); Mängel (Dringlichkeit, Status). Details: `app/SERVICEBUCH_ENTWURF.md` |
 | **Berichtszeilen** | Personal (Zeitblöcke, Pause, Stunden, Code), SEG-Eintrag, Geräteeinsatz (Gerät, Stunden, Regie ja/nein), Materialbewegung (Material, Menge, Einheit, Richtung, Herkunft Eigen/Zukauf/Beistellung AG, Lieferschein), Leistungsmeldung (Position, Menge), Regieposition, Palettenbewegung (Art, Anzahl), Vorkommnis (Kategorie, Text), Foto, Unterschrift (Rolle, Name, Zeitpunkt, Bild) |
 | **Gerät** | Inventarnummer, Bezeichnung, Kategorie (entspricht der Zeile in der Vorlage), Gewichtsklasse, Eigen- oder Mietgerät, NFC-/QR-Kennung |
 | **Material** | Bezeichnung, Einheit, Umrechnung m³ ↔ t, Eigenmaterial (Kieswerk) ja/nein |
@@ -1175,7 +1415,7 @@ erDiagram
 | **Fremdleistung** | Baustelle, Lieferant, Rechnungsnummer, Datum, Betrag, Art (Subunternehmer, Material, Deponie, Miete) |
 | **Monatsabschluss** | Monat, Status, Exportdateien, erstellt von / am |
 
-### 6.3 Kernlogik
+### 7.3 Kernlogik
 
 **A) Vom Stempel zum Bericht (je Baustelle und Tag):**
 
@@ -1271,9 +1511,9 @@ Scan → QR-Code lesen (KST, Datum) bzw. Baustelle wählen → Felder nach feste
 
 ---
 
-## 7 Technik und Betrieb
+## 8 Technik und Betrieb
 
-### 7.1 Empfehlung: eine Web-App (PWA) für alle Geräte
+### 8.1 Empfehlung: eine Web-App (PWA) für alle Geräte
 
 Eine **Progressive Web App (PWA)** ist eine Webseite, die sich wie eine App am Startbildschirm installieren lässt und auch offline funktioniert. Sie hat eine Codebasis für PC, Handy und Tablet.
 
@@ -1292,7 +1532,7 @@ Eine **Progressive Web App (PWA)** ist eine Webseite, die sich wie eine App am S
 > - Eine PWA bauen. **Firmengeräte als Android-Geräte** anschaffen, weil dort Offline-Übertragung, Push und NFC voll funktionieren. Private iPhones (freiwillig) funktionieren für Stempeln und „Meine Woche“; die App zeigt dort deutlich an, wenn Daten noch nicht übertragen sind.
 > - Wird später der Geofence-Hinweis gewünscht (Kapitel 4.6) oder NFC am iPhone, kann die PWA ohne Neuentwicklung in eine native „Hülle“ verpackt werden (z. B. Capacitor). Das braucht dann App-Store-Konten.
 
-### 7.2 Aufbau
+### 8.2 Aufbau
 
 ```mermaid
 flowchart LR
@@ -1306,15 +1546,15 @@ flowchart LR
 - **Server und Datenbank:** bewährte Standardtechnik, z. B. TypeScript bzw. Node.js oder vergleichbar, mit der Datenbank **PostgreSQL**. Kein Exot, damit auch ein anderer Entwickler später weiterarbeiten kann. PDF-Erstellung und Mailversand laufen am Server.
 - **Synchronisierung:** Jede Buchung bekommt am Gerät eine eindeutige Nummer und kann nie doppelt ankommen. Konflikte (Polier und Mitarbeiter stempeln dieselbe Person) werden nicht automatisch überschrieben, sondern dem Polier bzw. Büro zur Entscheidung angezeigt.
 - **Wetter:** Abfrage beim Data Hub der GeoSphere Austria (oder einem anderen Wetterdienst) für den Baustellenort, als Vorschlag im Bericht. **Prüfen:** Nutzungsbedingungen des Dienstes.
-- **Rechte:** Die Rechteprüfung passiert am Server, bevor Daten das Haus verlassen. Preis- und Lohnfelder werden für nicht berechtigte Rollen gar nicht erst in die Antwort gepackt (Kapitel 2.2 und 6.3 E).
+- **Rechte:** Die Rechteprüfung passiert am Server, bevor Daten das Haus verlassen. Preis- und Lohnfelder werden für nicht berechtigte Rollen gar nicht erst in die Antwort gepackt (Kapitel 2.2 und 7.3 E).
 - **KI-Dienste (ab Phase 2):** Spracherkennung, Lieferschein- und Papier-Erkennung sowie Übersetzung laufen über austauschbare EU-gehostete Dienste mit Auftragsverarbeitungsvertrag. Die App bindet sie über eine eigene Zwischenschicht an, damit ein Anbieterwechsel ohne Umbau möglich ist. Fällt ein Dienst aus, arbeitet der Polier normal per Hand weiter.
 - **Push und SMS:** Web-Push für den AZG-Wächter und Hinweise; SMS über einen EU-Anbieter für die Fernunterschrift.
 
-### 7.3 Hosting in Österreich bzw. der EU
+### 8.3 Hosting in Österreich bzw. der EU
 
 Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit Auftragsverarbeitungsvertrag nach DSGVO. Beispiele sind österreichische Anbieter wie Exoscale (Wien) oder Anexia (Klagenfurt/Wien) bzw. europäische Anbieter wie Hetzner (Deutschland/Finnland). Diese Beispiele wurden nicht im Detail geprüft. Größenordnung für einen Betrieb Ihrer Größe: **50–150 € pro Monat** inkl. Sicherung.
 
-### 7.4 Anmeldung
+### 8.4 Anmeldung
 
 | Wer | Wie |
 |---|---|
@@ -1325,14 +1565,14 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 
 **Verlorenes oder gemeinsam genutztes Gerät:** Automatische Sperre, sofortige Abmeldung am gemeinsamen Tablet, Fernabmeldung durch das Büro und keine Preise am Gerät (Details in Kapitel 2.2). Die Daten am Gerät sind verschlüsselt und nur mit PIN zugänglich.
 
-### 7.5 Datensicherung
+### 8.5 Datensicherung
 
 - tägliche, verschlüsselte Sicherung in ein **zweites Rechenzentrum**;
 - Aufbewahrung: 30 Tagessicherungen und 12 Monatssicherungen;
 - vierteljährlich eine **Probe-Wiederherstellung**;
 - die Geschäftsführung kann jederzeit **alle Daten exportieren** (Excel/CSV und PDF-Archiv). Damit sind Sie nicht vom Entwickler abhängig.
 
-### 7.6 Sicherheit
+### 8.6 Sicherheit
 
 - verschlüsselte Übertragung (HTTPS);
 - Rechte nach Rolle, **am Server durchgesetzt**, mit automatischen Tests, dass Polier- und Mitarbeitergeräte keine Preis- oder Lohnfelder erhalten (Kapitel 2.2);
@@ -1341,7 +1581,7 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 - Firmengeräte über eine einfache Geräteverwaltung (z. B. Android Enterprise) mit Sperre, Fernlöschung und App-Modus;
 - vor dem Start ein kurzer Sicherheits-Check durch einen Dritten (1–2 Tage, optional).
 
-### 7.7 Geräte (Richtpreise, Stand Recherche, ohne Gewähr)
+### 8.7 Geräte (Richtpreise, Stand Recherche, ohne Gewähr)
 
 | Gerät | Zweck | Preis je Stück |
 |---|---|---|
@@ -1355,7 +1595,7 @@ Die Daten sollen in einem Rechenzentrum in Österreich oder der EU liegen, mit A
 
 **Bedarf (Annahme):** 6–8 Tablets, 1 Terminal, NFC-Chips für alle, Tags für ca. 40 Geräte, dazu die vorhandenen Firmenhandys weiter nutzen. Das ergibt **ca. 4.000–7.500 €**.
 
-### 7.8 Eigentum und Unabhängigkeit
+### 8.8 Eigentum und Unabhängigkeit
 
 Im Entwicklungsvertrag sollten folgende Punkte festgehalten werden:
 
@@ -1368,9 +1608,9 @@ So kann bei Bedarf ein anderer Entwickler übernehmen.
 
 ---
 
-## 8 Kaufen oder bauen?
+## 9 Kaufen oder bauen?
 
-### 8.1 Marktüberblick
+### 9.1 Marktüberblick
 
 Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben von Anbietern und Vergleichsportalen. **Stand Recherche, ohne Gewähr; vor einer Entscheidung beim Anbieter bestätigen lassen.**
 
@@ -1385,7 +1625,7 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | **NEVARIS Success X** (vormals AUER Success, AT) | Bau-Software fürs Büro | Ausschreibung, Vergabe, Abrechnung (ÖNORM), Kalkulation, Controlling | Keine Baustellen-App im Produkt selbst (mobil eher über 123erfasst; eine direkte Verbindung haben wir nicht belegt gefunden); für 30 Mitarbeiter eher groß | Auf Anfrage |
 | Weitere (nicht geprüft) | z. B. Capmo (DE, Baumanagement; Preis nach Bauvolumen), Streit V.1 (DE, Handwerkersoftware mit Bautagebuch), BRZ, ABK | | | |
 
-### 8.2 Abdeckung Ihrer Anforderungen
+### 9.2 Abdeckung Ihrer Anforderungen
 
 | Anforderung | TimeTac | 123erfasst | BauMaster / PlanRadar | Eigenentwicklung |
 |---|---|---|---|---|
@@ -1400,7 +1640,7 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | Preise und € für Polier technisch gesperrt, Bauleiter nur eigene Baustellen | unklar | unklar | – | ja (Kapitel 2.2) |
 | Neuerungen aus Kapitel 4 (Diktat mit KI, Lieferschein-Erkennung, Hochrechnung, Geräte-Tags, Baustellen-Modus, 5 Sprachen) | teilweise (NFC, Standort beim Stempeln) | unklar | teilweise (Fotos, Formulare) | ja, nach Kapitel 4 |
 
-### 8.3 Drei Varianten im Vergleich (5 Jahre, netto, grob)
+### 9.3 Drei Varianten im Vergleich (5 Jahre, netto, grob)
 
 | | **A: Komplettlösung kaufen** (z. B. 123erfasst) | **B: Standard-Bausteine kombinieren** (TimeTac + Bautagebuch-App + Excel) | **C: Eigene schlanke App + bestehende Lohn- und Buchhaltungsprogramme** |
 |---|---|---|---|
@@ -1411,13 +1651,13 @@ Alle Preise und Funktionsangaben beruhen auf öffentlich zugänglichen Angaben v
 | Passt der Bautagesbericht? | Eigenes Layout, Anpassung unklar | Zwei getrennte Systeme, doppelte Eingabe | Genau Ihre Vorlage |
 | Nachkalkulation | Teilweise, im Test prüfen | Nein (Excel) | Ja, mit Ihrer Struktur |
 | Österreich-Spezifika | Prüfen | Teilweise | Ja |
-| Start | Sofort | Sofort | Pilot ab April 2027, alles voll funktionsfähig realistisch Ende September 2027 (Kapitel 9.2) |
+| Start | Sofort | Sofort | Pilot ab April 2027, alles voll funktionsfähig realistisch Ende September 2027 (Kapitel 10.2) |
 | Abhängigkeit | Vom Anbieter (Preise, Funktionen) | Von zwei Anbietern | Vom Entwickler; abgefedert durch Code-Eigentum und Standardtechnik |
 | Geräte (in allen Varianten) | 4.000–7.500 € | 4.000–7.500 € | 4.000–7.500 € |
 
 Geräte und Mobilfunk fallen in allen Varianten an und sind in der Summe nicht enthalten.
 
-### 8.4 Empfehlung
+### 9.4 Empfehlung
 
 **Variante C: eine eigene, schlanke App für die Kernabläufe** (Stempeln → Bautagesbericht → Nachkalkulation), angebunden an die bestehende Lohnverrechnung (Export), Buchhaltung (Import der Eingangsrechnungen je KST) und das Rechnungsprogramm.
 
@@ -1453,13 +1693,13 @@ Sind diese Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger und sof
 
 ---
 
-## 9 Umsetzung in Phasen, Kosten, Einführung
+## 10 Umsetzung in Phasen, Kosten, Einführung
 
-### 9.1 Phasenplan
+### 10.1 Phasenplan
 
 | Phase | Inhalt | Aufwand | Kosten (netto) | Zeitraum |
 |---|---|---|---|---|
-| **0 – Klärung** | Offene Fragen (Kapitel 10), Feinkonzept, Prototyp mit Polieren testen, Rechte-Matrix bestätigen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), **KI-Test** (ca. 20 Diktate, 30 Lieferscheine, 20 ausgefüllte Papierberichte), Auftragssummen erheben, Gegenprobe 123erfasst, Förderantrag | 50–90 Std. Entwickler, dazu interne Zeit | 4.500–11.000 € | Mitte Nov.–Ende Dez. 2026 |
+| **0 – Klärung** | Offene Fragen (Kapitel 11), Feinkonzept, Prototyp mit Polieren testen, Rechte-Matrix bestätigen, Exportformat mit der Lohnverrechnung, Betriebsvereinbarung bzw. Zustimmung, Stammdaten sammeln (Mitarbeiter, Geräte, Baustellen), **KI-Test** (ca. 20 Diktate, 30 Lieferscheine, 20 ausgefüllte Papierberichte), Auftragssummen erheben, Gegenprobe 123erfasst, Förderantrag | 50–90 Std. Entwickler, dazu interne Zeit | 4.500–11.000 € | Mitte Nov.–Ende Dez. 2026 |
 | **1 – MVP: Stempeln und digitaler Bautagesbericht (Kern)** | Anmeldung (PIN); Stempeln inkl. Partie, Fahrt, Laden, Werkstatt, Pause, Baustellenwechsel, Regie-Kennzeichen; offline; Standort beim Stempeln; Abwesenheiten (K/U/SW/ZA); AZG/KJBG-Warnungen; Korrekturen mit Freigabe; Bautagesbericht nach Vorlage (alle Felder aus 3.2) mit Tastatur-Diktat (Stufe 1), Fotos, Unterschrift, PDF in zwei Fassungen (Auftraggeber ohne €/K/U, intern), Mail; Büro-Dashboard; Stammdaten; Monatsliste und Excel-Export für Lohn und BUAK; Sicherung | 280–400 Std. | 25.000–48.000 € | Jänner–März 2027 |
 | **1 – MVP: Rechte und Basis-Neuerungen** | **Rollen & Berechtigungen am Server** (Matrix, Ausnahmen, Sperre der Preis- und Lohnrechte für Polier und Mitarbeiter, Protokoll, Fernabmeldung, automatische Sperre); Baustellen-Modus und Bedienungstest; Mehrsprachigkeit (Grundgerüst + 2 Sprachen); AZG-Wächter mit Push und Uhrzeit-Erinnerung; Wetter automatisch und Schlechtwetter-Vorschlag; Fernunterschrift per SMS-/Mail-Link; **Stunden-Alarm** (ohne €); **Papier-Bericht fotografieren und per QR-Code ablegen** (Details in Kapitel 2.2 und 4) | 130–225 Std. | 13.000–28.500 € (inkl. Übersetzung) | Jänner–März 2027 |
 | **Pilot** | Eine Partie, 4–6 Wochen, Papier parallel; wöchentliche Verbesserungsrunde; Musterblätter für die Papier-Erkennung sammeln | 20–40 Std. Nachbesserung (in Phase 1 enthalten) | – | April–Mitte Mai 2027 (bei frühem Saisonstart ab März) |
@@ -1472,12 +1712,12 @@ Sind diese Punkte klar erfüllt, **kaufen Sie**: Das ist dann günstiger und sof
 | | Plantafel / Einsatzplanung mit Push aufs Handy (wer, welches Gerät, wo morgen) | 80–150 Std. | 7.000–18.000 € | |
 | | Ankunfts-Hinweis per Geofence am Gerät (native Hülle, optional, nur mit Betriebsvereinbarung) | 60–100 Std. | 5.500–12.000 € | |
 | | KI-Fragen an die Daten für Büro und Geschäftsführung (optional) | 40–80 Std. | 3.500–9.500 € | |
-| | Geräteverwaltung (Betriebsstunden, Service, Prüftermine, Werkstattkosten je Gerät) | 60–120 Std. | 5.000–14.000 € | |
+| | **Servicebuch für Fahrzeuge und Geräte** (Kapitel 5; ersetzt die frühere „Geräteverwaltung“): Anlagen, Zähler mit Prognose, Prüf- und Wartungspläne, Erinnerungen 3 Monate vorher, Reparaturen, Mängel, Sperre | 150–240 Std. | 13.500–29.000 € | Wunsch des Inhabers – kann vorgezogen werden (3–5 Wochen) |
 | | Digitale Liefer- und Transportscheine (Kieswerk, Transporte; ggf. Waage-Schnittstelle) | 80–160 Std. | 7.000–19.000 € | |
 | | Übergabe von Regie und Mengen an das Rechnungsprogramm (E-Rechnung bleibt dort) | 40–100 Std. | 4.000–12.000 € | |
 | | Maschinen-Telematik (Betriebsstunden direkt aus neueren Geräten; nur mit Betriebsvereinbarung, falls GPS dabei) | 40–80 Std. | 3.500–9.500 € | |
 
-### 9.2 Wie lange dauert es, bis alles voll funktionsfähig ist?
+### 10.2 Wie lange dauert es, bis alles voll funktionsfähig ist?
 
 **Kurze Antwort:** realistisch **rund 10 Monate** ab Start (Mitte November 2026), also **Ende September 2027**.
 
@@ -1491,7 +1731,7 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 **Annahmen:**
 
 - **Team:** 2 Entwickler (einer für Oberfläche und App, einer für Server und Daten), dazu Projektleitung und UX in Teilzeit (zusammen ca. 0,3 Stellen). Je Entwickler ca. 110–130 produktive Projektstunden pro Monat.
-- **Gesamtaufwand Phasen 0–2:** ca. 890–1.455 Std. inkl. Test und Abstimmung, also ca. 82.000–178.000 € (siehe 9.1).
+- **Gesamtaufwand Phasen 0–2:** ca. 890–1.455 Std. inkl. Test und Abstimmung, also ca. 82.000–178.000 € (siehe 10.1).
 - **Entscheidungen:** Die Geschäftsführung entscheidet binnen einer Woche. Büro und ein Polier sind wöchentlich ca. 1 Stunde verfügbar. Aus dem Pilot kommen wöchentlich Rückmeldungen.
 - **Ein Entwickler statt zwei:** Dann verlängert sich die Kalenderzeit um ca. 50–80 %.
 
@@ -1527,10 +1767,10 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 
 **Was den Termin kaum bestimmt:** die reine Programmierung. Mehr als zwei Entwickler helfen nur begrenzt, weil Einarbeitung und Abstimmung mitwachsen.
 
-### 9.3 Annahmen hinter den Kosten
+### 10.3 Annahmen hinter den Kosten
 
 - Stundensatz eines österreichischen Freelancers bzw. einer kleinen Agentur: **90–120 € netto**.
-- Ein erfahrenes Team: 2 Entwickler mit Standardtechnik, dazu Projektleitung und UX in Teilzeit (Kapitel 9.2). Die Aufwände enthalten Test und Abstimmung.
+- Ein erfahrenes Team: 2 Entwickler mit Standardtechnik, dazu Projektleitung und UX in Teilzeit (Kapitel 10.2). Die Aufwände enthalten Test und Abstimmung.
 - Der klickbare Prototyp dient als abgestimmte Vorlage für die Oberflächen.
 - Das Büro liefert die Stammdaten als Excel-Listen. Die Geschäftsführung bzw. ein Polier stehen wöchentlich ca. 1 Stunde für Fragen zur Verfügung.
 - KI-Funktionen nutzen fertige, EU-gehostete Dienste (Spracherkennung, Texterkennung, Sprachmodell). Es wird keine eigene KI trainiert.
@@ -1541,7 +1781,7 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 
 **Förderung:** Laut Recherche fördert **KMU.DIGITAL** Beratungen mit bis zu 3.000 € und Umsetzungsprojekte mit 30 % (max. 6.000 €) bei 2.000–30.000 € Projektvolumen. Voraussetzung ist eine vorherige Beratung durch einen zertifizierten Berater. **Prüfen** (WKO / aws): aktuelle Einreichphase, Budget und Bedingungen. Wichtig ist vor allem, ob vor der Beauftragung eingereicht werden muss.
 
-### 9.4 Einführung: so gelingt die Umstellung
+### 10.4 Einführung: so gelingt die Umstellung
 
 1. **Ein Polier als „Pate“:** Ein angesehener, technikoffener Polier ist von Anfang an dabei, testet den Prototyp und führt den Pilot. Kollegen hören eher auf ihn als auf das Büro.
 2. **Ehrliche Information vorab:** eine Betriebsversammlung oder Info im Bauhof, ca. 30 Minuten. Die Kernbotschaften:
@@ -1561,7 +1801,7 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 8. **Jeder in seiner Sprache:** Die App ist ab dem Pilot in Deutsch und den zwei wichtigsten Fremdsprachen verfügbar. Die Kurzanleitung gibt es ebenfalls in diesen Sprachen.
 9. **Neuerungen schrittweise:** Im Pilot zuerst die Grundfunktionen. Diktat, Geräte-Tags und Lieferschein-Foto kommen erst, wenn das Stempeln sitzt, sonst ist es zu viel auf einmal.
 
-### 9.5 Laufende Kosten (pro Monat, netto, Richtwerte)
+### 10.5 Laufende Kosten (pro Monat, netto, Richtwerte)
 
 | Posten | Betrag |
 |---|---|
@@ -1574,7 +1814,7 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 | **Summe** | **ca. 400–1.000 € pro Monat** (E-Mail-Versand der Budget-Alarme ist im Mailversand enthalten) |
 | Nur bei Geofence-Hülle (Phase 3): App-Store-Konten | ca. 10 € |
 
-### 9.6 Risiken und Gegenmaßnahmen
+### 10.6 Risiken und Gegenmaßnahmen
 
 | Risiko | Gegenmaßnahme |
 |---|---|
@@ -1592,11 +1832,11 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 | Abhängigkeit von einem KI-Anbieter | Austauschbare Anbindung über eine Zwischenschicht, Handeingabe als Rückfall |
 | Alarm-Müdigkeit: zu viele Budget- und AZG-Meldungen werden ignoriert | Jede Schwelle nur einmal, Info und Warnung nur in der Zusammenfassung, Quittieren mit Notiz, keine Push-Nachrichten nachts, Schwellen je Baustelle einstellbar |
 | Papier-Erkennung liest falsch (Handschrift, Schmutz) | Prüfschritt ist Pflicht, unsichere Felder markiert, Formular mit Kästchen und QR-Code, Test mit echten Blättern vor der Beauftragung |
-| Termin rutscht, weil der Pilot in die Hochsaison fällt | Umfang von Phase 1 strikt begrenzen; Lohnexport, Betriebsvereinbarung und Stammdaten im Winter erledigen (Kapitel 9.2) |
+| Termin rutscht, weil der Pilot in die Hochsaison fällt | Umfang von Phase 1 strikt begrenzen; Lohnexport, Betriebsvereinbarung und Stammdaten im Winter erledigen (Kapitel 10.2) |
 
 ---
 
-## 10 Offene Fragen an den Betrieb
+## 11 Offene Fragen an den Betrieb
 
 **Organisation und Arbeitszeit**
 
@@ -1654,10 +1894,18 @@ Die reine Programmierarbeit ist kürzer: ca. 890–1.455 Stunden, mit 2 Entwickl
 34. Wer soll Budget-Alarme bekommen, und auf welchem Weg (In-App, Push, E-Mail)? Reicht der Geschäftsführung „Alarm“ und „Kritisch“ plus eine Wochenzusammenfassung?
 35. Wie viele Papierberichte erwarten Sie dauerhaft (Subunternehmer, Poliere ohne Tablet)? Dürfen wir das Formular leicht anpassen (Ziffernkästchen, Ankreuzfelder, QR-Code), ohne dass es für Bauherren fremd wirkt?
 
+**Servicebuch (Kapitel 5)**
+
+36. Wer ist für den Fuhrpark verantwortlich (Werkstattleiter, Büro)? Soll diese Person das Recht `fuhrpark` bekommen?
+37. Gibt es eine Fuhrparkliste (Kennzeichen, FIN, Erstzulassung, letzte Pickerl, Kranprüfungen, Tacho-Nachprüfung, Leasing, Versicherung)? Welche Busse sind M1 (bis 9 Sitze) und welche größer?
+38. Welche Maschinen werden zum Heben von Einzellasten verwendet (Prüfpflicht nach AM-VO)? Wer prüft heute (intern oder extern)?
+39. Haben alle Maschinen einen funktionierenden Betriebsstundenzähler? Welche Herstellerintervalle gelten laut Serviceheft?
+40. Wer soll die Meldungen bekommen, und soll ein überfälliges Pickerl bzw. eine überfällige Kranprüfung das Gerät automatisch auf „gesperrt“ setzen?
+
 **IT und Projekt**
 
-36. Welche Programme sind im Einsatz (Buchhaltung, Rechnung, Angebot)? Wer betreut die IT? Unter welcher Mail-Domain sollen die Berichte verschickt werden?
-37. Wer ist intern verantwortlich (Vorschlag: eine Person aus dem Büro und ein Polier)? Welcher Budgetrahmen und welcher Wunschtermin gelten?
+41. Welche Programme sind im Einsatz (Buchhaltung, Rechnung, Angebot)? Wer betreut die IT? Unter welcher Mail-Domain sollen die Berichte verschickt werden?
+42. Wer ist intern verantwortlich (Vorschlag: eine Person aus dem Büro und ein Polier)? Welcher Budgetrahmen und welcher Wunschtermin gelten?
 
 ---
 
@@ -1743,6 +1991,28 @@ Recherche am 12. 11. 2026 über Websuche. Die Primärtexte (RIS) konnten aus der
 - docu tools (OMR): https://omr.com/en/reviews/product/docu-tools/pricing
 - Capmo, Preise: https://www.capmo.com/en/preise
 
+**Servicebuch: Fahrzeuge und Geräte (Kapitel 5)**
+- WKO, Pickerl-Überprüfung (§ 57a KFG): https://www.wko.at/transport/pickerl-ueberpruefung-begutachtung-57a-kfg
+- Land OÖ, Begutachtungsintervalle und Toleranzzeiträume § 57a KFG (2021): https://www.land-oberoesterreich.gv.at/Mediendateien/Formulare/Dokumente%20SVD%20Abt_Verk/57a%20KFG%20-%20Begutachtungsintervalle%20u%20Toleranzzeitr%c3%a4ume%202021.02.04.pdf
+- KFG § 57a (Jusline): https://www.jusline.at/gesetz/kfg/paragraf/57a.pdf
+- 42. KFG-Novelle, Bundesgesetzblatt (oesterreich.gv.at): https://www.oesterreich.gv.at/de/Gesetzliche-Neuerungen/Bundesgesetzblatt/42-KFG-Novelle
+- WKO, Begutachtungstermine (neue Intervalle): https://www.wko.at/paragraph-57a/begutachtungstermine
+- ÖAMTC, Längere Pickerl-Intervalle: https://www.oeamtc.at/thema/pickerl/laengere-pickerl-intervalle-57a-87229599
+- Parlament, „Pickerl-Intervalle künftig länger“ (02.07.2026): https://www.parlament.gv.at/aktuelles/news/Pickerl-Intervalle-kuenftig-laenger
+- VO (EU) 165/2014 Art. 23, Nachprüfung Fahrtenschreiber: https://gesetze.legal/eu/vo_eu_2014_165/23
+- WKO, Digitaler Tachograph: https://www.wko.at/transport/digitaler-tachograph-eu-kontrollgeraet
+- AM-VO § 8 Wiederkehrende Prüfung (Jusline): https://www.jusline.at/gesetz/am-vo/paragraf/8
+- AM-VO § 11 Prüfbefund (Jusline): https://www.jusline.at/gesetz/am-vo/paragraf/11.pdf
+- WKO, Wiederkehrende Prüfung von Arbeitsmitteln: https://www.wko.at/oe/gewerbe-handwerk/fahrzeugtechnik/wiederkehrende-pruefung-von-arbeitsmitteln
+- WKO, Merkblatt Überprüfung von Arbeitsmitteln: https://www.wko.at/oe/gewerbe-handwerk/fahrzeugtechnik/merkblatt-ueberpruefung-von-arbeitsmitteln.pdf
+- oesterreich.gv.at, Schneekettenpflicht: https://www.oesterreich.gv.at/themen/mobilitaet/kfz/10/2/Seite.063200.html
+- ÖAMTC, Winterausrüstungspflicht: https://www.oeamtc.at/thema/vorschriften-strafen/winterausruestungspflicht-welche-bestimmungen-gelten-16186948
+- autoscout24.at, Verbandskasten (§ 102 KFG, kein Ablaufdatum): https://www.autoscout24.at/informieren/ratgeber/autorecht/verbandskasten-im-auto/
+- Austrian Standards, ÖNORM F 1053 (2021): https://austrian-standards.at/en/shop/onorm-f-1053-2021-03-15~p2569815
+- AUVA, Checkliste Brandschutz: https://auva.at/media/jvhnhv21/kw52_checkliste-brandschutz_bf.pdf
+- Caterpillar, Planned Maintenance (PM-Intervalle): https://www.cat.com/en_US/products/new/parts/self-service-options/planned-maintenance.html
+- Ziegler Cat, Preventive Maintenance Booklet: https://www.zieglercat.com/assets/files/preventive-maintenance-booklet-2019.pdf
+
 **Technik und Geräte**
 - PWA auf iOS (firt.dev): https://firt.dev/notes/pwa-ios/
 - PWA iOS Limitations (MagicBell): https://www.magicbell.com/blog/pwa-ios-limitations-safari-support-complete-guide
@@ -1786,10 +2056,12 @@ Recherche am 12. 11. 2026 über Websuche. Die Primärtexte (RIS) konnten aus der
 | **Geofence** | Gedachter Kreis um eine Baustelle; das Gerät erkennt selbst, wenn man ihn betritt |
 | **Konfidenz (Vertrauenswert)** | Wie sicher sich die Erkennung bei einem Feld ist; unsichere Felder werden zur Prüfung markiert |
 | **KI / Sprachmodell** | Software, die gesprochene oder geschriebene Sprache versteht und z. B. in Formularfelder überträgt |
+| **AM-VO** | Arbeitsmittelverordnung: regelt u. a. wiederkehrende Prüfungen von Kranen und Hebezeugen |
 | **KST** | Kostenstelle, hier meist = Baustellennummer; dazu Gemeinkosten-KST (Bauhof, Werkstatt, Kieswerk, Transporte) |
 | **Lohnkostensatz / Mittellohnpreis** | Kosten einer Arbeitsstunde inkl. Lohnnebenkosten / Verkaufspreis einer Stunde inkl. Gesamtzuschlag (ÖNORM B 2061, K3-Blatt) |
 | **LV** | Leistungsverzeichnis, die Positionen eines Angebots |
 | **Nachtrag** | Zusätzlich beauftragte Leistung, die die Auftragssumme erhöht |
+| **§57a-Begutachtung („Pickerl“)** | Wiederkehrende Prüfung der Verkehrs- und Betriebssicherheit von Kraftfahrzeugen und Anhängern |
 | **MVP** | „Minimum Viable Product“: die kleinste Version, die im Alltag schon echten Nutzen bringt |
 | **NFC / QR** | Funk-Aufkleber zum Antippen mit dem Handy bzw. gedruckter Code zum Abfotografieren |
 | **OCR** | Texterkennung auf Fotos, z. B. von Lieferscheinen |
