@@ -387,6 +387,10 @@ function seed(db, opt = {}) {
   // Demo-Datenbank ist bereits auf der Positions-Basis (E-03: keine Bestandsübernahme nötig)
   db.setzeEinstellung('positionen_bestand', true);
   db.setzeEinstellung('budget_basis', 'positionen');
+  // Demo-Fuhrpark (Servicebuch, SERVICEBUCH_ENTWURF.md 10) – nur im Demo-Modus
+  if (opt.demo && opt.fuhrpark !== false) db.transaktion(() => require('./fuhrpark-demo').seedFuhrpark(db, jetzt));
+  else require('./fuhrpark-vorlagen').vorlagenAnlegen(db);
+
   // Budget-Alarme für den Ausgangsstand auslösen (an Bauleiter/Büro/GF)
   pruefeAlleBudgets({ db, uhr: () => jetzt }, { anlass: 'Einspielen der Testdaten' });
   return { heute, historieTage: historie.length };

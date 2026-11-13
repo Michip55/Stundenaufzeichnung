@@ -37,6 +37,7 @@ function einrichten(db, { name, pnr, pin, firma }, jetzt = new Date()) {
     db.protokolliere({ zeit: t, benutzerId: r.id, art: 'benutzer', objekt: `benutzer:${r.id}`, text: `Inbetriebnahme: erste Geschäftsführung ${name.trim()} angelegt` });
   });
   require('./positionen').katalogAnlegen(db, jetzt); // Positionskatalog aus der Firmenvorlage (mit EP)
+  require('./fuhrpark-vorlagen').vorlagenAnlegen(db); // Servicebuch-Vorlagen (alle „Prüfen“, API.md 11)
   return db.eins("SELECT id, name, pnr FROM benutzer WHERE rolle = 'gf'");
 }
 
