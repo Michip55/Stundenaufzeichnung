@@ -9,13 +9,14 @@ import { wienHeute } from '../zahl.js';
 
 export const GRUPPEN = { arbeit: 'Arbeit', transport: 'Transport', geraete: 'Geräte', eigenmaterial: 'Eigenmaterial', fremdmaterial: 'Fremdmaterial', abgaben: 'Abgaben' };
 // PA/VE: Menge = Rechnungsbetrag netto in €, EP = Aufschlagsfaktor (1,15 → +15 %)
-export const istBetrag = (p) => /^(PA|VE)$/i.test(String(p.einheit || '').trim());
+// Landschaftsabgabe: Menge = Tonnen Naturmaterial (automatisch), EP = 0,25 € je t – keine Rechnungsbetrags-Position, auch wenn die Vorlage „PA“ nennt
+export const istLandschaft = (p) => !!(p.automatik === 'landschaftsabgabe' || p.landschaftsabgabe || (p.quelle && p.quelle.art === 'naturmaterial') || /landschaftsabgabe/i.test(p.bezeichnung || ''));
+export const istBetrag = (p) => /^(PA|VE)$/i.test(String(p.einheit || '').trim()) && !istLandschaft(p);
 export const aufschlag = (ep) => (typeof ep === 'number' ? `${ep >= 1 ? '+' : '−'}${fmt.zahl(Math.abs(Math.round((ep - 1) * 1000) / 10), 1)} %` : '');
 export const epText = (p) => (istBetrag(p) ? `× ${fmt.zahl(p.ep)} <small class="auf">(${aufschlag(p.ep)})</small>` : fmt.eur(p.ep));
 export const mengeText = (p, m) => (m == null ? '' : istBetrag(p) ? fmt.eur(m) : `${fmt.zahl(m)}`);
 export const zuPruefen = (p) => !!(p.zuordnungPruefen || p.quellePruefen || (p.quelle && (p.quelle.pruefen || p.quelle.geprueft === false)));
 export const naturPruefen = (p) => !!(p.naturmaterialPruefen || p.naturmaterialGeprueft === false);
-export const istLandschaft = (p) => !!(p.automatik === 'landschaftsabgabe' || p.landschaftsabgabe || (p.quelle && p.quelle.art === 'naturmaterial') || /landschaftsabgabe/i.test(p.bezeichnung || ''));
 const QUELLE_ART = { personal: 'Personalstunden', geraet: 'Gerätestunden', material: 'Materialmengen' };
 
 export const kalkTabs = (id, aktiv) => `<div class="tabs" role="tablist" aria-label="Ansichten der Nachkalkulation">
@@ -49,8 +50,8 @@ export default async function positionen(el, ctx) {
       <span class="pt-bez" role="cell">${darf ? `<input class="pt-in" data-feld="bezeichnung" value="${esc(p.bezeichnung)}" aria-label="Bezeichnung">` : `<b>${esc(p.bezeichnung)}</b>`}
         <span class="pt-marken">${zuPruefen(p) ? `<button type="button" class="chip xs st-amber" data-akt="mengen" title="Die automatische Zuordnung zu den Bautagesberichten wurde nach bestem Wissen gesetzt">${ic('alert')}Zuordnung prüfen</button>` : ''}${p.naturmaterial ? `<span class="chip xs st-blue" title="Zählt für die Landschaftsabgabe (0,25 € je t Naturmaterial)">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : naturPruefen(p) ? '<span class="chip xs st-amber">Naturmaterial? bitte prüfen</span>' : ''}${aus ? '<span class="chip xs st-grey">ausgeblendet</span>' : ''}${p.eigene || p.katalogId === null ? '<span class="chip xs st-outline">eigene Position</span>' : ''}</span></span>
       <span class="pt-eh" role="cell">${darf ? `<input class="pt-in c" data-feld="einheit" value="${esc(p.einheit || '')}" aria-label="Einheit von ${esc(p.bezeichnung)}">` : esc(p.einheit || '')}</span>
-      <span class="pt-menge num" role="cell"><button type="button" class="pt-mbtn" data-akt="mengen" aria-label="Mengen von ${esc(p.bezeichnung)}: ${mengeText(p, p.menge || 0)} ${esc(p.einheit || '')} – anzeigen und erfassen"><b>${mengeText(p, p.menge || 0) || '0'}${istBetrag(p) ? '' : ` <i class="eh-m">${esc(p.einheit || '')}</i>`}</b><small>${istLandschaft(p) ? 'auto: je t Naturmaterial' : auto && manuell ? `${mengeText(p, auto)} auto + ${mengeText(p, manuell)}` : auto ? 'aus Berichten' : manuell ? `${(p.eintraege || []).length || ''} Eintr.`.trim() : istBetrag(p) ? 'Rechnungsbetrag' : 'erfassen'}</small></button></span>
-      <span class="pt-ep num" role="cell">${darf ? `<label class="price-in sm"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-feld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? `<small class="auf">${aufschlag(p.ep)}</small>` : ''}` : epText(p)}</span>
+      <span class="pt-menge num" role="cell"><button type="button" class="pt-mbtn" data-akt="mengen" aria-label="Mengen von ${esc(p.bezeichnung)}: ${mengeText(p, p.menge || 0)} ${esc(p.einheit || '')} – anzeigen und erfassen"><b>${mengeText(p, p.menge || 0) || '0'}${istBetrag(p) ? '' : istLandschaft(p) ? ' t' : ` <i class="eh-m">${esc(p.einheit || '')}</i>`}</b><small>${istLandschaft(p) ? 'auto: je t Naturmaterial' : auto && manuell ? `${mengeText(p, auto)} auto + ${mengeText(p, manuell)}` : auto ? 'aus Berichten' : manuell ? `${(p.eintraege || []).length || ''} Eintr.`.trim() : istBetrag(p) ? 'Rechnungsbetrag' : 'erfassen'}</small></button></span>
+      <span class="pt-ep num" role="cell">${istLandschaft(p) && !darf ? `${fmt.eur(p.ep)} <small class="auf">je t</small>` : darf ? `<label class="price-in sm"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-feld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? `<small class="auf">${aufschlag(p.ep)}</small>` : istLandschaft(p) ? '<small class="auf">je t Naturmaterial</small>' : ''}` : epText(p)}</span>
       <span class="pt-sum num" role="cell"><b>${fmt.eur(p.summe || 0)}</b></span>
       <span class="pt-akt" role="cell">${darf ? `<button type="button" class="icon-btn sm" data-akt="hoch" aria-label="${esc(p.bezeichnung)} nach oben" ${i === 0 ? 'disabled' : ''}>${ic('down', 'up')}</button><button type="button" class="icon-btn sm" data-akt="runter" aria-label="${esc(p.bezeichnung)} nach unten" ${i === liste.length - 1 ? 'disabled' : ''}>${ic('down')}</button><button type="button" class="icon-btn sm" data-akt="mehr" aria-label="Weitere Aktionen für ${esc(p.bezeichnung)}">${ic('more')}</button>` : ''}</span>
     </div>`;
@@ -122,7 +123,7 @@ export default async function positionen(el, ctx) {
     const d2 = dialog({
       titel: p.bezeichnung, breit: true,
       inhalt: `<div class="stack-s" id="mengen" data-pos="${p.id}">
-        <dl class="def-list tight"><div><dt>${betrag ? 'Rechnungsbeträge gesamt' : 'Menge gesamt'}</dt><dd class="num">${mengeText(p, p.menge || 0)} ${betrag ? '' : esc(p.einheit || '')}</dd></div>
+        <dl class="def-list tight"><div><dt>${betrag ? 'Rechnungsbeträge gesamt' : 'Menge gesamt'}</dt><dd class="num">${mengeText(p, p.menge || 0)} ${betrag ? '' : land ? 't' : esc(p.einheit || '')}</dd></div>
           <div><dt>${betrag ? `Aufschlagsfaktor` : 'Einheitspreis'}</dt><dd class="num">${betrag ? `× ${fmt.zahl(p.ep)} (${aufschlag(p.ep)})` : fmt.eur(p.ep)}</dd></div>
           <div><dt>Summe</dt><dd class="num"><b>${fmt.eur(p.summe || 0)}</b></dd></div></dl>
         ${land ? banner('info', `<b>Automatisch:</b> ${fmt.zahl(p.mengeAuto || 0)} t Naturmaterial × ${fmt.eur(p.ep)} – 0,25 € je t Naturmaterial. Gezählt werden alle Positionen mit dem Kennzeichen „Naturmaterial“ (Einheit t). Zusätzliche Mengen können unten händisch erfasst werden.`)
@@ -131,7 +132,7 @@ export default async function positionen(el, ctx) {
         <h4 class="sub-h">${betrag ? 'Erfasste Rechnungsbeträge' : 'Händisch erfasste Mengen'}</h4>
         ${(p.eintraege || []).length ? `<ul class="plain rows" id="eintraege">${p.eintraege.map((e) => `<li data-eintrag="${e.id}"><span class="grow"><b>${betrag ? fmt.eur(e.menge) : fmt.zahl(e.menge) + ' ' + esc(p.einheit || '')}</b><small>${esc(fmt.datum(e.datum))}${e.notiz ? ' · ' + esc(e.notiz) : ''}</small></span>${darfMengen ? `<button type="button" class="btn ghost sm" data-storno="${e.id}">Stornieren</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted sm">Noch keine Einträge.</p>'}
         ${darfMengen ? `<form id="mf" class="form-grid mf" novalidate>
-          <label class="field"><span class="field-label">${betrag ? 'Rechnungsbetrag (€)' : `Menge (${esc(p.einheit || '')})`}</span><input class="input lg num" name="menge" inputmode="decimal" autocomplete="off" required placeholder="${betrag ? '0,00' : '0'}"><small class="geld-echo" id="mf-echo" aria-live="polite"></small></label>
+          <label class="field"><span class="field-label">${betrag ? 'Rechnungsbetrag (€)' : `Menge (${land ? 't' : esc(p.einheit || '')})`}</span><input class="input lg num" name="menge" inputmode="decimal" autocomplete="off" required placeholder="${betrag ? '0,00' : '0'}"><small class="geld-echo" id="mf-echo" aria-live="polite"></small></label>
           <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required value="${wienHeute()}" max="${wienHeute()}"></label>
           <label class="field full"><span class="field-label">Notiz (z. B. Lieferant, Rechnungsnummer)</span><input class="input lg" name="notiz" maxlength="200"></label>
           <p class="form-err full" role="alert" hidden></p>

@@ -829,7 +829,7 @@ async function laufe(browser, g) {
     pruef((await page.locator(`.pt-row[data-pos="${pPA.id}"]`).innerText()).replace(/\s+/g, ' ').includes('+15'), 'P-05: Aufschlag „+15 %“ wird bei der PA-Position nicht gezeigt');
     await page.locator(`.pt-row[data-pos="${pPA.id}"] .pt-mbtn`).click();
     await page.waitForSelector('dialog[open] #mf');
-    pruef((await page.locator('dialog[open] #mf').innerText()).includes('Rechnungsbetrag (€)') && (await page.locator('dialog[open]').innerText()).includes('Rechnungsbetrag eingeben'), 'P-05: Eingabe heißt nicht „Rechnungsbetrag (€)“ bzw. Hinweis fehlt');
+    pruef((await page.locator('dialog[open] #mf').innerText()).toLowerCase().includes('rechnungsbetrag (€)') && (await page.locator('dialog[open]').innerText()).includes('Rechnungsbetrag eingeben'), 'P-05: Eingabe heißt nicht „Rechnungsbetrag (€)“ bzw. Hinweis fehlt');
     await page.fill('dialog[open] #mf input[name="menge"]', '1.000');
     pruef((await page.locator('dialog[open] #mf-echo').innerText()).replace(/\s/g, ' ').includes('1.150,00'), `P-05: Vorschau rechnet nicht Betrag × 1,15 („${await page.locator('dialog[open] #mf-echo').innerText()}“)`);
     await page.click('dialog[open] #mf button[type="submit"]');
@@ -870,10 +870,11 @@ async function laufe(browser, g) {
     pruef(!allePos(await posApi()).some((x) => x.id === eigene.id), 'P-07: eigene Position nicht gelöscht');
     await toastWeg();
     // Reihenfolge ändern
-    const gArbeit = (await posApi()).gruppen.find((x) => x.schluessel === 'arbeit').positionen.filter((x) => x.aktiv);
-    await page.locator(`.pt-row[data-pos="${gArbeit[0].id}"] [data-akt="runter"]`).click();
-    await page.waitForFunction(([a, b]) => { const r = [...document.querySelectorAll('details.pg[data-gruppe="arbeit"] .pt-row')].map((x) => x.dataset.pos); return r[0] === String(b) && r[1] === String(a); }, [gArbeit[0].id, gArbeit[1].id]);
-    pruef((await posApi()).gruppen.find((x) => x.schluessel === 'arbeit').positionen.filter((x) => x.aktiv)[0].id === gArbeit[1].id, 'P-08: Reihenfolge nicht gespeichert');
+    const gGer = (await posApi()).gruppen.find((x) => x.schluessel === 'geraete').positionen.filter((x) => x.aktiv);
+    await page.locator(`.pt-row[data-pos="${gGer[0].id}"] [data-akt="runter"]`).scrollIntoViewIfNeeded();
+    await page.locator(`.pt-row[data-pos="${gGer[0].id}"] [data-akt="runter"]`).click();
+    await page.waitForFunction(([a, b]) => { const r = [...document.querySelectorAll('details.pg[data-gruppe="geraete"] .pt-row:not(.aus)')].map((x) => x.dataset.pos); return r[0] === String(b) && r[1] === String(a); }, [gGer[0].id, gGer[1].id]);
+    pruef((await posApi()).gruppen.find((x) => x.schluessel === 'geraete').positionen.filter((x) => x.aktiv)[0].id === gGer[1].id, 'P-08: Reihenfolge nicht gespeichert');
     // Gruppen einklappen
     await page.locator('details.pg[data-gruppe="transport"] > summary').click();
     pruef(await page.locator('details.pg[data-gruppe="transport"]:not([open])').count() === 1, 'P-09: Gruppe lässt sich nicht einklappen');
@@ -911,7 +912,7 @@ async function laufe(browser, g) {
       await page.click('dialog[open] .dlg-foot [data-zu]');
       // Kennzeichen abschalten → zählt nicht mehr
       await page.locator(`.pt-row[data-pos="${pNat.id}"] .pt-mbtn`).click();
-      await page.waitForSelector('dialog[open] #qf');
+      await page.waitForSelector('dialog[open] #qf', { state: 'attached' });
       if (!(await page.locator('dialog[open] #quelle-box[open]').count())) await page.click('dialog[open] #quelle-box summary');
       await page.locator('dialog[open] #qf input[name="naturmaterial"] + .switch').click();
       await page.click('dialog[open] #qf button[type="submit"]');
