@@ -45,11 +45,11 @@ const NAV = [
   { id: 'kolonne', pfad: '/kolonne', text: 'Kolonne stempeln', kurz: 'Kolonne', icon: 'users', darf: eines('kolonne') },
   { id: 'berichte', pfad: '/berichte', text: 'Bautagesberichte', kurz: 'Berichte', icon: 'clipboard', darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
-  { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: eines('stammdaten', 'kalk_sehen', 'bericht_freigeben') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Preise', kurz: 'Preise', icon: 'tag', darf: eines('preise_sehen') },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
+  { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Rechte', icon: 'shield', darf: eines('benutzer') },
 ];
 const navErlaubt = () => {
