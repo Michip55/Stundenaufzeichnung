@@ -42,6 +42,30 @@ function verwendung(db, art, z) {
 }
 const benutzt = (u) => Object.values(u).some((x) => x > 0);
 
+/** Quellen-Art je Stammdaten-Art (Positions-Quellen speichern den CODE, nicht die id) */
+const QUELLE_ART = { geraete: 'geraet', materialien: 'material' };
+/**
+ * Verweise per Code für eine Umbenennung (12.21): Positions-Quellen im Katalog und in allen Projekten
+ * (auch Listen-Refs). → [{tabelle, id, quelle}] mit der neuen Quelle (JSON). Verweise per id bleiben unberührt.
+ */
+function codeVerweise(db, art, alt, neu) {
+  const qa = QUELLE_ART[art];
+  if (!qa) return [];
+  const out = [];
+  for (const tabelle of ['katalog', 'projektposition']) {
+    for (const z of db.alle(`SELECT id, quelle FROM ${tabelle} WHERE quelle LIKE ?`, `%"art":"${qa}"%`)) {
+      let q;
+      try { q = JSON.parse(z.quelle); } catch (_) { continue; }
+      if (!q || q.art !== qa) continue;
+      const refs = Array.isArray(q.ref) ? q.ref : [q.ref];
+      if (!refs.includes(alt)) continue;
+      const neuRefs = refs.map((r) => (r === alt ? neu : r));
+      out.push({ tabelle, id: z.id, quelle: JSON.stringify({ ...q, ref: Array.isArray(q.ref) ? [...new Set(neuRefs)] : neu }) });
+    }
+  }
+  return out;
+}
+
 module.exports = function stammdatenVerwaltung(api, bt) {
   const { db } = bt;
   const jetzt = () => bt.uhr().toISOString();
@@ -147,9 +171,14 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     if (a === 'lohngruppen' && body.id !== undefined && body.id !== z.id) throw new ApiFehler(422, 'UNGUELTIG', 'Die ID einer Lohngruppe ist unveränderlich.');
     const f = felder(a, d, body, true);
     if (Object.keys(f).length && a !== 'lohngruppen' && !req.ctx.hat('stammdaten')) throw keinZugriff('Stammdaten ändern dürfen Büro bzw. GF (Recht stammdaten).');
+    // 12.21 (geändert 13.11.2026): Code auch bei Verwendung änderbar – Verweise per Code werden mitgezogen
+    let umbenennen = null;
     if (f.code !== undefined && f.code !== z.code) {
-      if (benutzt(verwendung(db, a, z))) throw new ApiFehler(422, 'UNGUELTIG', `Der Code ${z.code} wird verwendet und kann nicht geändert werden (Positions-Zuordnungen, Berichte).`);
       if (db.eins(`SELECT id FROM ${d.tabelle} WHERE code = ? AND id <> ?`, f.code, z.id)) throw konflikt(`Der Code ${f.code} ist schon vergeben.`);
+      umbenennen = { alt: z.code, neu: f.code, verweise: codeVerweise(db, a, z.code, f.code) };
+    }
+    if (body.vorschau === true) {
+      return res.json({ vorschau: true, umbenannt: umbenennen ? { alt: umbenennen.alt, neu: umbenennen.neu, referenzen: umbenennen.verweise.length } : null, verwendet: verwendung(db, a, z) });
     }
     const e = euro(req, d, body);
     if (!Object.keys(f).length && !e.length) throw ungueltig('Keine Änderungen angegeben.');
@@ -158,11 +187,13 @@ module.exports = function stammdatenVerwaltung(api, bt) {
       const k = Object.keys(f);
       db.lauf(`UPDATE ${d.tabelle} SET ${[...k.map((x) => `${x} = ?`), 'version = version + 1'].join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), z.id);
       for (const x of e) PV.setzePreis(db, { art: a, ref: z.id, feld: x.feld, wert: x.wert, gueltigAb: g.gueltigAb, benutzerId: req.ctx.benutzer.id, jetzt: bt.uhr() });
+      if (umbenennen) for (const x of umbenennen.verweise) db.lauf(`UPDATE ${x.tabelle} SET quelle = ? WHERE id = ?`, x.quelle, x.id);
       const alt = {}; for (const x of k) alt[x] = z[x]; for (const x of e) alt[x.feld] = z[x.feld];
-      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: e.length ? 'preis' : 'stammdaten', objekt: `${a}:${z.id}`, alt, neu: { ...f, ...Object.fromEntries(e.map((x) => [x.feld, x.wert])), ...(g ? { gueltigAb: g.gueltigAb } : {}) }, text: `${d.name} „${z.name || z.text}“ geändert` });
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: e.length ? 'preis' : 'stammdaten', objekt: `${a}:${z.id}`, alt, neu: { ...f, ...Object.fromEntries(e.map((x) => [x.feld, x.wert])), ...(g ? { gueltigAb: g.gueltigAb } : {}), ...(umbenennen ? { umbenannt: { alt: umbenennen.alt, neu: umbenennen.neu, referenzen: umbenennen.verweise.length } } : {}) },
+        text: umbenennen ? `${d.name} „${z.name || z.text}“: Code ${umbenennen.alt} → ${umbenennen.neu} (${umbenennen.verweise.length} Verweise angepasst)` : `${d.name} „${z.name || z.text}“ geändert` });
     });
     if (e.length) pruefeAlleBudgets(bt, { anlass: 'Preisänderung', benutzerId: req.ctx.benutzer.id });
-    res.json(json(a, zeile(d, z.id), req.ctx.hat('preise_sehen')));
+    res.json({ ...json(a, zeile(d, z.id), req.ctx.hat('preise_sehen')), ...(umbenennen ? { umbenannt: { alt: umbenennen.alt, neu: umbenennen.neu, referenzen: umbenennen.verweise.length } } : {}) });
   });
 
   api.delete('/stammdaten/:art/:id', (req, res) => {

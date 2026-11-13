@@ -54,15 +54,17 @@ test('Stammdaten verwalten', async (t) => {
     assert.ok(s.db.eins("SELECT 1 AS x FROM protokoll WHERE objekt = 'lohngruppen:kraftfahrer'"));
   });
 
-  await t.test('Löschen: unbenutzt ok; benutzt → 409 mit verwendet, deaktivieren; verwendeter Code unveränderlich', async () => {
+  await t.test('Löschen: unbenutzt ok; benutzt → 409 mit verwendet, deaktivieren; verwendeter Code umbenennbar', async () => {
     const tmp = (await c.buero.post('/stammdaten/leistungen', { code: 'tmp1', text: 'Test', einheit: 'm²' })).daten;
     assert.equal((await c.buero.del(`/stammdaten/leistungen/${tmp.id}`)).status, 200);
     const g = s.db.eins('SELECT g.* FROM geraet g WHERE EXISTS (SELECT 1 FROM bericht_geraet bg WHERE bg.geraet_id = g.id) LIMIT 1');
     let r = await c.buero.del(`/stammdaten/geraete/${g.id}`);
     assert.equal(r.status, 409);
     assert.ok(r.daten.verwendet.berichte > 0);
+    // seit 13.11.2026: verwendeter Code ist änderbar (Verweise per Code werden mitgezogen, 12.21)
     r = await c.buero.put(`/stammdaten/geraete/${g.id}`, { version: ver('geraet', g.id), code: `${g.code}x` });
-    assert.equal(r.status, 422);
+    assert.equal(r.status, 200);
+    assert.deepEqual([r.daten.code, r.daten.umbenannt.alt, r.daten.umbenannt.neu], [`${g.code}x`, g.code, `${g.code}x`]);
     r = await c.buero.put(`/stammdaten/geraete/${g.id}`, { version: ver('geraet', g.id), aktiv: false });
     assert.equal(r.status, 200);
     // nicht mehr in der Auswahl, aber in alten Berichten
