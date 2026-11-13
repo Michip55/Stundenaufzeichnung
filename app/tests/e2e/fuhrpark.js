@@ -20,7 +20,7 @@ async function testBild(page, farbe, text) {
   return { name: `${text}.png`, mimeType: 'image/png', buffer: Buffer.from(url.split(',')[1], 'base64') };
 }
 const reiterIds = (page) => page.evaluate(() => [...document.querySelectorAll('.fp-tabs [data-reiter]')].map((b) => b.dataset.reiter));
-const geladen = (page) => page.evaluate(() => [...document.querySelectorAll('dialog[open] img, #view img')].every((i) => i.complete && i.naturalWidth > 0));
+const geladen = (page) => page.evaluate(() => [...document.querySelectorAll('#sd-galerie img')].every((i) => i.complete && i.naturalWidth > 0));
 
 // Schaden über die Oberfläche melden. start = Funktion, die den Dialog öffnet.
 async function meldeSchaden(h, { start, suche, fremd, fotos = [], art = 'defekt', ursache, einsatz = 'ja', wo }) {
@@ -79,7 +79,8 @@ async function mitarbeiter(h, z) {
   let alle = await anlagen(h);
   pruef(alle.length >= 20, `Fuhrpark: Demo-Fuhrpark zu klein (${alle.length})`);
   pruef(!/kosten|verrechnungssatz/i.test(JSON.stringify(alle)), 'Fuhrpark Mitarbeiter: Server liefert €-Felder in der Geräteliste');
-  pruef((await api('GET', '/fuhrpark/uebersicht')).status === 403 && (await api('GET', '/fuhrpark/fristen')).status === 403 && (await api('GET', '/fuhrpark/eintraege')).status === 403, 'Fuhrpark Mitarbeiter: Übersicht/Fristen/Einträge nicht gesperrt');
+  const gesperrt = await h.absichtlich(async () => [(await api('GET', '/fuhrpark/uebersicht')).status, (await api('GET', '/fuhrpark/fristen')).status, (await api('GET', '/fuhrpark/eintraege')).status]);
+  pruef(gesperrt.every((s) => s === 403), `Fuhrpark Mitarbeiter: Übersicht/Fristen/Einträge nicht gesperrt (${gesperrt})`);
   if (g.mobil) pruef(await sichtbar(page, '.fp-card').count() >= 5 && await sichtbar(page, '#fp-tabelle').count() === 0, 'Fuhrpark Handy: Karten statt Tabelle erwartet');
   else pruef(await sichtbar(page, '#fp-tabelle tbody tr').count() === alle.length && await sichtbar(page, '.fp-card').count() === 0, 'Fuhrpark Tablet/PC: Tabelle mit allen Geräten erwartet');
   const zeilen = g.mobil ? '#fp-alle .fp-card' : '#fp-tabelle tbody tr';
@@ -200,8 +201,8 @@ async function mitarbeiter(h, z) {
     await page.waitForSelector('#sch-warten [data-wartet]', { timeout: 15000 });
   });
   pruef(/wartet auf Verbindung/.test(await page.locator('#sch-warten').innerText()), 'Offline-Schaden: Zustand „wartet auf Verbindung“ nicht sichtbar');
-  await page.waitForFunction(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.wartet === '1'), null, { timeout: 8000 }).catch(() => {});
-  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.wartet === '1' && !b.hidden)), 'Offline-Schaden: Zahl am Menüpunkt fehlt');
+  await page.waitForFunction(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.schWartet === '1'), null, { timeout: 8000 }).catch(() => {});
+  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.schWartet === '1' && !b.hidden)), 'Offline-Schaden: Zahl am Menüpunkt fehlt');
   await h.ueberlauf('schäden offline'); await shot('schaeden-offline'); await h.toastWeg();
   await context.setOffline(false);
   // Antwort des Servers geht verloren (Meldung ist am Server, das Gerät weiß es nicht) → erneutes Senden darf nichts verdoppeln
@@ -218,16 +219,16 @@ async function mitarbeiter(h, z) {
   const off = meine.filter((s) => s.ursache === URS2);
   pruef(off.length === 1 && meine.length === anzahlVor + 1, `Offline-Schaden: ${off.length} Meldungen am Server statt genau einer (gesamt ${meine.length}, vorher ${anzahlVor})`);
   pruef(off[0] && off[0].fotos.length === 1, `Offline-Schaden: Foto fehlt oder doppelt (${off[0] && off[0].fotos.length})`);
-  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].every((b) => b.dataset.wartet !== '1')), 'Offline-Schaden: Zahl am Menüpunkt bleibt nach dem Senden stehen');
+  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].every((b) => b.dataset.schWartet !== '1')), 'Offline-Schaden: Zahl am Menüpunkt bleibt nach dem Senden stehen');
   await h.toastWeg();
 }
 
 /* ================= Fremder Mitarbeiter: darf Meldung und Fotos nicht öffnen ================= */
 async function fremder(h, z) {
   const { page, api, geh, pruef } = h;
-  const r = await api('GET', `/fuhrpark/schaeden/${z.schadenId}`);
+  const r = await h.absichtlich(() => api('GET', `/fuhrpark/schaeden/${z.schadenId}`));
   pruef(r.status === 403, `Fremder Mitarbeiter: Schadensmeldung abrufbar (Status ${r.status})`);
-  const f = await h.absichtlich(() => page.evaluate(async (u) => (await fetch(u)).status, z.fotoUrl));
+  const f = await h.absichtlich(() => page.evaluate(async (u) => (await fetch(u, { cache: 'no-store' })).status, z.fotoUrl));
   pruef(f === 403, `Fremder Mitarbeiter: Foto abrufbar (Status ${f})`);
   pruef(!((await api('GET', '/fuhrpark/schaeden')).json || []).some((s) => s.id === z.schadenId), 'Fremder Mitarbeiter: fremde Meldung in der eigenen Liste');
   await h.absichtlich(async () => { await geh(`/fuhrpark?reiter=schaeden&schaden=${z.schadenId}`, 'schaden-fremd'); await page.waitForSelector('.toast'); });
@@ -337,7 +338,7 @@ async function buero(h, z) {
     await page.waitForFunction((id) => location.hash.startsWith(`#/fuhrpark/anlage/${id}`), mitAnlage.anlageId);
     await h.bereit();
   } else await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => Number(b.dataset.neu) >= 1 && !b.hidden)), 'Menü: Zahl neuer Schadensmeldungen fehlt');
+  pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => Number(b.dataset.schNeu) >= 1 && !b.hidden)), 'Menü: Zahl neuer Schadensmeldungen fehlt');
 
   /* Übersicht mit Ampel */
   let alle = await anlagen(h);
@@ -477,7 +478,7 @@ async function buero(h, z) {
   await geh('/fuhrpark?reiter=schaeden');
   await sichtbar(page, `[data-schaden="${z.schadenId}"]`).click();
   await page.waitForSelector('#schaden-detail #sd-eintrag');
-  pruef(/E2E Hydraulikschlauch erneuert/.test(await page.locator('#sd-eintrag').innerText()) && /€ 320,00/.test(await page.locator('#sd-eintrag').innerText()), 'Schaden-Detail: Verknüpfung zur Reparatur (mit Kosten fürs Büro) fehlt');
+  pruef(/E2E Hydraulikschlauch erneuert/.test(await page.locator('#sd-eintrag').innerText()) && /€\s320,00/.test(await page.locator('#sd-eintrag').innerText()), 'Schaden-Detail: Verknüpfung zur Reparatur (mit Kosten fürs Büro) fehlt');
   pruef(await page.locator('#schaden-detail .sd-kopf[data-status="behoben"]').count() === 1, 'Schaden-Detail: Status „Behoben“ fehlt');
   await h.dialogUeberlauf('schaden behoben'); await shot('schaden-behoben');
   await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
@@ -508,6 +509,36 @@ async function buero(h, z) {
   const neu = (await api('GET', `/fuhrpark/anlagen/${neuId}`)).json;
   pruef(neu.bezeichnung === `E2E Pritsche ${g.name}` && neu.zaehler.length === 1 && neu.zaehler[0].aktuell === 54300 && neu.plan.length >= 2, `Neues Gerät: nicht vollständig angelegt (${JSON.stringify({ z: neu.zaehler.length, p: (neu.plan || []).length })})`);
   await h.ueberlauf('anlage neu detail'); await shot('anlage-neu-detail'); await h.toastWeg();
+
+  /* Zählerabfrage beim Ausstempeln (Vertrag 7.3): Stand des eigenen Fahrzeugs älter als 7 Tage */
+  alle = await anlagen(h);
+  const grenze = new Date(new Date(h.heute()).getTime() - 8 * 864e5).toISOString().slice(0, 10);
+  let fz = null;
+  for (const a of alle.filter((x) => x.status !== 'gesperrt' && (x.zaehler || []).some((q) => q.art === 'km'))) {
+    const d = (await api('GET', `/fuhrpark/anlagen/${a.id}`)).json;
+    const km = d.zaehler.find((x) => x.art === 'km');
+    if (km && km.letzterStand && km.letzterStand.datum <= grenze) { fz = d; break; }
+  }
+  pruef(!!fz, 'Zählerabfrage: kein Fahrzeug mit Kilometerstand älter als 7 Tage in den Testdaten');
+  if (!fz) return;
+  const ich = (await api('GET', '/auth/ich')).json;
+  const put = await api('PUT', `/fuhrpark/anlagen/${fz.id}`, { version: fz.version, verantwortlichId: ich.benutzer.id });
+  pruef(put.status === 200, `Zählerabfrage: Verantwortliche konnte nicht gesetzt werden (${put.status})`);
+  await geh('/stempeln');
+  if (await page.locator('.clock-card[data-status="aus"]').count() === 1) { await page.click('[data-stempel="kommen"]'); await page.waitForSelector('.clock-card[data-status="arbeit"]'); }
+  await h.toastWeg();
+  await page.click('[data-stempel="gehen"]');
+  await page.waitForSelector('#zaehler-dlg .zs-wert', { timeout: 10000 });
+  pruef(/Kilometerstand eintragen\?/.test(await page.locator('#zaehler-dlg h2').innerText()) && /Überspringen/.test(await page.locator('#zaehler-dlg .dlg-foot').innerText()), 'Zählerabfrage: Dialog „Kilometerstand eintragen?“ mit „Überspringen“ erwartet');
+  pruef((await page.locator('#zaehler-dlg .mm-geraet').innerText()).includes(fz.bezeichnung), 'Zählerabfrage: Fahrzeug wird nicht genannt');
+  await h.dialogUeberlauf('zaehlerabfrage'); await shot('zaehlerabfrage');
+  const kmAlt = fz.zaehler.find((x) => x.art === 'km').letzterStand.anzeige;
+  await page.fill('#zaehler-dlg .zs-wert', String(Math.round(kmAlt + 310)));
+  await page.click('#zaehler-dlg button[type="submit"]');
+  await dlgZu(page);
+  pruef((await api('GET', `/fuhrpark/anlagen/${fz.id}`)).json.zaehler.find((x) => x.art === 'km').letzterStand.anzeige === Math.round(kmAlt + 310), 'Zählerabfrage: Stand nicht gespeichert');
+  pruef(((await api('GET', '/fuhrpark/zaehlerabfrage')).json || []).every((x) => x.anlageId !== fz.id), 'Zählerabfrage: nach dem Eintragen wird weiter gefragt');
+  await h.toastWeg();
 }
 
 module.exports = { mitarbeiter, fremder, polier, berichtGeraete, buero };

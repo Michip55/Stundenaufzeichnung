@@ -286,7 +286,7 @@ export async function schadenOeffnen(ctx, id) {
     const fotos = arr(s.fotos);
     const bearb = !!s.darfBearbeiten;
     box.innerHTML = `<div class="sd-kopf" data-status="${esc(s.status)}"><div><small>${esc(S_ART[s.art] || '')} · ${esc(fmt.zeitpunkt(s.zeitpunkt || s.gemeldet))}</small><h3>${s.anlageId ? `<a class="lnk" href="#/fuhrpark/anlage/${s.anlageId}">${esc(geraetName(s))}</a>` : esc(geraetName(s))}</h3></div><div class="sch-chips">${sStatusChip(s.status)}${einsatzChip(s.einsatzfaehig, '')}</div></div>
-      ${fotos.length ? `<div class="sd-galerie" id="sd-galerie" aria-label="Fotos">${fotos.map((f, i) => `<figure><button type="button" data-foto="${i}" aria-label="Foto ${i + 1} vergrößern"><img src="${esc(fotoUrl(s, f))}" alt="Foto ${i + 1}" loading="lazy"></button>${bearb ? `<button type="button" class="icon-btn sm sd-foto-weg" data-foto-weg="${f.id}" aria-label="Foto ${i + 1} löschen">${ic('trash')}</button>` : ''}</figure>`).join('')}</div>` : '<p class="muted sm">Ohne Foto gemeldet.</p>'}
+      ${fotos.length ? `<div class="sd-galerie" id="sd-galerie" aria-label="Fotos">${fotos.map((f, i) => `<figure><button type="button" data-foto="${i}" aria-label="Foto ${i + 1} vergrößern"><img src="${esc(fotoUrl(s, f))}" alt="Foto ${i + 1}"></button>${bearb ? `<button type="button" class="icon-btn sm sd-foto-weg" data-foto-weg="${f.id}" aria-label="Foto ${i + 1} löschen">${ic('trash')}</button>` : ''}</figure>`).join('')}</div>` : '<p class="muted sm">Ohne Foto gemeldet.</p>'}
       ${s.darfFotos && fotos.length < MAX_FOTOS && offen(s) ? `<label class="btn ghost sm sd-foto-dazu">${ic('camera')}Foto nachreichen<input type="file" class="vh" id="sd-foto" accept="image/*" multiple></label>` : ''}
       <dl class="def-list sd-liste">
         ${zeile('Ursache', esc(s.ursache || ''))}${zeile('Beschädigt', esc(s.beschreibung || ''))}${zeile('Baustelle', s.baustelle ? esc((s.baustelle.kst ? s.baustelle.kst + ' · ' : '') + s.baustelle.name) : '')}
@@ -343,7 +343,7 @@ export async function schadenOeffnen(ctx, id) {
     }
     if (e.target.closest('[data-sd-neuer-eintrag]')) {
       // Reparatur neu erfassen: der Eintrag setzt den Schaden selbst auf „behoben“ und verknüpft ihn
-      try { const a = await get(`/fuhrpark/anlagen/${s.anlageId}`); d.zu(); eintragDialog(ctx, a, { maengel: a.maengel || [], schaeden: [s], vorgewaehlt: [s.id], art: 'reparatur' }); } catch (x) { fehler(x.message); }
+      try { const a = await get(`/fuhrpark/anlagen/${s.anlageId}`); geaendert = false; d.zu(); eintragDialog(ctx, a, { maengel: a.maengel || [], schaeden: [s], vorgewaehlt: [s.id], art: 'reparatur' }); } catch (x) { fehler(x.message); }
     }
   });
   d.geschlossen.then(() => { if (geaendert && ctx.aktuell()) ctx.neuLaden(); });

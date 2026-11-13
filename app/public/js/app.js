@@ -176,7 +176,7 @@ const bearbeitetSchaeden = () => !!ich && (kann('fuhrpark') || ['buero', 'gf'].i
 function zeigeBadge() {
   const n = schadenNeu + schadenWartet;
   const text = [schadenNeu ? `${schadenNeu} neue Schadensmeldung${schadenNeu > 1 ? 'en' : ''}` : '', schadenWartet ? `${schadenWartet} Schadensmeldung${schadenWartet > 1 ? 'en warten' : ' wartet'} auf Verbindung` : ''].filter(Boolean).join(', ');
-  $$('.nav-badge[data-badge]').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.dataset.neu = schadenNeu; b.dataset.wartet = schadenWartet; b.title = text; });
+  $$('.nav-badge[data-badge]').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.dataset.schNeu = schadenNeu; b.dataset.schWartet = schadenWartet; b.title = text; });
 }
 async function holeSchadenZahl() {
   if (!ich) return;

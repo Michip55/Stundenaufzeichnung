@@ -464,7 +464,7 @@ export async function bericht(el, ctx) {
     const aw = e.target.closest('[data-anlage-wahl]');
     if (aw && !aw.disabled) {
       const [gid, aid] = aw.dataset.anlageWahl.split(':').map(Number); const g = gZeile(gid);
-      if (g) { g.anlageId = g.anlageId === aid ? null : aid; $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); geaendert('geraete'); }
+      if (g && g.anlageId !== aid) { g.anlageId = aid; $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); geaendert('geraete'); }
       return;
     }
     const sn = e.target.closest('[data-schritt-nr]');
