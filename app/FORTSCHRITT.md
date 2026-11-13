@@ -3,6 +3,7 @@
 Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teilschritt gepusht (Branch `claude/jolly-newton-swaya9`).
 
 ## Erledigt
+- **Freigabe (13.11.2026):** Prüfbericht-4-Befunde E-01…E-09 + N-01 behoben, Nachprüfung bestanden (`PRUEFBERICHT_4_NACHPRUEFUNG.md`). Endstand: Server 290/290, E2E 484/484 je Größe (Handy, Tablet, PC) grün → Pull Request auf `main`
 - Vierte Prüfung (`PRUEFBERICHT_4.md`): **freigabefähig**, keine kritischen/hohen Befunde; alle Befunde aus Prüfbericht 3 bestätigt behoben. Tests: Server 277/277, E2E 463/463 je Größe grün
 - Oberfläche Positions-Nachkalkulation fertig; E2E uhrzeitunabhängig (feste Uhr), 463/463 je Größe laut Agent; Server 277/277 grün
 - Servicebuch: Recherche und Konzept (Kapitel 5 in `docs/Konzept.md`) und Umsetzungsvertrag `app/SERVICEBUCH_ENTWURF.md`
@@ -24,8 +25,7 @@ Gestartet: 12.11.2026, 23:40 Uhr. Wird laufend aktualisiert und nach jedem Teils
 - E2E-Tests (`app/tests/e2e`): 223/223 Prüfungen je Größe (Handy, Tablet, PC) grün gegen den echten Server
 
 ## In Arbeit
-- Behebung der mittleren/niedrigen Befunde aus `PRUEFBERICHT_4.md` (E-01 Landschaftsabgabe geht beim Bestätigen verloren, E-02 Excel-Import-Absturz, E-03 Migration Bestands-DB, E-04 Re-Import der Vorlage, E-05…E-09) – danach kurze Nachprüfung und Pull Request
-- **Servicebuch + Schadensmeldung mit Fotos**: PAUSIERT (Nutzungslimit 90 %). Zwischenstand lokal im Arbeitsstand `/home/user/bautag-servicebuch` (Branch `servicebuch`, Commit 50f8891): Server-Routen /api/fuhrpark inkl. Schäden mit Fotos, Fälligkeitslogik mit Unit-Tests, Oberfläche Übersicht/Geräte/Fristen/Zeitleiste/Schäden. Noch offen: Tests komplett, E2E, Prüfung, Übernahme in den Hauptstand
+- Servicebuch + Schadensmeldung mit Fotos: PAUSIERT (Nutzungslimit). Zwischenstand lokal im Arbeitsstand `/home/user/bautag-servicebuch` (Branch `servicebuch`, Commit 50f8891), noch nicht getestet/geprüft – wird nach eigener Prüfung als Erweiterung nachgereicht
 
 ## Offen
 - Befunde der Prüfung beheben, Tests erneut
