@@ -15,7 +15,8 @@ test('B-01: jede Rolle × jedes vergebbare Recht × jede Route – keine €-Lec
   const GETS = ['/auth/ich', '/baustellen', `/baustellen/${BS.pitten}`, `/baustellen/${BS.reisinger}`, '/mitarbeiter', '/geraete', '/materialien', '/leistungen',
     '/zeit/status', '/zeit/woche', '/zeit/anwesend', `/zeit/kolonne?baustelleId=${BS.pitten}`, '/benachrichtigungen', '/berichte', `/berichte/${berichtPitten}`,
     '/abwesenheiten', '/zeit/buchungen', `/baustellen/${BS.pitten}/leistungen`, `/baustellen/${BS.pitten}/fremdleistungen`,
-    '/kalkulation', `/kalkulation/${BS.pitten}`, '/preise', '/monat?monat=2026-11', '/rechte', '/benutzer', '/integrationen'];
+    '/kalkulation', `/kalkulation/${BS.pitten}`, '/preise', '/monat?monat=2026-11', '/rechte', '/benutzer', '/integrationen',
+    '/positionen/katalog', `/baustellen/${BS.pitten}/positionen`, `/baustellen/${BS.pitten}/positionen/export.xlsx`];
   const matrixVorher = R.ladeMatrix(s.db);
 
   for (const [rolle, uid] of NICHT_GF) {
@@ -40,7 +41,8 @@ test('B-01: jede Rolle × jedes vergebbare Recht × jede Route – keine €-Lec
             const r = await c.get(p);
             assert.ok(r.status < 500, `${p} → ${r.status}`);
             if (['mitarbeiter', 'polier'].includes(rolle)) {
-              if (['/preise', '/kalkulation', `/kalkulation/${BS.pitten}`, '/monat?monat=2026-11', `/baustellen/${BS.pitten}/fremdleistungen`].includes(p)) assert.equal(r.status, 403, p);
+              if (['/preise', '/kalkulation', `/kalkulation/${BS.pitten}`, '/monat?monat=2026-11', `/baustellen/${BS.pitten}/fremdleistungen`,
+                '/positionen/katalog', `/baustellen/${BS.pitten}/positionen`, `/baustellen/${BS.pitten}/positionen/export.xlsx`].includes(p)) assert.equal(r.status, 403, p);
               if (r.status === 200) assert.deepEqual(euroFelder(r.daten), [], `${rolle}+${recht} ${p}`);
             }
             if (p === '/rechte' || (p === '/benutzer' && rolle !== 'buero')) assert.equal(r.status, 403, `${rolle}+${recht} ${p}`);

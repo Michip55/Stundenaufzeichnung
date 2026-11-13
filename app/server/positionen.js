@@ -91,7 +91,8 @@ function katalogKopieren(db, baustelleId, jetzt = new Date()) {
 function autoMengen(db, baustelleId, positionen) {
   const mengen = new Map();
   const hinweise = [];
-  const mitQuelle = positionen.filter((p) => p.quelle && p.aktiv && p.quelle.art !== 'naturmaterial');
+  // auch ausgeblendete Positionen (für den Hinweis „nicht in der Summe“)
+  const mitQuelle = positionen.filter((p) => p.quelle && p.quelle.art !== 'naturmaterial');
   if (!mitQuelle.length) return { mengen, hinweise };
   const personal = db.alle(`SELECT b.lohngruppe_id AS ref, SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
     JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY b.lohngruppe_id`, baustelleId);
