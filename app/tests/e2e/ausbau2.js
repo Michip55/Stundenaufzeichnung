@@ -698,6 +698,125 @@ async function dokumenteUndRechnungen(h, z) {
   await abmelden();
 }
 
+/* ================= Urlaubsübersicht und Urlaubskonto (12.19) ================= */
+async function urlaub(h, z) {
+  const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg } = h;
+  const heute = h.heute();
+  const von = naechsterArbeitstag(heute, 15), bis = naechsterArbeitstag(heute, 16);
+  const monat = von.slice(0, 7), jahr = Number(von.slice(0, 4));
+
+  /* ---- Mitarbeiter: Konto sehen, Urlaub beantragen ---- */
+  const ichM = await anmelden('mitarbeiter');
+  const L = ichM.benutzer.id;
+  await geh(`/urlaub?monat=${monat}`);
+  if (g.mobil) {
+    await page.waitForSelector('#mein-urlaub');
+    await page.click('#ur-antrag');
+  } else {
+    await page.waitForSelector('#ur-kalender');
+    pruef(await page.locator('#ur-kalender tr[data-person]').count() === 1, 'A2-Url: Mitarbeiter sieht im Kalender andere Personen');
+    await page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"]`).click();
+  }
+  await page.waitForSelector('dialog[open] #uaf');
+  pruef((await page.locator('#uaf [name="code"] option').evaluateAll((o) => o.map((x) => x.value))).join() === 'U,ZA', 'A2-Url: Mitarbeiter kann anderes als Urlaub/Zeitausgleich beantragen');
+  await page.fill('#uaf [name="von"]', von); await page.fill('#uaf [name="bis"]', bis);
+  await dialogUeberlauf('urlaub antrag');
+  await page.click('#ua-ok');
+  const kurz = (iso) => `${iso.slice(8)}.${iso.slice(5, 7)}.`;
+  if (g.mobil) { await page.waitForSelector(`#ur-meine li:has-text("${kurz(bis)}") [data-zurueck]`); pruef(await page.locator(`#ur-meine li:has-text("${kurz(von)}"):has-text("beantragt")`).count() === 1, 'A2-Url: Anträge fehlen in „Mein Urlaub“'); }
+  else await page.waitForSelector(`#ur-kalender [data-zelle][data-datum="${von}"][data-status="beantragt"].offen`);
+  const meine = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
+  pruef(meine.length === 2 && meine.every((a) => a.status === 'beantragt' && a.code === 'U'), `A2-Url: Antrag nicht als zwei beantragte Urlaubstage gespeichert (${JSON.stringify(meine)})`);
+  await toastWeg();
+  await keinEuro('urlaub mitarbeiter'); await ueberlauf('urlaub mitarbeiter'); await shot('urlaub-mitarbeiter');
+  await abmelden();
+
+  /* ---- Büro: Kalender, Muster beantragt/genehmigt, genehmigen, Konto, Betriebsurlaub ---- */
+  await anmelden('buero');
+  await geh(`/urlaub?monat=${monat}`);
+  if (g.mobil) {
+    await page.waitForSelector('#ur-partie');
+    pruef(await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}") [data-entscheid="genehmigt"]`).count() >= 2, 'A2-Url: Büro (Handy) sieht die offenen Anträge nicht');
+    await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}") [data-entscheid="genehmigt"]`).first().click();
+    await page.waitForFunction((n) => document.querySelectorAll('#ur-partie [data-entscheid="genehmigt"]').length < n, await page.locator('#ur-partie [data-entscheid="genehmigt"]').count() + 1);
+    await toastWeg();
+  } else {
+    await page.waitForSelector('#ur-kalender');
+    pruef(await page.locator('#ur-kalender tr[data-person]').count() >= 10 && await page.locator('#ur-kalender tr.ur-gruppe').count() >= 2 && await page.locator('#ur-legende span').count() >= 7, 'A2-Url: Team-Kalender (Zeilen, Partien, Legende) unvollständig');
+    const zelleV = page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"]`);
+    // beantragt = schraffiert + gestrichelt, genehmigt = gefüllt: Unterschied in Muster und Helligkeit, nicht nur in der Farbe
+    const stilOffen = await zelleV.evaluate((e) => { const s = getComputedStyle(e); return { bild: s.backgroundImage, rand: s.borderTopStyle, farbe: s.backgroundColor }; });
+    pruef(await page.locator(`#ur-antraege li:has-text("${ichM.benutzer.name}")`).count() === 2, 'A2-Url: Liste „Offene Anträge“ zeigt die zwei Tage nicht');
+    await ueberlauf('urlaub monat'); await shot('urlaub-monat');
+    await zelleV.click();
+    await page.waitForSelector('dialog[open] #ur-eintrag');
+    await page.click('dialog[open] [data-entscheid="genehmigt"]');
+    await page.waitForSelector(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"][data-status="genehmigt"].ok`);
+    const stilOk = await zelleV.evaluate((e) => { const s = getComputedStyle(e); return { bild: s.backgroundImage, rand: s.borderTopStyle, farbe: s.backgroundColor }; });
+    pruef(/gradient/.test(stilOffen.bild) && stilOffen.rand === 'dashed' && stilOk.bild === 'none' && stilOk.farbe !== stilOffen.farbe, `A2-Url: beantragt/genehmigt unterscheiden sich nicht in Muster und Helligkeit (${JSON.stringify([stilOffen, stilOk])})`);
+    pruef(await page.locator(`#ur-antraege li:has-text("${ichM.benutzer.name}")`).count() === 1, 'A2-Url: genehmigter Tag steht noch bei den offenen Anträgen');
+    await toastWeg();
+    // Filter Partie
+    await page.selectOption('#ur-bs', String(ichM.benutzer.baustelleId));
+    await page.waitForFunction(() => document.querySelectorAll('#ur-kalender tr.ur-gruppe').length === 1);
+    await page.selectOption('#ur-bs', '');
+    // Jahr und Konten
+    await page.click('[data-tab="jahr"]');
+    await page.waitForSelector('#ur-jahr-tbl tbody tr');
+    await ueberlauf('urlaub jahr'); await shot('urlaub-jahr');
+    await page.click('[data-tab="konten"]');
+    await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]`);
+    await page.click(`#ur-konten tr[data-konto="${L}"] [data-konto-edit]`);
+    await page.waitForSelector('dialog[open] #ukf');
+    await page.selectOption('#ukf [name="art"]', 'buak');
+    await page.fill('#ukf [name="buakStand"]', '20'); await page.fill('#ukf [name="buakDatum"]', heute); await page.fill('#ukf [name="uebertrag"]', '2');
+    await dialogUeberlauf('urlaubskonto');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]:has-text("laut BUAK-Kontoauszug")`);
+    const konto = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
+    pruef(konto.art === 'buak' && konto.anspruch === 20 && konto.geplant >= 1 && (await page.locator(`#ur-konten tr[data-konto="${L}"] [data-rest]`).innerText()).replace(',', '.') === String(konto.rest), `A2-Url: Konto/Rest weicht vom Server ab (${JSON.stringify(konto)})`);
+    pruef(await page.locator('#ur-csv').count() === 1, 'A2-Url: CSV für die Lohnverrechnung fehlt');
+    await ueberlauf('urlaub konten'); await shot('urlaub-konten');
+    await toastWeg();
+    // Betriebsurlaub: erst Vorschau, dann eintragen
+    await page.click('[data-tab="monat"]');
+    await page.waitForSelector('#ur-bu');
+    await page.click('#ur-bu');
+    await page.waitForSelector('dialog[open] #buf');
+    pruef(await page.locator('#bu-ok').isDisabled(), 'A2-Url: Betriebsurlaub lässt sich ohne Vorschau eintragen');
+    await page.fill('#buf [name="von"]', `${jahr}-12-28`); await page.fill('#buf [name="bis"]', `${jahr}-12-31`);
+    await page.selectOption('#buf [name="wer"]', String(ichM.benutzer.baustelleId));
+    await page.click('#bu-pruefen');
+    await page.waitForSelector('#bu-vorschau [data-bu-tage]');
+    pruef(Number(await page.locator('#bu-vorschau [data-bu-tage]').getAttribute('data-bu-tage')) === 4 && Number(await page.locator('#bu-vorschau [data-bu-personen]').getAttribute('data-bu-personen')) >= 2, 'A2-Url: Vorschau Betriebsurlaub (4 Arbeitstage, Partie) falsch');
+    await dialogUeberlauf('betriebsurlaub'); await shot('betriebsurlaub');
+    await page.click('#bu-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open] #buf'));
+    const bu = (await api('GET', `/abwesenheiten?von=${jahr}-12-28&bis=${jahr}-12-31`)).json.filter((a) => a.benutzerId === L);
+    pruef(bu.filter((a) => ['BU', 'U'].includes(a.code) && a.status === 'genehmigt').length === 4, `A2-Url: Betriebsurlaub nicht als genehmigte BU-Tage angelegt (${JSON.stringify(bu).slice(0, 300)})`);
+    await toastWeg();
+  }
+  // Verweis aus dem Baustellenplaner
+  await geh('/plan?ansicht=woche');
+  pruef(await page.locator('#pool-urlaub[href="#/urlaub"]').count() === 1, 'A2-Url: Verweis „Urlaub“ im Planer fehlt');
+  await abmelden();
+
+  /* ---- Polier: Abwesenheiten der eigenen Partie, Krank nicht im Klartext, keine € ---- */
+  await anmelden('polier');
+  await geh(`/urlaub?monat=${monat}`);
+  if (g.mobil) {
+    await page.waitForSelector('#ur-partie');
+    pruef(/Meine Partie – Abwesenheiten/i.test(await page.locator('#ur-partie h2').innerText()) && await page.locator(`#ur-partie li:has-text("${ichM.benutzer.name}")`).count() >= 1, 'A2-Url: Polier (Handy) sieht „Meine Partie – Abwesenheiten“ nicht');
+    pruef(await page.locator('#ur-partie [data-entscheid]').count() === 0, 'A2-Url: Polier kann Anträge entscheiden');
+  } else {
+    await page.waitForSelector('#ur-kalender');
+    pruef(await page.locator(`#ur-kalender tr[data-person="${L}"]`).count() === 1 && await page.locator('#ur-bu, #ur-antraege [data-entscheid]').count() === 0, 'A2-Url: Polier sieht seine Partie nicht oder darf entscheiden/Betriebsurlaub eintragen');
+    pruef(await page.locator('#ur-kalender [data-code="K"]').count() === 0, 'A2-Url: Polier sieht „Krank“ im Klartext');
+  }
+  await keinEuro('urlaub polier'); await ueberlauf('urlaub polier'); await shot('urlaub-polier');
+  await abmelden();
+}
+
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

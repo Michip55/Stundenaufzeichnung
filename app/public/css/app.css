@@ -1033,3 +1033,8 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 @media (min-width: 1000px) { .wp-wrap > .wp-pool { position: sticky; top: 8px; max-height: calc(100vh - 110px); overflow-y: auto; } }
 
 .dok-pdf-karte { display: flex; gap: 14px; align-items: center; padding: 22px; width: 100%; color: inherit; } .dok-pdf-karte .ic { width: 34px; height: 34px; flex: none; } .dok-pdf-karte span { display: flex; flex-direction: column; gap: 2px; } .dok-pdf-karte small { color: var(--muted); } .dok-pdf-karte:hover { background: #e8ebee; }
+.toolbar .weit { flex: 1 1 220px; min-width: 0; } .toolbar p.weit { margin: 0; }
+@media (max-width: 719px) { .toolbar .weit { flex-basis: 100%; } .toolbar.wrap > .field { flex: 1 1 140px; min-width: 0; } .toolbar.wrap > .btn, .toolbar.wrap > a.btn { flex: 1 1 auto; } }
+#lv-import { white-space: normal; text-align: left; height: auto; min-height: 36px; padding-top: 6px; padding-bottom: 6px; } .card-h.bt { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 719px) { .tg-fuss .btn, .fu-meine .btn, .me-knoepfe .btn { white-space: normal; height: auto; min-height: 52px; text-align: center; } .tg-karte, .fu-meine, .me-karte { min-width: 0; max-width: 100%; } .fu-inhalt > *, .tg-karte > * { min-width: 0; max-width: 100%; } .tg-auto > span { flex-basis: 100%; } .fu-top { min-width: 0; } .tg-daten dd, .me-felder b { overflow-wrap: anywhere; } }
+.fu-knoepfe { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .fu-knoepfe .btn { min-width: 0; padding-left: 8px; padding-right: 8px; white-space: normal; height: auto; }
