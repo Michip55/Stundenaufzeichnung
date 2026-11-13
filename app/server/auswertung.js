@@ -9,7 +9,7 @@
  * vergessenes Ausstempeln) zählen mit 0 Std. und werden gekennzeichnet (B-05).
  * Abwesenheiten zählen nur mit Status „genehmigt“ (B-07).
  */
-const { schichten, plausibilisieren } = require('./stempel');
+const { schichten, plausibilisieren, bloeckeAlsZeitpunkte } = require('./stempel');
 const { azgWarnungen } = require('./azg');
 const { wienZuDate, plusTage, wochentag, wochenbeginn, tageImMonat, feiertag, WT_KURZ, wienZeit } = require('./datum');
 
@@ -62,7 +62,7 @@ function ladeSchichten(db, benutzerId, vonDatum, bisDatum, jetzt) {
 
 /** Tageswerte je Datum aus Schichten */
 function tageswerte(schichtListe, daten, baustellenNamen) {
-  const out = new Map(daten.map((d) => [d, { datum: d, stunden: 0, pauseMin: 0, von: null, bis: null, baustellen: new Map(), offen: false, unplausibel: false }]));
+  const out = new Map(daten.map((d) => [d, { datum: d, stunden: 0, pauseMin: 0, von: null, bis: null, baustellen: new Map(), intervalle: [], offen: false, unplausibel: false }]));
   for (const s of schichtListe) {
     const t = out.get(s.datum);
     if (!t) continue;
@@ -78,6 +78,7 @@ function tageswerte(schichtListe, daten, baustellenNamen) {
       if (i.art !== 'arbeit') continue;
       const x = t.baustellen.get(i.baustelleId) || 0;
       t.baustellen.set(i.baustelleId, x + (i.bis - i.von) / 3600000);
+      t.intervalle.push({ baustelleId: i.baustelleId, von: i.von, bis: i.bis });
     }
   }
   return [...out.values()].map((t) => ({
@@ -91,43 +92,82 @@ function baustellenMap(db) {
   return new Map(db.alle('SELECT id, kst, name, kurz FROM baustelle').map((b) => [b.id, b]));
 }
 
-/** Zeilen aus FREIGEGEBENEN Berichten je Benutzer und Datum: Map "id|datum" → [Zeile] */
+/**
+ * Freigegebene Berichte im Zeitraum: zeilen = Map "id|datum" → [Zeile], gedeckt = Map datum → Set(baustelleId)
+ */
 function berichtsZeilen(db, vonDatum, bisDatum, benutzerId = null) {
-  const z = db.alle(`SELECT bp.benutzer_id, bp.stunden, bp.von1, bp.bis1, bp.von2, bp.bis2, bp.pause_min, r.datum, r.baustelle_id
+  const z = db.alle(`SELECT bp.benutzer_id, bp.stunden, bp.von1, bp.bis1, bp.von2, bp.bis2, bp.pause_min, bp.code, r.datum, r.baustelle_id
     FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
     WHERE r.status = 'freigegeben' AND r.datum BETWEEN ? AND ? ${benutzerId ? 'AND bp.benutzer_id = ?' : ''}`,
   ...[vonDatum, bisDatum, ...(benutzerId ? [benutzerId] : [])]);
-  const m = new Map();
+  const zeilen = new Map();
   for (const x of z) {
     const k = `${x.benutzer_id}|${x.datum}`;
-    if (!m.has(k)) m.set(k, []);
-    m.get(k).push(x);
+    if (!zeilen.has(k)) zeilen.set(k, []);
+    zeilen.get(k).push(x);
   }
-  return m;
+  const gedeckt = new Map();
+  for (const r of db.alle("SELECT baustelle_id, datum FROM bericht WHERE status = 'freigegeben' AND datum BETWEEN ? AND ?", vonDatum, bisDatum)) {
+    if (!gedeckt.has(r.datum)) gedeckt.set(r.datum, new Set());
+    gedeckt.get(r.datum).add(r.baustelle_id);
+  }
+  return { zeilen, gedeckt };
 }
 
-/** Tageswert aus Stempelung (t) und freigegebenen Berichtszeilen zusammenführen (M-07) */
-function mitBericht(t, zeilen, bsMap) {
-  const nurMitZeit = (zeilen || []).filter((z) => z.stunden > 0 || z.von1);
-  if (!nurMitZeit.length) return { ...t, quelle: t.stunden > 0 || t.von ? 'stempel' : null };
-  const gedeckt = new Set(nurMitZeit.map((z) => z.baustelle_id));
-  const stempelRest = t.baustellen.filter((b) => !gedeckt.has(b.id));
-  const restStunden = stempelRest.reduce((a, b) => a + b.stunden, 0);
-  const berichtStunden = nurMitZeit.reduce((a, z) => a + z.stunden, 0);
+const ueberlappungMs = (a, b) => Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
+
+/**
+ * Tageswert aus Stempelung (t) und freigegebenen Berichten (M-07, C-01, C-03):
+ * - Baustellen mit freigegebenem Bericht: nur der Bericht zählt (auch 0 Std. oder Person fehlt → 0, Warnung)
+ * - andere Baustellen: Stempelzeiten
+ * - Überschneidungen (Bericht ↔ Stempel anderer Baustellen, Bericht ↔ Bericht) zählen nur einmal (Warnung)
+ */
+function mitBericht(t, zeilen, gedeckt, bsMap) {
+  const rows = zeilen || [];
+  const gedecktSet = gedeckt || new Set();
+  const stempelGedeckt = t.baustellen.filter((b) => gedecktSet.has(b.id));
+  if (!rows.length && !stempelGedeckt.length) return { ...t, quelle: t.stunden > 0 || t.von ? 'stempel' : null, warnungen: [] };
   const name = (id) => (bsMap.get(id) || {});
+  const warnungen = [];
+  for (const b of stempelGedeckt) {
+    if (b.stunden > 0 && !rows.some((z) => z.baustelle_id === b.id)) {
+      warnungen.push({ typ: 'nicht_im_bericht', text: `${b.stunden.toLocaleString('de-AT')} Std. auf ${b.kst} gestempelt, aber nicht im freigegebenen Bericht – zählt mit 0 Std.` });
+    }
+  }
+  const stempelRest = t.baustellen.filter((b) => !gedecktSet.has(b.id));
+  const restIv = (t.intervalle || []).filter((i) => !gedecktSet.has(i.baustelleId)).map((i) => [i.von, i.bis]);
+  const restStunden = stempelRest.reduce((a, b) => a + b.stunden, 0);
+  const berichtStunden = rows.reduce((a, z) => a + (z.stunden || 0), 0);
+  // Sicherheitsnetz gegen Doppelzählung
+  const bIv = rows.map((z) => ({ bs: z.baustelle_id, iv: bloeckeAlsZeitpunkte(t.datum, z) }));
+  let ueberMs = 0;
+  for (let i = 0; i < bIv.length; i++) {
+    for (const a of bIv[i].iv) {
+      for (const r of restIv) ueberMs += ueberlappungMs(a, r);
+      for (let j = i + 1; j < bIv.length; j++) for (const b of bIv[j].iv) ueberMs += ueberlappungMs(a, b);
+    }
+  }
+  const ueberStunden = ueberMs / 3600000;
+  if (ueberStunden > 0) {
+    warnungen.push({ typ: 'ueberschneidung', text: `Bericht- und Stempelzeiten überschneiden sich um ${r2(ueberStunden).toLocaleString('de-AT')} Std. – nur einmal gezählt, bitte prüfen.` });
+  }
+  const mitZeit = rows.filter((z) => z.von1);
   const baustellen = [
-    ...nurMitZeit.map((z) => ({ id: z.baustelle_id, kst: name(z.baustelle_id).kst, name: name(z.baustelle_id).kurz || name(z.baustelle_id).name, stunden: r2(z.stunden) })),
+    ...rows.filter((z) => z.stunden > 0 || z.von1).map((z) => ({ id: z.baustelle_id, kst: name(z.baustelle_id).kst, name: name(z.baustelle_id).kurz || name(z.baustelle_id).name, stunden: r2(z.stunden) })),
     ...stempelRest
   ];
-  const erste = nurMitZeit[0];
+  const stempelSichtbar = t.von && !t.unplausibel && restStunden > 0;
+  const erste = mitZeit[0];
   return {
     ...t,
-    stunden: r2(berichtStunden + restStunden),
-    von: t.von && !t.unplausibel ? t.von : erste.von1,
-    bis: t.von && !t.unplausibel ? t.bis : (erste.bis2 || erste.bis1),
-    pauseMin: t.von && !t.unplausibel ? t.pauseMin : nurMitZeit.reduce((a, z) => a + (z.pause_min || 0), 0),
+    stunden: r2(Math.max(0, berichtStunden + restStunden - ueberStunden)),
+    von: stempelSichtbar || !erste ? (t.unplausibel ? (erste ? erste.von1 : t.von) : t.von) : erste.von1,
+    bis: stempelSichtbar || !erste ? (t.unplausibel ? (erste ? erste.bis2 || erste.bis1 : null) : t.bis) : (erste.bis2 || erste.bis1),
+    pauseMin: stempelSichtbar ? t.pauseMin : mitZeit.reduce((a, z) => a + (z.pause_min || 0), 0),
     baustellen,
-    quelle: restStunden > 0 ? 'gemischt' : 'bericht'
+    ueberschneidung: ueberStunden > 0,
+    quelle: restStunden > 0 ? 'gemischt' : 'bericht',
+    warnungen
   };
 }
 
@@ -140,11 +180,12 @@ function woche(db, benutzerId, datum, jetzt) {
   const bsMap = baustellenMap(db);
   const ber = berichtsZeilen(db, daten[0], daten[6], benutzerId);
   const tage = tageswerte(sch, daten, bsMap).map((t0) => {
-    const t = mitBericht(t0, ber.get(`${benutzerId}|${t0.datum}`), bsMap);
+    const t = mitBericht(t0, ber.zeilen.get(`${benutzerId}|${t0.datum}`), ber.gedeckt.get(t0.datum), bsMap);
     const a = abw.get(t.datum);
     const o = { datum: t.datum, wochentag: WT_KURZ[wochentag(t.datum)], stunden: t.stunden, pauseMin: t.pauseMin, von: t.von, bis: t.bis, baustellen: t.baustellen };
     if (t.quelle) o.quelle = t.quelle;
     if (t.unplausibel) o.unplausibel = true;
+    if (t.ueberschneidung) o.ueberschneidung = true;
     if (a) { o.code = a.code; o.codeStatus = a.status; }
     const f = feiertag(t.datum);
     if (f) o.feiertag = f;
@@ -166,7 +207,7 @@ function monat(db, monatStr, jetzt) {
   const bisIso = wienZuDate(plusTage(letzter, 1)).toISOString();
   const ber = berichtsZeilen(db, erster, letzter);
   const mitDaten = new Set(db.alle('SELECT DISTINCT benutzer_id FROM buchung WHERE zeit >= ? AND zeit < ?', vonIso, bisIso).map((z) => z.benutzer_id));
-  for (const k of ber.keys()) mitDaten.add(Number(k.split('|')[0]));
+  for (const k of ber.zeilen.keys()) mitDaten.add(Number(k.split('|')[0]));
   const benutzer = db.alle('SELECT id, name, rolle, lohngruppe_id, pnr, aktiv FROM benutzer ORDER BY name')
     .filter((b) => mitDaten.has(b.id) || (b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle)));
   // M-01: SEG-Stunden nur aus freigegebenen Berichten
@@ -178,7 +219,7 @@ function monat(db, monatStr, jetzt) {
   const mitarbeiter = benutzer.map((b) => {
     const roh = ladeSchichten(db, b.id, erster, letzter, jetzt);
     const sch = plausibilisieren(roh, jetzt);
-    const tw = tageswerte(sch, daten, bsMap).map((t) => mitBericht(t, ber.get(`${b.id}|${t.datum}`), bsMap));
+    const tw = tageswerte(sch, daten, bsMap).map((t) => mitBericht(t, ber.zeilen.get(`${b.id}|${t.datum}`), ber.gedeckt.get(t.datum), bsMap));
     const abw = new Map(db.alle("SELECT datum, code, status FROM abwesenheit WHERE benutzer_id = ? AND datum BETWEEN ? AND ? AND status <> 'abgelehnt'", b.id, erster, letzter).map((a) => [a.datum, a]));
     const tageObj = {};
     let sw = 0, k = 0, u = 0, za = 0, swStunden = 0;
@@ -189,6 +230,8 @@ function monat(db, monatStr, jetzt) {
       const e = { stunden: t.stunden, code: genehmigt ? a.code : null };
       if (t.von) { e.von = t.von; e.bis = t.bis; e.pauseMin = t.pauseMin; e.baustellen = t.baustellen.map((x) => x.kst).filter(Boolean); }
       if (t.quelle) e.quelle = t.quelle;
+      if (t.ueberschneidung) e.ueberschneidung = true;
+      for (const w of t.warnungen || []) warnungen.push({ benutzerId: b.id, name: b.name, datum: t.datum, stufe: 'hinweis', ...w });
       if (a && !genehmigt) { e.code = a.code; e.codeStatus = a.status; beantragt.push({ benutzerId: b.id, name: b.name, datum: t.datum, code: a.code }); }
       if (t.unplausibel && t.quelle !== 'bericht') {
         e.unplausibel = true;
