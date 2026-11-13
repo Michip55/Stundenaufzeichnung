@@ -101,6 +101,10 @@ export const fmt = {
 export { parseZahl, starkGeaendert };
 
 export const ROLLEN = { mitarbeiter: 'Mitarbeiter', polier: 'Polier', bauleiter: 'Bauleiter', buero: 'Büro', gf: 'Geschäftsführung' };
+// Entscheidung des Inhabers: Der Bauleiter hat überall dieselben Ansichten und Rechte wie das Büro (nur GF-Sachen bleiben bei der GF)
+/** 12.25: interne Kostenstelle (Büro, Werkstatt/Bauhof, Kieswerk/Grube) – stempelbar, aber kein Bauvorhaben */
+export const istIntern = (b) => !!b && (b.intern === true || b.intern === 1 || b.kostenstelle === 'intern');
+export const wieBuero = (rolle) => ['buero', 'bauleiter', 'gf'].includes(rolle);
 export const rolleText = (r) => ROLLEN[r] || r || '';
 export const initialen = (name) => String(name || '?').trim().split(/\s+/).map((t) => t[0]).slice(0, 2).join('').toUpperCase();
 export const avatar = (name, cls = '') => `<span class="avatar ${cls}" aria-hidden="true">${esc(initialen(name))}</span>`;

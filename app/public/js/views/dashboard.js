@@ -20,7 +20,7 @@ export default async function dashboard(el, ctx) {
     ctx.kann('lohn') ? teil(() => get(`/monat?monat=${heute.slice(0, 7)}`)) : null,
   ]);
   // Bauvorhaben-Kennzahlen (12.15) und offene Posten (12.17) – jede Kachel nur, wenn der Server sie liefert
-  const planer = ['buero', 'gf', 'bauleiter'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten');
+  const planer = ['buero', 'gf', 'bauleiter'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten'); // Bauleiter wie Büro
   const [kz, op, alleBs] = await Promise.all([planer ? teil(() => get('/baustellen-kennzahlen')) : null, ctx.kann('preise_sehen') ? teil(() => get('/offene-posten')) : null, planer ? teil(() => get('/baustellen?alle=1')) : null]);
   const bald = fmt.addTage(heute, 92);
   const gewaehr = alleBs && alleBs.ok ? alleBs.daten.filter((b) => b.gewaehrleistungBis && b.gewaehrleistungBis >= heute && b.gewaehrleistungBis <= bald) : [];

@@ -1,7 +1,7 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
 import { get, post } from './api.js';
-import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
+import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, wieBuero, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden } from './offline.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
@@ -55,10 +55,10 @@ let schadenWartet = 0;     // eigene Schadensmeldungen, die noch auf Verbindung 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
 // C-14: Das Büro pflegt Benutzer (Mitarbeiter, Polier, Bauleiter) – laut API eine Regel der Rolle, kein eigenes Recht
-const darfBenutzerPflegen = () => !!ich && ich.benutzer.rolle === 'buero';
+const darfBenutzerPflegen = () => !!ich && ['buero', 'bauleiter'].includes(ich.benutzer.rolle);
 const rolle = (...r) => () => !!ich && r.includes(ich.benutzer.rolle);
 // Baustellenplaner: Büro/GF (bzw. Recht „stammdaten“) und Bauleiter planen; Polier sieht seine Partie, alle Eingeteilten „Mein Einsatz“
-const darfPlanen = () => !!ich && (['buero', 'gf', 'bauleiter'].includes(ich.benutzer.rolle) || kann('stammdaten'));
+const darfPlanen = () => !!ich && (wieBuero(ich.benutzer.rolle) || kann('stammdaten'));
 const siehtBaustellen = () => eines('stammdaten', 'kalk_sehen', 'bericht_freigeben')() || rolle('polier')();
 
 const NAV = [
@@ -71,7 +71,7 @@ const NAV = [
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: siehtBaustellen },
   { id: 'plan', pfad: '/plan', text: 'Baustellenplaner', kurz: 'Planer', icon: 'board', darf: darfPlanen },
-  { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier', 'bauleiter'), nurMehr: true },
+  { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier'), nurMehr: true }, // Bauleiter: Navigation wie das Büro plus Stempeluhr und Urlaub (kein „Mein Einsatz“ – er arbeitet im Büro)
   { id: 'offeneposten', pfad: '/offene-posten', text: 'Offene Posten', kurz: 'Posten', icon: 'euro', darf: eines('preise_sehen') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Stammdaten & Preise', kurz: 'Stammdaten', icon: 'tag', darf: eines('preise_sehen', 'stammdaten') },
@@ -214,7 +214,7 @@ async function holeMeldungen() {
   holeSchadenZahl();
 }
 /* ---------- Schäden: Zahl am Menüpunkt, Nachsenden wartender Meldungen ---------- */
-const bearbeitetSchaeden = () => !!ich && (kann('fuhrpark') || ['buero', 'gf'].includes(ich.benutzer.rolle));
+const bearbeitetSchaeden = () => !!ich && (kann('fuhrpark') || wieBuero(ich.benutzer.rolle));
 function zeigeBadge() {
   const n = schadenNeu + schadenWartet;
   const text = [schadenNeu ? `${schadenNeu} neue Schadensmeldung${schadenNeu > 1 ? 'en' : ''}` : '', schadenWartet ? `${schadenWartet} Schadensmeldung${schadenWartet > 1 ? 'en warten' : ' wartet'} auf Verbindung` : ''].filter(Boolean).join(', ');

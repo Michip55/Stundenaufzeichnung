@@ -21,7 +21,7 @@ const KONFLIKT_KURZ = { person_doppelt: 'doppelt eingeteilt', abwesenheit: 'abwe
 export default async function plan(el, ctx) {
   const ich = ctx.ich.benutzer;
   const heute = wienHeute();
-  const planer = ['buero', 'gf'].includes(ich.rolle) || ctx.kann('stammdaten');
+  const planer = ['buero', 'bauleiter', 'gf'].includes(ich.rolle) || ctx.kann('stammdaten'); // Bauleiter plant wie das Büro alle Baustellen
   const eigene = (ctx.ich.baustellenIds || []).map(Number);
   const darfBs = (id) => planer || (ich.rolle === 'bauleiter' && eigene.includes(Number(id)));
   // nächster Arbeitstag („morgen“): Sa/So werden übersprungen

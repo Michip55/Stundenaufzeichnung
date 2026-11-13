@@ -532,18 +532,23 @@ async function laufe(browser, g) {
     pruef((await page.locator('dialog[open] select[name="code"] option').allInnerTexts()).join('|').startsWith('SW') && await page.locator('dialog[open] select[name="code"] option').count() === 1, 'B-07: Polier kann andere Kürzel als SW wählen');
     pruef(await page.locator('dialog[open] input[name="wer"]').count() >= 1, 'B-07: Polier hat niemanden aus der Partie zur Auswahl');
     const heuteWien = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
-    const belegt = (await api('GET', `/abwesenheiten?von=${heuteWien}&bis=${heuteWien}`)).json.map((a) => String(a.benutzerId));
-    const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => !belegt.includes(v));
-    pruef(freieIds.length >= 1, 'B-07: in der Partie ist heute niemand ohne Abwesenheit (Testdaten)');
+    // Inhaber 13.11.2026: der Polier sieht keine Abwesenheiten anderer – er wählt aus der ganzen Partie, die Meldung wird immer angenommen
+    const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => v !== String(ich.benutzer.id));
+    pruef(freieIds.length >= 1, 'B-07: außer dem Polier ist niemand aus der Partie zur Auswahl (Testdaten)');
     pruef(await page.locator(`dialog[open] input[name="wer"][value="${ich.benutzer.id}"]`).count() === 1, 'D-09: Polier kann Schlechtwetter nicht für sich selbst melden');
-    await page.locator(`dialog[open] input[name="wer"][value="${freieIds[0]}"]`).check();
+    // gemeldet wird jemand, der heute eingestempelt ist (also sicher nicht abwesend) – Abwesenheiten erfährt der Polier nicht
+    const kol = (await api('GET', `/zeit/kolonne?baustelleId=${bsId}`)).json;
+    const swWer = String((kol.find((m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && ['arbeit', 'pause'].includes(m.status)) || kol.find((m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && m.kolonneMoeglich !== false) || { benutzerId: freieIds[0] }).benutzerId);
+    await page.locator(`dialog[open] input[name="wer"][value="${swWer}"]`).check();
     await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
     await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('.toast');
+    pruef(/Schlechtwetter gemeldet – das Büro bestätigt\./.test(await page.locator('.toast').first().innerText()), 'B-07: Rückmeldung zur Schlechtwetter-Meldung fehlt oder ist nicht neutral');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
-    await page.waitForSelector('#abw-andere li');
-    const swEintrag = (await api('GET', '/abwesenheiten')).json.find((a) => a.code === 'SW' && a.datum === heuteWien && String(a.benutzerId) === freieIds[0]);
-    pruef(!!swEintrag, 'B-07: Schlechtwetter des Poliers nicht am Server');
-    pruef(swEintrag && swEintrag.status === 'beantragt' && await page.locator(`#abw-andere li[data-abw="${swEintrag && swEintrag.id}"] [data-abw-status="beantragt"]`).count() === 1, `C-13: Schlechtwetter des Poliers ist nicht „beantragt“ (${swEintrag && swEintrag.status})`);
+    pruef(await page.locator('#abw-andere').count() === 0 && await page.locator('#abw-sw').count() === 1, 'B-07: Polier sieht eine Liste mit Abwesenheiten seiner Partie');
+    const swMeldung = (await api('GET', '/abwesenheiten/sw-meldungen')).json.find((m) => String(m.benutzerId) === swWer && m.von === heuteWien);
+    pruef(!!swMeldung && swMeldung.status === 'gemeldet', `C-13: Schlechtwetter-Meldung des Poliers nicht am Server oder nicht „gemeldet“ (${swMeldung && swMeldung.status})`);
+    pruef((await api('GET', '/abwesenheiten')).json.every((a) => a.benutzerId === ich.benutzer.id), 'B-07: Polier erhält Abwesenheiten anderer Personen');
     await toastWeg();
     await geh('/woche'); await keinEuro('polier woche');
     await geh('/mehr'); await keinEuro('polier mehr');
@@ -670,6 +675,7 @@ async function laufe(browser, g) {
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
     const gPlan = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId);
     pruef(gPlan.kostensatz === altSatz + 40 && (gPlan.geplant || []).some((x) => x.feld === 'kostensatz' && x.wert === altSatz + 55 && x.gueltigAb === in30), `A2-2: geplanter Preis nicht als künftiger Stand gespeichert (${JSON.stringify(gPlan.geplant)})`);
+    await page.waitForSelector(`#tabpanel tr[data-id="${geraetId}"] [data-geplant]`, { timeout: 6000 }).catch(() => {}); // die Tabelle lädt nach dem Speichern neu
     pruef(await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-geplant]`).count() === 1, 'A2-2: geplanter Preis ist in der Tabelle nicht gekennzeichnet');
     await toastWeg();
     await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-verlauf="kostensatz"]`).click();
@@ -1206,57 +1212,68 @@ async function laufe(browser, g) {
     await fp.buero(h, z);
     await abmelden();
 
-    /* ============ 4. Bauleiter: bekommt den Budget-Alarm ============ */
+    /* ============ 4. Bauleiter: in allem wie das Büro (Inhaber 13.11.2026), bekommt den Budget-Alarm ============ */
     ich = await anmelden('bauleiter');
     nav = await navIds();
-    pruef(nav.includes('kalkulation') && nav.includes('preise') && !nav.includes('monat') && !nav.includes('benutzer'), `Bauleiter-Navigation falsch: ${nav}`);
+    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
     pruef((await api('GET', '/benachrichtigungen')).json.some((m) => m.typ === 'budget' && m.baustelleId === bsId), 'Budget-Alarm: Bauleiter hat keine Benachrichtigung');
     await page.waitForSelector('#glocke.has');
     await geh('/dashboard', 'bauleiter-dashboard');
+    pruef(await page.locator('#bv-kacheln').count() === 1, 'Bauleiter: Übersicht ohne die Kacheln der Bauvorhaben (wie Büro)');
     await geh('/preise');
-    pruef(await page.locator('.price-in input').count() === 0, 'Bauleiter kann Preise bearbeiten');
+    await page.waitForSelector('#tabpanel tr[data-id]');
+    pruef(await page.locator('#tabpanel input[data-feld]').count() > 0, 'Bauleiter kann Preise nicht bearbeiten (wie Büro)');
     await geh(`/kalkulation/${bsId}/positionen`, 'bauleiter-positionen');
-    pruef(await page.locator('.pt-row').count() >= 20 && await page.locator('.pt-row input[data-feld], [data-akt="vorlage"], [data-neu]').count() === 0, 'P-18: Bauleiter kann Positionen/Preise bearbeiten oder sieht sie nicht');
-    const blPos = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen[0].positionen[0];
-    const blPut = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${blPos.id}`, { version: blPos.version, ep: 1 }));
-    pruef(blPut.status === 403, `P-18: Bauleiter kann EP ändern (Status ${blPut.status})`);
-    // E-07: Bauleiter storniert nur eigene Mengeneinträge
+    pruef(await page.locator('.pt-row').count() >= 20 && await page.locator('.pt-row input[data-feld]').count() > 0, 'Bauleiter kann Positionen/Preise nicht bearbeiten (wie Büro)');
+    // E-07: Bauleiter storniert wie das Büro auch fremde Mengeneinträge
     const blAlle = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen.flatMap((x) => x.positionen);
     const fremdPos = blAlle.find((x) => (x.eintraege || []).some((e) => e.erstelltVon !== ich.benutzer.id));
     pruef(!!fremdPos, 'E-07: kein Eintrag des Büros für die Prüfung vorhanden');
     await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).scrollIntoViewIfNeeded();
     await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).click();
     await page.waitForSelector('dialog[open] #eintraege li');
-    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 0 && await page.locator('dialog[open] [data-kein-storno]').count() >= 1, 'E-07: Bauleiter sieht „Stornieren“ bei fremden Einträgen');
-    const fremdEintrag = fremdPos.eintraege.find((e) => e.erstelltVon !== ich.benutzer.id);
-    const e07 = await absichtlich(() => api('DELETE', `/baustellen/${bsId}/positionen/${fremdPos.id}/mengen/${fremdEintrag.id}`));
-    pruef(e07.status === 403, `E-07: Bauleiter kann fremden Eintrag stornieren (Status ${e07.status})`);
-    await page.fill('dialog[open] #mf input[name="menge"]', '3');
-    await page.click('dialog[open] #mf button[type="submit"]');
-    await page.waitForSelector('dialog[open] #eintraege [data-storno]');
-    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 1, 'E-07: Bauleiter kann den eigenen Eintrag nicht stornieren');
-    await page.click('dialog[open] #eintraege [data-storno]');
-    await page.locator('dialog[open] [data-ok]').last().click();
-    await page.waitForFunction(() => { const d = [...document.querySelectorAll('dialog[open]')]; return d.length === 1 && !d[0].querySelector('[data-storno]'); });
+    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() >= 1 && await page.locator('dialog[open] [data-kein-storno]').count() === 0, 'E-07: Bauleiter kann fremde Einträge nicht stornieren (wie Büro)');
     await page.click('dialog[open] .dlg-foot [data-zu]');
-    await toastWeg();
     // E-08: ohne Preisrecht keine Rechnungsbeträge/Notizen (Antwort des Servers ohne preise_sehen nachgestellt)
     const voll = (await api('GET', `/baustellen/${bsId}/positionen`)).json;
     const ohnePreis = { baustelleId: voll.baustelleId, budgetVerbrauchProzent: voll.budgetVerbrauchProzent, hinweise: [], gruppen: voll.gruppen.map((x) => ({ schluessel: x.schluessel, name: x.name, positionen: x.positionen.map((y) => { const { ep, summe, ...rest } = y; if (/^(PA|VE)$/i.test(y.einheit)) { const n = (y.eintraege || []).length; delete rest.menge; delete rest.mengeAuto; delete rest.mengeManuell; delete rest.eintraege; rest.eintraegeAnzahl = n; } return rest; }) })) };
     await page.route(`**/api/baustellen/${bsId}/positionen`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ohnePreis) }));
     await page.reload(); await bereit(); await page.waitForSelector('.pt-row');
-    pruef(!(await page.locator('#view').innerText()).includes('€'), 'E-08: ohne Preisrecht erscheinen €-Beträge in der Positionsansicht');
+    { const mitEuro = (await page.locator('.pt-row').allInnerTexts()).filter((t) => /\d[\d.]*,\d{2}\s*€|€\s*\d/.test(t)); pruef(mitEuro.length === 0, `E-08: ohne Preise vom Server erscheinen €-Beträge in den Positionszeilen („${(mitEuro[0] || '').replace(/\s+/g, ' ').slice(0, 120)}“)`); }
     await shot('positionen-ohne-preise');
     await page.unroute(`**/api/baustellen/${bsId}/positionen`);
-    await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
-    await keinZugriff('/monat'); await keinZugriff('/benutzer'); await keinZugriff('/korrektur');
-    // N-07: fremde Baustelle zeigt kein Auftragsformular
-    const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !('auftragssumme' in x));
+    await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/stempeln');
+    await geh('/monat', 'bauleiter-monat'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Monatsauswertung gesperrt (wie Büro offen)');
+    await geh('/korrektur'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Zeiten korrigieren gesperrt (wie Büro offen)');
+    await geh('/offene-posten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Offene Posten gesperrt (wie Büro offen)');
+    await geh('/benutzer', 'bauleiter-benutzer'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#matrix, [data-recht-zelle]').count() === 0, 'Bauleiter: Benutzer-Seite gesperrt oder mit Rechte-Matrix (die bleibt bei der Geschäftsführung)');
+    await geh('/einsatz'); pruef(await page.locator('#einsatz-karte').count() === 0, 'Bauleiter: „Mein Einsatz“ zeigt einen Einsatz (Bauleiter werden nicht eingeplant)');
+    // Fremde Baustelle (anderer Bauleiter): Auftrag, Nachkalkulation und Preise wie beim Büro – auch bearbeiten
+    const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !x.intern && x.status === 'aktiv' && x.id !== bsId);
+    pruef(!!fremdeBs, 'Bauleiter: keine fremde Baustelle in den Testdaten');
     if (fremdeBs) {
       await geh(`/baustelle/${fremdeBs.id}`, 'baustelle-fremd');
-      pruef(await page.locator('#auftrag').count() === 0 && !(await text()).includes('Budget-Alarm'), 'N-07: Auftragsformular bei fremder Baustelle sichtbar');
-    } else pruef(false, 'N-07: keine fremde Baustelle für den Bauleiter in den Testdaten');
-    // D-09: Bauleiter bestätigt Schlechtwetter-Meldungen für die Leute seiner Baustellen
+      pruef(await page.locator('#auftrag').count() === 1 && await page.locator('#auftrag-ok').count() === 1, 'Bauleiter: Auftragsformular der fremden Baustelle fehlt (wie Büro)');
+      await geh(`/kalkulation/${fremdeBs.id}`, 'bauleiter-kalkulation-fremd');
+      pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && (await page.locator('#view').innerText()).includes('€'), 'Bauleiter: Nachkalkulation der fremden Baustelle nicht einsehbar');
+      await ueberlauf('bauleiter kalkulation fremd');
+      await geh(`/kalkulation/${fremdeBs.id}/positionen`, 'bauleiter-positionen-fremd');
+      await page.waitForSelector('.pt-row');
+      const fPos = (await api('GET', `/baustellen/${fremdeBs.id}/positionen`)).json.gruppen.flatMap((x) => x.positionen).find((x) => x.aktiv !== false && !/^(PA|VE)$/i.test(x.einheit) && typeof x.ep === 'number');
+      pruef(!!fPos, 'Bauleiter: keine Position mit Einheitspreis auf der fremden Baustelle');
+      for (const ziel of [fPos.ep + 2, fPos.ep]) { // ändern und wieder zurückstellen
+        const epF = page.locator(`.pt-row[data-pos="${fPos.id}"] input[data-feld="ep"]`);
+        await epF.scrollIntoViewIfNeeded();
+        await epF.fill(String(ziel).replace('.', ',')); await epF.press('Enter');
+        await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
+        await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [fPos.id, ziel]);
+        await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+        const jetztEp = (await api('GET', `/baustellen/${fremdeBs.id}/positionen`)).json.gruppen.flatMap((x) => x.positionen).find((x) => x.id === fPos.id).ep;
+        pruef(Math.abs(jetztEp - ziel) < 0.001, `Bauleiter: Einheitspreis auf der fremden Baustelle nicht gespeichert (${jetztEp} statt ${ziel})`);
+        await toastWeg();
+      }
+    }
+    // D-09: Bauleiter bestätigt Schlechtwetter-Meldungen (wie das Büro)
     await geh('/abwesenheiten', 'bauleiter-abwesenheiten');
     const swKnopf = page.locator('#abw-offen li:has(.c-SW) [data-entscheid="genehmigt"]').first();
     pruef(await swKnopf.count() === 1, 'D-09: Bauleiter sieht keine Schlechtwetter-Meldung zur Bestätigung');

@@ -2,7 +2,7 @@
 // Geschäftsführung: alles. Büro (Prüfbericht 2, C-14): nur Benutzer der Rollen Mitarbeiter/Polier/Bauleiter anlegen,
 // PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, bestaetigen, toast, speicher, istIntern, $, $$ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
 import { diensteTab } from './dienste.js';
 
@@ -71,12 +71,13 @@ export default async function benutzer(el, ctx) {
     const d = dialog({ titel: m ? 'Benutzer bearbeiten' : 'Neuer Benutzer', breit: true, inhalt: `<form id="bf" class="stack-s" autocomplete="off">
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
       <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle" ${!voll && m && m.rolle === 'bauleiter' ? 'disabled' : ''} aria-describedby="rolle-hinweis">${rollen(m).map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
-      ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (mit Einsicht in Preise der eigenen Baustellen) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
+      ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (gleiche Rechte wie das Büro) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
       <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
       ${m && lohngruppen.length ? `<div class="field" id="lg-ab-box" hidden><label><span class="field-label">Neue Lohngruppe gültig ab</span><input class="input lg" type="date" name="lohngruppeGueltigAb" id="lg-ab" value="${wienHeute()}" min="2000-01-01"></label><small class="price-err" id="lg-rueck" hidden>Ändert die Kosten bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}
       <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label>
       <label class="field"><span class="field-label">Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc((m && m.telefon) || '')}" placeholder="+43 664 …"></label></div>
-      <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
+      <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => (x.status !== 'abgeschlossen' && !istIntern(x)) || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
+      <label class="field"><span class="field-label">Standard-Kostenstelle beim Stempeln</span><select class="input lg" name="standardKostenstelleId" id="std-kst" aria-describedby="std-kst-hinweis"><option value="">– automatisch –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.standardKostenstelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.standardKostenstelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}${istIntern(x) ? ' (intern)' : ''}</option>`).join('')}</select><small class="muted" id="std-kst-hinweis">Automatisch: Büro, Bauleiter und Geschäftsführung stempeln auf „Büro“, alle anderen auf ihre Stamm-Baustelle. Hier z. B. „Werkstatt“ fest vorgeben.</small></label>
       <label class="field"><span class="field-label">${m ? 'PIN zurücksetzen (leer lassen = unverändert)' : 'Start-PIN'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" aria-describedby="pin-hinweis" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
       <p class="muted sm" id="pin-hinweis">4 bis 12 Ziffern (Bauleiter, Büro und Geschäftsführung mindestens 6), keine Folgen wie 1234. Die Person muss die PIN bei der nächsten Anmeldung selbst ändern.</p>
       ${m ? `<button type="button" class="btn ghost sm" data-entsperren="${m.id}">${ic('lock')}Anmeldesperre aufheben</button>` : ''}
@@ -121,6 +122,7 @@ export default async function benutzer(el, ctx) {
       const lgNeu = f.get('lohngruppe') || null;
       const lgGeaendert = !m || (lgNeu || '') !== (lgAlt || '');
       const body = { name: f.get('name').trim(), rolle: f.get('rolle') || (m && m.rolle), ...(lgGeaendert ? { lohngruppe: lgNeu } : {}), baustelleId: f.get('baustelleId') ? Number(f.get('baustelleId')) : null, telefon: String(f.get('telefon') || '').trim() };
+      { const std = f.get('standardKostenstelleId') ? Number(f.get('standardKostenstelleId')) : null; if (std !== ((m && m.standardKostenstelleId) || null)) body.standardKostenstelleId = std; } // 12.25
       if (f.get('pnr')) body.pnr = Number(f.get('pnr'));
       if (m && m.id === ctx.ich.benutzer.id) { delete body.rolle; } // eigene Rolle ändert niemand selbst
       if (f.get('pin')) body.pin = f.get('pin');

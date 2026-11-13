@@ -1,6 +1,6 @@
 // Baustellen: Liste und Detail (Stammdaten, Auftragssumme, Nachträge, Budget-Schwellen und Empfänger).
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, parseZahl, geldFelder, geldWert, starkOk, leer, banner, dialog, bestaetigen, toast, kalkChip, rolleText, wieBuero, istIntern, speicher, $, $$ } from '../ui.js';
 import { PHASEN, phaseVon, phaseText, phaseChip, lebenslaufHtml, abschlussHtml, lebenslaufBinden, tafelHtml, tafelBinden } from './lebenslauf.js';
 import { dokumenteTab } from './dokumente.js';
 import { rechnungenTab } from './rechnungen.js';
@@ -22,22 +22,29 @@ function stammDialog(ctx, leute, b) {
   const d = dialog({ titel: b ? 'Baustelle bearbeiten' : 'Neue Baustelle', breit: true, inhalt: `<form id="bsf" class="form-grid">
     <label class="field"><span class="field-label">Kostenstelle (KST)</span><input class="input lg" name="kst" required maxlength="20" value="${esc((b && b.kst) || '')}" placeholder="z. B. 26-050"></label>
     ${b && b.phase ? `<div class="field"><span class="field-label">Status</span><output class="input lg ro">${esc(phaseText(b.phase))} – Änderung über „Status des Bauvorhabens“</output></div>` : `<label class="field"><span class="field-label">Status</span><select class="input lg" name="status">${Object.entries(STATUS).filter(([k]) => b || k !== 'abgeschlossen').map(([k, [t]]) => `<option value="${k}" ${(b ? b.status : 'aktiv') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`}
-    <label class="field full"><span class="field-label">Bauvorhaben / Name</span><input class="input lg" name="name" required maxlength="120" value="${esc((b && b.name) || '')}"></label>
-    <label class="field full"><span class="field-label">Auftraggeber</span><input class="input lg" name="auftraggeber" maxlength="120" value="${esc((b && b.auftraggeber) || '')}"></label>
+    <label class="switch-row flat full" id="bs-intern-zeile"><span><b>Interne Kostenstelle</b><small>Zum Beispiel Büro, Werkstatt/Bauhof oder Kieswerk/Grube: nur zum Stempeln und für den Lohn – ohne Nachkalkulation, Rechnungen, Planer und Bautagesberichte.</small></span><input type="checkbox" class="vh" name="intern" ${b && istIntern(b) ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
+    <label class="field full"><span class="field-label" data-name-label>Bauvorhaben / Name</span><input class="input lg" name="name" required maxlength="120" value="${esc((b && b.name) || '')}"></label>
+    <label class="field full" data-nur-bs><span class="field-label">Auftraggeber</span><input class="input lg" name="auftraggeber" maxlength="120" value="${esc((b && b.auftraggeber) || '')}"></label>
     <label class="field full"><span class="field-label">Adresse der Baustelle</span><input class="input lg" name="adresse" maxlength="160" value="${esc((b && b.adresse) || '')}"></label>
-    <label class="field"><span class="field-label">Polier</span>${wahl('polierId', ['polier'])}</label>
-    <label class="field"><span class="field-label">Bauleiter</span>${wahl('bauleiterId', ['bauleiter', 'gf'])}</label>
-    <fieldset class="field full"><legend class="field-label">Lage der Baustelle (für das Wetter)</legend><div class="form-grid">
+    <label class="field" data-nur-bs><span class="field-label">Polier</span>${wahl('polierId', ['polier'])}</label>
+    <label class="field" data-nur-bs><span class="field-label">Bauleiter</span>${wahl('bauleiterId', ['bauleiter', 'gf'])}</label>
+    <fieldset class="field full" data-nur-bs><legend class="field-label">Lage der Baustelle (für das Wetter)</legend><div class="form-grid">
       <label class="field"><span class="field-label">Breitengrad (lat)</span><input class="input lg num" name="lat" inputmode="decimal" value="${b && b.lat != null ? String(b.lat).replace('.', ',') : ''}" placeholder="z. B. 47,7333"></label>
       <label class="field"><span class="field-label">Längengrad (lng)</span><input class="input lg num" name="lng" inputmode="decimal" value="${b && b.lng != null ? String(b.lng).replace('.', ',') : ''}" placeholder="z. B. 16,1500"></label></div>
       <small class="muted">Dezimalgrad, z. B. aus der Karte am Handy (Punkt lange drücken). Leer = kein automatisches Wetter.</small></fieldset>
-    <label class="field full"><span class="field-label">E-Mail des Auftraggebers (für den Bautagesbericht)</span><input class="input lg" name="agEmail" maxlength="300" value="${esc((b && b.agEmail) || '')}" placeholder="name@auftraggeber.at, weitere mit Komma"></label>
-    <label class="switch-row flat full"><span><b>Unterschriebene Berichte automatisch senden</b><small>Als PDF ohne Preise – nur wenn der E-Mail-Versand eingerichtet ist.</small></span><input type="checkbox" class="vh" name="berichtMail" ${!b || b.berichtMail !== false ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
+    <label class="field full" data-nur-bs><span class="field-label">E-Mail des Auftraggebers (für den Bautagesbericht)</span><input class="input lg" name="agEmail" maxlength="300" value="${esc((b && b.agEmail) || '')}" placeholder="name@auftraggeber.at, weitere mit Komma"></label>
+    <label class="switch-row flat full" data-nur-bs><span><b>Unterschriebene Berichte automatisch senden</b><small>Als PDF ohne Preise – nur wenn der E-Mail-Versand eingerichtet ist.</small></span><input type="checkbox" class="vh" name="berichtMail" ${!b || b.berichtMail !== false ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
     <p class="form-err full" role="alert" hidden></p></form>`,
     fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="bsf">Speichern</button>' });
+  // 12.25: bei einer internen Kostenstelle entfallen die Felder des Bauvorhabens
+  const internFeld = $('[name="intern"]', d.el);
+  const artZeigen = () => { const i = internFeld.checked; $$('[data-nur-bs]', d.el).forEach((x) => { x.hidden = i; }); $('[data-name-label]', d.el).textContent = i ? 'Bezeichnung' : 'Bauvorhaben / Name'; d.el.querySelector('[name="kst"]').placeholder = i ? 'z. B. 90-010' : 'z. B. 26-050'; };
+  internFeld.addEventListener('change', artZeigen); artZeigen();
   $('#bsf', d.el).addEventListener('submit', async (e) => {
     e.preventDefault(); const f = new FormData(e.target);
-    const body = { kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), ...(f.get('status') ? { status: f.get('status') } : {}), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
+    const intern = f.get('intern') === 'on';
+    if (b && intern && !istIntern(b) && !(await bestaetigen('Zur internen Kostenstelle machen?', 'Die Baustelle verschwindet aus Nachkalkulation, Rechnungen, Planer, Zeitplan und Bautagesberichten. Gestempelte Zeiten bleiben erhalten.', 'Umstellen'))) return;
+    const body = { intern, kst: f.get('kst').trim(), name: f.get('name').trim(), auftraggeber: f.get('auftraggeber').trim(), adresse: f.get('adresse').trim(), ...(f.get('status') ? { status: f.get('status') } : {}), polierId: f.get('polierId') ? Number(f.get('polierId')) : null, bauleiterId: f.get('bauleiterId') ? Number(f.get('bauleiterId')) : null };
     // Koordinaten: Dezimalgrad mit Komma oder Punkt; leer = unbekannt
     const grad = (k) => { const roh = String(f.get(k) || '').trim().replace(',', '.'); return roh === '' ? null : Number(roh); };
     body.lat = grad('lat'); body.lng = grad('lng');
@@ -47,15 +54,19 @@ function stammDialog(ctx, leute, b) {
     body.agEmail = String(f.get('agEmail') || '').trim(); body.berichtMail = f.get('berichtMail') === 'on';
     try {
       const neu = b ? await put(`/baustellen/${b.id}`, { ...body, version: b.version }) : await post('/baustellen', body);
-      d.zu(); toast('Baustelle gespeichert.');
+      d.zu(); toast(intern ? 'Kostenstelle gespeichert.' : 'Baustelle gespeichert.');
       if (!b && neu && neu.id) location.hash = `#/baustelle/${neu.id}`; else ctx.neuLaden();
     } catch (x) { const err = $('.form-err', d.el); err.hidden = false; konfliktText(err, x, ctx, d); }
   });
 }
 
 export async function baustellen(el, ctx) {
-  let liste = await get('/baustellen');
+  // 12.25: interne Kostenstellen (Büro, Werkstatt …) sind keine Bauvorhaben – eigene Gruppe darunter, nur für Büro/Bauleiter/GF
+  let interne = [];
+  const teile = (alle) => { interne = alle.filter(istIntern); return alle.filter((b) => !istIntern(b)); };
+  let liste = teile(await get('/baustellen'));
   const darf = ctx.kann('stammdaten');
+  const zeigtInterne = darf || wieBuero(ctx.ich.benutzer.rolle);
   const LAUFEND = ['angebot', 'geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
   let filter = PHASEN[ctx.query.get('phase')] ? ctx.query.get('phase') : 'laufend';
   let ansicht = speicher.lies('bt_bs_ansicht') === 'tafel' ? 'tafel' : 'liste';
@@ -74,9 +85,12 @@ export async function baustellen(el, ctx) {
         <div class="tabs klein" role="tablist" aria-label="Darstellung"><button type="button" role="tab" aria-selected="${ansicht === 'liste'}" class="${ansicht === 'liste' ? 'on' : ''}" data-ansicht="liste">${ic('grid')}Liste</button><button type="button" role="tab" aria-selected="${ansicht === 'tafel'}" class="${ansicht === 'tafel' ? 'on' : ''}" data-ansicht="tafel">${ic('board')}Tafel</button></div>
         <a class="btn ghost" id="zum-archiv" href="#/baustellen/archiv">Abgeschlossene Bauvorhaben</a>${darf ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neue Baustelle</button>` : ''}</div>
       ${ansicht === 'tafel' ? tafelHtml(liste, ctx) : sicht.length ? `<div class="site-cards">${sicht.map(karte).join('')}</div>` : `<div class="card">${leer('Keine Baustellen für diesen Filter.', 'pin')}</div>`}
+      ${zeigtInterne && interne.length ? `<section class="card" id="kst-intern" aria-labelledby="h-kst-intern"><div class="card-h pad-h"><h3 id="h-kst-intern">Interne Kostenstellen <span class="count">${interne.length}</span></h3></div>
+        <p class="pad-s muted sm">Zum Stempeln und für den Lohn (z. B. Büro, Werkstatt, Grube) – ohne Nachkalkulation, Rechnungen und Planer.</p>
+        <ul class="plain rows">${interne.map((b) => `<li data-kst-intern="${b.id}"><a class="grow" href="#/baustelle/${b.id}"><b>${esc(b.name)}</b><small>${esc(b.kst || '')}</small></a>${b.status === 'abgeschlossen' ? '<span class="chip xs st-grey">abgeschlossen</span>' : '<span class="chip xs st-grey">intern</span>'}</li>`).join('')}</ul></section>` : ''}
     </div>`;
   }
-  const neu = async () => { try { liste = await get('/baustellen'); } catch (x) { toast(x.message, 'warn'); } if (ctx.aktuell()) zeichne(); };
+  const neu = async () => { try { liste = teile(await get('/baustellen')); } catch (x) { toast(x.message, 'warn'); } if (ctx.aktuell()) zeichne(); };
   el.addEventListener('click', async (e) => {
     const f = e.target.closest('[data-filter]'); if (f) { filter = f.dataset.filter; ansicht = 'liste'; return zeichne(); }
     const a = e.target.closest('[data-ansicht]'); if (a) { ansicht = a.dataset.ansicht; speicher.setz('bt_bs_ansicht', ansicht); return zeichne(); }
@@ -93,7 +107,7 @@ export async function baustelle(el, ctx) {
   const mitKalk = ctx.kann('kalk_sehen');
   const [b, leute] = await Promise.all([get(`/baustellen/${id}`), get('/mitarbeiter').catch(() => [])]);
   // Nachkalkulation nur abfragen, wenn der Server für diese Baustelle Budgetdaten liefert (fremde Baustellen: nein)
-  const kalk = mitKalk && ('schwellen' in b || 'budgetVerbrauchProzent' in b) ? await get(`/kalkulation/${id}`).catch((e) => (e.status === 403 ? null : Promise.reject(e))) : null;
+  const kalk = mitKalk && !istIntern(b) && ('schwellen' in b || 'budgetVerbrauchProzent' in b) ? await get(`/kalkulation/${id}`).catch((e) => (e.status === 403 ? null : Promise.reject(e))) : null;
   ctx.titel(b.name || 'Baustelle', b.kst || '');
   const darfStamm = ctx.kann('stammdaten'), darfAuftrag = ctx.kann('preise_bearbeiten');
   const name = (pid) => (leute.find((m) => m.id === pid) || {}).name || '–';
@@ -102,11 +116,13 @@ export async function baustelle(el, ctx) {
   const empf = b.empfaenger || { bauleiter: true, buero: true, gf: true };
   const nachtraege = b.nachtraege || (kalk && kalk.nachtraege) || [];
   // N-07: Abschnitt nur zeigen, wenn der Server Budgetdaten für diese Baustelle liefert (nicht bei fremden Baustellen)
-  const zeigAuftrag = 'auftragssumme' in b || 'schwellen' in b || !!kalk;
+  const intern = istIntern(b); // 12.25: nur Stammdaten – kein Auftrag, kein Lebenslauf, keine Dokumente/Rechnungen
+  if (intern) delete b.phase;
+  const zeigAuftrag = !intern && ('auftragssumme' in b || 'schwellen' in b || !!kalk);
   const rolle = ctx.ich.benutzer.rolle;
-  const planer = ['buero', 'gf'].includes(rolle) || ctx.kann('stammdaten');
+  const planer = wieBuero(rolle) || ctx.kann('stammdaten');
   const eigen = (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
-  const siehtDoku = planer || (['bauleiter', 'polier'].includes(rolle) && eigen);
+  const siehtDoku = !intern && (planer || (rolle === 'polier' && eigen));
   const siehtRechnungen = ctx.kann('preise_sehen') && (planer || eigen) && zeigAuftrag;
   const REITER = [['uebersicht', 'Übersicht'], ...(siehtDoku ? [['dokumente', 'Dokumente']] : []), ...(siehtRechnungen ? [['rechnungen', 'Rechnungen']] : [])];
   const reiter = REITER.some(([k]) => k === ctx.query.get('reiter')) ? ctx.query.get('reiter') : 'uebersicht';
@@ -115,7 +131,7 @@ export async function baustelle(el, ctx) {
 
   el.innerHTML = `
   <div class="page">
-    <div class="form-top"><a class="link-back" href="#/baustellen">${ic('left')}Alle Baustellen</a><span class="grow"></span>${b.phase ? phaseChip(b.phase) : stChip(b.status)}${kalk ? kalkChip(kalk.status) : ''}</div>
+    <div class="form-top"><a class="link-back" href="#/baustellen">${ic('left')}Alle Baustellen</a><span class="grow"></span>${intern ? '<span class="chip st-grey" id="bs-intern-chip">Interne Kostenstelle</span>' : ''}${b.phase ? phaseChip(b.phase) : stChip(b.status)}${kalk ? kalkChip(kalk.status) : ''}</div>
     ${REITER.length > 1 ? `<div class="tabs" role="tablist" aria-label="Bereiche der Baustelle" id="bs-reiter">${REITER.map(([k, t]) => `<a role="tab" aria-selected="${k === reiter}" class="${k === reiter ? 'on' : ''}" data-reiter="${k}" href="#/baustelle/${id}${k === 'uebersicht' ? '' : '?reiter=' + k}">${t}</a>`).join('')}</div>` : ''}
     ${reiter !== 'uebersicht' ? '<div id="reiter-inhalt" class="stack"></div>' : `
     ${b.phase ? lebenslaufHtml(b, ctx, verlauf) : ''}
@@ -123,7 +139,7 @@ export async function baustelle(el, ctx) {
       <section class="card" aria-labelledby="h-stamm">
         <div class="card-h pad-h"><h3 id="h-stamm">Stammdaten</h3>${darfStamm ? `<button type="button" class="btn ghost sm" data-akt="stamm">${ic('edit')}Bearbeiten</button>` : ''}</div>
         <dl class="def-list"><div><dt>Kostenstelle</dt><dd>${esc(b.kst || '–')}</dd></div><div><dt>Bauvorhaben</dt><dd>${esc(b.name || '–')}</dd></div><div><dt>Auftraggeber</dt><dd>${esc(b.auftraggeber || '–')}</dd></div><div><dt>Adresse</dt><dd>${esc(b.adresse || '–')}</dd></div><div><dt>Polier</dt><dd>${esc(b.polierName || name(b.polierId))}</dd></div><div><dt>Bauleiter</dt><dd>${esc(b.bauleiterName || name(b.bauleiterId))}</dd></div><div><dt>Lage (Wetter)</dt><dd data-koordinaten>${b.lat != null && b.lng != null ? `${String(b.lat).replace('.', ',')} / ${String(b.lng).replace('.', ',')}` : 'nicht eingetragen'}</dd></div>${'agEmail' in b ? `<div><dt>Bericht per E-Mail an</dt><dd>${esc(b.agEmail || '–')}${b.agEmail && b.berichtMail === false ? ' (automatischer Versand aus)' : ''}</dd></div>` : ''}</dl>
-        <div class="card-actions"><a class="btn ghost sm" href="#/berichte?baustelleId=${id}">${ic('clipboard')}Bautagesberichte</a>${kalk ? `<a class="btn ghost sm" href="#/kalkulation/${id}">${ic('chart')}Nachkalkulation</a>` : ''}</div>
+        <div class="card-actions">${intern ? '' : `<a class="btn ghost sm" href="#/berichte?baustelleId=${id}">${ic('clipboard')}Bautagesberichte</a>`}${kalk ? `<a class="btn ghost sm" href="#/kalkulation/${id}">${ic('chart')}Nachkalkulation</a>` : ''}</div>
       </section>
       ${zeigAuftrag ? `<section class="card" aria-labelledby="h-auf">
         <div class="card-h pad-h"><h3 id="h-auf">Auftrag &amp; Budget-Alarm</h3></div>

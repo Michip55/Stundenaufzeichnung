@@ -131,13 +131,13 @@ async function stammdatenUndLebenslauf(h, z) {
   await ueberlauf('polier fertigmeldung'); await shot('lebenslauf-polier');
   await abmelden();
 
-  /* ---- Bauleiter: nur erlaubte Ziele, Fertiggestellt → Abgenommen ---- */
+  /* ---- Bauleiter: Ziele wie das Büro (Inhaber 13.11.2026), Fertiggestellt → Abgenommen ---- */
   await anmelden('bauleiter');
   await geh(`/baustelle/${z.y.id}`);
   await page.click('#phase-andere');
   await page.waitForSelector('dialog[open] #phf');
   const ziele = await page.locator('#ph-ziel option').evaluateAll((o) => o.map((x) => x.value));
-  pruef(ziele.includes('fertiggestellt') && ziele.includes('pausiert') && !ziele.includes('storniert') && !ziele.includes('schlussrechnung'), `A2-Leben: Bauleiter-Ziele falsch (${ziele})`);
+  pruef(ziele.includes('fertiggestellt') && ziele.includes('pausiert') && ziele.includes('storniert'), `A2-Leben: Bauleiter-Ziele falsch – erwartet wie beim Büro (${ziele})`);
   await page.selectOption('#ph-ziel', 'fertiggestellt');
   await page.click('#ph-ok');
   await page.waitForSelector('#lebenslauf[data-phase="fertiggestellt"]');
@@ -149,7 +149,7 @@ async function stammdatenUndLebenslauf(h, z) {
   await dialogUeberlauf('phase abgenommen'); await shot('lebenslauf-dialog');
   await page.click('#ph-ok');
   await page.waitForSelector('#lebenslauf[data-phase="abgenommen"]');
-  pruef(await page.locator('#abschluss [data-wert="gewaehrleistung"]').count() === 1 && await page.locator('#phase-weiter').count() === 0, 'A2-Leben: Gewährleistungs-Karte fehlt oder Bauleiter darf zur Schlussrechnung');
+  pruef(await page.locator('#abschluss [data-wert="gewaehrleistung"]').count() === 1 && await page.locator('#phase-weiter').count() === 1, 'A2-Leben: Gewährleistungs-Karte fehlt oder Bauleiter kann nicht (wie das Büro) zur Schlussrechnung weitergehen');
   await ueberlauf('bauleiter lebenslauf');
   await abmelden();
 
@@ -1174,16 +1174,15 @@ async function urlaub(h, z) {
   await keinEuro('urlaub mitarbeiter 2'); await ueberlauf('urlaub mitarbeiter 2');
   await abmelden();
 
-  /* ---- Polier: Abwesenheiten der eigenen Partie, Krank nicht im Klartext, keine € ---- */
-  await anmelden('polier');
+  /* ---- Polier: nur die eigenen Einträge (Inhaber 13.11.2026: keine Abwesenheiten anderer, auch nicht der Partie), keine € ---- */
+  const polierIch = await anmelden('polier');
   await geh(`/urlaub?monat=${monat}`);
-  if (g.mobil) {
-    await page.waitForSelector('#ur-partie');
-    pruef(/Meine Partie – Abwesenheiten/i.test(await page.locator('#ur-partie h2').innerText()) && await page.locator(`#ur-partie [data-antrag]:has-text("${name}")`).count() >= 1, 'A2-Url: Polier (Handy) sieht „Meine Partie – Abwesenheiten“ nicht');
-  } else {
+  await page.waitForSelector('#ur-meine');
+  pruef(await page.locator('#ur-partie, #ur-warnungen').count() === 0 && !(await page.locator('#view').innerText()).includes(name), 'A2-Url: Polier sieht Abwesenheiten oder Anträge seiner Partie');
+  if (!g.mobil) {
     await page.waitForSelector('#ur-kalender');
-    pruef(await page.locator(`#ur-kalender tr[data-person="${L}"]`).count() === 1 && await page.locator('#ur-bu').count() === 0, 'A2-Url: Polier sieht seine Partie nicht oder darf Betriebsurlaub eintragen');
-    pruef(await page.locator('#ur-kalender [data-code="K"]').count() === 0, 'A2-Url: Polier sieht „Krank“ im Klartext');
+    const fremdeZeilen = await page.locator('#ur-kalender tr[data-person]').evaluateAll((l, ich) => l.filter((x) => Number(x.dataset.person) !== ich).length, polierIch.benutzer.id);
+    pruef(fremdeZeilen === 0 && await page.locator('#ur-bu').count() === 0, `A2-Url: Polier sieht ${fremdeZeilen} andere Personen im Kalender oder darf Betriebsurlaub eintragen`);
   }
   pruef(await page.locator('[data-antrag-entscheid], [data-antrag-korrigieren]').count() === 0, 'A2-Url: Polier kann Anträge entscheiden oder korrigieren');
   pruef(await page.locator('#ur-einst').count() === 0 && (await h.absichtlich(() => api('PUT', '/einstellungen/urlaub', { partieGrenze: 9 }))).status === 403, 'A2-Url: Polier erreicht die Urlaubs-Einstellungen');
@@ -1481,54 +1480,266 @@ async function geteilt(h) {
   await h.abmelden();
 }
 
-/* ================= R-01: Krankenstand anderer ist für Polier nur „abwesend“ – in der Anzeige und im Netzwerk ================= */
+/* ================= Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer GAR NICHT (auch nicht „abwesend“) –
+   in der Anzeige und im Netzwerk; der Polier meldet Schlechtwetter für seine Partie mit neutraler Rückmeldung ================= */
 async function krank(h) {
   const { page, api, geh, pruef, g, anmelden, abmelden } = h;
   const heute = h.heute();
-  const tag = naechsterArbeitstag(heute, 4);
+  const tag = naechsterArbeitstag(heute, 4), tagU = naechsterArbeitstag(tag, 1);
   await anmelden('buero');
   const leute = (await api('GET', '/mitarbeiter')).json;
   const polier = leute.find((m) => m.name === 'Josef Haidbauer');
-  const kollege = leute.find((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false && m.baustelleId === polier.baustelleId && m.name !== 'Lukas Brandstätter');
-  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tag}`)).json.filter((x) => x.benutzerId === kollege.id)) await api('DELETE', `/abwesenheiten/${a.id}`);
+  const partie = leute.filter((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false && m.baustelleId === polier.baustelleId && m.name !== 'Lukas Brandstätter');
+  const kollege = partie[0], zweiter = partie[1];
+  pruef(!!kollege && !!zweiter, 'Abwesenheiten: zu wenige Kollegen in der Partie des Poliers für die Prüfung');
+  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId))) await api('DELETE', `/abwesenheiten/${a.id}`);
   const k = await api('POST', '/abwesenheiten/zeitraum', { benutzerId: kollege.id, von: tag, bis: tag, code: 'K', notiz: 'DIAGNOSE-GEHEIM' });
-  pruef(k.status === 201 && k.json.status === 'genehmigt', `R-01: Krankenstand eintragen → ${k.status}`);
+  pruef(k.status === 201 && k.json.status === 'genehmigt', `Abwesenheiten: Krankenstand eintragen → ${k.status}`);
+  const u = await api('POST', '/abwesenheiten/zeitraum', { benutzerId: kollege.id, von: tagU, bis: tagU, code: 'U', notiz: 'URLAUB-GEHEIM' });
+  pruef(u.status === 201, `Abwesenheiten: Urlaub eintragen → ${u.status}`);
   await abmelden();
 
+  // Rundgang einer Rolle: sichtbarer Text, DOM und alle JSON-Antworten ohne jede Abwesenheit anderer Personen
+  const FREMD = ['K', 'U', 'ZA', 'BU', 'abwesend'];
+  async function rundgang(rolle, ich, routen) {
+    const antworten = [];
+    const lausche = async (r) => { if (!r.url().includes('/api/') || !/json/.test(r.headers()['content-type'] || '')) return; try { antworten.push([r.url().replace(h.srv.url, ''), await r.text()]); } catch (e) { /* Antwort schon weg */ } };
+    page.on('response', lausche);
+    const sichtbar = [], imDom = [];
+    for (const r of routen) {
+      await geh(r); await page.waitForTimeout(300);
+      const t = (await page.evaluate(() => (document.querySelector('#view') || document.body).innerText)).replace(/K\s*=\s*Krank/g, '').replace(/ZA\s+Zeitausgleich\s+K\s+Krank\s+SW\s+Schlechtwetter/g, '');
+      // der Mitarbeiter der Testdaten war selbst krank (eigener Eintrag, erlaubt) – bei ihm zählt „Krank“ nicht
+      const fund = (rolle === 'polier' ? /\bKrank(enstand)?\b|DIAGNOSE-GEHEIM|URLAUB-GEHEIM|\babwesend\b|\babw\.|Abwesenheiten meiner Partie|Meine Partie – Abwesenheiten/ : /DIAGNOSE-GEHEIM|URLAUB-GEHEIM|\babwesend\b|\babw\.|Abwesenheiten meiner Partie/).exec(t);
+      if (fund) sichtbar.push(`${r} („${t.slice(Math.max(0, fund.index - 50), fund.index + 30).replace(/\s+/g, ' ')}“)`);
+      const dom = await page.evaluate((meine) => {
+        const out = [];
+        if (document.querySelector('#ur-partie, #abw-andere, [data-abwesend], .wp-frei.abwesend')) out.push('Abschnitt/Marke für Abwesenheiten anderer');
+        const fremdeZeilen = [...document.querySelectorAll('#ur-kalender [data-person], #ur-jahr [data-person], #ur-konten [data-person]')].filter((x) => Number(x.dataset.person) !== meine).length;
+        if (fremdeZeilen) out.push(`${fremdeZeilen} Kalender-/Kontozeilen anderer Personen`);
+        const marken = [...document.querySelectorAll('.crew-row .code-badge, [data-partie-personen] .code-badge')].length;
+        if (marken) out.push(`${marken} Abwesenheits-Kürzel in Personenlisten`);
+        return out;
+      }, ich);
+      if (dom.length) imDom.push(`${r}: ${dom.join(', ')}`);
+    }
+    page.off('response', lausche);
+    pruef(sichtbar.length === 0, `Abwesenheiten (${rolle}): Abwesenheit anderer sichtbar auf ${sichtbar.join(', ')}`);
+    pruef(imDom.length === 0, `Abwesenheiten (${rolle}): ${imDom.join(' | ')}`);
+    const leck = [];
+    const suche = (x, url) => {
+      if (Array.isArray(x)) return x.forEach((y) => suche(y, url));
+      if (!x || typeof x !== 'object') return;
+      if (x.benutzerId != null && Number(x.benutzerId) !== ich && FREMD.includes(x.code)) leck.push(`${url}: Code ${x.code} von Person ${x.benutzerId}`);
+      Object.values(x).forEach((y) => suche(y, url));
+    };
+    for (const [url, t] of antworten) {
+      if (/DIAGNOSE-GEHEIM|URLAUB-GEHEIM/.test(t)) leck.push(`${url}: Notiz`);
+      if (/\/api\/(abwesenheiten|urlaub)\b/.test(url) && !/sw-meldungen|feiertage|einstellungen/.test(url) && new RegExp(`"benutzerId":(${kollege.id}|${zweiter.id})\\b`).test(t)) leck.push(`${url}: Eintrag einer anderen Person`);
+      // auch Zähler verraten Abwesenheiten („6 von 7 Personen abwesend“)
+      if (/\/api\/urlaub\/kalender/.test(url)) { try { if ((JSON.parse(t).warnungen || []).length) leck.push(`${url}: Warnungen zur Partie-Besetzung`); } catch (e) { /* kein JSON */ } }
+      try { suche(JSON.parse(t), url); } catch (e) { /* kein JSON */ }
+    }
+    pruef(antworten.length > 5 && leck.length === 0, `Abwesenheiten (${rolle}): Netzwerkantworten verraten Abwesenheiten anderer (${[...new Set(leck)].slice(0, 4).join(' | ')})`);
+  }
+
+  /* ---- Polier ---- */
   await anmelden('polier');
-  const antworten = [];
-  const lausche = async (r) => { if (!r.url().includes('/api/') || !/json/.test(r.headers()['content-type'] || '')) return; try { antworten.push([r.url().replace(h.srv.url, ''), await r.text()]); } catch (e) { /* Antwort schon weg */ } };
-  page.on('response', lausche);
   // ein Entwurf mit Personalzeilen (für die Code-Auswahl); notfalls ein neuer Entwurf für einen Tag mit Stempelungen
-  let entwurf = null;
-  for (const kandidat of (await api('GET', '/berichte?status=entwurf')).json) { const voll = (await api('GET', `/berichte/${kandidat.id}`)).json; if ((voll.personal || []).length >= 2 && !(voll.unterschriften.an || voll.unterschriften.bh)) { entwurf = kandidat; break; } }
-  for (let i = 1; i < 40 && !entwurf; i += 1) { const r = await api('POST', '/berichte', { baustelleId: polier.baustelleId, datum: plusTage(heute, -i) }); if (r.status === 201 && (r.json.personal || []).length >= 2) entwurf = r.json; }
-  pruef(!!entwurf, 'R-01: kein Berichtsentwurf mit Personal für die Prüfung der Code-Auswahl');
-  const sichtbar = [];
-  for (const r of [`/urlaub?monat=${tag.slice(0, 7)}`, '/abwesenheiten', '/partie', '/kolonne', '/einsatz', '/woche', ...(entwurf ? [`/bericht/${entwurf.id}`] : [])]) {
-    await geh(r); await page.waitForTimeout(250);
-    const t = (await h.text()).replace(/K\s*=\s*Krank/g, '').replace(/ZA\s+Zeitausgleich\s+K\s+Krank\s+SW\s+Schlechtwetter/g, '');
-    if (/\bKrank(enstand)?\b|DIAGNOSE-GEHEIM/.test(t)) sichtbar.push(r);
+  let entwurf = null; const spurE = [];
+  for (const kandidat of (await api('GET', '/berichte?status=entwurf')).json) { const voll = (await api('GET', `/berichte/${kandidat.id}`)).json; spurE.push(`${kandidat.datum}:${(voll.personal || []).length}:${voll.unterschriften.an ? 'an' : ''}${voll.unterschriften.bh ? 'bh' : ''}`); if ((voll.personal || []).length >= 2 && !(voll.unterschriften.an || voll.unterschriften.bh)) { entwurf = kandidat; break; } }
+  const spur = [];
+  const vorhanden = new Set((await api('GET', `/berichte?baustelleId=${polier.baustelleId}`)).json.map((x) => x.datum));
+  for (let i = 0; i < 40 && !entwurf; i += 1) { const d = plusTage(heute, -i); if (vorhanden.has(d)) continue; const r = await api('POST', '/berichte', { baustelleId: polier.baustelleId, datum: d }); spur.push(`${d}:${r.status}:${((r.json || {}).personal || []).length}`); if (r.status === 201 && (r.json.personal || []).length >= 2) entwurf = r.json; }
+  if (!entwurf) { // kein Entwurf mit Stempelungen: Personal in einem leeren Entwurf von Hand eintragen
+    for (const leer of (await api('GET', `/berichte?baustelleId=${polier.baustelleId}&status=entwurf`)).json.sort((x, y) => (x.datum < y.datum ? 1 : -1))) {
+      const voll = (await api('GET', `/berichte/${leer.id}`)).json;
+      if (voll.unterschriften.an || voll.unterschriften.bh) continue;
+      const r = await api('PUT', `/berichte/${voll.id}`, { version: voll.version, personal: [polier, kollege, zweiter].map((m) => ({ benutzerId: m.id, von1: '07:00', bis1: '16:00', pauseMin: 60, code: null })) });
+      spur.push(`PUT ${leer.datum}:${r.status}`);
+      if (r.status === 200) { entwurf = voll; break; }
+    }
   }
-  page.off('response', lausche);
-  pruef(sichtbar.length === 0, `R-01: „Krank“ oder die Notiz ist für den Polier sichtbar auf ${sichtbar.join(', ')}`);
-  const leck = antworten.filter(([, t]) => /"code":"K"/.test(t) || /DIAGNOSE-GEHEIM/.test(t)).map(([u]) => u);
-  pruef(antworten.length > 5 && leck.length === 0, `R-01: Netzwerkantworten an den Polier enthalten Code K oder die Notiz (${leck.slice(0, 4).join(', ')})`);
-  if (!g.mobil) {
-    await geh(`/urlaub?monat=${tag.slice(0, 7)}`);
-    const z = page.locator(`#ur-kalender [data-zelle][data-person="${kollege.id}"][data-datum="${tag}"]`);
-    pruef(await z.getAttribute('data-code') === 'abwesend' && /abwesend/.test(await z.getAttribute('aria-label')), `R-01: Kalender zeigt den Tag nicht als „abwesend“ (${await z.getAttribute('data-code')})`);
-  }
-  // Bericht: Für andere Personen bietet die Code-Auswahl kein „K“ an
+  pruef(!!entwurf, `Abwesenheiten: kein Berichtsentwurf mit Personal für die Prüfung der Code-Auswahl (Entwürfe ${spurE.join(' ')} · neu ${spur.slice(0, 4).join(' ')})`);
+  await rundgang('polier', polier.id, [`/urlaub?monat=${tag.slice(0, 7)}`, `/urlaub?ansicht=jahr`, `/urlaub?ansicht=konten`, '/abwesenheiten', '/partie', '/kolonne', '/einsatz', '/woche', '/stempeln', '/berichte', ...(entwurf ? [`/bericht/${entwurf.id}`] : [])]);
+  await geh(`/urlaub?monat=${tag.slice(0, 7)}`);
+  pruef(await page.locator('#ur-partie').count() === 0 && await page.locator('#ur-meine').count() === 1, 'Abwesenheiten: Polier sieht unter Urlaub nicht nur die eigenen Einträge');
+  // Bericht: für andere Personen nur „–“ und „SW“ (kein K/U/ZA, kein „abw.“)
   if (entwurf) {
     await geh(`/bericht/${entwurf.id}`);
-    const mitK = await page.evaluate((ich) => [...document.querySelectorAll('.bp-row')].filter((row) => [...row.querySelectorAll('select[data-p="code"] option')].some((o) => o.value === 'K')).length, polier.id);
-    const zeilen = await page.locator('.bp-row').count();
-    pruef(zeilen >= 1 && mitK <= 1, `R-01: Die Code-Auswahl bietet „K“ für ${mitK} von ${zeilen} Personen an (höchstens die eigene Zeile)`);
+    await page.waitForSelector('.bp-row');
+    const fremd = await page.evaluate(() => [...document.querySelectorAll('.bp-row')].map((row) => [...row.querySelectorAll('select[data-p="code"] option')].map((o) => o.value).join(',')).filter((x) => x && x !== ',SW'));
+    pruef(fremd.length <= 1, `Abwesenheiten: Code-Auswahl im Bericht bietet dem Polier für andere mehr als SW an (${fremd.join(' | ')})`);
   }
+  // Schlechtwetter melden: immer dieselbe neutrale Rückmeldung, kein Status je Person – auch wenn jemand schon abwesend ist
+  await geh('/abwesenheiten');
+  await page.waitForSelector('#abw-sw');
+  pruef(await page.locator('#abw-andere').count() === 0, 'Schlechtwetter: Polier sieht eine Liste mit Abwesenheiten der Partie');
+  await page.click('#abw-sw [data-akt="eintragen"]');
+  await page.waitForSelector('dialog[open] #abw-e');
+  pruef((await page.locator('#abw-e [name="code"] option').evaluateAll((o) => o.map((x) => x.value))).join() === 'SW', 'Schlechtwetter: Polier kann anderes als SW eintragen');
+  await page.fill('#abw-e [name="datum"]', tag);
+  await page.check(`#abw-e [name="wer"][value="${kollege.id}"]`);
+  await page.check(`#abw-e [name="wer"][value="${zweiter.id}"]`);
+  await h.dialogUeberlauf('schlechtwetter melden');
+  const swAntworten = [];
+  const swLausche = async (r) => { if (/\/api\/abwesenheiten/.test(r.url()) && r.request().method() === 'POST') { try { swAntworten.push(await r.text()); } catch (e) { /* weg */ } } };
+  page.on('response', swLausche);
+  await page.click('dialog[open] [type="submit"][form="abw-e"]');
+  await page.waitForSelector('.toast');
+  const meldung = await page.locator('.toast').first().innerText();
+  pruef(/Schlechtwetter gemeldet – das Büro bestätigt\./.test(meldung), `Schlechtwetter: Rückmeldung nicht neutral („${meldung}“)`);
+  await page.waitForFunction(() => !document.querySelector('dialog[open] #abw-e'));
+  page.off('response', swLausche);
+  pruef(swAntworten.length === 2 && swAntworten.every((t) => /Schlechtwetter gemeldet/.test(t) && !/Krank|Urlaub|abwesend|genehmigt|"code":"K"/.test(t)) && new Set(swAntworten.map((t) => t.replace(/"(meldungId|benutzerId)":\d+/g, ''))).size === 1,
+    `Schlechtwetter: Antworten des Servers unterscheiden sich je Person oder nennen einen Grund (${swAntworten.join(' | ').slice(0, 300)})`);
+  await h.toastWeg();
+  pruef(await page.locator('#abw-andere').count() === 0 && !/abwesend|Krank/i.test((await page.locator('#view').innerText()).replace(/K\s*=\s*Krank/g, '')), 'Schlechtwetter: nach der Meldung zeigt die Seite einen Status je Person');
+  const eigeneSicht = (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json;
+  pruef(Array.isArray(eigeneSicht) && eigeneSicht.every((x) => x.benutzerId === polier.id), 'Schlechtwetter: Polier erhält nach der Meldung Einträge anderer');
+  await h.ueberlauf('polier schlechtwetter'); await h.shot('polier-schlechtwetter');
+  await abmelden();
+
+  /* ---- Mitarbeiter ---- */
+  const ma = await anmelden('mitarbeiter');
+  await rundgang('mitarbeiter', ma.benutzer.id, [`/urlaub?monat=${tag.slice(0, 7)}`, '/urlaub?ansicht=jahr', '/urlaub?ansicht=konten', '/abwesenheiten', '/einsatz', '/woche', '/stempeln', '/partie', '/kolonne', '/fuhrpark']);
+  await abmelden();
+
+  /* ---- Büro: sieht die Meldung zur Bestätigung; der Krankenstand ist unverändert ---- */
+  await anmelden('buero');
+  const amTag = (await api('GET', `/abwesenheiten?von=${tag}&bis=${tag}`)).json;
+  const vomKollegen = amTag.find((x) => x.benutzerId === kollege.id), vomZweiten = amTag.find((x) => x.benutzerId === zweiter.id);
+  pruef(vomKollegen && vomKollegen.code === 'K' && vomKollegen.status === 'genehmigt', `Schlechtwetter: der Krankenstand wurde durch die Meldung verändert (${vomKollegen && vomKollegen.code}/${vomKollegen && vomKollegen.status})`);
+  pruef(vomZweiten && vomZweiten.code === 'SW' && vomZweiten.status === 'beantragt', `Schlechtwetter: die Meldung wartet nicht auf die Bestätigung des Büros (${vomZweiten && vomZweiten.code}/${vomZweiten && vomZweiten.status})`);
+  await geh('/abwesenheiten');
+  await page.waitForSelector('#abw-offen');
+  pruef(new RegExp(zweiter.name).test(await page.locator('#abw-offen').innerText()), 'Schlechtwetter: das Büro sieht die Meldung des Poliers nicht unter den offenen Anträgen');
+  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId))) await api('DELETE', `/abwesenheiten/${a.id}`);
+  await abmelden();
+}
+
+/* ================= 12.25: interne Kostenstellen (Büro, Werkstatt/Bauhof, Kieswerk/Grube) – stempelbar, aber kein Bauvorhaben ================= */
+async function intern(h) {
+  const { page, api, geh, pruef, g, anmelden, abmelden } = h;
+  const k = KENN(g);
+  await anmelden('buero');
+  let alle = (await api('GET', '/baustellen')).json;
+  const istIntern = (b) => b.intern === true || b.kostenstelle === 'intern';
+  const buero = alle.find((b) => istIntern(b) && b.name === 'Büro');
+  const echte = alle.filter((b) => !istIntern(b) && b.status === 'aktiv');
+  pruef(!!buero && alle.filter(istIntern).length >= 2 && echte.length >= 2, `Intern: Kostenstelle „Büro“ oder weitere interne Kostenstellen fehlen in den Testdaten (${alle.filter(istIntern).map((b) => b.name)})`);
+
+  /* ---- Baustellen-Liste: eigene Gruppe, nicht bei den Bauvorhaben, nicht auf der Tafel ---- */
+  await geh('/baustellen');
+  await page.waitForSelector('#kst-intern');
+  pruef(await page.locator(`#kst-intern [data-kst-intern="${buero.id}"]`).count() === 1 && await page.locator(`.site-cards [data-bs="${buero.id}"]`).count() === 0, 'Intern: „Büro“ steht nicht in der Gruppe der internen Kostenstellen oder bei den Bauvorhaben');
+  await page.click('#bs-filter [data-filter="alle"]');
+  pruef(await page.locator(`.site-cards [data-bs="${buero.id}"]`).count() === 0, 'Intern: „Büro“ erscheint unter „Alle“ als Bauvorhaben');
+  await page.click('[data-ansicht="tafel"]');
+  await page.waitForSelector('.ll-spalte');
+  pruef(await page.locator(`.ll-karte[data-bv="${buero.id}"]`).count() === 0, 'Intern: „Büro“ liegt auf der Tafel der Bauvorhaben');
+  await page.click('[data-ansicht="liste"]');
+  await h.ueberlauf('baustellen intern'); await h.shot('kostenstellen-intern');
+
+  /* ---- Neue interne Kostenstelle über den Editor ---- */
+  const kst = `93-10${{ H: 1, T: 2, P: 3 }[k] || 9}`, name = `E2E Lager ${k}`;
+  await page.click('#neu');
+  await page.waitForSelector('dialog[open] #bsf');
+  await page.check('#bsf [name="intern"]', { force: true });
+  pruef(await page.locator('#bsf [data-nur-bs]:visible').count() === 0 && /Bezeichnung/i.test(await page.locator('#bsf [data-name-label]').innerText()), 'Intern: der Editor zeigt bei einer internen Kostenstelle noch Felder des Bauvorhabens');
+  await page.fill('#bsf [name="kst"]', kst);
+  await page.fill('#bsf [name="name"]', name);
+  await h.dialogUeberlauf('kostenstelle intern neu');
+  await page.click('dialog[open] [type="submit"][form="bsf"]');
+  await page.waitForSelector('#bs-intern-chip');
+  alle = (await api('GET', '/baustellen')).json;
+  const lager = alle.find((b) => b.kst === kst);
+  pruef(!!lager && istIntern(lager), `Intern: neue Kostenstelle nicht als intern gespeichert (${JSON.stringify(lager || null).slice(0, 120)})`);
+  // Detail: nur Stammdaten – kein Lebenslauf, kein Auftrag, keine Dokumente/Rechnungen, kein Verweis auf Berichte
+  pruef(await page.locator('#lebenslauf, #auftrag, #bs-reiter, #abschluss, #lv-import').count() === 0 && await page.locator('a[href^="#/berichte?baustelleId="], a[href^="#/kalkulation/"]').count() === 0, 'Intern: die Detailseite zeigt Lebenslauf, Auftrag, Reiter oder Verweise auf Berichte/Nachkalkulation');
+  await h.keinEuro('kostenstelle intern'); await h.ueberlauf('kostenstelle intern'); await h.shot('kostenstelle-intern');
+  // Bearbeiten: der Schalter ist gesetzt
+  await page.click('[data-akt="stamm"]');
+  await page.waitForSelector('dialog[open] #bsf');
+  pruef(await page.locator('#bsf [name="intern"]').isChecked(), 'Intern: der Schalter „Interne Kostenstelle“ ist beim Bearbeiten nicht gesetzt');
+  await page.click('dialog[open] [data-zu]');
+
+  /* ---- taucht nirgends als Bauvorhaben auf ---- */
+  const ids = alle.filter(istIntern).map((b) => b.id);
+  const inAntwort = async (pfad, lies) => { const r = await api('GET', pfad); return r.status === 200 ? lies(r.json).filter((id) => ids.includes(Number(id))) : []; };
+  pruef((await inAntwort('/kalkulation', (j) => (Array.isArray(j) ? j : j.baustellen || []).map((x) => x.baustelleId ?? x.id))).length === 0, 'Intern: interne Kostenstelle in der Nachkalkulation');
+  pruef((await inAntwort('/baustellen?archiv=1', (j) => j.map((x) => x.id))).length === 0, 'Intern: interne Kostenstelle im Archiv');
+  await geh('/kalkulation');
+  pruef(!(await h.text()).includes(name) && await page.locator(ids.map((id) => `a[href="#/kalkulation/${id}"]`).join(', ')).count() === 0, 'Intern: interne Kostenstelle in der Liste der Nachkalkulation');
+  await geh('/plan');
+  await page.waitForSelector('.wp-gitter, .tg-karte, .state');
+  pruef(await page.locator(ids.map((id) => `[data-zelle][data-bs="${id}"]`).join(', ')).count() === 0, 'Intern: interne Kostenstelle als Zeile im Baustellenplaner');
+  await geh('/plan?ansicht=zeitplan');
+  pruef(!(await page.locator('#view').innerText()).includes(name), 'Intern: interne Kostenstelle im Projektzeitplan');
+  await geh('/offene-posten');
+  pruef(!(await page.locator('#view').innerText()).includes(name), 'Intern: interne Kostenstelle bei den offenen Posten');
+  await geh('/dashboard');
+  pruef(!(await page.locator('#view').innerText()).includes(name), 'Intern: interne Kostenstelle auf der Übersicht');
+  await geh('/berichte');
+  pruef((await page.locator('#f-bs option').evaluateAll((o) => o.map((x) => Number(x.value)))).every((id) => !ids.includes(id)), 'Intern: interne Kostenstelle im Filter der Bautagesberichte');
+  await page.click('#neu');
+  await page.waitForSelector('dialog[open] #nb');
+  pruef((await page.locator('#nb [name="baustelleId"] option').evaluateAll((o) => o.map((x) => Number(x.value)))).every((id) => !ids.includes(id)), 'Intern: für eine interne Kostenstelle lässt sich ein Bautagesbericht anlegen');
+  await page.click('dialog[open] [data-zu]');
+  const verboten = await h.absichtlich(() => api('POST', '/berichte', { baustelleId: buero.id, datum: h.heute() }));
+  pruef(verboten.status >= 400, `Intern: der Server legt einen Bericht für „Büro“ an (${verboten.status})`);
+
+  /* ---- Stempeluhr: Büro ist vorgewählt, Wechsel auf eine echte Baustelle bleibt möglich; Monat und Woche zeigen die Kostenstelle ---- */
+  const status = async () => (await api('GET', '/zeit/status')).json;
+  let st = await status();
+  if (st.status !== 'aus') { await api('POST', '/zeit/stempeln', { typ: st.status === 'pause' ? 'pause_ende' : 'gehen' }); if (st.status === 'pause') await api('POST', '/zeit/stempeln', { typ: 'gehen' }); }
+  await page.evaluate(() => { localStorage.removeItem('bt_kst_standard'); });
+  await geh('/dashboard'); await geh('/stempeln');
+  await page.waitForSelector('[data-akt="waehlen"]');
+  pruef((await status()).standardKostenstelleId === buero.id && /Büro/.test(await page.locator('[data-akt="waehlen"] .site-txt b').innerText()), `Intern: Stempeluhr des Büros schlägt nicht die Kostenstelle „Büro“ vor („${await page.locator('[data-akt="waehlen"] .site-txt').innerText()}“)`);
+  await page.click('[data-akt="waehlen"]');
+  await page.waitForSelector('dialog[open] .pick-list');
+  pruef(await page.locator(`dialog[open] .pick-row[data-bs="${lager.id}"][data-intern]`).count() === 1 && await page.locator(`dialog[open] .pick-row[data-bs="${echte[0].id}"]:not([data-intern])`).count() === 1, 'Intern: Auswahl der Stempeluhr ohne interne Kostenstellen oder ohne echte Baustellen');
+  await h.dialogUeberlauf('stempeluhr kostenstellen');
+  await page.click(`dialog[open] .pick-row[data-bs="${buero.id}"]`);
+  await page.click('[data-stempel="kommen"]');
+  await page.waitForSelector('.clock-card[data-status="arbeit"]');
+  st = await status();
+  pruef(st.status === 'arbeit' && st.baustelleId === buero.id, `Intern: Kommen wurde nicht auf „Büro“ gebucht (${st.status}/${st.baustelleId})`);
+  await h.ueberlauf('stempeluhr büro'); await h.shot('stempeluhr-buero');
+  await page.click('[data-akt="wechsel"]');
+  await page.waitForSelector('dialog[open] .pick-list');
+  await page.click(`dialog[open] .pick-row[data-bs="${echte[0].id}"]`);
+  await page.waitForFunction(async (id) => { const r = await fetch('/api/zeit/status'); return (await r.json()).baustelleId === id; }, echte[0].id);
+  pruef((await status()).baustelleId === echte[0].id, 'Intern: Wechsel vom Büro auf eine echte Baustelle nicht gebucht');
+  await h.toastWeg();
+  await page.click('[data-stempel="gehen"]');
+  await page.waitForFunction(async () => { const r = await fetch('/api/zeit/status'); return (await r.json()).status === 'aus'; });
+  await geh('/woche');
+  pruef(/Büro/.test(await page.locator('#view').innerText()), 'Intern: „Meine Woche“ nennt die Kostenstelle „Büro“ nicht');
+  await geh('/benutzer');
+  await abmelden();
+
+  /* ---- Mitarbeiter: sieht interne Kostenstellen in der Auswahl der Stempeluhr, sonst nirgends ---- */
+  await anmelden('mitarbeiter');
+  st = await status();
+  await geh('/stempeln');
+  if (st.status === 'aus') {
+    await page.click('[data-akt="waehlen"]');
+    await page.waitForSelector('dialog[open] .pick-list');
+    pruef(await page.locator('dialog[open] .pick-row[data-intern]').count() >= 1, 'Intern: Mitarbeiter findet keine interne Kostenstelle (z. B. Werkstatt) in der Stempeluhr');
+    await page.click('dialog[open] [data-zu]');
+  }
+  await h.keinEuro('stempeln intern');
+  await abmelden();
+
+  // aufräumen: die Test-Kostenstelle abschließen
+  await anmelden('buero');
+  const lg = (await api('GET', `/baustellen/${lager.id}`)).json;
+  await api('PUT', `/baustellen/${lager.id}`, { version: lg.version, status: 'abgeschlossen' });
   await abmelden();
 }
 
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

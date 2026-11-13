@@ -66,7 +66,7 @@ export default async function preise(el, ctx) {
         ${darfPflegen(t) && stamm[t.art] ? `<button type="button" class="btn ghost" id="stamm-import">${ic('file')}Excel hochladen</button><input type="file" id="stamm-datei" class="vh" accept=".xlsx" tabindex="-1" aria-hidden="true"><button type="button" class="btn primary" id="stamm-neu">${ic('plus')}Neu</button>` : ''}</div>` : ''}
       <section class="card" id="tabpanel" role="tabpanel" aria-labelledby="tab-${tab}">${t ? tabelle(t) : ''}</section>
       ${t && darf ? `<p class="fineprint">Preis ändern: Betrag überschreiben – es wird „gültig ab“ gefragt (Standard heute). Deaktivierte Einträge verschwinden aus allen Auswahllisten, bleiben aber in alten Berichten sichtbar. Die Verrechnungspreise der Nachkalkulation stehen im Positionskatalog bzw. je Bauvorhaben.</p>` : ''}
-      <nav class="chip-row" aria-label="Weitere Stammdaten" id="stamm-links"><span class="muted sm">Weitere Stammdaten:</span>${ctx.kann('benutzer') || ctx.ich.benutzer.rolle === 'buero' ? '<a class="chip-btn" href="#/benutzer">Mitarbeiter</a>' : ''}<a class="chip-btn" href="#/baustellen">Baustellen</a><a class="chip-btn" href="#/fuhrpark">Fuhrpark &amp; Geräte</a></nav>
+      <nav class="chip-row" aria-label="Weitere Stammdaten" id="stamm-links"><span class="muted sm">Weitere Stammdaten:</span>${ctx.kann('benutzer') || ['buero', 'bauleiter'].includes(ctx.ich.benutzer.rolle) ? '<a class="chip-btn" href="#/benutzer">Mitarbeiter</a>' : ''}<a class="chip-btn" href="#/baustellen">Baustellen</a><a class="chip-btn" href="#/fuhrpark">Fuhrpark &amp; Geräte</a></nav>
     </div>`;
     if (tab === 'katalog') { const box = document.createElement('div'); $('#tabpanel', el).appendChild(box); katalogTab(box, ctx); }
   }

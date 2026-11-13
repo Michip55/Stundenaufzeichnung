@@ -15,17 +15,15 @@ const UEBERGANG = {
   angebot: ['geplant', 'storniert'], geplant: ['in_arbeit', 'pausiert', 'storniert', 'angebot'], in_arbeit: ['fertiggestellt', 'pausiert', 'storniert'], pausiert: ['in_arbeit', 'storniert'],
   fertiggestellt: ['abgenommen', 'in_arbeit'], abgenommen: ['schlussrechnung', 'fertiggestellt'], schlussrechnung: ['bezahlt', 'abgenommen'], bezahlt: ['archiviert', 'schlussrechnung'], storniert: ['archiviert', 'geplant'], archiviert: [],
 };
-const BAULEITER_ZIELE = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
 const AUS_STATUS = { geplant: 'geplant', aktiv: 'in_arbeit', abgeschlossen: 'fertiggestellt' };
 export const phaseVon = (b) => b.phase || AUS_STATUS[b.status] || 'in_arbeit';
 export const phaseText = (p) => (PHASEN[p] || [p || '–'])[0];
 export const phaseChip = (p) => `<span class="chip ${(PHASEN[p] || [0, 'st-grey'])[1]}" data-phase="${esc(p)}">${esc(phaseText(p))}</span>`;
-const planer = (ctx) => ['buero', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten');
+const planer = (ctx) => ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten'); // Bauleiter wie Büro
 const eigen = (ctx, b) => (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
 export function ziele(ctx, b) {
   const alle = UEBERGANG[phaseVon(b)] || [];
   if (planer(ctx)) return alle;
-  if (ctx.ich.benutzer.rolle === 'bauleiter' && eigen(ctx, b)) return alle.filter((z) => BAULEITER_ZIELE.includes(z));
   return [];
 }
 // „Nächster Schritt“ ist nur ein Schritt nach vorne; zurück geht es über „Anderer Status …“
@@ -87,7 +85,7 @@ export function lebenslaufHtml(b, ctx, verlauf) {
   const reihe = p === 'angebot' ? ['angebot', ...REIHE] : REIHE;
   const pos = reihe.indexOf(['pausiert'].includes(p) ? 'in_arbeit' : p);
   const rolle = ctx.ich.benutzer.rolle;
-  const darfMelden = ['polier', 'bauleiter'].includes(rolle) && eigen(ctx, b) && p === 'in_arbeit' && !b.fertigmeldung;
+  const darfMelden = rolle === 'polier' && eigen(ctx, b) && p === 'in_arbeit' && !b.fertigmeldung;
   return `<section class="card" id="lebenslauf" aria-labelledby="h-ll" data-phase="${esc(p)}">
     <div class="card-h pad-h"><h3 id="h-ll">Status des Bauvorhabens</h3>${phaseChip(p)}</div>
     <ol class="ll-schritte" aria-label="Lebenslauf">${reihe.map((s, i) => `<li class="${p === 'storniert' ? '' : i < pos ? 'fertig' : i === pos ? 'jetzt' : ''}" ${i === pos && p !== 'storniert' ? 'aria-current="step"' : ''} data-schritt="${s}"><i>${p !== 'storniert' && i < pos ? ic('check', 'xs') : i + 1}</i><span>${esc(phaseText(s))}</span></li>`).join('')}</ol>

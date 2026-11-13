@@ -1,7 +1,7 @@
 // Bautagesberichte: Liste und Bearbeitung.
 // Handy: Schritt-für-Schritt-Assistent. Tablet/PC: Formular im Aufbau der Papiervorlage.
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$, integAktiv, integVon } from '../ui.js';
+import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$, integAktiv, integVon, istIntern } from '../ui.js';
 import { stundenAus, personalFehler, bloecke } from '../zahl.js';
 import { bildVerkleinern } from '../schaden-offline.js';
 import { fernKnopf, fernDialog, fernLinksZeigen, fernWiderrufen, diktatHtml, diktatMikro, diktatVorschlag, lieferscheinKnopf, lieferscheinVorschlag, papierKnopf, papierAnhaengen, papierErkennen } from './bericht-assistent.js';
@@ -16,7 +16,7 @@ export async function berichte(el, ctx) {
   el.innerHTML = `
   <div class="page">
     <div class="toolbar">
-      <label class="field inline"><span class="vh">Baustelle</span><select class="input" id="f-bs"><option value="">Alle Baustellen</option>${baustellen.map((b) => `<option value="${b.id}" ${String(b.id) === f.baustelleId ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
+      <label class="field inline"><span class="vh">Baustelle</span><select class="input" id="f-bs"><option value="">Alle Baustellen</option>${baustellen.filter((b) => !istIntern(b)).map((b) => `<option value="${b.id}" ${String(b.id) === f.baustelleId ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
       <label class="field inline"><span class="vh">Status</span><select class="input" id="f-st"><option value="">Alle Status</option><option value="entwurf">Entwurf</option><option value="unterschrieben">Unterschrieben – zur Freigabe</option><option value="freigegeben">Freigegeben</option></select></label>
       <span class="grow"></span>
       ${darfNeu ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neuer Bericht</button>` : ''}
@@ -69,7 +69,7 @@ export async function berichte(el, ctx) {
 }
 
 function neuerBericht(ctx, baustellen, vorwahl, datumVorschlag) {
-  const aktive = baustellen.filter((b) => !b.status || b.status === 'aktiv');
+  const aktive = baustellen.filter((b) => (!b.status || b.status === 'aktiv') && !istIntern(b)); // 12.25: keine Berichte für interne Kostenstellen
   const eigene = (ctx.ich.baustellenIds || []).map(String);
   const start = vorwahl || (aktive.find((b) => eigene.includes(String(b.id))) || aktive[0] || {}).id;
   const d = dialog({
@@ -157,7 +157,7 @@ export async function bericht(el, ctx) {
   const editierbar = () => signierbar() && !signiert();
   const ungueltig = () => b.personal.some((p) => personalFehler(p));
   // C-06: Die Unterschrift des Bauherrn zieht nur Büro/GF zurück (der Server prüft das ebenfalls)
-  const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ['buero', 'gf'].includes(ctx.ich.benutzer.rolle) : signierbar());
+  const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) : signierbar());
   const dis = () => (editierbar() ? '' : 'disabled');
   const gStd = (gid) => (b.geraete.find((g) => g.geraetId === gid) || {}).stunden || 0;
   // Servicebuch 7.2: konkrete Anlage je Gerätezeile (Auswahl bei mehreren, Warnung bei gesperrten)
@@ -189,8 +189,12 @@ export async function bericht(el, ctx) {
   // Fotos, Anhänge und Wetter erhöhen am Server die Version des Berichts – danach den Stand nachziehen, sonst scheitert das nächste Speichern (409)
   const versionHolen = async () => { try { const frisch = await get(`/berichte/${id}`); if (frisch.version != null) b.version = frisch.version; } catch (x) { /* folgt beim nächsten Laden */ } };
   const versionAus = async (r) => { if (r && r.berichtVersion != null) b.version = r.berichtVersion; else await versionHolen(); };
-  const darfKrank = (p) => ctx.kann('stammdaten') || ctx.kann('lohn') || Number(p.benutzerId) === Number(ctx.ich.benutzer.id);
-  const codesFuer = (p) => [...CODES.filter(([k]) => k !== 'K' || darfKrank(p) || p.code === 'K'), ...(p.code === 'abwesend' ? [ABW] : [])];
+  // Inhaber 13.11.2026: Büro/Lohn/GF und Bauleiter sehen und setzen alle Codes; Polier/Mitarbeiter sehen fremde Abwesenheiten
+  // gar nicht – für andere bleibt ihnen nur „SW · Schlechtwetter“ (Wetter ist keine persönliche Abwesenheit)
+  const siehtAbw = ctx.kann('stammdaten') || ctx.kann('lohn') || ctx.ich.benutzer.rolle === 'bauleiter';
+  const selbst = (p) => Number(p.benutzerId) === Number(ctx.ich.benutzer.id);
+  const darfKrank = (p) => ctx.kann('stammdaten') || ctx.kann('lohn') || selbst(p);
+  const codesFuer = (p) => [...CODES.filter(([k]) => p.code === k || (siehtAbw || selbst(p) ? k !== 'K' || darfKrank(p) : k === '' || k === 'SW')), ...(p.code === 'abwesend' ? [ABW] : [])];
   const matZeile = (mid) => b.material.find((m) => m.materialId === mid) || {};
   const fuhrMarke = (m) => { const z = matZeile(m.id); if (!z.quelle || !(z.ausFuhren > 0)) return ''; return ` <i class="chip xs st-outline" data-aus-fuhre="${esc(z.quelle)}">${ic('truck')}${z.quelle === 'fuhre' ? 'aus Fuhre' : `davon ${esc(fmt.zahl(z.ausFuhren, 2))} ${esc(m.einheit || '')} aus Fuhren`}</i>`; };
   // Material, das im Bericht steht, aber inzwischen deaktiviert ist: bleibt sichtbar, steht aber in keiner neuen Auswahl

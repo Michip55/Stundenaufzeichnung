@@ -16,7 +16,7 @@ export async function zeitplanLaden(zp) {
   zp.bis = fmt.addTage(zp.von, WOCHEN * 7 - 1);
   zp.daten = await get(`/plan/zeitplan?von=${zp.von}&bis=${zp.bis}${zp.phase ? '&phase=' + zp.phase : ''}`);
 }
-const darfBv = (ctx, id) => ['buero', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten') || (ctx.ich.benutzer.rolle === 'bauleiter' && (ctx.ich.baustellenIds || []).map(Number).includes(Number(id)));
+const darfBv = (ctx, id) => ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten') || (ctx.ich.benutzer.rolle === 'bauleiter' && (ctx.ich.baustellenIds || []).map(Number).includes(Number(id)));
 
 export function zeitplanHtml(zp, ctx) {
   const d = zp.daten || { bauvorhaben: [], filter: {}, archivAnzahl: 0 };

@@ -38,7 +38,7 @@ let stamm = null;
 async function ladeStamm() {
   if (stamm) return stamm;
   const [anl, leute, mat, bs, ein] = await Promise.all([get('/fuhrpark/anlagen').catch(() => []), get('/mitarbeiter').catch(() => []), get('/materialien').catch(() => []), get('/baustellen').catch(() => []), get('/einstellungen/plan').catch(() => ({}))]);
-  stamm = { anlagen: (Array.isArray(anl) ? anl : anl.anlagen || []).filter((a) => a.status !== 'ausgeschieden' && istFahrzeug(a)), leute: leute.filter((m) => m.aktiv !== false && ['mitarbeiter', 'polier', 'bauleiter'].includes(m.rolle)), mat, bs: bs.filter((b) => !b.intern), grube: (ein && ein.grube) || { text: 'Grube Breitenau' } };
+  stamm = { anlagen: (Array.isArray(anl) ? anl : anl.anlagen || []).filter((a) => a.status !== 'ausgeschieden' && istFahrzeug(a)), leute: leute.filter((m) => m.aktiv !== false && ['mitarbeiter', 'polier', 'bauleiter'].includes(m.rolle)), mat, bs: bs.filter((b) => !b.intern && b.kostenstelle !== 'intern'), grube: (ein && ein.grube) || { text: 'Grube Breitenau' } };
   return stamm;
 }
 export function stammVergessen() { stamm = null; }

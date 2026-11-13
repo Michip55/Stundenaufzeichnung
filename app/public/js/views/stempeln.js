@@ -1,7 +1,7 @@
 // Stempeluhr: Status, laufende Zeit, Baustelle wählen, Kommen / Pause / Wechsel / Gehen.
 // Ohne Netz wird die Buchung lokal gemerkt und später nachgesendet (siehe offline.js).
 import { get, post } from '../api.js';
-import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, wieBuero, istIntern, $, $$ } from '../ui.js';
 import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
@@ -49,8 +49,14 @@ export default async function stempeln(el, ctx) {
       st = s; baustellen = b; offlineModus = false;
       // Baustellenplaner: heutiger veröffentlichter Einsatz → diese Baustelle vorschlagen (einmal je Tag, danach gilt die eigene Wahl)
       if (s.status === 'aus' && s.geplant && b.some((x) => x.id === s.geplant.baustelleId) && speicher.lies('bt_plan_vorschlag') !== `${fmt.iso()}:${s.geplant.baustelleId}`) { wahl = s.geplant.baustelleId; speicher.setz('bt_plan_vorschlag', `${fmt.iso()}:${s.geplant.baustelleId}`); speicher.setz('bt_baustelle', wahl); }
+      // 12.25: Büro, Bauleiter und Geschäftsführung stempeln im Regelfall auf die interne Kostenstelle „Büro“ – einmal am Tag
+      // vorgeschlagen; eine andere Wahl (echte Baustelle) bleibt danach erhalten. Alle anderen: nur wenn noch nichts gewählt ist.
+      if (s.status === 'aus' && s.standardKostenstelleId != null && !s.geplant && b.some((x) => x.id === s.standardKostenstelleId)) {
+        const marke = `${fmt.iso()}:${s.standardKostenstelleId}`;
+        if (wieBuero(ctx.ich.benutzer.rolle) ? speicher.lies('bt_kst_standard') !== marke : wahl == null || !b.some((x) => x.id === wahl)) { wahl = s.standardKostenstelleId; speicher.setz('bt_kst_standard', marke); speicher.setz('bt_baustelle', wahl); }
+      }
       speicher.setz('bt_status', { status: s.status, seit: s.seit, baustelleId: s.baustelleId, heute: s.heute, tag: fmt.iso() });
-      speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status }))); // ohne Beträge
+      speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status, intern: istIntern(x) }))); // ohne Beträge
     } catch (e) {
       if (!e.netz) throw e;
       setzOnline(false);
@@ -144,7 +150,7 @@ export default async function stempeln(el, ctx) {
 
   function waehleBaustelle(titel) {
     const liste = aktive();
-    const d = dialog({ titel, inhalt: liste.length ? `<div class="pick-list">${liste.map((b) => `<button type="button" class="pick-row${b.id === (st.status === 'aus' ? wahl : st.baustelleId) ? ' sel' : ''}" data-bs="${b.id}"><span class="site-ic">${ic('pin')}</span><span class="pick-txt"><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b><span>${esc(b.adresse || '')}</span></span>${ic('right')}</button>`).join('')}</div>` : `<div class="state empty"><p>Keine aktive Baustelle vorhanden.</p></div>` });
+    const d = dialog({ titel, inhalt: liste.length ? `<div class="pick-list">${liste.map((b) => `<button type="button" class="pick-row${b.id === (st.status === 'aus' ? wahl : st.baustelleId) ? ' sel' : ''}" data-bs="${b.id}"${istIntern(b) ? ' data-intern' : ''}><span class="site-ic">${ic('pin')}</span><span class="pick-txt"><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b><span>${istIntern(b) ? 'Interne Kostenstelle' : esc(b.adresse || '')}</span></span>${ic('right')}</button>`).join('')}</div>` : `<div class="state empty"><p>Keine aktive Baustelle vorhanden.</p></div>` });
     d.el.addEventListener('click', (e) => { const r = e.target.closest('[data-bs]'); if (r) d.zu(Number(r.dataset.bs)); });
     return d.geschlossen;
   }

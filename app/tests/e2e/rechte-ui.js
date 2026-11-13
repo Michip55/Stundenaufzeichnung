@@ -39,7 +39,9 @@ async function main() {
   const ROUTEN = ['/stempeln', '/kolonne', '/woche', '/berichte', `/bericht/${F.bericht.bs1}`, `/bericht/${F.bericht.bs3}`, `/bericht/${F.bericht.bs1Alt}`, '/dashboard', '/baustellen', '/baustellen/archiv',
     `/baustelle/${BS.pitten}`, `/baustelle/${BS.reisinger}`, '/plan', '/einsatz', '/partie', '/offene-posten', '/preise', '/preise?tab=katalog', '/urlaub', '/lohn-vorlagen', '/kalkulation',
     `/kalkulation/${BS.pitten}`, `/kalkulation/${BS.pitten}/positionen`, `/kalkulation/${BS.reisinger}`, '/monat', '/benutzer', '/fuhrpark', '/fuhrpark/anlage/4', '/fuhrpark/anlage/30',
-    '/mehr', '/zwei-faktor', '/push', '/hilfe', '/abwesenheiten', '/korrektur', '/pin', '/gibt-es-nicht'];
+    '/mehr', '/zwei-faktor', '/push', '/hilfe', '/abwesenheiten', '/korrektur', '/pin', '/gibt-es-nicht',
+    // Inhaber 13.11.2026: Abwesenheiten anderer (Testdaten: Krank 16./17.11., Urlaub im Dezember) dürfen nirgends erscheinen
+    '/urlaub?monat=2026-11', '/urlaub?monat=2026-12', '/urlaub?ansicht=jahr', '/urlaub?ansicht=konten', '/kolonne?plan=1'];
 
   async function kontext(g) {
     const ctx = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, serviceWorkers: 'allow' });
@@ -102,6 +104,21 @@ async function main() {
         // Legenden der Code-Kürzel (Bautagesbericht „K = Krank · U = Urlaub …“, Urlaubskalender „U Urlaub ZA Zeitausgleich K Krank …“) sind keine Personendaten
         const ohneLegende = text.replace(/K\s*=\s*Krank/g, '').replace(/ZA\s+Zeitausgleich\s+K\s+Krank\s+SW\s+Schlechtwetter/g, '');
         if (rolle === 'polier') { const k = /\bKrank(enstand)?\b/.exec(ohneLegende); if (k) notiere(`${rolle}/${g.name} #${r}: „${k[0]}“ sichtbar: „${ohneLegende.slice(Math.max(0, k.index - 60), k.index + 30).replace(/\s+/g, ' ')}“`); }
+        // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht – auch nicht als „abwesend“/„abw.“,
+        // nicht als Zähler („6 von 7 Personen abwesend“) und nicht als Zeile im Kalender (die Netzwerkantworten prüft H.scanne)
+        const fremd = await page.evaluate((ich) => {
+          const out = [];
+          const sicht = (document.querySelector('#view') || document.body).innerText;
+          const m = /\babwesend\b|\babw\.|Abwesenheiten meiner Partie|Meine Partie – Abwesenheiten/.exec(sicht);
+          if (m) out.push(`„${sicht.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ')}“`);
+          if (document.querySelector('#ur-partie, #abw-andere, #ur-warnungen, [data-abwesend], .wp-frei.abwesend')) out.push('Abschnitt für Abwesenheiten anderer im DOM');
+          const zeilen = [...document.querySelectorAll('#ur-kalender [data-person], #ur-konten [data-person]')].filter((x) => Number(x.dataset.person) !== ich).length;
+          if (zeilen) out.push(`${zeilen} Kalender-/Kontozeilen anderer Personen`);
+          const marken = document.querySelectorAll('.crew-row .code-badge, [data-partie-personen] .code-badge').length;
+          if (marken) out.push(`${marken} Abwesenheits-Kürzel in Personenlisten`);
+          return out;
+        }, H.ID[rolle]);
+        for (const f of fremd) notiere(`${rolle}/${g.name} #${r}: Abwesenheit anderer sichtbar – ${f}`);
         const nav = await page.evaluate(() => [...document.querySelectorAll('[data-nav]')].map((e) => e.dataset.nav));
         for (const n of VERBOTENE_NAV[rolle]) if (nav.includes(n)) notiere(`${rolle}/${g.name} #${r}: verbotener Menüpunkt „${n}“`);
         // versteckte Inhalte zählen auch: gesamtes DOM (inkl. display:none) auf Kanarienvögel prüfen

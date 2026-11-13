@@ -54,11 +54,15 @@ export default async function abwesenheiten(el, ctx) {
         ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: a.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}">Zurückziehen</button>` : '' })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
       </section>
 
-      ${darfEntscheiden || istPolier || (istBauleiter && andere.length) ? `
+      ${darfEntscheiden ? `
       <section class="card" id="abw-andere" aria-labelledby="h-andere">
-        <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3>${istBauleiter ? '' : `<button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button>`}</div>
-        ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: darfEntscheiden ? `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` : '' })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
-        ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankmeldungen trägt das Büro ein.</p>' : ''}
+        <div class="card-h pad-h"><h3 id="h-andere">Alle Abwesenheiten</h3><button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}Abwesenheit eintragen</button></div>
+        ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
+      </section>` : istPolier ? `
+      <section class="card pad stack-s" id="abw-sw" aria-labelledby="h-sw">
+        <h3 id="h-sw">Schlechtwetter melden</h3>
+        <p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Das Büro bestätigt die Meldung.</p>
+        <button type="button" class="btn ghost" data-akt="eintragen">${ic('plus')}Schlechtwetter eintragen</button>
       </section>` : ''}
     </div>`;
   }
@@ -94,6 +98,8 @@ export default async function abwesenheiten(el, ctx) {
         try { const r = await post('/abwesenheiten', { benutzerId: id, datum: f.get('datum'), code: f.get('code') }); if (r && r.status === 'beantragt') wartend++; }
         catch (x) { fehler.push(`${(leute.find((l) => l.id === id) || {}).name || id}: ${x.message}`); }
       }
+      // Polier: immer dieselbe neutrale Rückmeldung – kein Status je Person (der könnte eine andere Abwesenheit verraten)
+      if (!darfEntscheiden) { d.zu(); toast(fehler.length === wer.length ? fehler[0].replace(/^[^:]*:\s*/, '') : 'Schlechtwetter gemeldet – das Büro bestätigt.', fehler.length === wer.length ? 'warn' : 'ok'); neu(); return; }
       if (fehler.length) { m.hidden = false; m.textContent = fehler.join(' · '); if (fehler.length < wer.length) neu(); return; }
       d.zu(); toast(wartend ? `${wer.length === 1 ? 'Eingetragen' : wer.length + ' Einträge'} – wartet auf Bestätigung durch Bauleitung oder Büro.` : wer.length === 1 ? 'Abwesenheit eingetragen.' : `${wer.length} Abwesenheiten eingetragen.`); neu();
     });

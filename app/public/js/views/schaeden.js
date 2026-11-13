@@ -14,7 +14,7 @@ const einsatzChip = (e, cls = 'xs') => { const [t, c, i] = S_EINSATZ[e] || [e, '
 const geraetName = (s) => (s.anlage ? `${s.anlage.bezeichnung}${s.anlage.kennzeichen ? ' · ' + s.anlage.kennzeichen : ''}` : s.fremdGeraet || 'Gerät');
 const offen = (s) => s.status === 'gemeldet' || s.status === 'in_bearbeitung';
 const fotoUrl = (s, f) => f.url || `/api/fuhrpark/schaeden/${s.id}/fotos/${f.id}`;
-const darfAlle = (ctx) => ctx.kann('fuhrpark') || ['buero', 'gf'].includes(ctx.ich.benutzer.rolle);
+const darfAlle = (ctx) => ctx.kann('fuhrpark') || ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle);
 const weiteSicht = (ctx) => darfAlle(ctx) || ['bauleiter', 'polier'].includes(ctx.ich.benutzer.rolle);
 
 // Geräteliste für die Schadensmeldung ohne Netz am Gerät merken (ohne Kosten, ohne Zählerstände)
