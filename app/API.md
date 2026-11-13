@@ -241,3 +241,43 @@ Bezug: `app/PRUEFBERICHT_1.md`. Neue/geänderte Routen und Regeln; alles andere 
 - Personalnummer (`pnr`) ist eindeutig: doppelte → 409.
 - Statische Pfade mit Dateiendung oder Punkt-Segment (z. B. `/js/fehlt.js`, `/.git/config`), die es nicht gibt → **404** statt `index.html`.
 - **Bekannte Grenze (M-08):** Preise haben noch keinen „gültig ab“-Stand; die Nachkalkulation rechnet alle Berichte mit den aktuellen Sätzen und der aktuellen Lohngruppe der Person. Eine Preisänderung wirkt daher rückwirkend (und kann Budget-Alarme auslösen).
+
+## 8. Änderungen nach Prüfbericht 2 (Backend, verbindlich)
+
+Bezug: `app/PRUEFBERICHT_2.md`. Gilt vor den Abschnitten 6 und 7.
+
+### Rechte / Benutzerverwaltung (C-05, C-14, C-12, C-09)
+- `stammdaten` ist jetzt auch für **Bauleiter gesperrt** (nur Büro/GF; weder Matrix noch Ausnahme → 400). Bauleiter- und Polier-Zuordnung von Baustellen (`bauleiterId`, `polierId`) ändern nur Benutzer mit Rolle **buero** oder **gf** (sonst 403). Die „eigenen Baustellen“ eines Bauleiters ergeben sich nur aus dieser Zuordnung. Rechte werden bei jeder Anfrage neu geladen – ein Entzug wirkt sofort.
+- **Büro verwaltet Benutzer** der Rollen `mitarbeiter`, `polier`, `bauleiter`: `GET /benutzer`, `POST /benutzer`, `PUT /benutzer/:id` (Name, Lohngruppe, Stamm-Baustelle, Personalnummer, aktiv, PIN zurücksetzen, Rolle **nur innerhalb** dieser drei Rollen), `POST /benutzer/:id/entsperren`. Benutzer der Rollen `buero`/`gf` sowie Rollenwechsel zu/von `buero`/`gf` nur durch die GF (`benutzer`-Recht). Alles protokolliert. `GET /rechte` (Matrix, Protokoll) bleibt GF.
+- `POST /benutzer`: `pnr` optional – fehlt sie, vergibt der Server die nächste freie Nummer (ab 1001). Doppelte `pnr` → 409. Unbekannte Felder im Body werden ignoriert.
+- **Vier-Augen-Prinzip:** Niemand entscheidet eigene Anträge (`PUT /abwesenheiten/:id` für sich selbst → 403) und niemand korrigiert die eigenen Stempelzeiten (`/zeit/buchungen`, `/zeit/schichten` für sich selbst → 403). Eigene Abwesenheiten sind auch für Büro/GF immer `beantragt`.
+- **`POST /benutzer/:id/entsperren`** → `{ok:true}`: hebt Konto- und IP-Sperren der Anmeldung auf.
+
+### Anmeldung (C-07, M-05)
+- Zusätzlich zur Sperre je (Benutzer, IP): **20 Fehlversuche innerhalb von 24 h (über alle IPs)** sperren das Konto, bis Büro/GF es entsperren (`POST /benutzer/:id/entsperren` oder PIN-Reset). Antwort bei gesperrtem Konto (auch mit richtiger PIN): **423** `{code:"KONTO_GESPERRT", fehler:"…"}`. Büro und GF erhalten eine Benachrichtigung (`typ:"sicherheit"`). Abwägung: Ein Angreifer kann damit ein Konto absichtlich sperren (DoS); das ist gewollt, weil sonst verteiltes PIN-Raten unbegrenzt wäre – das Büro entsperrt (Konzept 2.2: „Das Büro entsperrt“).
+- Sitzungsdauer bleibt **Produktentscheidung der GF**: Standard 12 h Inaktivität für Mitarbeiter/Polier (eigene Geräte, ständiges Ab-/Anmelden auf der Baustelle unpraktisch) und 60 min für Bauleiter/Büro/GF (€-Daten), absolute Grenze 24 h. Konzept-Vorschlag (Polier-Tablet 10 min, Büro 30 min) per `BAUTAG_SITZUNG_FELD_MIN=10`, `BAUTAG_SITZUNG_BUERO_MIN=30` einstellbar.
+- Benachrichtigungen: `typ` zusätzlich `"sicherheit"`.
+
+### Bautagesbericht (C-01, C-02, C-06, C-08, C-10)
+- **Version (C-08):** `GET /berichte/:id` liefert `version` (Ganzzahl). `PUT /berichte/:id` **verlangt** `version` (fehlt → 400); passt sie nicht → **409** `{code:"KONFLIKT", fehler:"Der Bericht wurde inzwischen geändert …", version:<aktuell>}`. Jede Änderung (Inhalt, Personal übernehmen, Unterschrift, Zurückziehen, Freigabe) erhöht `version`. `POST …/personal-aktualisieren` nimmt optional `{version}`.
+- **Stunden (C-02, C-10):** `personal[].stunden` wird **immer vom Server** aus `von1/bis1/von2/bis2/pauseMin` berechnet (mit echten Zeitpunkten in Europe/Vienna, also auch über Mitternacht und über die Zeitumstellung richtig). Ein mitgesendetes `stunden` wird ignoriert. Zeilen ohne Zeiten haben 0 Std.
+- **Personen im Bericht (C-01):** Erlaubt sind nur Personen der Rollen `mitarbeiter`/`polier` (nie Bauleiter/Büro/GF → 400), und zwar aus der **Partie** der Baustelle (Stamm-Baustelle = diese Baustelle oder ihr Polier) oder Personen, die an diesem Tag **auf dieser Baustelle gestempelt** haben. Andere nur mit `gast:true` in der Zeile (wird protokolliert, Zeile liefert `gast:true`).
+- **Überschneidungen (C-01):** Eine Zeile mit Zeiten darf sich **nicht** mit einer gestempelten Arbeitszeit derselben Person auf einer **anderen** Baustelle am selben Tag und nicht mit einer Zeile derselben Person in einem **anderen Bericht** desselben Tages überschneiden → 400 mit Text (Person, Baustelle, Zeiten).
+- **Unterschrift zurückziehen (C-06):** `DELETE /berichte/:id/unterschrift/bh` (Bauherr) nur für Rolle **buero/gf**; `…/an` weiter für Berichtersteller im Bereich. Jede Rücknahme wird protokolliert und am Bericht vermerkt: `geaendertNachUnterschrift: {zeit, rolle, von}` (sichtbar in `GET /berichte/:id`, Liste: `geaendertNachUnterschrift:true`, und als Vermerk in **beiden** PDF-Fassungen). Ein Unterschriftsbild, das für diesen Bericht schon einmal zurückgezogen wurde oder in einem **anderen** Bericht verwendet wird (gleicher SHA-256), wird abgelehnt (400 „Bitte neu unterschreiben“).
+
+### Lohn / Monat (C-01, C-03)
+- **Regel je Person, Tag und Baustelle:** Gibt es für die Baustelle an dem Tag einen **freigegebenen** Bericht, gilt **nur** dieser – auch mit 0 Std. oder wenn die Person darin fehlt (dann 0 Std. für diese Baustelle und Warnung `typ:"nicht_im_bericht"`). Baustellen ohne freigegebenen Bericht: Stempelzeiten.
+- **Sicherheitsnetz:** Überschneiden sich am selben Tag Berichtszeiten mit Stempelzeiten einer anderen Baustelle oder zwei Berichtszeilen, wird die Überschneidung **nur einmal** gezählt; Tag `ueberschneidung:true`, Monat `warnungen` mit `typ:"ueberschneidung"`, Hinweiszeile im Lohn-CSV.
+
+### Zeitkorrektur ganzer Schichten (C-04)
+- `GET /zeit/schichten?benutzerId&von&bis` (eigene; andere nur Büro/GF) → `[{id, benutzerId, datum, beginn, ende, baustellen:[id…], arbeitMin, pauseMin, offen, unplausibel, buchungIds:[…]}]` (`id` = ID der „kommen“-Buchung).
+- `POST /zeit/schichten` `{benutzerId, baustelleId, datum, von:"HH:MM", bis:"HH:MM", pauseMin, pauseVon?:"HH:MM", grund}` (Büro/GF, nicht für sich selbst) → 201 Schicht. Erzeugt `kommen`, ggf. `pause_start`/`pause_ende` (Pause ab `pauseVon`, sonst in der Mitte) und `gehen` (bis < von = nächster Tag). Max. 16 Std.; darf sich mit keiner anderen Schicht der Person überschneiden (409); Quelle `buero`; protokolliert.
+- `DELETE /zeit/schichten/:id` `{grund}` → löscht die ganze Schicht (alle Buchungen von „kommen“ bis „gehen“), protokolliert mit allen alten Buchungen.
+- Einzelbuchungen (`/zeit/buchungen`) bleiben.
+
+### Abwesenheiten / Stempeln (C-11, C-13)
+- Schlechtwetter-Meldung des Poliers ist `beantragt`; Büro/Lohn bestätigt (`PUT /abwesenheiten/:id`).
+- Stempeln (`kommen`, auch über Kolonne/Gast) ist für eine Person mit **genehmigtem K oder U** an diesem Tag gesperrt → 409 (Kolonne: `ok:false` mit Text).
+
+### Baustelle (C-08)
+- `GET /baustellen/:id` liefert `version`. `PUT /baustellen/:id` und `PUT /baustellen/:id/auftrag` **verlangen** `version` (fehlt → 400, veraltet → 409 mit aktueller `version`).
