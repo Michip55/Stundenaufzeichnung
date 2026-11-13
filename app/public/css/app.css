@@ -828,3 +828,10 @@ body.offline-seite { overflow: auto; display: grid; place-items: center; min-hei
 .h-gross { font-size: 22px; font-weight: 800; letter-spacing: -.02em; } .h-klein { font-size: 15.5px; font-weight: 700; margin-bottom: 8px; } .punkte { padding-left: 18px; display: flex; flex-direction: column; gap: 8px; margin: 0; }
 #install-hinweis { display: none; }
 @media (max-width: 719px) { #install-hinweis:not([hidden]) { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 14px; background: var(--blue-bg); color: var(--blue); font-weight: 600; font-size: 13.5px; } #install-hinweis a { flex: 1; text-decoration: underline; } #install-hinweis .ic { width: 18px; height: 18px; flex: none; } }
+
+/* ===== Ausbaustufe 2 · Schritt 2: Preise mit „gültig ab“ ===== */
+.pv-neu { display: flex; align-items: center; gap: 16px; background: #f6f7f9; border-radius: 12px; padding: 12px 16px; } .pv-neu span { display: flex; flex-direction: column; } .pv-neu small { color: var(--muted); font-size: 12px; } .pv-neu b { font-size: 20px; font-variant-numeric: tabular-nums; } .pv-neu .neu b { color: var(--green); } .pv-neu > .ic { color: var(--muted); }
+.pv-liste li.geplant { background: #f3f7ff; } .pv-liste li.alt b { color: var(--muted); font-weight: 600; } .pv-liste { max-height: 260px; overflow-y: auto; margin: 0 -18px; } .pv-liste > li { padding: 8px 18px !important; min-height: 48px !important; }
+.pv-btn { width: 30px !important; height: 30px !important; vertical-align: middle; margin-left: 2px; } .pv-btn .ic { width: 16px; height: 16px; }
+td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto; }
+#preisstand .banner.warn { align-items: flex-start; }

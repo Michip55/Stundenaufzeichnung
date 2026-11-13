@@ -205,11 +205,12 @@ async function mitarbeiter(h, z) {
   await page.waitForFunction(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.schWartet === '1'), null, { timeout: 8000 }).catch(() => {});
   pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.schWartet === '1' && !b.hidden)), 'Offline-Schaden: Zahl am Menüpunkt fehlt');
   await h.ueberlauf('schäden offline'); await shot('schaeden-offline'); await h.toastWeg();
-  await context.setOffline(false);
   // Antwort des Servers geht verloren (Meldung ist am Server, das Gerät weiß es nicht) → erneutes Senden darf nichts verdoppeln
   let verloren = 0;
   await page.route('**/api/fuhrpark/schaeden', async (r) => { if (r.request().method() !== 'POST') return r.continue(); verloren++; try { await r.fetch(); } catch (e) { /* egal */ } return r.abort('connectionreset'); });
-  await h.absichtlich(async () => { await page.click('[data-sch-senden]'); await sleep(1200); });
+  // Erst die Störung einrichten, dann wieder online gehen – sonst sendet die App beim „online“-Ereignis schneller als der Test (Wettlauf)
+  await context.setOffline(false);
+  await h.absichtlich(async () => { await sleep(600); if (!verloren) await page.click('[data-sch-senden]'); await sleep(1200); });
   await page.unroute('**/api/fuhrpark/schaeden');
   pruef(verloren >= 1, 'Offline-Schaden: Test-Vorbedingung – Senden wurde nicht versucht');
   pruef(await page.locator('#sch-warten [data-wartet]').count() === 1, 'Offline-Schaden: Meldung nach verlorener Antwort nicht mehr in der Warteschlange');

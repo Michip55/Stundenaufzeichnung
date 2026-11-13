@@ -1,6 +1,8 @@
 // Positionskatalog (Firmenvorlage der Nachkalkulation, API.md Abschnitt 10): pflegen und aus Excel importieren.
 // Änderungen hier wirken nur auf neue Baustellen – bestehende Bauvorhaben behalten ihre Positionen und Preise.
 import { get, post, put, del } from '../api.js';
+import { preisDialog, geplantChip } from '../preisstand.js';
+import { wienHeute } from '../zahl.js';
 import { ic, esc, fmt, parseZahl, starkOk, laden, leer, banner, dialog, bestaetigen, toast, $ } from '../ui.js';
 import { GRUPPEN, istBetrag, aufschlag, zuPruefen, naturPruefen, herkunftChip } from './positionen.js';
 
@@ -34,7 +36,7 @@ export async function katalogTab(box, ctx) {
             <td class="main">${darf ? `<input class="pt-in" data-kfeld="bezeichnung" value="${esc(p.bezeichnung)}" aria-label="Bezeichnung">` : esc(p.bezeichnung)}
               <span class="pt-marken">${herkunftChip(p)}${zuPruefen(p) ? '<span class="chip xs st-amber">Zuordnung prüfen</span>' : ''}${(p.naturmaterialMoeglich ?? /^t$/i.test(String(p.einheit || '').trim())) && darf ? `<label class="chip xs ${p.naturmaterial ? 'st-blue' : 'st-outline'} nat"><input type="checkbox" data-kfeld="naturmaterial" ${p.naturmaterial ? 'checked' : ''}> Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</label>` : p.naturmaterial ? `<span class="chip xs st-blue">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : ''}${p.aktiv === false ? '<span class="chip xs st-grey">deaktiviert</span>' : ''}</span></td>
             <td>${darf ? `<input class="pt-in c eh" data-kfeld="einheit" value="${esc(p.einheit || '')}" aria-label="Einheit von ${esc(p.bezeichnung)}">` : esc(p.einheit || '')}</td>
-            <td class="r">${darf ? `<label class="price-in"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-kfeld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? ` <small class="auf">${aufschlag(p.ep)}</small>` : ''}` : `<span class="num">${istBetrag(p) ? `× ${fmt.zahl(p.ep)} (${aufschlag(p.ep)})` : fmt.eur(p.ep)}</span>`}</td>
+            <td class="r">${darf ? `<label class="price-in"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-kfeld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? ` <small class="auf">${aufschlag(p.ep)}</small>` : ''}<button type="button" class="icon-btn sm pv-btn" data-kverlauf aria-label="Preisverlauf ${esc(p.bezeichnung)}" title="Preisverlauf">${ic('clock')}</button>${geplantChip(p.epGeplant, istBetrag(p))}` : `<span class="num">${istBetrag(p) ? `× ${fmt.zahl(p.ep)} (${aufschlag(p.ep)})` : fmt.eur(p.ep)}</span>`}</td>
             ${darf ? `<td class="r">${p.aktiv === false ? `<button type="button" class="btn ghost sm" data-kakt="an">Aktivieren</button>` : `<button type="button" class="icon-btn sm" data-kakt="aus" aria-label="${esc(p.bezeichnung)} deaktivieren">${ic('trash')}</button>`}</td>` : ''}</tr>`).join('') || `<tr><td colspan="4" class="muted">Keine Positionen.</td></tr>`}
           </tbody></table></div>
           ${darf ? `<div class="pg-foot"><button type="button" class="btn ghost sm" data-kneu="${esc(g.schluessel)}">${ic('plus')}Position</button><span></span></div>` : ''}</details>`;
@@ -78,6 +80,7 @@ export async function katalogTab(box, ctx) {
       ${ohneSumme.length ? `<div data-imp-ignoriert>${banner('warn', `<b>${ohneSumme.length} Zeile${ohneSumme.length > 1 ? 'n' : ''} ohne Gruppe</b> (stehen hinter der letzten Summenzeile) werden nicht übernommen: ${ohneSumme.slice(0, 12).map((x) => `Zeile ${esc(x.zeile)} „${esc(x.bezeichnung)}“`).join(', ')}${ohneSumme.length > 12 ? ' …' : ''}`)}</div>` : ''}
       ${umbenannt.length ? `<div data-imp-umbenannt>${banner('info', `<b>${umbenannt.length} Position${umbenannt.length > 1 ? 'en' : ''} mit altem Namen erkannt</b> – sie werden der umbenannten Position zugeordnet, es entsteht nichts doppelt: ${umbenannt.slice(0, 10).map((x) => `„${esc(x.alt)}“ → „${esc(x.neu)}“`).join(', ')}${umbenannt.length > 10 ? ' …' : ''}`)}</div>` : ''}
       ${geaendert.length ? `<h4 class="sub-h">Geänderte Preise</h4><div class="tbl-wrap vl-liste"><table class="tbl"><thead><tr><th>Position</th><th class="r">bisher</th><th class="r">Datei</th></tr></thead><tbody>${geaendert.slice(0, 300).map((x) => `<tr ${x.geschuetzt ? 'data-geschuetzt class="geschuetzt"' : ''}><td>${esc(x.bezeichnung)} <small class="muted">${esc(x.einheit || '')}${x.wiederAktiv ? ' · wird wieder aktiv' : ''}</small>${x.geschuetzt ? `<span class="chip xs st-amber">${ic('lock')}${esc(x.hinweis || 'weicht von Preisliste-2026-Anpassung ab')} – wird nicht übernommen</span>` : x.hinweis ? `<small class="muted"> · ${esc(x.hinweis)}</small>` : ''}</td><td class="r num">${fmt.eur(x.epAlt)}</td><td class="r num"><b>${fmt.eur(x.epNeu)}</b></td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${geaendert.length && !zeilenFehler.length ? `<label class="field"><span class="field-label">Geänderte Preise gelten ab</span><input class="input lg" type="date" id="imp-ab" value="${wienHeute()}" min="2000-01-01"></label>` : ''}
       ${geschuetzt.length && !zeilenFehler.length ? `<label class="check-inline"><input type="checkbox" id="imp-ueberschreiben"> Freigegebene Anpassungen (Preisliste 2026) trotzdem mit den Werten der Datei überschreiben</label>` : ''}
       ${neuL.length ? `<h4 class="sub-h">Neue Positionen</h4><div class="tbl-wrap vl-liste"><table class="tbl"><thead><tr><th>Position</th><th>Gruppe</th><th class="r">EP</th></tr></thead><tbody>${neuL.slice(0, 300).map((x) => `<tr><td>${esc(x.bezeichnung)} <small class="muted">${esc(x.einheit || '')}</small></td><td>${esc(GRUPPEN[x.gruppe] || x.gruppe || '')}</td><td class="r num">${fmt.eur(x.ep)}</td></tr>`).join('')}</tbody></table></div>` : ''}
       ${!neuL.length && !geaendert.length && !zeilenFehler.length ? banner('ok', 'Die Datei entspricht dem Katalog – es gibt nichts zu übernehmen.') : zeilenFehler.length ? '' : banner('info', 'Bestehende Baustellen bleiben unverändert. Positionen, die in der Datei fehlen, bleiben im Katalog.')}</div>`,
@@ -87,7 +90,13 @@ export async function katalogTab(box, ctx) {
     $('#imp-ok', d.el).addEventListener('click', async () => {
       if (ueb && ueb.checked && !(await bestaetigen('Freigegebene Preise überschreiben?', `${geschuetzt.length} vom Kunden freigegebene Anpassung${geschuetzt.length > 1 ? 'en' : ''} aus der Preisliste 2026 werden durch die Werte der Datei ersetzt.`, 'Überschreiben', 'danger'))) return;
       $('#imp-ok', d.el).disabled = true;
-      try { await post(`/positionen/katalog/import?uebernehmen=1${ueb && ueb.checked ? '&anpassungenUeberschreiben=1' : ''}`, { dateiBase64: b64 }); d.zu(); toast('Katalog aus der Excel-Datei übernommen.'); neu(); }
+      const abFeld = $('#imp-ab', d.el); const ab = abFeld && abFeld.value ? abFeld.value : '';
+      let rueck = '';
+      if (ab && ab < wienHeute()) {
+        if (!(await bestaetigen('Preise rückwirkend übernehmen?', `Die geänderten Katalogpreise gelten dann schon ab ${fmt.datum(ab)}. Das wird protokolliert.`, 'Ja, rückwirkend', 'danger'))) { $('#imp-ok', d.el).disabled = false; return; }
+        rueck = '&rueckwirkend=1';
+      }
+      try { await post(`/positionen/katalog/import?uebernehmen=1${ab ? '&gueltigAb=' + ab : ''}${rueck}${ueb && ueb.checked ? '&anpassungenUeberschreiben=1' : ''}`, { dateiBase64: b64 }); d.zu(); toast('Katalog aus der Excel-Datei übernommen.'); neu(); }
       catch (e) { d.zu(); fehler(meldung(e)); }
     });
   }
@@ -111,6 +120,8 @@ export async function katalogTab(box, ctx) {
       });
       return;
     }
+    const kv = e.target.closest('[data-kverlauf]');
+    if (kv) { const p = finde(kv.closest('[data-kat]').dataset.kat); if (await preisDialog({ was: `${p.bezeichnung} (Katalog)`, faktor: istBetrag(p), darf, verlauf: () => get(`/positionen/katalog/${p.id}/verlauf`), loeschen: (vid) => del(`/positionen/katalog/${p.id}/verlauf/${vid}`) })) neu(); return; }
     const a = e.target.closest('[data-kakt]'); if (!a) return;
     const p = finde(a.closest('[data-kat]').dataset.kat);
     if (a.dataset.kakt === 'an') return aendere(p, { aktiv: true }, 'Position wieder aktiv.');
@@ -130,7 +141,11 @@ export async function katalogTab(box, ctx) {
       if (!Number.isFinite(wert) || wert < 0) { t.closest('.price-in').classList.add('invalid'); toast(`„${t.value}“ ist als Preis unklar – bitte so schreiben: 1.250,00`, 'warn'); return; }
       if (wert === p.ep) { t.value = fmt.betrag(p.ep); return; }
       if (!(await starkOk(p.ep, wert, `Der Katalogpreis „${p.bezeichnung}“`))) { t.value = fmt.betrag(p.ep); return; }
-      return aendere(p, { ep: wert }, 'Katalogpreis gespeichert – gilt für neue Baustellen.');
+      const ok = await preisDialog({ was: `${p.bezeichnung} (Katalog)`, alt: p.ep, neu: wert, faktor: istBetrag(p), darf: true,
+        senden: (x) => put(`/positionen/katalog/${p.id}`, { version: p.version, ep: wert, ...x }),
+        verlauf: () => get(`/positionen/katalog/${p.id}/verlauf`), loeschen: (vid) => del(`/positionen/katalog/${p.id}/verlauf/${vid}`) });
+      if (!ok) t.value = fmt.betrag(p.ep);
+      return neu();
     }
     const wert = t.value.trim();
     if (!wert) { t.value = p[feld] || ''; return; }

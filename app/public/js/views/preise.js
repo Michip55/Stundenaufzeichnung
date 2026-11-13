@@ -1,5 +1,6 @@
 // Preise: Lohngruppen, Geräte, Material, Leistungen – mit direkter Bearbeitung in der Tabelle.
-import { get, put } from '../api.js';
+import { get, put, del } from '../api.js';
+import { preisDialog, geplantChip } from '../preisstand.js';
 import { ic, esc, fmt, parseZahl, starkOk, leer, banner, toast, speicher, $, $$ } from '../ui.js';
 import { katalogTab } from './katalog.js';
 
@@ -22,7 +23,7 @@ export default async function preise(el, ctx) {
       <tbody>${zeilen.map((z) => `<tr data-id="${esc(z.id)}">${t.spalten.map(([k], i) => `<td class="${i === t.spalten.length - 1 || k === 'name' || k === 'text' ? 'main' : 'muted nw'}">${esc(z[k] ?? '')}</td>`).join('')}
         ${t.preise.map(([k, h]) => `<td class="r">${darf
           ? `<label class="price-in"><span class="vh">${esc(h)} – ${esc(z.name || z.text || '')}</span><span aria-hidden="true">€</span><input type="text" inputmode="decimal" class="num" data-feld="${k}" value="${z[k] != null ? fmt.betrag(z[k]) : ''}" autocomplete="off"></label>`
-          : `<span class="num">${fmt.eur(z[k])}</span>`}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+          : `<span class="num">${fmt.eur(z[k])}</span>`}<button type="button" class="icon-btn sm pv-btn" data-verlauf="${k}" aria-label="Preisverlauf ${esc(h)} – ${esc(z.name || z.text || '')}" title="Preisverlauf">${ic('clock')}</button>${geplantChip((z.geplant || []).filter((x) => x.feld === k))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   function zeichne() {
     const t = TABS.find((x) => x.art === tab) || { art: 'katalog' };
@@ -55,16 +56,27 @@ export default async function preise(el, ctx) {
     box.classList.remove('invalid'); inp.removeAttribute('aria-invalid'); if (hinweis) hinweis.remove();
     if (wert === zeile[feld]) { zurueck(); return; }
     if (!(await starkOk(zeile[feld], wert, `Der Preis „${zeile.name || zeile.text || ''}“`))) { zurueck(); return; }
-    box.classList.add('busy');
-    try {
-      const neu = await put(`/preise/${tab}/${encodeURIComponent(zeile.id)}`, { feld, wert });
-      Object.assign(zeile, neu && typeof neu === 'object' ? neu : { [feld]: wert });
-      if (zeile[feld] == null) zeile[feld] = wert;
-      inp.value = fmt.betrag(zeile[feld]);
-      box.classList.remove('busy'); box.classList.add('saved'); setTimeout(() => box.classList.remove('saved'), 1600);
-      toast('Preis gespeichert.');
-      ctx.meldungenNeu();
-    } catch (err) { box.classList.remove('busy'); toast(err.message, 'warn'); zurueck(); }
+    // 12.2: jeder neue Preis ist ein Stand mit „gültig ab“ – der Dialog fragt das Datum ab (Standard heute)
+    const t = TABS.find((x) => x.art === tab);
+    const feldText = (f) => ((t.preise.find(([k]) => k === f) || [])[1] || f);
+    const ok = await preisDialog({
+      was: `${zeile.name || zeile.text || ''} – ${feldText(feld)}`, alt: zeile[feld], neu: wert, darf: true, feld, feldText,
+      senden: (x) => put(`/preise/${tab}/${encodeURIComponent(zeile.id)}`, { feld, wert, ...x }),
+      verlauf: () => get(`/preise/${tab}/${encodeURIComponent(zeile.id)}/verlauf`),
+      loeschen: (vid) => del(`/preise/${tab}/${encodeURIComponent(zeile.id)}/verlauf/${vid}`),
+    });
+    if (!ok) { zurueck(); return; }
+    await neuLaden(); ctx.meldungenNeu();
   });
+  el.addEventListener('click', async (e) => {
+    const v = e.target.closest('[data-verlauf]'); if (!v || v.closest('[data-katalog]')) return;
+    const t = TABS.find((x) => x.art === tab);
+    const zeile = (daten[tab] || []).find((z) => String(z.id) === v.closest('tr').dataset.id);
+    const feldText = (f) => ((t.preise.find(([k]) => k === f) || [])[1] || f);
+    const ok = await preisDialog({ was: `${zeile.name || zeile.text || ''} – ${feldText(v.dataset.verlauf)}`, darf, feld: v.dataset.verlauf, feldText,
+      verlauf: () => get(`/preise/${tab}/${encodeURIComponent(zeile.id)}/verlauf`), loeschen: (vid) => del(`/preise/${tab}/${encodeURIComponent(zeile.id)}/verlauf/${vid}`) });
+    if (ok) neuLaden();
+  });
+  async function neuLaden() { try { Object.assign(daten, await get('/preise')); } catch (x) { toast(x.message, 'warn'); } if (ctx.aktuell()) zeichne(); }
   zeichne();
 }

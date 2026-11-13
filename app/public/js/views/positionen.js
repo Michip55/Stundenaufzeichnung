@@ -3,6 +3,7 @@
 // Gruppensummen, Zusammenstellung mit %-Anteil, Ergebnis gegen die Auftragssumme.
 // Positionen und Preise gelten je Bauvorhaben und sind dort einzeln anpassbar.
 import { get, post, put, del } from '../api.js';
+import { preisDialog, geplantChip } from '../preisstand.js';
 import { ic, esc, fmt, parseZahl, starkOk, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
 import { budgetBalken } from './kalkulation.js';
 import { wienHeute } from '../zahl.js';
@@ -53,7 +54,7 @@ export default async function positionen(el, ctx) {
     const manuell = p.mengeManuell || 0, auto = p.mengeAuto || 0;
     return `<div class="pt-row${aus ? ' aus' : ''}${(p.menge || 0) !== 0 ? ' hat' : ''}" role="row" data-pos="${p.id}">
       <span class="pt-bez" role="cell">${darf ? `<input class="pt-in" data-feld="bezeichnung" value="${esc(p.bezeichnung)}" aria-label="Bezeichnung">` : `<b>${esc(p.bezeichnung)}</b>`}
-        <span class="pt-marken">${herkunftChip(p)}${zuPruefen(p) ? `<button type="button" class="chip xs st-amber" data-akt="mengen" title="Die automatische Zuordnung zu den Bautagesberichten wurde nach bestem Wissen gesetzt">${ic('alert')}Zuordnung prüfen</button>` : ''}${p.naturmaterial ? `<span class="chip xs st-blue" title="Zählt für die Landschaftsabgabe (0,25 € je t Naturmaterial)">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : naturPruefen(p) ? '<span class="chip xs st-amber">Naturmaterial? bitte prüfen</span>' : ''}${aus ? '<span class="chip xs st-grey">ausgeblendet</span>' : ''}${p.eigene || p.katalogId === null ? '<span class="chip xs st-outline">eigene Position</span>' : ''}</span></span>
+        <span class="pt-marken">${herkunftChip(p)}${zuPruefen(p) ? `<button type="button" class="chip xs st-amber" data-akt="mengen" title="Die automatische Zuordnung zu den Bautagesberichten wurde nach bestem Wissen gesetzt">${ic('alert')}Zuordnung prüfen</button>` : ''}${p.naturmaterial ? `<span class="chip xs st-blue" title="Zählt für die Landschaftsabgabe (0,25 € je t Naturmaterial)">Naturmaterial${naturPruefen(p) ? ' · bitte prüfen' : ''}</span>` : naturPruefen(p) ? '<span class="chip xs st-amber">Naturmaterial? bitte prüfen</span>' : ''}${aus ? '<span class="chip xs st-grey">ausgeblendet</span>' : ''}${p.eigene || p.katalogId === null ? '<span class="chip xs st-outline">eigene Position</span>' : ''}${geplantChip(p.epGeplant, istBetrag(p))}${(p.perioden || []).length > 1 ? `<span class="chip xs st-outline" data-perioden="${p.perioden.length}" title="Der Preis hat sich in diesem Bauvorhaben geändert – gerechnet wird je Zeitraum">${p.perioden.length} Preisstände</span>` : ''}</span></span>
       <span class="pt-eh" role="cell">${darf ? `<input class="pt-in c" data-feld="einheit" value="${esc(p.einheit || '')}" aria-label="Einheit von ${esc(p.bezeichnung)}">` : esc(p.einheit || '')}</span>
       <span class="pt-menge num" role="cell"><button type="button" class="pt-mbtn" data-akt="mengen" aria-label="Mengen von ${esc(p.bezeichnung)}: ${mengeAnz(p)} ${esc(p.einheit || '')} – anzeigen und erfassen"><b>${mengeAnz(p)}${istBetrag(p) ? '' : istLandschaft(p) ? ' t' : ` <i class="eh-m">${esc(p.einheit || '')}</i>`}</b><small>${istLandschaft(p) ? 'auto: je t Naturmaterial' : auto && manuell ? `${mengeText(p, auto)} auto + ${mengeText(p, manuell)}` : auto ? 'aus Berichten' : manuell || p.eintraegeAnzahl ? `${(p.eintraege || []).length || p.eintraegeAnzahl || ''} Eintr.`.trim() : istBetrag(p) ? 'Rechnungsbetrag' : 'erfassen'}</small></button></span>
       <span class="pt-ep num" role="cell">${istLandschaft(p) && !darf ? `${fmt.eur(p.ep)} <small class="auf">je t</small>` : darf ? `<label class="price-in sm"><span class="vh">${istBetrag(p) ? 'Faktor' : 'Einheitspreis'} ${esc(p.bezeichnung)}</span><span aria-hidden="true">${istBetrag(p) ? '×' : '€'}</span><input type="text" inputmode="decimal" class="num" data-feld="ep" value="${fmt.betrag(p.ep)}" autocomplete="off"></label>${istBetrag(p) ? `<small class="auf">${aufschlag(p.ep)}</small>` : istLandschaft(p) ? '<small class="auf">je t Naturmaterial</small>' : ''}` : p.ep == null ? '' : epText(p)}</span>
@@ -141,6 +142,7 @@ export default async function positionen(el, ctx) {
         ${land ? banner('info', `<b>Automatisch:</b> ${fmt.zahl(p.mengeAuto || 0)} t Naturmaterial × ${fmt.eur(p.ep)} – 0,25 € je t Naturmaterial. Gezählt werden alle Positionen mit dem Kennzeichen „Naturmaterial“ (Einheit t). Zusätzliche Mengen können unten händisch erfasst werden.`)
           : p.mengeAuto ? banner('info', `<b>${mengeText(p, p.mengeAuto)} ${esc(p.einheit || '')}</b> kommen automatisch aus den Bautagesberichten (${esc(QUELLE_ART[q.art] || 'Zuordnung')}).`) : ''}
         ${betrag ? banner('info', `<b>Rechnungsbetrag eingeben:</b> Bei dieser Position ist die Menge der Netto-Rechnungsbetrag in Euro. Er wird mit dem Faktor ${fmt.zahl(p.ep)} (${aufschlag(p.ep)}) verrechnet.`) : ''}
+        ${(p.perioden || []).length > 1 ? `<h4 class="sub-h">Gerechnet je Preisstand</h4><div class="tbl-wrap"><table class="tbl" id="perioden"><thead><tr><th>Zeitraum</th><th class="r">Menge</th><th class="r">EP</th><th class="r">Summe</th></tr></thead><tbody>${p.perioden.map((x) => `<tr><td>${x.gueltigAb <= '2000-01-01' ? 'bis' : 'ab ' + esc(fmt.datum(x.gueltigAb))}${x.bis ? `${x.gueltigAb <= '2000-01-01' ? ' ' : ' bis '}${esc(fmt.datum(x.bis))}` : ''}</td><td class="r num">${fmt.zahl(x.menge)}</td><td class="r num">${betrag ? '× ' + fmt.zahl(x.ep) : fmt.eur(x.ep)}</td><td class="r num">${fmt.eur(x.summe)}</td></tr>`).join('')}</tbody></table></div>` : ''}
         <h4 class="sub-h">${betrag ? 'Erfasste Rechnungsbeträge' : 'Händisch erfasste Mengen'}</h4>
         ${(p.eintraege || []).length ? `<ul class="plain rows" id="eintraege">${p.eintraege.map((e) => `<li data-eintrag="${e.id}"><span class="grow"><b>${e.menge == null ? 'Betrag nicht sichtbar' : betrag ? fmt.eur(e.menge) : fmt.zahl(e.menge) + ' ' + esc(land ? 't' : p.einheit || '')}</b><small>${esc(fmt.datum(e.datum))}${e.erstelltVonName ? ' · ' + esc(e.erstelltVonName) : ''}${e.notiz ? ' · ' + esc(e.notiz) : ''}</small></span>${darfStorno(e) ? `<button type="button" class="btn ghost sm" data-storno="${e.id}">Stornieren</button>` : darfMengen ? '<span class="muted sm nw" data-kein-storno>Storno nur durch das Büro</span>' : ''}</li>`).join('')}</ul>` : p.eintraegeAnzahl ? `<p class="muted sm" data-eintraege-verborgen>${p.eintraegeAnzahl} ${p.eintraegeAnzahl === 1 ? 'Eintrag' : 'Einträge'} – Beträge und Notizen sind für Ihre Rolle nicht sichtbar.</p>` : '<p class="muted sm">Noch keine Einträge.</p>'}
         ${darfMengen ? `<form id="mf" class="form-grid mf" novalidate>
@@ -210,12 +212,14 @@ export default async function positionen(el, ctx) {
     const p = finde(pid); if (!p) return;
     const d2 = dialog({ titel: p.bezeichnung, inhalt: `<div class="menu-list flach">
       <button type="button" data-m="mengen">${ic('table')}<span>Mengen und Zuordnung</span>${ic('right')}</button>
+      <button type="button" data-m="verlauf">${ic('clock')}<span>Preisverlauf</span>${ic('right')}</button>
       <button type="button" data-m="aktiv">${ic(p.aktiv === false ? 'check' : 'minus')}<span>${p.aktiv === false ? 'Wieder einblenden' : 'Ausblenden (bleibt erhalten)'}</span>${ic('right')}</button>
       <button type="button" data-m="loeschen">${ic('trash')}<span>Löschen (nur ohne Mengen)</span>${ic('right')}</button></div>` });
     d2.el.addEventListener('click', async (e) => {
       const m = e.target.closest('[data-m]'); if (!m) return;
       d2.zu();
       if (m.dataset.m === 'mengen') return mengenDialog(p.id);
+      if (m.dataset.m === 'verlauf') { if (await preisDialog({ was: `${p.bezeichnung} – ${bs.name || ''}`, faktor: istBetrag(p), darf, verlauf: () => get(`/baustellen/${id}/positionen/${p.id}/verlauf`), loeschen: (vid) => del(`/baustellen/${id}/positionen/${p.id}/verlauf/${vid}`) })) neu(); return; }
       if (m.dataset.m === 'aktiv') return aendere(p, { aktiv: p.aktiv === false }, p.aktiv === false ? 'Position eingeblendet.' : 'Position ausgeblendet.');
       if (!(await bestaetigen('Position löschen?', `„${p.bezeichnung}“ wird aus diesem Bauvorhaben entfernt. Die Firmenvorlage bleibt unverändert.`, 'Löschen', 'danger'))) return;
       try { await del(`/baustellen/${id}/positionen/${p.id}`); toast('Position gelöscht.'); neu(); }
@@ -243,6 +247,7 @@ export default async function positionen(el, ctx) {
       <fieldset class="field"><legend class="field-label">Was soll übernommen werden?</legend>
         <label class="check-inline"><input type="radio" name="modus" value="fehlende" checked> Fehlende Positionen ergänzen (bestehende bleiben unverändert)</label>
         <label class="check-inline"><input type="radio" name="modus" value="preise"> Preise aus der Vorlage übernehmen (überschreibt die EP dieses Bauvorhabens)</label></fieldset>
+      <label class="field" id="vl-ab-feld" hidden><span class="field-label">Übernommene Preise gelten ab</span><input class="input lg" type="date" id="vl-ab" value="${wienHeute()}" min="2000-01-01"></label>
       <button type="button" class="btn ghost" id="vl-vorschau">${ic('table')}Vorschau anzeigen</button>
       <div id="vl-ergebnis" aria-live="polite"></div></div>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="button" id="vl-ok" disabled>Übernehmen</button>' });
@@ -262,10 +267,19 @@ export default async function positionen(el, ctx) {
         $('#vl-ok', d2.el).disabled = l.n === 0;
       } catch (x) { box.innerHTML = `<p class="form-err">${esc(x.message)}</p>`; }
     });
-    d2.el.addEventListener('change', (e) => { if (e.target.name === 'modus') { $('#vl-ok', d2.el).disabled = true; $('#vl-ergebnis', d2.el).innerHTML = ''; } });
+    d2.el.addEventListener('change', (e) => { if (e.target.name === 'modus') { $('#vl-ok', d2.el).disabled = true; $('#vl-ergebnis', d2.el).innerHTML = ''; $('#vl-ab-feld', d2.el).hidden = modus() !== 'preise'; } });
     $('#vl-ok', d2.el).addEventListener('click', async () => {
       if (gezeigt !== modus()) return;
-      try { await post(`/baustellen/${id}/positionen/aus-vorlage`, { modus: modus() }); d2.zu(); toast(modus() === 'fehlende' ? 'Fehlende Positionen ergänzt.' : 'Preise aus der Vorlage übernommen.'); neu(); }
+      const body = { modus: modus() };
+      if (modus() === 'preise') {
+        const ab = $('#vl-ab', d2.el).value || wienHeute();
+        body.gueltigAb = ab;
+        if (ab < wienHeute()) {
+          if (!(await bestaetigen('Preise rückwirkend übernehmen?', `Die Preise der Vorlage gelten dann schon ab ${fmt.datum(ab)}; bereits gerechnete Tage werden neu bewertet.`, 'Ja, rückwirkend', 'danger'))) return;
+          body.rueckwirkend = true;
+        }
+      }
+      try { await post(`/baustellen/${id}/positionen/aus-vorlage`, body); d2.zu(); toast(modus() === 'fehlende' ? 'Fehlende Positionen ergänzt.' : 'Preise aus der Vorlage übernommen.'); neu(); }
       catch (x) { toast(x.message, 'warn'); }
     });
   }
@@ -310,7 +324,11 @@ export default async function positionen(el, ctx) {
       box.classList.remove('invalid'); t.removeAttribute('aria-invalid');
       if (wert === p.ep) { t.value = fmt.betrag(p.ep); return; }
       if (!(await starkOk(p.ep, wert, `Der Preis „${p.bezeichnung}“`))) { t.value = fmt.betrag(p.ep); return; }
-      await aendere(p, { ep: wert }, 'Preis für dieses Bauvorhaben gespeichert.');
+      const ok = await preisDialog({ was: `${p.bezeichnung} – ${bs.name || 'dieses Bauvorhaben'}`, alt: p.ep, neu: wert, faktor: istBetrag(p), darf: true,
+        senden: (x) => put(`/baustellen/${id}/positionen/${p.id}`, { version: p.version, ep: wert, ...x }),
+        verlauf: () => get(`/baustellen/${id}/positionen/${p.id}/verlauf`), loeschen: (vid) => del(`/baustellen/${id}/positionen/${p.id}/verlauf/${vid}`) });
+      if (!ok) t.value = fmt.betrag(p.ep);
+      await neu();
     } else {
       const wert = t.value.trim();
       if (!wert) { t.value = p[feld] || ''; toast('Das Feld darf nicht leer sein.', 'warn'); return; }

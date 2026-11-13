@@ -218,6 +218,22 @@ async function laufe(browser, g) {
     pruef(await page.locator('#abw-offen, [data-entscheid]').count() === 0, 'B-07: Mitarbeiter sieht die Genehmigungsliste');
     await toastWeg();
     await geh('/pin'); await keinEuro('pin');
+    // A2-1: Hilfe / erste Schritte je Rolle und „Zum Startbildschirm hinzufügen“
+    await geh('/hilfe', 'hilfe-mitarbeiter'); await keinEuro('hilfe');
+    const themenMa = await page.locator('[data-thema]').evaluateAll((l) => l.map((x) => x.dataset.thema));
+    pruef(themenMa.includes('stempeln') && themenMa.includes('geraete') && !['kalk', 'preise', 'monat', 'benutzer', 'freigabe', 'bericht', 'kolonne'].some((t) => themenMa.includes(t)), `A2-1: Hilfe des Mitarbeiters zeigt falsche Themen (${themenMa})`);
+    pruef(await page.locator('#install-karte[data-install="anleitung"] [data-browser-anleitung] li').count() === 3, 'A2-1: Anleitung „App installieren“ fehlt');
+    // Browser bietet die Installation an → eigene Schaltfläche, Dialog des Browsers wird geöffnet
+    await page.evaluate(() => { const e = new Event('beforeinstallprompt'); e.prompt = () => { window.__gefragt = (window.__gefragt || 0) + 1; return Promise.resolve(); }; e.userChoice = Promise.resolve({ outcome: 'accepted' }); window.dispatchEvent(e); });
+    await page.waitForSelector('#install-karte[data-install="dialog"] [data-installieren]');
+    pruef(g.mobil ? await page.locator('#install-hinweis:not([hidden]) a[href="#/hilfe"]').count() === 1 : await page.locator('#install-hinweis').isHidden(), 'A2-1: Installations-Hinweis am Handy fehlt bzw. erscheint am großen Bildschirm');
+    await ueberlauf('hilfe mit installieren'); await shot('hilfe-installieren');
+    await page.click('[data-installieren]');
+    await page.waitForFunction(() => window.__gefragt === 1);
+    await page.waitForSelector('#install-karte[data-install="anleitung"]');
+    await toastWeg();
+    await geh('/mehr');
+    pruef(await page.locator('#zu-hilfe').count() === 1 && await page.locator('#install-karte').count() === 1, 'A2-1: „Mehr“ verlinkt weder Hilfe noch Installation');
     await geh('/mehr'); await keinEuro('mehr');
     pruef(await page.locator('.integ-list li').count() >= 5, 'Mehr: Zusatzdienste fehlen');
     pruef((await text()).includes('Noch nicht angebunden'), 'Mehr: Hinweis „Noch nicht angebunden“ fehlt');
@@ -619,8 +635,64 @@ async function laufe(browser, g) {
     const altSatz = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).kostensatz;
     await feld.fill(String(altSatz + 40).replace('.', ','));
     await feld.press('Enter');
-    await page.waitForSelector('.price-in.saved');
-    pruef((await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).kostensatz === altSatz + 40, 'Preis wurde nicht gespeichert');
+    // A2-2: jede Preisänderung fragt „gültig ab“ (Standard heute)
+    await page.waitForSelector('dialog[open] #pa-form');
+    const heuteP = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    pruef(await page.locator('#pa-ab').inputValue() === heuteP && await page.locator('#pa-hinweis').getAttribute('data-art') === 'heute', `A2-2: „gültig ab“ ist nicht mit heute vorbelegt (${await page.locator('#pa-ab').inputValue()})`);
+    await ueberlauf('dialog preis ändern'); await shot('preis-gueltig-ab');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const gNach = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId);
+    pruef(gNach.kostensatz === altSatz + 40 && gNach.gueltigAb && gNach.gueltigAb.kostensatz === heuteP, `Preis wurde nicht (ab heute) gespeichert (${JSON.stringify(gNach.gueltigAb)})`);
+    await toastWeg();
+    // geplanter Preis: gilt erst in 30 Tagen, heutiger Wert bleibt, Kennzeichnung in Tabelle und Verlauf
+    const in30 = new Date(jetzt() + 30 * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const feld2 = page.locator(`#tabpanel tr[data-id="${geraetId}"] input[data-feld="kostensatz"]`);
+    await feld2.fill(String(altSatz + 55).replace('.', ',')); await feld2.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form');
+    await page.fill('#pa-ab', in30);
+    pruef(await page.locator('#pa-hinweis').getAttribute('data-art') === 'zukunft', 'A2-2: Hinweis „geplant“ fehlt bei künftigem Datum');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const gPlan = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId);
+    pruef(gPlan.kostensatz === altSatz + 40 && (gPlan.geplant || []).some((x) => x.feld === 'kostensatz' && x.wert === altSatz + 55 && x.gueltigAb === in30), `A2-2: geplanter Preis nicht als künftiger Stand gespeichert (${JSON.stringify(gPlan.geplant)})`);
+    pruef(await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-geplant]`).count() === 1, 'A2-2: geplanter Preis ist in der Tabelle nicht gekennzeichnet');
+    await toastWeg();
+    await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-verlauf="kostensatz"]`).click();
+    await page.waitForSelector('dialog[open] .pv-liste li');
+    pruef(await page.locator('dialog[open] .pv-liste li').count() >= 3 && await page.locator('dialog[open] [data-stand-geplant]').count() === 1 && await page.locator('dialog[open] .pv-liste li.aktuell').count() === 1, 'A2-2: Preisverlauf unvollständig oder geplanter Stand nicht markiert');
+    await ueberlauf('dialog preisverlauf'); await shot('preisverlauf');
+    await page.click('dialog[open] [data-stand-weg]');
+    await page.locator('dialog[open] [data-ok]').last().click();
+    await page.waitForFunction(() => !document.querySelector('dialog[open] [data-stand-geplant]'));
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    pruef(((await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).geplant || []).length === 0, 'A2-2: zurückgenommener geplanter Preis ist noch vorhanden');
+    await toastWeg();
+    // rückwirkend nur mit ausdrücklicher Bestätigung (an einem anderen Gerät, damit die Nachkalkulation dieser Baustelle unberührt bleibt)
+    const vor10 = new Date(jetzt() - 10 * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const anderesG = (await api('GET', '/preise')).json.geraete.find((x) => !ber.geraete.some((y) => y.geraetId === x.id) && x.verrechnungssatz != null);
+    const feld3 = page.locator(`#tabpanel tr[data-id="${anderesG.id}"] input[data-feld="verrechnungssatz"]`);
+    await feld3.scrollIntoViewIfNeeded();
+    await feld3.fill(String(anderesG.verrechnungssatz + 1).replace('.', ',')); await feld3.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form');
+    await page.fill('#pa-ab', vor10);
+    pruef(await page.locator('#pa-hinweis').getAttribute('data-art') === 'rueck' && (await page.locator('#pa-hinweis').innerText()).includes('Rückwirkend'), 'A2-2: Warnung bei rückwirkendem Datum fehlt');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 2);
+    await shot('preis-rueckwirkend');
+    await page.locator('dialog[open]').last().locator('.dlg-foot [data-zu]').click();
+    await sleep(300);
+    pruef((await api('GET', '/preise')).json.geraete.find((x) => x.id === anderesG.id).verrechnungssatz === anderesG.verrechnungssatz, 'A2-2: rückwirkender Preis ohne Bestätigung gespeichert');
+    const ohneBest = await absichtlich(() => api('PUT', `/preise/geraete/${anderesG.id}`, { feld: 'verrechnungssatz', wert: anderesG.verrechnungssatz + 1, gueltigAb: vor10 }));
+    pruef(ohneBest.status === 400, `A2-2: Server nimmt rückwirkenden Preis ohne Bestätigung an (Status ${ohneBest.status})`);
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 2);
+    await page.locator('dialog[open]').last().locator('[data-ok]').click();
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const rueckVerlauf = (await api('GET', `/preise/geraete/${anderesG.id}/verlauf`)).json;
+    pruef(rueckVerlauf.some((x) => x.feld === 'verrechnungssatz' && x.gueltigAb === vor10 && x.wert === anderesG.verrechnungssatz + 1), 'A2-2: bestätigter rückwirkender Preis fehlt im Verlauf');
+    await toastWeg();
     await ueberlauf('/preise geräte'); await shot('preise-geraete');
     for (const t of ['materialien', 'leistungen', 'lohngruppen']) { await page.click(`[data-tab="${t}"]`); await ueberlauf('/preise ' + t); await shot('preise-' + t); }
     await toastWeg();
@@ -823,9 +895,13 @@ async function laufe(browser, g) {
     const epFeld = page.locator(`.pt-row[data-pos="${pA.id}"] input[data-feld="ep"]`);
     await epFeld.scrollIntoViewIfNeeded();
     await epFeld.fill(String(pA.ep + 5).replace('.', ',')); await epFeld.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [pA.id, pA.ep + 5]);
     pos = await posApi();
     pruef(allePos(pos).find((x) => x.id === pA.id).ep === pA.ep + 5, 'P-03: EP im Bauvorhaben nicht gespeichert');
+    // A2-2: frühere Mengen bleiben beim alten EP – die Position zeigt ihre Preisstände
+    const pAper = allePos(pos).find((x) => x.id === pA.id).perioden || [];
+    pruef(pAper.length === 2 && pAper[0].ep === pA.ep && pAper[1].ep === pA.ep + 5 && await page.locator(`.pt-row[data-pos="${pA.id}"] [data-perioden="2"]`).count() === 1, `A2-2: Preisstände der Position fehlen (${JSON.stringify(pAper).slice(0, 160)})`);
     pruef(allePos(await posApi(zweiteBs.id)).find((x) => x.katalogId === pA.katalogId).ep === andereVor.ep, 'P-03: EP-Änderung hat ein anderes Bauvorhaben verändert');
     pruef((await katApi()).find((x) => x.id === pA.katalogId).ep === katVor.ep, 'P-03: EP-Änderung im Bauvorhaben hat den Katalog verändert');
     await toastWeg();
@@ -991,6 +1067,7 @@ async function laufe(browser, g) {
     const kFeld = page.locator(`tr[data-kat="${katVor.id}"] input[data-kfeld="ep"]`);
     await kFeld.scrollIntoViewIfNeeded();
     await kFeld.fill(String(katVor.ep + 3).replace('.', ',')); await kFeld.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`tr[data-kat="${id}"] input[data-kfeld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [katVor.id, katVor.ep + 3]);
     pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep + 3 && allePos(await posApi()).find((x) => x.id === pA.id).ep === katVor.ep, 'P-15: Katalogpreis nicht gespeichert oder wirkt rückwirkend auf das Bauvorhaben');
     await toastWeg();
@@ -1107,6 +1184,9 @@ async function laufe(browser, g) {
     pruef(d01.status === 403, `D-01: Büro kann die PIN der GF zurücksetzen (Status ${d01.status})`);
     await toastWeg();
     await toastWeg();
+    await geh('/hilfe', 'hilfe-buero');
+    const themenB = await page.locator('[data-thema]').evaluateAll((l) => l.map((x) => x.dataset.thema));
+    pruef(['freigabe', 'kalk', 'preise', 'monat'].every((t) => themenB.includes(t)) && !themenB.includes('benutzer'), `A2-1: Hilfe des Büros zeigt falsche Themen (${themenB})`);
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
     await fp.buero(h, z);
     await abmelden();
@@ -1273,7 +1353,7 @@ async function laufe(browser, g) {
     await page.click('[data-tab="matrix"]'); await page.waitForSelector('#matrix');
     await toastWeg();
     pruef(await page.locator('#matrix td[data-rolle="polier"][data-recht="benutzer"][data-gesperrt]').count() === 1 && await page.locator('#matrix td[data-rolle="buero"][data-recht="benutzer"][data-gesperrt]').count() === 1, 'B-01: Recht „benutzer“ ist in der Matrix nicht für alle außer GF gesperrt');
-    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
+    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/hilfe', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
     await abmelden();
 
     /* ============ 6b. B-03: neuer Benutzer muss zuerst die PIN ändern ============ */
@@ -1322,9 +1402,32 @@ async function laufe(browser, g) {
     pruef(!/ style=/.test(await (await context.request.get(srv.url + '/index.html')).text()), 'M-06: index.html enthält Inline-Styles');
 
     /* ============ 7. PWA ============ */
+    // A2-1: iPhone – Anleitung für Safari statt Installations-Dialog
+    {
+      const ctxIos = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' });
+      const ios = await ctxIos.newPage();
+      const iosFehler = []; ios.on('console', (m) => { if (m.type() === 'error') iosFehler.push(m.text()); }); ios.on('pageerror', (e) => iosFehler.push(e.message));
+      await ios.goto(srv.url + '/#/login'); await ios.waitForSelector('.login-user');
+      await ios.fill('#login-suche', NAME.mitarbeiter.split(' ')[1]); await ios.click(`.login-user:has-text("${NAME.mitarbeiter}")`);
+      for (const z of PIN) await ios.click(`.pin-pad [data-z="${z}"]`);
+      await ios.click('.pin-pad [data-ok]'); await ios.waitForSelector('#view');
+      await ios.evaluate(() => { location.hash = '#/hilfe'; }); await ios.waitForSelector('#install-karte');
+      pruef(await ios.locator('#install-karte[data-install="ios"] [data-ios-anleitung] li').count() === 3 && (await ios.locator('#install-karte').innerText()).includes('Zum Home-Bildschirm'), 'A2-1: iPhone-Anleitung (Teilen → Zum Home-Bildschirm) fehlt');
+      pruef(g.mobil ? await ios.locator('#install-hinweis:not([hidden])').count() === 1 : true, 'A2-1: Installations-Hinweis am iPhone fehlt');
+      if (SHOTS) await ios.screenshot({ path: path.join(SHOTS, `${g.name}-hilfe-iphone.png`) });
+      pruef(iosFehler.length === 0, `Konsolenfehler (iPhone): ${iosFehler.slice(0, 3).join(' || ')}`);
+      await ctxIos.close();
+    }
+    // A2-1: Offline-Seite und Startbildschirm-Angaben
+    const off = await context.request.get(srv.url + '/offline.html');
+    pruef(off.ok() && (await off.text()).includes('Keine Verbindung'), 'A2-1: Offline-Seite fehlt');
+    const idx = await (await context.request.get(srv.url + '/index.html')).text();
+    pruef(/apple-touch-icon" sizes="180x180" href="\/icons\/icon-180\.png"/.test(idx) && /apple-mobile-web-app-capable/.test(idx), 'A2-1: Angaben für den iPhone-Startbildschirm fehlen in index.html');
+    const offCache = await page.evaluate(async () => { await navigator.serviceWorker.ready; for (const n of await caches.keys()) { if (await (await caches.open(n)).match('/offline.html')) return true; } return false; });
+    pruef(offCache, 'A2-1: Offline-Seite liegt nicht im Zwischenspeicher der App-Hülle');
     const man = await context.request.get(srv.url + '/manifest.webmanifest');
     const manJson = man.ok() ? await man.json() : {};
-    pruef(man.ok() && manJson.icons && manJson.icons.length >= 2 && manJson.display === 'standalone', 'Manifest fehlt oder unvollständig');
+    pruef(man.ok() && manJson.icons && manJson.icons.length >= 4 && manJson.display === 'standalone' && manJson.id === '/' && /^\/\?/.test(manJson.start_url) && manJson.icons.some((i) => i.purpose === 'maskable'), 'Manifest fehlt oder unvollständig');
     for (const i of manJson.icons || []) { const r = await context.request.get(srv.url + i.src); pruef(r.ok() && /image\/png/.test(r.headers()['content-type'] || ''), `Icon ${i.src} fehlt`); }
     const sw = await page.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && (r.active || r.installing || r.waiting)); });
     pruef(sw, 'Service Worker ist nicht registriert');
