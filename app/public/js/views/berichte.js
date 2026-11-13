@@ -151,16 +151,23 @@ export async function bericht(el, ctx) {
   const gZeile = (gid) => b.geraete.find((g) => g.geraetId === gid);
   const gAnlage = (gid) => { const z = gZeile(gid), l = gAnlagen(gid); if (!z || !(z.stunden > 0)) return null; return l.find((a) => a.id === z.anlageId) || (l.length === 1 ? l[0] : null); };
   let anlageHinweise = [];
+  // F-11: dasselbe Gerät darf mehrfach vorkommen, wenn jede Zeile eine andere gewählte Anlage hat (z. B. zwei Radlader am selben Tag)
+  const gWeitere = (gid) => b.geraete.filter((g) => g.geraetId === gid).slice(1);
   function anlagenZeile(gid) {
     const l = gAnlagen(gid), z = gZeile(gid);
     if (!l.length || !z || !(z.stunden > 0)) return '';
     const wahl = gAnlage(gid);
+    const weitere = gWeitere(gid).filter((x) => x.stunden > 0 || x.neu);
+    const belegt = new Set(weitere.map((x) => x.anlageId));
     const name = (a) => `${esc(a.bezeichnung)}${a.kennzeichen ? ' · ' + esc(a.kennzeichen) : ''}`;
+    const warnung = (a) => (a && a.gesperrt ? `<p class="pf-ga-warn" role="alert" data-anlage-gesperrt="${a.id}">${ic('lock')}<span><b>${name(a)} ist gesperrt.</b> Das Gerät darf nicht verwendet werden – bitte im Büro bzw. in der Werkstatt nachfragen.</span></p>` : '');
     const chips = l.length > 1
-      ? `<div class="pf-ga-chips" role="radiogroup" aria-label="Welches Gerät war im Einsatz?">${l.map((a) => `<button type="button" class="chip-btn${wahl && wahl.id === a.id ? ' on' : ''}${a.gesperrt ? ' gesperrt' : ''}" role="radio" aria-checked="${!!(wahl && wahl.id === a.id)}" data-anlage-wahl="${gid}:${a.id}" ${dis()}>${a.gesperrt ? ic('lock') + '<span class="vh">gesperrt: </span>' : ''}${name(a)}</button>`).join('')}</div>${wahl ? '' : '<small class="pf-ga-frage">Welches Gerät war im Einsatz?</small>'}`
+      ? `<div class="pf-ga-chips" role="radiogroup" aria-label="Welches Gerät war im Einsatz?">${l.filter((a) => !belegt.has(a.id)).map((a) => `<button type="button" class="chip-btn${wahl && wahl.id === a.id ? ' on' : ''}${a.gesperrt ? ' gesperrt' : ''}" role="radio" aria-checked="${!!(wahl && wahl.id === a.id)}" data-anlage-wahl="${gid}:${a.id}" ${dis()}>${a.gesperrt ? ic('lock') + '<span class="vh">gesperrt: </span>' : ''}${name(a)}</button>`).join('')}</div>${wahl ? '' : '<small class="pf-ga-frage">Welches Gerät war im Einsatz?</small>'}`
       : `<small class="pf-ga-eins">${ic(l[0].gesperrt ? 'lock' : 'truck', 'xs')} ${name(l[0])}</small>`;
-    const warn = wahl && wahl.gesperrt ? `<p class="pf-ga-warn" role="alert" data-anlage-gesperrt="${wahl.id}">${ic('lock')}<span><b>${name(wahl)} ist gesperrt.</b> Das Gerät darf nicht verwendet werden – bitte im Büro bzw. in der Werkstatt nachfragen.</span></p>` : '';
-    return chips + warn;
+    const zusatz = weitere.map((x) => { const a = l.find((y) => y.id === x.anlageId) || { id: x.anlageId, bezeichnung: (x.anlage && x.anlage.bezeichnung) || 'Gerät' }; return `<div class="pf-ga-extra" data-extra="${gid}:${a.id}"><span>${a.gesperrt ? ic('lock', 'xs') + ' ' : ''}${name(a)}</span>${stepper(`data-geraet-extra="${gid}:${a.id}"`, x.stunden, 0.5, 'Stunden', a.bezeichnung)}<small>Std.</small></div>${warnung(a)}`; }).join('');
+    const frei = l.filter((a) => (!wahl || a.id !== wahl.id) && !belegt.has(a.id));
+    const dazu = l.length > 1 && wahl && z.anlageId != null && frei.length && editierbar() ? `<div class="pf-ga-dazu">${frei.map((a) => `<button type="button" class="btn ghost sm" data-anlage-dazu="${gid}:${a.id}">${ic('plus')}auch im Einsatz: ${name(a)}</button>`).join('')}</div>` : '';
+    return chips + warnung(wahl) + zusatz + dazu;
   }
   const zeigHinweise = () => { const h = $('#anlage-hinweise', el); if (!h) return; h.hidden = !anlageHinweise.length; h.innerHTML = anlageHinweise.length ? banner('warn', `<b>Gesperrtes Gerät im Bericht:</b> ${anlageHinweise.map((x) => esc(x.text)).join(' · ')} – der Bericht wird trotzdem gespeichert, das Büro wird verständigt.`, 'lock') : ''; };
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
@@ -209,7 +216,7 @@ export async function bericht(el, ctx) {
     }
   };
   const wert = (feld) => {
-    if (feld === 'geraete') return b.geraete.filter((g) => g.stunden > 0).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden, ...(g.anlageId != null ? { anlageId: g.anlageId } : {}) }));
+    if (feld === 'geraete') return b.geraete.filter((g, i) => g.stunden > 0 && (g.anlageId != null || b.geraete.findIndex((x) => x.geraetId === g.geraetId) === i)).map((g) => ({ geraetId: g.geraetId, stunden: g.stunden, ...(g.anlageId != null ? { anlageId: g.anlageId } : {}) }));
     if (feld === 'material') return b.material.filter((m) => m.menge > 0).map((m) => ({ materialId: m.materialId, menge: m.menge }));
     if (feld === 'personal') return b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1 || null, bis1: p.bis1 || null, von2: p.von2 || null, bis2: p.bis2 || null, pauseMin: Number(p.pauseMin) || 0, code: p.code || null, segStunden: Number(p.segStunden) || 0, ...(p.gast ? { gast: true } : {}) })); // Stunden berechnet der Server
     if (feld === 'regie') return b.regie.filter((r) => (r.text || '').trim() || r.stunden > 0).map((r) => ({ text: r.text || '', stunden: Number(r.stunden) || 0 }));
@@ -445,11 +452,17 @@ export async function bericht(el, ctx) {
   function setzStepper(sp, v) {
     v = Math.max(0, rund2(v));
     $('input', sp).value = v ? fmt.zahl(v) : '';
-    if (sp.dataset.geraet) {
+    if (sp.dataset.geraetExtra) {
+      const [gid, aid] = sp.dataset.geraetExtra.split(':').map(Number);
+      const x = gWeitere(gid).find((y) => y.anlageId === aid);
+      if (x) { x.stunden = v; delete x.neu; if (!(v > 0)) { b.geraete.splice(b.geraete.indexOf(x), 1); $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); } geaendert('geraete'); }
+    } else if (sp.dataset.geraet) {
       const gid = Number(sp.dataset.geraet); let g = b.geraete.find((x) => x.geraetId === gid);
       if (!g) { g = { geraetId: gid, stunden: 0 }; b.geraete.push(g); }
       // Bei mehreren Anlagen je Gerät: zuletzt auf dieser Baustelle verwendete vorbelegen
       if (v > 0 && !(g.stunden > 0) && g.anlageId == null && gAnlagen(gid).length > 1) { const vor = (b.anlagenVorschlag || {})[gid]; if (gAnlagen(gid).some((a) => a.id === vor)) g.anlageId = vor; }
+      // Zeile auf 0 → auch die weiteren Anlagen dieser Gerätezeile entfallen
+      if (!(v > 0)) gWeitere(gid).forEach((x) => b.geraete.splice(b.geraete.indexOf(x), 1));
       g.stunden = v; sp.closest('.pf-g').classList.toggle('on', v > 0); geaendert('geraete');
       const ga = $(`[data-ga="${gid}"]`, el); if (ga) ga.innerHTML = anlagenZeile(gid);
     } else if (sp.dataset.material) {
@@ -465,6 +478,14 @@ export async function bericht(el, ctx) {
     if (aw && !aw.disabled) {
       const [gid, aid] = aw.dataset.anlageWahl.split(':').map(Number); const g = gZeile(gid);
       if (g && g.anlageId !== aid) { g.anlageId = aid; $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); geaendert('geraete'); }
+      return;
+    }
+    const ad = e.target.closest('[data-anlage-dazu]');
+    if (ad && editierbar()) {
+      const [gid, aid] = ad.dataset.anlageDazu.split(':').map(Number);
+      const idx = b.geraete.map((g) => g.geraetId).lastIndexOf(gid);
+      b.geraete.splice(idx + 1, 0, { geraetId: gid, anlageId: aid, stunden: 0.5 });
+      $(`[data-ga="${gid}"]`, el).innerHTML = anlagenZeile(gid); geaendert('geraete');
       return;
     }
     const sn = e.target.closest('[data-schritt-nr]');
@@ -500,7 +521,7 @@ export async function bericht(el, ctx) {
     const t = e.target;
     const sp = t.closest('[data-stepper]');
     if (sp) {
-      const alt = sp.dataset.geraet ? gStd(Number(sp.dataset.geraet)) : sp.dataset.material ? mMenge(Number(sp.dataset.material)) : b.paletten[sp.dataset.pal] || 0;
+      const alt = sp.dataset.geraetExtra ? (gWeitere(Number(sp.dataset.geraetExtra.split(':')[0])).find((y) => y.anlageId === Number(sp.dataset.geraetExtra.split(':')[1])) || {}).stunden || 0 : sp.dataset.geraet ? gStd(Number(sp.dataset.geraet)) : sp.dataset.material ? mMenge(Number(sp.dataset.material)) : b.paletten[sp.dataset.pal] || 0;
       setzStepper(sp, zahl(t.value, alt)); return;
     }
     if (t.id === 'p-neu' && t.value) {

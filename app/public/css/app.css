@@ -816,3 +816,5 @@ tr.geschuetzt { background: #fffaf0; } tr.geschuetzt .chip { margin-top: 3px; wh
 .sch-gesendet { color: var(--green) !important; font-weight: 600; } .sch-fotofehler { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; } .sch-fotofehler > span { display: flex; align-items: center; gap: 8px; min-width: 0; } .sch-fotofehler img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: none; }
 #sch-warten .abg-akt { align-items: center; }
 .fp-hinweis { display: block; color: var(--amber) !important; font-weight: 600; white-space: normal; }
+.pf-ga-extra { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; } .pf-ga-extra > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; } .pf-ga-extra small { color: var(--muted); } .pf-ga-dazu { display: flex; flex-wrap: wrap; gap: 6px; } .pf-ga-dazu .btn { white-space: normal; height: auto; min-height: 36px; text-align: left; padding: 6px 10px; }
+@media (max-width: 719px) { #sch-warten li > .grow { flex: 1 1 100%; } #sch-warten .abg-akt { flex: 1 1 100%; justify-content: flex-start; } #sch-warten .abg-akt .btn { flex: 1; } }

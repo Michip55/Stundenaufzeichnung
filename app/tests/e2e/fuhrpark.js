@@ -431,6 +431,17 @@ async function berichtGeraete(h, z, berichtId) {
     await page.waitForSelector('#anlage-hinweise[hidden]', { state: 'attached', timeout: 8000 }).catch(() => {});
     pruef(await page.locator('#anlage-hinweise:not([hidden])').count() === 0, 'Bericht: Warnung bleibt nach Wechsel auf freie Anlage stehen');
   }
+  // F-11: zwei Geräte derselben Zeile am selben Tag – zweite Anlage dazunehmen, beide werden getrennt gespeichert
+  if (frei) {
+    await wahl.locator(`[data-anlage-dazu="${typ.id}:${z.platteId}"]`).click();
+    await wahl.locator(`[data-geraet-extra="${typ.id}:${z.platteId}"]`).waitFor();
+    pruef(await wahl.locator(`[data-anlage-gesperrt="${z.platteId}"]`).count() === 1, 'F-11: zweite (gesperrte) Anlage ohne Warnung');
+    await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
+    ber = (await api('GET', `/berichte/${berichtId}`)).json;
+    const zwei = ber.geraete.filter((x) => x.geraetId === typ.id);
+    pruef(zwei.length === 2 && new Set(zwei.map((x) => x.anlageId)).size === 2 && zwei.every((x) => x.stunden === 0.5), `F-11: zwei Anlagen derselben Gerätezeile nicht getrennt gespeichert (${JSON.stringify(zwei.map((x) => [x.anlageId, x.stunden]))})`);
+    await h.ueberlauf('bericht zwei anlagen'); await shot('f11-bericht-zwei-anlagen');
+  }
   await zeile.locator('[data-d="-1"]').click(); // zurück auf 0 Std. – die übrigen Prüfungen erwarten genau zwei Gerätezeilen
   await page.waitForFunction((id) => !document.querySelector(`[data-ga="${id}"] [data-anlage-wahl]`), typ.id);
 }
