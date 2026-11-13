@@ -100,11 +100,12 @@ async function schreibeExport(daten) {
       const row = ws.getRow(z);
       row.getCell(1).value = p.bezeichnung;
       row.getCell(2).value = p.einheit;
-      const werte = [p.mengeAuto || 0, ...(p.eintraege || []).map((e) => e.menge)];
+      const r3 = (x) => Math.round((x + Number.EPSILON) * 1000) / 1000;
+      const werte = [r3(p.mengeAuto || 0), ...(p.eintraege || []).map((e) => r3(e.menge))]; // E-06: wie die App
       // C = Berichte, D–L = Einträge (mehr als 9 Einträge werden in L zusammengefasst)
       const spalten = [werte[0], ...werte.slice(1, 9), werte.slice(9).reduce((a, x) => a + x, 0)];
       spalten.forEach((w, i) => { if (w) row.getCell(3 + i).value = w; });
-      const menge = werte.reduce((a, x) => a + x, 0);
+      const menge = r3(werte.reduce((a, x) => a + x, 0));
       const summe = r2(menge * p.ep);
       gruppenSumme += summe;
       row.getCell(13).value = { formula: `SUM(C${z}:L${z})`, result: menge };
@@ -128,8 +129,10 @@ async function schreibeExport(daten) {
   const gesamtZeile = z + GRUPPEN.length * 2 + 1;
   const gesamt = r2(Object.values(gruppenwerte).reduce((a, x) => a + x, 0));
   const ersteZeile = z;
+  let anteilSumme = 0;
   for (const g of GRUPPEN) {
     const anteil = gesamt ? Math.round((gruppenwerte[g.schluessel] / gesamt) * 1000) / 10 : 0;
+    anteilSumme += anteil;
     ws.getCell(`J${z}`).value = g.summenzeile;
     ws.getCell(`M${z}`).value = { formula: `IF(O$${gesamtZeile}=0,0,ROUND(O${z}/O$${gesamtZeile}*100,1))`, result: anteil };
     ws.getCell(`N${z}`).value = '%';
@@ -139,7 +142,7 @@ async function schreibeExport(daten) {
   ws.getCell(`M${z - 1}`).value = ' ----------';
   ws.getCell(`O${z - 1}`).value = ' --------------';
   ws.getCell(`J${gesamtZeile}`).value = 'Gesamtsumme';
-  ws.getCell(`M${gesamtZeile}`).value = { formula: `SUM(M${ersteZeile}:M${gesamtZeile - 2})`, result: gesamt ? 100 : 0 };
+  ws.getCell(`M${gesamtZeile}`).value = { formula: `SUM(M${ersteZeile}:M${gesamtZeile - 2})`, result: Math.round(anteilSumme * 10) / 10 }; // E-06: Summe der gerundeten Anteile
   ws.getCell(`N${gesamtZeile}`).value = '%';
   ws.getCell(`O${gesamtZeile}`).value = { formula: `SUM(O${ersteZeile}:O${gesamtZeile - 2})`, result: gesamt };
   ws.getRow(gesamtZeile).font = { bold: true };

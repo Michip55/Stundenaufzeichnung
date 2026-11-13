@@ -5,7 +5,7 @@ const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler')
 const { darfKalk, darfPreise } = require('../rechte');
 const { parseJson } = require('../daten');
 const { GRUPPEN, GRUPPEN_SCHLUESSEL, leseVorlage, schreibeExport } = require('../katalog-excel');
-const { katalogKopieren, projektPositionen, positionJson } = require('../positionen');
+const { katalogKopieren, projektPositionen, positionJson, einheitNorm } = require('../positionen');
 const { schluessel } = require('../positionen-zuordnung');
 const { pruefeBudget } = require('../budget');
 const { wienDatum, plusTage } = require('../datum');
@@ -37,7 +37,12 @@ module.exports = function positionenRouten(api, bt) {
     return o;
   }
 
-  function pruefeFelder(body, teil) {
+  /**
+   * @param {object} body
+   * @param {boolean} teil  Teil-Update
+   * @param {object} [alt]  bisherige Zeile (Katalog oder Projekt) für die Schutzregeln (E-01)
+   */
+  function pruefeFelder(body, teil, alt) {
     const f = {};
     if (!teil || body.gruppe !== undefined) f.gruppe = v.auswahl(body.gruppe, 'gruppe', GRUPPEN_SCHLUESSEL);
     if (!teil || body.bezeichnung !== undefined) f.bezeichnung = v.text(body.bezeichnung, 'bezeichnung', { max: 200 });
@@ -46,10 +51,21 @@ module.exports = function positionenRouten(api, bt) {
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
     if (body.sortierung !== undefined) f.sortierung = v.zahl(body.sortierung, 'sortierung', { min: 0, max: 1e6, ganz: true });
     if (body.quelle !== undefined) {
+      // E-01: die automatische Landschaftsabgabe nie stillschweigend entfernen
+      const altQ = alt ? parseJson(alt.quelle, null) : null;
+      if (body.quelle === null && altQ && altQ.art === 'naturmaterial' && body.naturmaterialQuelleEntfernen !== true) {
+        throw ungueltig('Diese Position rechnet automatisch aus den Tonnen Naturmaterial (Landschaftsabgabe). Zum Entfernen der Quelle zusätzlich naturmaterialQuelleEntfernen:true senden.');
+      }
       f.quelle = body.quelle === null ? null : JSON.stringify(pruefeQuelle(body.quelle));
       f.zuordnung_pruefen = 0; // bewusst gesetzt
     }
     if (body.naturmaterial !== undefined) { f.naturmaterial = v.bool(body.naturmaterial, 'naturmaterial') ? 1 : 0; f.naturmaterial_pruefen = 0; }
+    // E-01: Naturmaterial nur bei Einheit t
+    const einheitNeu = f.einheit ?? (alt ? alt.einheit : undefined);
+    if (einheitNeu !== undefined && einheitNorm(einheitNeu) !== 't') {
+      if (f.naturmaterial === 1) throw ungueltig('Naturmaterial kann nur bei Positionen mit der Einheit t gesetzt werden.');
+      if (alt && alt.naturmaterial === 1 && f.einheit !== undefined) f.naturmaterial = 0;
+    }
     if (body.zuordnungPruefen !== undefined) f.zuordnung_pruefen = v.bool(body.zuordnungPruefen, 'zuordnungPruefen') ? 1 : 0;
     return f;
   }
@@ -82,12 +98,18 @@ module.exports = function positionenRouten(api, bt) {
       schluessel: g.schluessel, name: g.name,
       ...(mitPreis ? { summe: g.summe, anteilProzent: g.anteilProzent } : {}),
       positionen: g.positionen.map((p) => {
-        const { ep, summe, ...rest } = p;
-        return mitPreis ? p : rest;
+        if (mitPreis) return p;
+        const { ep, summe, ...rest } = p; // eslint-disable-line no-unused-vars
+        // E-08: PA/VE-Mengen sind Rechnungsbeträge in € – ohne preise_sehen nur die Anzahl der Einträge
+        if (['pa', 've'].includes(String(p.einheit).trim().toLowerCase())) {
+          const { menge, mengeAuto, mengeManuell, eintraege, ...ohne } = rest; // eslint-disable-line no-unused-vars
+          return { ...ohne, eintraegeAnzahl: (eintraege || []).length };
+        }
+        return rest;
       })
     }));
-    const o = { baustelleId: bs.id, gruppen, budgetVerbrauchProzent: r.budgetVerbrauchProzent, hinweise: r.hinweise, stand: db.einstellung('katalog_stand', null) };
-    if (mitPreis) Object.assign(o, { auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
+    const o = { baustelleId: bs.id, gruppen, budgetVerbrauchProzent: r.budgetVerbrauchProzent, positionenFehlen: r.positionenFehlen, hinweise: r.hinweise, stand: db.einstellung('katalog_stand', null) };
+    if (mitPreis) Object.assign(o, { auftragGesamt: r.auftragGesamt, gesamtsumme: r.gesamtsumme, anteilSummeProzent: r.anteilSummeProzent, ergebnis: r.ergebnis, ergebnisProzent: r.ergebnisProzent });
     return o;
   }
 
@@ -104,7 +126,7 @@ module.exports = function positionenRouten(api, bt) {
         positionen: alle.filter((k) => k.gruppe === g.schluessel).map((k) => ({
           id: k.id, gruppe: k.gruppe, bezeichnung: k.bezeichnung, einheit: k.einheit, ep: k.ep, sortierung: k.sortierung,
           quelle: parseJson(k.quelle, null), zuordnungPruefen: k.zuordnung_pruefen === 1,
-          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
+          naturmaterial: k.naturmaterial === 1, naturmaterialPruefen: k.naturmaterial_pruefen === 1, naturmaterialMoeglich: einheitNorm(k.einheit) === 't', herkunft: k.herkunft, aktiv: k.aktiv === 1, version: k.version
         }))
       }))
     };
@@ -127,7 +149,7 @@ module.exports = function positionenRouten(api, bt) {
     if (!alt) throw nichtGefunden('Katalogposition nicht gefunden.');
     const body = v.objekt(req.body);
     if (body.version !== undefined && v.zahl(body.version, 'version', { min: 1, ganz: true }) !== alt.version) throw konflikt('Die Katalogposition wurde inzwischen geändert. Bitte neu laden.', { version: alt.version });
-    const f = pruefeFelder(body, true);
+    const f = pruefeFelder(body, true, alt);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
     const k = Object.keys(f);
     db.transaktion(() => {
@@ -207,7 +229,7 @@ module.exports = function positionenRouten(api, bt) {
     const body = v.objekt(req.body);
     const version = v.zahl(body.version, 'version', { min: 1, ganz: true });
     if (version !== p.version) throw konflikt('Die Position wurde inzwischen geändert. Bitte neu laden.', { version: p.version });
-    const f = pruefeFelder(body, true);
+    const f = pruefeFelder(body, true, p);
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben.');
     const k = Object.keys(f);
     db.transaktion(() => {
@@ -269,7 +291,7 @@ module.exports = function positionenRouten(api, bt) {
     const heute = wienDatum(bt.uhr());
     if (datum > heute) throw ungueltig('datum darf nicht in der Zukunft liegen.');
     if (datum < plusTage(heute, -731)) throw ungueltig('datum liegt mehr als 2 Jahre zurück.');
-    const menge = v.zahl(body.menge, 'menge', { min: 0.001, max: 1e7 });
+    const menge = Math.round(v.zahl(body.menge, 'menge', { min: 0.001, max: 1e7 }) * 1000) / 1000; // E-06: 3 Nachkommastellen
     const notiz = body.notiz === undefined || body.notiz === null ? null : v.text(body.notiz, 'notiz', { max: 300, pflicht: false });
     const r = db.transaktion(() => {
       const ins = db.lauf('INSERT INTO projektposition_menge (position_id, datum, menge, notiz, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?, ?)', p.id, datum, menge, notiz, jetzt(), req.ctx.benutzer.id);
@@ -287,6 +309,10 @@ module.exports = function positionenRouten(api, bt) {
     const mid = v.pfadId(req.params.mid, 'Mengen-ID');
     const m = db.eins('SELECT * FROM projektposition_menge WHERE id = ? AND position_id = ?', mid, p.id);
     if (!m) throw nichtGefunden('Mengeneintrag nicht gefunden.');
+    // E-07: Bauleiter storniert nur selbst erfasste Einträge
+    if (!req.ctx.hat('preise_bearbeiten') && m.erstellt_von !== req.ctx.benutzer.id) {
+      throw keinZugriff('Einträge anderer Personen (z. B. Rechnungen des Büros) storniert nur das Büro bzw. die Geschäftsführung.');
+    }
     db.transaktion(() => {
       db.lauf('DELETE FROM projektposition_menge WHERE id = ?', mid);
       prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: Menge zu „${p.bezeichnung}“ storniert`, { id: m.id, datum: m.datum, menge: m.menge, notiz: m.notiz }, null);
