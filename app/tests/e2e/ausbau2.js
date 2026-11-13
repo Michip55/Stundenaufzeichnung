@@ -251,6 +251,8 @@ async function planer(h, z) {
 
   /* ---- Büro: einteilen (Ziehen, Tastatur, Dialog), Konflikt, Notizen, Veröffentlichen ---- */
   await anmelden('buero');
+  // der Mitarbeiter soll heute und morgen einteilbar sein: eigene Abwesenheits-Anträge aus früheren Prüfungen entfernen
+  for (const a of (await api('GET', `/abwesenheiten?von=${heute}&bis=${morgen}`)).json.filter((x) => x.benutzerId === L)) await api('DELETE', `/abwesenheiten/${a.id}`);
   const woche0 = (await api('GET', `/plan/woche?von=${morgen}&tage=5`)).json;
   pruef(Array.isArray(woche0.baustellen) && woche0.baustellen.some((b) => b.id === B), 'A2-Plan: /plan/woche ohne die Baustelle des Poliers');
   const B2 = woche0.baustellen.find((b) => b.id !== B).id;
@@ -859,8 +861,10 @@ async function urlaub(h, z) {
     await page.click('#bu-ok');
     await page.waitForFunction(() => !document.querySelector('dialog[open] #buf'));
     const bu = (await api('GET', `/abwesenheiten?von=${jahr}-12-28&bis=${jahr}-12-31`)).json.filter((a) => a.benutzerId === L);
-    pruef(bu.filter((a) => ['BU', 'U'].includes(a.code) && a.status === 'genehmigt').length === 4, `A2-Url: Betriebsurlaub nicht als genehmigte BU-Tage angelegt (${JSON.stringify(bu).slice(0, 300)})`);
+    pruef(bu.filter((a) => a.art === 'betriebsurlaub' && a.status === 'genehmigt').length === 4, `A2-Url: Betriebsurlaub nicht als genehmigte BU-Tage angelegt (${JSON.stringify(bu).slice(0, 300)})`);
     await toastWeg();
+    await geh(`/urlaub?monat=${jahr}-12`);
+    pruef(await page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-code="BU"].ur-BU.ok`).count() === 4, 'A2-Url: Betriebsurlaub wird im Kalender nicht eigens (BU) dargestellt');
   }
   // Verweis aus dem Baustellenplaner
   await geh('/plan?ansicht=woche');
@@ -883,6 +887,188 @@ async function urlaub(h, z) {
   await abmelden();
 }
 
+/* ================= Dienste (12.3–12.7, 12.9–12.14): E-Mail, KI, Wetter, Fotos, Diktat, Lieferschein, Papier, Fernunterschrift, Push, 2FA ================= */
+const crypto = require('node:crypto');
+function totp(base32, ms) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = '';
+  for (const c of base32.replace(/[\s=-]/g, '').toUpperCase()) bits += A.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from((bits.match(/.{8}/g) || []).map((b) => parseInt(b, 2)));
+  const z = Buffer.alloc(8); z.writeBigUInt64BE(BigInt(Math.floor(ms / 30000)));
+  const hm = crypto.createHmac('sha1', key).update(z).digest(); const o = hm[19] & 15;
+  return String(((hm.readUInt32BE(o) & 0x7fffffff) % 1e6)).padStart(6, '0');
+}
+async function dienste(h, z) {
+  const { page, api, geh, pruef, keinEuro, ueberlauf, dialogUeberlauf, shot, g, anmelden, abmelden, toastWeg, context } = h;
+  const k = KENN(g), heute = h.heute();
+  const ausgang = async () => (await context.request.get(h.srv.url + '/api/test/ausgang')).json();
+  const haken = (pfad, body) => context.request.post(h.srv.url + '/api/test/' + pfad, { data: body || {} });
+  const bild = async (zeilen) => ({ name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from((await page.evaluate((zl) => { const c = document.createElement('canvas'); c.width = 900; c.height = 600; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 900, 600); x.fillStyle = '#000'; x.font = '34px sans-serif'; zl.forEach((t, i) => x.fillText(t, 30, 70 + i * 60)); return c.toDataURL('image/png'); }, zeilen)).split(',')[1], 'base64') });
+
+  /* ---- Geschäftsführung: E-Mail-Test, KI einrichten (Schlüssel nie wieder sichtbar), Zustände ---- */
+  await anmelden('gf');
+  const W = z.w || 1;
+  const bsW = (await api('GET', `/baustellen/${W}`)).json;
+  pruef((await api('PUT', `/baustellen/${W}`, { version: bsW.version, lat: 47.72, lng: 16.15, agEmail: 'bauherr@example.test', berichtMail: true })).status === 200, 'A2-Dienst: Koordinaten/AG-E-Mail der Baustelle nicht speicherbar');
+  await geh('/benutzer?reiter=dienste');
+  await page.waitForSelector('#dienste');
+  const mailsVor = (await ausgang()).mails.length;
+  await page.fill('#mail-test [name="an"]', 'test@example.test');
+  await page.click('#mail-test-ok');
+  await page.waitForSelector('#mail-test-erg:not([hidden])');
+  pruef((await ausgang()).mails.length === mailsVor + 1, 'A2-Dienst: Test-Mail kam nicht im Ausgang an');
+  await page.fill('#ki-form [name="apiKey"]', 'sk-test');
+  await page.check('#ki-form [name="datenschutzBestaetigt"]', { force: true });
+  await page.check('#ki-form [name="aktiv"]', { force: true });
+  await page.click('#ki-ok');
+  await page.waitForSelector('[data-ki-zustand^="aktiv"]');
+  pruef(await page.locator('#ki-form [name="apiKey"]').inputValue() === '' && !(await page.content()).includes('sk-test'), 'A2-KI: der API-Schlüssel wird nach dem Speichern wieder angezeigt');
+  await toastWeg();
+  await h.absichtlich(async () => { await page.click('#ki-test'); await page.waitForSelector('#ki-test-erg:not([hidden])'); }); // Attrappe: Ergebnis (auch ein Fehler) wird angezeigt, nichts vorgetäuscht
+  pruef(await page.locator('[data-pflicht]').count() >= 2, 'A2-2FA: Einstellungen zur Pflicht je Rolle fehlen');
+  await ueberlauf('dienste'); await shot('dienste');
+  await geh('/mehr');
+  const zust = Object.fromEntries(await page.evaluate(() => [...document.querySelectorAll('.integ-list li[data-integ]')].map((li) => [li.dataset.integ, li.dataset.zustand])));
+  pruef(/^aktiv/.test(zust.ki || '') && /^aktiv/.test(zust.email || '') && /^aktiv/.test(zust.wetter || '') && zust.sms === 'optional' && /aktiv_mit_ki|aktiv/.test(zust.diktat || ''), `A2-Dienst: Zusatzdienste zeigen falsche Zustände (${JSON.stringify(zust)})`);
+  pruef(!(await h.text()).includes('Noch nicht angebunden') || zust.sms === 'optional', 'A2-Dienst: aktive Dienste als „nicht angebunden“ gezeigt');
+  await ueberlauf('mehr zusatzdienste'); await shot('zusatzdienste');
+  await abmelden();
+
+  /* ---- Polier: Wetter, Fotos, Diktat (mit KI), Lieferschein, Papier, Fernunterschrift ---- */
+  await anmelden('polier');
+  let ber = null;
+  for (let i = 60; i < 80 && !ber; i += 1) { const r = await api('POST', '/berichte', { baustelleId: W, datum: plusTage(heute, -i) }); if (r.status === 201) ber = r.json; }
+  pruef(!!ber, 'A2-Dienst: kein neuer Berichtsentwurf möglich');
+  await geh(`/bericht/${ber.id}`);
+  await page.waitForSelector('#wetter-karte', { state: 'attached' });
+  pruef(/°C/.test(await page.locator('#wetter-karte').innerText()), `A2-Wetter: Wetterkarte ohne Werte (${(await page.locator('#wetter-karte').innerText()).slice(0, 80)})`);
+  // Ausfall des Wetterdienstes: ein neuer Bericht zeigt ehrlich „Wetter nicht verfügbar“ (nichts wird erfunden)
+  await haken('wetter', { verfuegbar: false });
+  let ber2 = null;
+  for (let i = 81; i < 100 && !ber2; i += 1) { const r = await api('POST', '/berichte', { baustelleId: W, datum: plusTage(heute, -i) }); if (r.status === 201) ber2 = r.json; }
+  await h.absichtlich(async () => { await geh(`/bericht/${ber2.id}`); await page.waitForFunction(() => /nicht verfügbar/i.test((document.querySelector('#wetter-karte') || { innerText: '' }).innerText), null, { timeout: 8000 }).catch(() => {}); });
+  pruef(/nicht verfügbar/i.test(await page.locator('#wetter-karte').innerText()) && !/°C/.test(await page.locator('#wetter-karte').innerText()), `A2-Wetter: Ausfall wird nicht als „Wetter nicht verfügbar“ gezeigt (${(await page.locator('#wetter-karte').innerText()).slice(0, 100)})`);
+  await haken('wetter', { verfuegbar: true });
+  await geh(`/bericht/${ber.id}`);
+  await toastWeg();
+  // Fotos (bis 10), Beschreibung, danach lässt sich der Bericht weiter speichern
+  await page.setInputFiles('#foto-datei', [await bild(['Foto 1']), await bild(['Foto 2'])]);
+  await page.waitForFunction(() => document.querySelectorAll('#fotos [data-foto]').length === 2);
+  await page.locator('#fotos [data-foto-text]').first().fill('Künette Achse 3'); await page.locator('#fotos [data-foto-text]').first().blur();
+  await toastWeg();
+  pruef((await api('GET', `/berichte/${ber.id}`)).json.fotos.some((f) => f.beschreibung === 'Künette Achse 3'), 'A2-Foto: Beschreibung nicht gespeichert');
+  // Diktat: Vorschlag mit markierten Feldern – mit aktiver KI als „mit KI verbessert“
+  await haken('ki', { antwort: { geraete: [], material: [], personal: [], regie: [], arbeitsleistung: 'Schotter eingebaut und verdichtet', vorkommnisse: '' } });
+  await page.fill('#diktat-text', 'Heute Schotter eingebaut und verdichtet, Wetter sonnig.');
+  await page.click('#diktat-los');
+  await page.waitForSelector('dialog[open] #vorschlag');
+  pruef(await page.locator('#vorschlag [data-vs]').count() >= 1 && await page.locator('#vs-chip').count() === 1, 'A2-Diktat: Vorschlag ohne Felder oder ohne Hinweis „bitte prüfen“');
+  pruef(await page.locator('#vorschlag [data-quelle="ki"]').count() === 1, 'A2-Diktat: Kennzeichnung „mit KI verbessert“ fehlt');
+  await dialogUeberlauf('diktat vorschlag'); await shot('diktat-vorschlag');
+  await page.click('#vs-ok');
+  await page.waitForSelector('#ki-chip');
+  await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 10000 });
+  pruef(/Schotter eingebaut/.test((await api('GET', `/berichte/${ber.id}`)).json.arbeitsleistung || ''), 'A2-Diktat: bestätigter Vorschlag nicht im Bericht gespeichert (auch nach Foto-Upload ohne Konflikt)');
+  await toastWeg();
+  // Lieferschein: Texterkennung (Attrappe) → Vorschlag → bestätigt in die Materialmenge
+  const mats = (await api('GET', '/materialien')).json; const mat = mats.find((m) => m.einheit === 't') || mats[0];
+  await haken('ki', {});
+  await haken('ocr', { text: `Lieferschein Nr. 4711\nKieswerk Test GmbH\n${mat.name} 12,5 t\n` });
+  const mengeVor = (((await api('GET', `/berichte/${ber.id}`)).json.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0;
+  await page.setInputFiles('#ls-datei', await bild(['Lieferschein 4711', `${mat.name} 12,5 t`]));
+  await page.waitForSelector('dialog[open] #vorschlag', { timeout: 30000 });
+  pruef((await page.locator('#vorschlag').innerText()).includes(mat.name), `A2-Liefer: Vorschlag ohne das erkannte Material (${(await page.locator('#vorschlag').innerText()).replace(/\s+/g, ' ').slice(0, 160)})`);
+  await dialogUeberlauf('lieferschein vorschlag'); await shot('lieferschein-vorschlag');
+  await page.click('#vs-ok');
+  await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 10000 });
+  await toastWeg();
+  const mengeNach = (((await api('GET', `/berichte/${ber.id}`)).json.material || []).find((m) => m.materialId === mat.id) || {}).menge || 0;
+  pruef(Math.abs(mengeNach - mengeVor - 12.5) < 0.001, `A2-Liefer: bestätigte Menge nicht übernommen (${mengeVor} → ${mengeNach})`);
+  // Papierbericht: Foto als Anhang
+  await page.setInputFiles('#pp-datei', await bild(['Bautagesbericht', 'Papierformular']));
+  await page.waitForSelector('#papier-erg:not(:empty)', { state: 'attached', timeout: 30000 });
+  pruef(/Anhang/.test(await page.locator('#papier-erg').innerText()), 'A2-Papier: Hinweis „als Anhang gespeichert“ fehlt');
+  await page.locator('dialog[open] [data-zu]').first().click().catch(() => {});
+  await toastWeg();
+  // Unterschrift des Auftragnehmers, dann Bauherr per Link
+  await page.locator('[data-fern-anfordern]').first().scrollIntoViewIfNeeded();
+  await page.locator('[data-fern-anfordern]').first().click();
+  await page.waitForSelector('dialog[open] #fl-form');
+  await page.fill('#fl-form [name="name"]', 'Bauherr Test');
+  await page.click('#fl-ok');
+  await page.waitForSelector('#fl-url');
+  const link = (await page.locator('#fl-url').innerText()).trim();
+  pruef(/\/unterschrift\/[A-Za-z0-9_-]{20,}$/.test(link) && await page.locator('#fl-whatsapp, #fl-kopie').count() === 2, `A2-Fern: Link oder Teilen/Kopieren fehlt (${link})`);
+  await dialogUeberlauf('fern link'); await shot('fern-link');
+  await page.click('dialog[open] [data-zu]');
+  // Bauherr: fremdes Gerät ohne Anmeldung
+  const fremd = await h.neuerKontext({ viewport: { width: 390, height: 844 }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: true });
+  try {
+    const p2 = await fremd.newPage(); const fehler2 = [];
+    p2.on('console', (m) => { if (m.type() === 'error') fehler2.push(m.text()); });
+    await p2.goto(h.srv.url + new URL(link, h.srv.url).pathname);
+    await p2.waitForSelector('#fern-form');
+    const t2 = await p2.evaluate(() => document.body.innerText);
+    pruef(!t2.includes('€') && /Schotter eingebaut/.test(t2), 'A2-Fern: Seite des Bauherrn zeigt Preise oder nicht den Bericht');
+    await p2.locator('#fern-box canvas').scrollIntoViewIfNeeded();
+    const box = await p2.locator('#fern-box canvas').boundingBox();
+    await p2.mouse.move(box.x + 30, box.y + 40); await p2.mouse.down(); await p2.mouse.move(box.x + 120, box.y + 80, { steps: 6 }); await p2.mouse.move(box.x + 200, box.y + 40, { steps: 6 }); await p2.mouse.up();
+    await p2.fill('#fern-form [name="name"]', 'Bauherr Test');
+    if (await p2.locator('#fern-form [name="ok"]').count()) await p2.check('#fern-form [name="ok"]');
+    await p2.click('#fern-ok');
+    await p2.waitForSelector('[data-fern="unterschrieben"]');
+    pruef((await p2.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 1, 'A2-Fern: horizontaler Überlauf auf der Seite des Bauherrn');
+    await p2.goto(h.srv.url + '/unterschrift/' + 'x'.repeat(43));
+    await p2.waitForSelector('[data-fern="ungueltig"]');
+    pruef(fehler2.filter((t) => !/Failed to load resource/.test(t)).length === 0, `A2-Fern: Konsolenfehler beim Bauherrn: ${fehler2.slice(0, 2).join(' | ')}`);
+  } finally { await fremd.close(); }
+  pruef(!!(await api('GET', `/berichte/${ber.id}`)).json.unterschriften.bh, 'A2-Fern: Unterschrift des Bauherrn nicht im Bericht');
+  await keinEuro('bericht dienste');
+  // Push: Abo (Attrappe) und Test-Meldung
+  await geh('/push');
+  pruef(await page.locator('[data-push-zustand]').count() === 1 && await page.locator('[data-typ]').count() >= 2, 'A2-Push: Zustand oder Kategorien fehlen');
+  pruef((await api('POST', '/push/abo', { endpoint: `https://push.example.test/polier-${k}`, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' }, geraet: 'Test-Handy' })).status < 300, 'A2-Push: Abo nicht möglich');
+  const pushVor = (await ausgang()).push.length;
+  pruef((await api('POST', '/push/test')).json.gesendet >= 1 && (await ausgang()).push.length === pushVor + 1, 'A2-Push: Test-Meldung kam nicht im Ausgang an');
+  await geh('/mehr'); await geh('/push');
+  pruef(/Test-Handy/.test(await page.locator('#push-geraete').innerText()), 'A2-Push: Gerät fehlt in der Liste');
+  await keinEuro('push'); await ueberlauf('push'); await shot('push');
+  await abmelden();
+
+  /* ---- Bauleiter: Zwei-Faktor einrichten, Wiederherstellungscodes, Anmeldung mit Code ---- */
+  await anmelden('bauleiter');
+  await geh('/zwei-faktor');
+  await page.fill('#zf-start [name="pin"]', PIN_A2);
+  await page.click('#zf-start button[type="submit"]');
+  await page.waitForSelector('[data-zf="qr"] img');
+  const geheim = (await page.locator('#zf-geheimnis').textContent()).replace(/\s/g, '');
+  await ueberlauf('2fa qr'); await shot('2fa-qr');
+  await page.fill('#zf-best [name="code"]', totp(geheim, h.jetzt()));
+  await page.click('#zf-best button[type="submit"]');
+  await page.waitForSelector('#zf-codes');
+  pruef(await page.locator('#zf-codes li, #zf-codes code').count() >= 8 && await page.locator('#zf-download').count() === 1, 'A2-2FA: Wiederherstellungscodes oder Download fehlen');
+  await ueberlauf('2fa codes'); await shot('2fa-codes');
+  if (await page.locator('#zf-gesichert').count()) await page.check('#zf-gesichert', { force: true });
+  await page.click('#zf-fertig');
+  await page.waitForSelector('[data-zf="aktiv"]');
+  await abmelden();
+  // Anmeldung: nach der PIN wird der Code verlangt; falscher Code → Fehler, richtiger → drin
+  await page.fill('#login-suche', NAME_BL.split(' ')[1]);
+  await page.click(`.login-user:has-text("${NAME_BL}")`);
+  for (const zf of PIN_A2) await page.click(`.pin-pad [data-z="${zf}"]`);
+  await page.click('.pin-pad [data-ok]');
+  await page.waitForSelector('#zf-login');
+  await page.fill('#zf-code', '000000');
+  await h.absichtlich(async () => { await page.click('#zf-ok'); await page.waitForFunction(() => { const m = document.querySelector('#zf-msg'); return m && m.textContent.trim().length > 3; }); });
+  await ueberlauf('login 2fa'); await shot('login-2fa');
+  await page.fill('#zf-code', totp(geheim, h.jetzt() + 30000));
+  await page.click('#zf-ok');
+  await page.waitForSelector('#view');
+  const ichB = (await api('GET', '/auth/ich')).json;
+  pruef(ichB.benutzer.name === NAME_BL && ichB.zweiFaktor && ichB.zweiFaktor.aktiv === true, 'A2-2FA: Anmeldung mit Code oder Status „aktiv“ fehlgeschlagen');
+  await abmelden();
+}
+const PIN_A2 = '1234', NAME_BL = 'Stefan Aigner';
+
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

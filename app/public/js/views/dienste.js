@@ -65,7 +65,7 @@ export async function diensteTab(box, ctx) {
       try { mail = await put('/einstellungen/email', body); toast('E-Mail-Einstellungen gespeichert.'); zeichne(); } catch (x) { err.hidden = false; err.textContent = x.message; }
     } else if (e.target.id === 'ki-form') {
       const err = $('.form-err', e.target); const limit = Number(f.get('tagesLimit'));
-      if (!(limit >= 1 && limit <= 100000)) { err.hidden = false; err.textContent = 'Bitte ein Tageslimit zwischen 1 und 100.000 eintragen.'; return; }
+      if (!(limit >= 1 && limit <= 5000)) { err.hidden = false; err.textContent = 'Bitte ein Tageslimit zwischen 1 und 5.000 eintragen.'; return; }
       const body = { tagesLimit: Math.round(limit), datenschutzBestaetigt: f.get('datenschutzBestaetigt') === 'on', aktiv: f.get('aktiv') === 'on' };
       if (f.get('loeschen') === 'on') { body.apiKey = ''; body.aktiv = false; } else if (String(f.get('apiKey') || '').trim()) body.apiKey = String(f.get('apiKey')).trim();
       if (body.aktiv && !body.datenschutzBestaetigt) { err.hidden = false; err.textContent = 'Bitte zuerst das Einverständnis zur Datenverarbeitung bestätigen.'; return; }

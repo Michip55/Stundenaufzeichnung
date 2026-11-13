@@ -39,7 +39,7 @@ export default async function preise(el, ctx) {
   }
   const alle = (t) => {
     const preisZ = daten[t.art] || [];
-    return stamm[t.art] ? stamm[t.art].map((z) => ({ ...(preisZ.find((p) => String(p.id) === String(z.id)) || {}), ...z })) : preisZ.map((z) => ({ aktiv: true, ...z }));
+    return stamm[t.art] ? stamm[t.art].map((z) => { const p = preisZ.find((x) => String(x.id) === String(z.id)) || {}; return { ...p, ...z, geplant: (p.geplant && p.geplant.length ? p.geplant : z.geplant) || [] }; }) : preisZ.map((z) => ({ aktiv: true, ...z }));
   };
   const zeilen = (t) => { const q = suche.trim().toLowerCase(); return alle(t).filter((z) => (mitInaktiven || z.aktiv !== false) && (!q || t.spalten.some(([k]) => String(z[k] ?? '').toLowerCase().includes(q)))); };
   const titel = (z) => z.name || z.text || z.code || '';

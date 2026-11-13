@@ -184,6 +184,9 @@ export async function bericht(el, ctx) {
   const zeigHinweise = () => { const h = $('#anlage-hinweise', el); if (!h) return; h.hidden = !anlageHinweise.length; h.innerHTML = anlageHinweise.length ? banner('warn', `<b>Gesperrtes Gerät im Bericht:</b> ${anlageHinweise.map((x) => esc(x.text)).join(' · ')} – der Bericht wird trotzdem gespeichert, das Büro wird verständigt.`, 'lock') : ''; };
   const mMenge = (mid) => (b.material.find((m) => m.materialId === mid) || {}).menge || 0;
   // Menge, die aus erledigten Fuhren in die Materialzeile kam (12.8b) – nur zur Kennzeichnung
+  // Fotos, Anhänge und Wetter erhöhen am Server die Version des Berichts – danach den Stand nachziehen, sonst scheitert das nächste Speichern (409)
+  const versionHolen = async () => { try { const frisch = await get(`/berichte/${id}`); if (frisch.version != null) b.version = frisch.version; } catch (x) { /* folgt beim nächsten Laden */ } };
+  const versionAus = async (r) => { if (r && r.berichtVersion != null) b.version = r.berichtVersion; else await versionHolen(); };
   const matZeile = (mid) => b.material.find((m) => m.materialId === mid) || {};
   const fuhrMarke = (m) => { const z = matZeile(m.id); if (!z.quelle || !(z.ausFuhren > 0)) return ''; return ` <i class="chip xs st-outline" data-aus-fuhre="${esc(z.quelle)}">${ic('truck')}${z.quelle === 'fuhre' ? 'aus Fuhre' : `davon ${esc(fmt.zahl(z.ausFuhren, 2))} ${esc(m.einheit || '')} aus Fuhren`}</i>`; };
   // Material, das im Bericht steht, aber inzwischen deaktiviert ist: bleibt sichtbar, steht aber in keiner neuen Auswahl
@@ -397,7 +400,7 @@ export async function bericht(el, ctx) {
     if (!integAktiv(integ, 'wetter')) { wetterGrund = (integVon(integ, 'wetter') || {}).hinweis || 'Der Wetterabruf ist nicht eingerichtet.'; const g0 = $('#wetter-grund', el); if (g0) g0.textContent = wetterGrund; return; }
     try {
       const r = await get(`/baustellen/${bs.id}/wetter?datum=${b.datum}`);
-      wetterGrund = r.verfuegbar ? 'Für diesen Tag gibt es Wetterdaten – mit „Wetter abrufen“ in den Bericht übernehmen.' : [r.hinweis, r.grund].filter(Boolean).join(': ');
+      wetterGrund = r.verfuegbar ? 'Für diesen Tag gibt es Wetterdaten – mit „Wetter abrufen“ in den Bericht übernehmen.' : `Wetter nicht verfügbar${[r.hinweis, r.grund].filter(Boolean).length ? ' – ' + [r.hinweis, r.grund].filter(Boolean).join(': ') : ''}. Bitte händisch eintragen.`;
     } catch (e) { wetterGrund = e.netz ? 'Keine Verbindung – Wetter kann gerade nicht abgerufen werden.' : ''; }
     const g = $('#wetter-grund', el); if (g && wetterGrund) g.textContent = wetterGrund;
   }
@@ -437,6 +440,7 @@ export async function bericht(el, ctx) {
         if (!b.fotos.some((x) => x.id === neu.id)) b.fotos.push(neu);
       } catch (e) { err(e.netz ? 'Keine Verbindung – das Foto wurde nicht hochgeladen. Bitte später erneut versuchen.' : e.message); if (e.netz || e.status === 409) break; }
     }
+    await versionAus((b.fotos || [])[b.fotos.length - 1]);
     const e0 = $('#foto-err', el); const text = e0 && !e0.hidden ? e0.textContent : '';
     fotosNeu(); if (text) err(text);
   }
@@ -680,7 +684,7 @@ export async function bericht(el, ctx) {
     if (fw) {
       const fid = fw.closest('[data-foto]').dataset.foto;
       if (!(await bestaetigen('Foto entfernen?', 'Das Foto wird aus dem Bericht gelöscht.', 'Entfernen', 'danger'))) return;
-      try { await del(`/berichte/${id}/fotos/${fid}`); b.fotos = (b.fotos || []).filter((x) => String(x.id) !== String(fid)); fotosNeu(); toast('Foto entfernt.'); } catch (x) { toast(x.message, 'warn'); }
+      try { await versionAus(await del(`/berichte/${id}/fotos/${fid}`)); b.fotos = (b.fotos || []).filter((x) => String(x.id) !== String(fid)); fotosNeu(); toast('Foto entfernt.'); } catch (x) { toast(x.message, 'warn'); }
       return;
     }
     if (e.target.closest('#freigeben')) { freigeben(); }
@@ -695,6 +699,7 @@ export async function bericht(el, ctx) {
         const r = await lieferscheinVorschlag(id, datei);
         if (r.foto) { b.fotos = b.fotos || []; if (!b.fotos.some((x) => x.id === r.foto.id)) b.fotos.push(r.foto); }
         try { const frisch = await get(`/berichte/${id}`); if (frisch.version != null) b.version = frisch.version; } catch (x) { /* Version folgt beim nächsten Speichern */ }
+        fernLinksZeigen($('[data-fern-links]', el), id, signierbar()); // ein Lieferschein macht offene Unterschrifts-Links ungültig
         const n = uebernehmen(r.wahl, { addieren: true });
         if (n) toast(`${n} ${n === 1 ? 'Feld' : 'Felder'} aus dem Lieferschein übernommen – bitte prüfen.`); else fotosNeu();
       } catch (x) { toast(x.netz ? 'Keine Verbindung – der Lieferschein wurde nicht hochgeladen.' : x.message, 'warn'); }
@@ -703,14 +708,14 @@ export async function bericht(el, ctx) {
     }
     if (t.id === 'pp-datei') {
       const datei = (t.files || [])[0]; t.value = ''; if (!datei) return;
-      try { const foto = await papierAnhaengen(id, datei); if (foto) { b.fotos = b.fotos || []; if (!b.fotos.some((x) => x.id === foto.id)) b.fotos.push(foto); fotosNeu(); } }
+      try { const foto = await papierAnhaengen(id, datei); if (foto) { b.fotos = b.fotos || []; if (!b.fotos.some((x) => x.id === foto.id)) b.fotos.push(foto); fotosNeu(); } await versionHolen(); }
       catch (x) { toast(x.netz ? 'Keine Verbindung – das Foto wurde nicht hochgeladen.' : x.message, 'warn'); }
       return;
     }
     if (t.id === 'foto-datei') { const dateien = [...(t.files || [])]; t.value = ''; if (dateien.length) fotosHochladen(dateien); return; }
     if (t.dataset.fotoText !== undefined) {
       const fid = t.closest('[data-foto]').dataset.foto; const f = (b.fotos || []).find((x) => String(x.id) === String(fid));
-      try { const neu = await put(`/berichte/${id}/fotos/${fid}`, { beschreibung: t.value.trim() }); if (f) f.beschreibung = (neu && neu.beschreibung) ?? t.value.trim(); toast('Beschreibung gespeichert.'); } catch (x) { toast(x.message, 'warn'); }
+      try { const neu = await put(`/berichte/${id}/fotos/${fid}`, { beschreibung: t.value.trim() }); if (f) f.beschreibung = (neu && neu.beschreibung) ?? t.value.trim(); await versionAus(neu); toast('Beschreibung gespeichert.'); } catch (x) { toast(x.message, 'warn'); }
       return;
     }
     const sp = t.closest('[data-stepper]');

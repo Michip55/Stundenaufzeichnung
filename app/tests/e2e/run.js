@@ -31,7 +31,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), ...extra }; // F-14: Testfotos nie in den Checkout
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -123,7 +123,7 @@ async function laufe(browser, g) {
   try {
     haupt: {
     // Entwicklung: E2E_NUR_A2=1 prüft nur die Bereiche der Ausbaustufe 2 (tests/e2e/ausbau2.js)
-    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
+    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
     /* ============ 0. Falsche PIN ============ */
     await page.goto(srv.url + '/');
     await page.waitForSelector('.login-user');
@@ -1408,7 +1408,7 @@ async function laufe(browser, g) {
     pruef((await page.locator('.login-user small').allInnerTexts()).every((t) => !/Geschäftsführung|Büro|Bauleiter|Polier/.test(t)), 'B-03: Anmeldeliste zeigt Rollen');
 
     /* ============ Ausbaustufe 2: neue Bereiche (tests/e2e/ausbau2.js) ============ */
-    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv });
+    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext });
     for (const teil of Object.keys(a2.TEILE)) await a2.TEILE[teil](h, z);
 
     /* ============ 6c. M-06: Sicherheits-Header, kein Inline-Skript ============ */
