@@ -792,6 +792,8 @@ async function laufe(browser, g) {
     // 10d: Positionen aus den Preislisten 2026 sind gekennzeichnet (Bauvorhaben und Katalog)
     const ausListe = allePos(pos).filter((x) => x.herkunft === 'preisliste_2026' && x.aktiv);
     pruef(ausListe.length >= 1 && await page.locator('.pt-row [data-herkunft="preisliste_2026"]').count() === ausListe.length && (await page.locator(`.pt-row[data-pos="${ausListe[0] && ausListe[0].id}"] [data-herkunft]`).innerText()).includes('neu aus Preisliste 2026'), `P-19: Kennzeichen „neu aus Preisliste 2026“ fehlt (${ausListe.length} Positionen laut Server)`);
+    // E-06: Prozent-Summe der Zusammenstellung kommt vom Server (kann 99,9 oder 100,1 sein), nichts ist fest eingetragen
+    pruef(typeof pos.anteilSummeProzent === 'number' && (await page.locator('[data-anteil-summe]').innerText()).replace(/\s/g, '') === String(pos.anteilSummeProzent).replace('.', ',') + '%', `E-06: Anteil-Summe zeigt nicht den Wert des Servers (${pos.anteilSummeProzent} / „${await page.locator('[data-anteil-summe]').innerText()}“)`);
     // Budget bezieht sich auf die Nachkalkulationssumme
     const kalkP = (await api('GET', `/kalkulation/${bsId}`)).json;
     pruef(Math.abs(kalkP.budgetVerbrauchProzent - (pos.gesamtsumme / pos.auftragGesamt) * 100) < 0.15 && Math.abs(kalkP.positionen.gesamtsumme - pos.gesamtsumme) < 0.01, `P-02: Budget-Verbrauch (${kalkP.budgetVerbrauchProzent} %) folgt nicht der Nachkalkulationssumme (${(pos.gesamtsumme / pos.auftragGesamt * 100).toFixed(1)} %)`);
@@ -814,6 +816,9 @@ async function laufe(browser, g) {
     await page.locator(`.pt-row[data-pos="${pA.id}"] .pt-mbtn`).click();
     await page.waitForSelector('dialog[open] #mf');
     await page.fill('dialog[open] #mf input[name="menge"]', '10');
+    pruef(await page.locator('dialog[open] input[name="naturmaterial"]').count() === 0, 'E-01: Naturmaterial-Schalter bei einer Position ohne Einheit t');
+    const e01a = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${pA.id}`, { version: allePos(pos).find((x) => x.id === pA.id).version, naturmaterial: true }));
+    pruef(e01a.status === 400, `E-01: Server nimmt Naturmaterial bei Einheit Std. an (Status ${e01a.status})`);
     pruef((await page.locator('dialog[open] #mf-echo').innerText()).includes('ergibt'), 'P-04: Vorschau der Summe im Mengen-Dialog fehlt');
     await page.fill('dialog[open] #mf input[name="notiz"]', 'E2E Nachtrag');
     await ueberlauf('dialog mengen'); await shot('positionen-mengen-dialog');
@@ -889,9 +894,11 @@ async function laufe(browser, g) {
     await page.locator(`.pt-row[data-pos="${pZu.id}"] .pt-marken button`).click();
     await page.waitForSelector('dialog[open] #qf');
     pruef(await page.locator('dialog[open] #quelle-box[open]').count() === 1 && await page.locator('dialog[open] #qf-ref option:checked').count() >= 1, 'P-10: Zuordnungs-Editor zeigt die bestehende Zuordnung nicht');
-    await page.click('dialog[open] #qf button[type="submit"]');
+    await page.click('dialog[open] #q-ok');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
-    pruef(allePos(await posApi()).find((x) => x.id === pZu.id).zuordnungPruefen === false, 'P-10: bestätigte Zuordnung bleibt als „prüfen“ markiert');
+    const pZuNach = allePos(await posApi()).find((x) => x.id === pZu.id);
+    pruef(pZuNach.zuordnungPruefen === false, 'P-10: bestätigte Zuordnung bleibt als „prüfen“ markiert');
+    pruef(JSON.stringify(pZuNach.quelle) === JSON.stringify(pZu.quelle) && pZuNach.mengeAuto === pZu.mengeAuto, `E-01: Bestätigen hat die Zuordnung verändert (${JSON.stringify(pZu.quelle)} → ${JSON.stringify(pZuNach.quelle)})`);
     await toastWeg();
     // 10a: Naturmaterial-Kennzeichen und Landschaftsabgabe (automatisch je t Naturmaterial)
     pos = await posApi();
@@ -912,7 +919,17 @@ async function laufe(browser, g) {
       await page.waitForSelector('dialog[open] #mengen');
       pruef((await page.locator('dialog[open]').innerText()).includes('0,25 € je t Naturmaterial'), 'P-11: Erklärung „0,25 € je t Naturmaterial“ fehlt');
       await shot('positionen-landschaftsabgabe');
-      await page.click('dialog[open] .dlg-foot [data-zu]');
+      // E-01: Zuordnung der Landschaftsabgabe ist fest; „bestätigen“ löscht die automatische Menge nicht
+      pruef(await page.locator('dialog[open] #q-fix').count() === 1 && (await page.locator('dialog[open] #q-fix').innerText()).includes('Tonnen Naturmaterial (automatisch)') && await page.locator('dialog[open] #qf select[name="art"]').count() === 0, 'E-01: Zuordnungs-Dialog der Landschaftsabgabe zeigt nicht die feste Quelle „Tonnen Naturmaterial (automatisch)“');
+      if (await page.locator('dialog[open] #q-ok').count()) {
+        await page.click('dialog[open] #q-ok');
+        await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+      } else await page.click('dialog[open] .dlg-foot [data-zu]');
+      const landOk = allePos(await posApi()).find((x) => x.id === pLand.id);
+      pruef(landOk.quelle && landOk.quelle.art === 'naturmaterial' && landOk.mengeAuto === landNach.mengeAuto && landOk.zuordnungPruefen === false, `E-01: Bestätigen hat die Landschaftsabgabe verändert (${JSON.stringify(landOk.quelle)}, auto ${landNach.mengeAuto} → ${landOk.mengeAuto})`);
+      const e01b = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${pLand.id}`, { version: landOk.version, quelle: null }));
+      pruef(e01b.status === 400, `E-01: Server entfernt die Naturmaterial-Quelle ohne ausdrückliche Bestätigung (Status ${e01b.status})`);
+      await toastWeg();
       // Kennzeichen abschalten → zählt nicht mehr
       await page.locator(`.pt-row[data-pos="${pNat.id}"] .pt-mbtn`).click();
       await page.waitForSelector('dialog[open] #qf', { state: 'attached' });
@@ -940,6 +957,11 @@ async function laufe(browser, g) {
     const [xl] = await Promise.all([page.waitForEvent('download'), page.click('#pos-export')]);
     const xlBuf = fs.readFileSync(await xl.path());
     pruef(/\.xlsx$/.test(xl.suggestedFilename()) && xlBuf.length > 3000 && xlBuf.slice(0, 2).toString() === 'PK' && xlBuf.includes('xl/worksheets'), `P-13: Excel-Export ist keine gültige xlsx-Datei (${xl.suggestedFilename()}, ${xlBuf.length} Bytes)`);
+    // E-03: Baustelle ohne Positionen → Hinweis statt „0 %“ (Antwort des Servers für diesen Fall nachgestellt)
+    await page.route(`**/api/baustellen/${zweiteBs.id}/positionen`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ baustelleId: zweiteBs.id, gruppen: [], budgetVerbrauchProzent: null, positionenFehlen: true, hinweise: [{ typ: 'warnung', text: 'Für diese Baustelle gibt es noch keine Positionen – bitte „Positionen aus Vorlage übernehmen“.' }] }) }));
+    await geh(`/kalkulation/${zweiteBs.id}/positionen`, 'positionen-fehlen');
+    pruef(await page.locator('#pos-leer [data-akt="vorlage"]').count() === 1 && (await page.locator('#pos-leer').innerText()).includes('Positionen aus Vorlage übernehmen') && !/\b0\s?%/.test(await page.locator('#view').innerText()), 'E-03: Baustelle ohne Positionen zeigt keinen Hinweis bzw. „0 %“');
+    await page.unroute(`**/api/baustellen/${zweiteBs.id}/positionen`);
     // Übersicht zeigt die Positions-Zusammenstellung
     await geh(`/kalkulation/${bsId}`, 'kalkulation-mit-positionen');
     pruef(await page.locator('#pos-karte [data-wert="nk-summe"]').count() === 1 && await page.locator('#pos-karte .zus li').count() === 6, 'P-14: Übersicht zeigt die Nachkalkulation nach Positionen nicht');
@@ -954,14 +976,46 @@ async function laufe(browser, g) {
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`tr[data-kat="${id}"] input[data-kfeld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [katVor.id, katVor.ep + 3]);
     pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep + 3 && allePos(await posApi()).find((x) => x.id === pA.id).ep === katVor.ep, 'P-15: Katalogpreis nicht gespeichert oder wirkt rückwirkend auf das Bauvorhaben');
     await toastWeg();
-    // Excel-Import der Firmenvorlage mit Vorschau → stellt den Preis der Vorlage wieder her
+    // E-02: zu große und unbrauchbare Dateien werden mit klarer Meldung abgewiesen
+    let importAnfragen = 0;
+    const zaehle = (r) => { if (r.url().includes('/positionen/katalog/import')) importAnfragen++; };
+    page.on('request', zaehle);
+    await page.setInputFiles('#kat-datei', { name: 'riesig.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.alloc(5 * 1024 * 1024 + 10, 65) });
+    await page.waitForSelector('#kat-fehler:not([hidden])');
+    pruef((await page.locator('#kat-fehler').innerText()).includes('zu groß') && (await page.locator('#kat-fehler').innerText()).includes('5') && importAnfragen === 0, `E-02: zu große Datei nicht klar abgewiesen („${await page.locator('#kat-fehler').innerText()}“, Anfragen ${importAnfragen})`);
+    await toastWeg();
+    await absichtlich(async () => { await page.setInputFiles('#kat-datei', { name: 'kaputt.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('das ist keine Excel-Datei') }); await page.waitForFunction(() => /abgelehnt/.test((document.querySelector('#kat-fehler') || {}).innerText || '')); });
+    pruef(importAnfragen === 1 && await page.locator('dialog[open]').count() === 0, 'E-02: unbrauchbare Datei wird nicht mit Meldung abgelehnt');
+    await toastWeg();
+    // „Import läuft bereits“ (409 des Servers nachgestellt)
+    await page.route('**/api/positionen/katalog/import*', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'KONFLIKT', fehler: 'Es läuft bereits ein Import – bitte kurz warten.' }) }));
+    await absichtlich(async () => { await page.setInputFiles('#kat-datei', path.resolve(APP, '..', 'docs', 'vorlage', 'Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx')); await page.waitForFunction(() => /läuft bereits/.test((document.querySelector('#kat-fehler') || {}).innerText || '')); });
+    await page.unroute('**/api/positionen/katalog/import*');
+    await toastWeg();
+    // E-05: Zeilenfehler, doppelte und ignorierte Zeilen der Vorschau werden gezeigt; mit Fehlern ist keine Übernahme möglich (Vorschau nachgestellt)
+    await page.route('**/api/positionen/katalog/import*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ uebernommen: false, neu: [{ gruppe: 'geraete', bezeichnung: 'Testgerät', einheit: 'Std.', ep: 10 }], geaendert: [], unveraendert: 100, umbenannt: [], fehler: [{ zeile: 17, text: 'ep muss zwischen 0 und 1.000.000 liegen.' }], doppelt: [{ zeile: 20, bezeichnung: 'Dup', einheit: 't' }], ohneSummenzeile: [{ zeile: 130, bezeichnung: 'Nachzügler' }] }) }));
     await page.setInputFiles('#kat-datei', path.resolve(APP, '..', 'docs', 'vorlage', 'Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx'));
     await page.waitForSelector('dialog[open] #import-vorschau');
+    pruef((await page.locator('dialog[open] [data-imp-fehler]').innerText()).includes('Zeile 17') && (await page.locator('dialog[open] [data-imp-doppelt]').innerText()).includes('Dup') && (await page.locator('dialog[open] [data-imp-ignoriert]').innerText()).includes('Nachzügler') && await page.locator('#imp-ok[disabled]').count() === 1, 'E-05: Fehler/Doppelte/ignorierte Zeilen der Vorschau fehlen oder Übernahme trotz Fehlern möglich');
+    await ueberlauf('dialog import fehler'); await shot('katalog-import-fehler');
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await page.unroute('**/api/positionen/katalog/import*');
+    page.off('request', zaehle);
+    // Excel-Import der Firmenvorlage mit Vorschau → stellt den Preis der Vorlage wieder her
+    const katAnzahlVor = (await katApi()).length;
+    const geschuetztVor = (await katApi()).filter((x) => x.herkunft !== 'preisliste_2026');
+    await page.setInputFiles('#kat-datei', path.resolve(APP, '..', 'docs', 'vorlage', 'Nachkalkulation_Positionen_Vorlage_2026-04-01.xlsx'));
+    await page.waitForSelector('dialog[open] #import-vorschau');
+    // E-04: alte Namen werden der umbenannten Position zugeordnet, freigegebene Preise bleiben geschützt
+    pruef(await page.locator('dialog[open] [data-imp-umbenannt]').count() === 1 && Number(await page.locator('dialog[open] [data-imp="neu"]').innerText()) === 0, `E-04: Vorschau zeigt umbenannte Positionen nicht bzw. würde Geräte doppelt anlegen (neu: ${await page.locator('dialog[open] [data-imp="neu"]').innerText()})`);
+    pruef(await page.locator('dialog[open] tr[data-geschuetzt]').count() >= 1 && (await page.locator('dialog[open] tr[data-geschuetzt]').first().innerText()).includes('weicht von Preisliste-2026-Anpassung ab'), 'E-04: geschützter Preis (Preisliste 2026) ist in der Vorschau nicht gekennzeichnet');
     pruef(Number(await page.locator('dialog[open] [data-imp="geaendert"]').innerText()) >= 1 && Number(await page.locator('dialog[open] [data-imp="unveraendert"]').innerText()) >= 50, `P-16: Import-Vorschau unplausibel (geändert ${await page.locator('dialog[open] [data-imp="geaendert"]').innerText()}, unverändert ${await page.locator('dialog[open] [data-imp="unveraendert"]').innerText()})`);
     await ueberlauf('dialog import'); await shot('katalog-import-vorschau');
     await page.click('#imp-ok');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
     pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep, 'P-16: Import hat den Vorlagenpreis nicht übernommen');
+    const katNach = await katApi();
+    pruef(katNach.length === katAnzahlVor && geschuetztVor.every((x) => { const n = katNach.find((y) => y.id === x.id); return n && (x.id === katVor.id || n.ep === x.ep) && n.bezeichnung === x.bezeichnung; }), `E-04: Import der alten Vorlage hat den Katalog verändert (Positionen ${katAnzahlVor} → ${katNach.length})`);
     await ueberlauf('/preise katalog'); await toastWeg();
     // C-14: Büro verwaltet Mitarbeiter, Poliere und Bauleiter – ohne Rechte-Matrix und Protokoll
     await geh('/benutzer', 'buero-benutzer');
@@ -1052,6 +1106,34 @@ async function laufe(browser, g) {
     const blPos = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen[0].positionen[0];
     const blPut = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${blPos.id}`, { version: blPos.version, ep: 1 }));
     pruef(blPut.status === 403, `P-18: Bauleiter kann EP ändern (Status ${blPut.status})`);
+    // E-07: Bauleiter storniert nur eigene Mengeneinträge
+    const blAlle = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen.flatMap((x) => x.positionen);
+    const fremdPos = blAlle.find((x) => (x.eintraege || []).some((e) => e.erstelltVon !== ich.benutzer.id));
+    pruef(!!fremdPos, 'E-07: kein Eintrag des Büros für die Prüfung vorhanden');
+    await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).scrollIntoViewIfNeeded();
+    await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).click();
+    await page.waitForSelector('dialog[open] #eintraege li');
+    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 0 && await page.locator('dialog[open] [data-kein-storno]').count() >= 1, 'E-07: Bauleiter sieht „Stornieren“ bei fremden Einträgen');
+    const fremdEintrag = fremdPos.eintraege.find((e) => e.erstelltVon !== ich.benutzer.id);
+    const e07 = await absichtlich(() => api('DELETE', `/baustellen/${bsId}/positionen/${fremdPos.id}/mengen/${fremdEintrag.id}`));
+    pruef(e07.status === 403, `E-07: Bauleiter kann fremden Eintrag stornieren (Status ${e07.status})`);
+    await page.fill('dialog[open] #mf input[name="menge"]', '3');
+    await page.click('dialog[open] #mf button[type="submit"]');
+    await page.waitForSelector('dialog[open] #eintraege [data-storno]');
+    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 1, 'E-07: Bauleiter kann den eigenen Eintrag nicht stornieren');
+    await page.click('dialog[open] #eintraege [data-storno]');
+    await page.locator('dialog[open] [data-ok]').last().click();
+    await page.waitForFunction(() => { const d = [...document.querySelectorAll('dialog[open]')]; return d.length === 1 && !d[0].querySelector('[data-storno]'); });
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await toastWeg();
+    // E-08: ohne Preisrecht keine Rechnungsbeträge/Notizen (Antwort des Servers ohne preise_sehen nachgestellt)
+    const voll = (await api('GET', `/baustellen/${bsId}/positionen`)).json;
+    const ohnePreis = { baustelleId: voll.baustelleId, budgetVerbrauchProzent: voll.budgetVerbrauchProzent, hinweise: [], gruppen: voll.gruppen.map((x) => ({ schluessel: x.schluessel, name: x.name, positionen: x.positionen.map((y) => { const { ep, summe, ...rest } = y; if (/^(PA|VE)$/i.test(y.einheit)) { const n = (y.eintraege || []).length; delete rest.menge; delete rest.mengeAuto; delete rest.mengeManuell; delete rest.eintraege; rest.eintraegeAnzahl = n; } return rest; }) })) };
+    await page.route(`**/api/baustellen/${bsId}/positionen`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ohnePreis) }));
+    await page.reload(); await bereit(); await page.waitForSelector('.pt-row');
+    pruef(!(await page.locator('#view').innerText()).includes('€'), 'E-08: ohne Preisrecht erscheinen €-Beträge in der Positionsansicht');
+    await shot('positionen-ohne-preise');
+    await page.unroute(`**/api/baustellen/${bsId}/positionen`);
     await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
     await keinZugriff('/monat'); await keinZugriff('/benutzer'); await keinZugriff('/korrektur');
     // N-07: fremde Baustelle zeigt kein Auftragsformular

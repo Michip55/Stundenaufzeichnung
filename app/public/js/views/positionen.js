@@ -90,9 +90,9 @@ export default async function positionen(el, ctx) {
           const liste = (g.positionen || []).filter(sichtbar);
           const anz = (g.positionen || []).filter((p) => p.aktiv !== false).length;
           return `<details class="pg" data-gruppe="${esc(g.schluessel)}" ${zu.has(g.schluessel) ? '' : 'open'}>
-            <summary><span class="pg-name">${esc(g.name || GRUPPEN[g.schluessel] || g.schluessel)}</span><span class="count">${anz}</span><span class="grow"></span><span class="pg-pct">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : ''}</span><b class="num" data-gsum="${esc(g.schluessel)}">${fmt.eur(g.summe || 0)}</b>${ic('down')}</summary>
+            <summary><span class="pg-name">${esc(g.name || GRUPPEN[g.schluessel] || g.schluessel)}</span><span class="count">${anz}</span><span class="grow"></span><span class="pg-pct">${g.anteilProzent != null ? fmt.pct(g.anteilProzent) : ''}</span>${mitPreis() ? `<b class="num" data-gsum="${esc(g.schluessel)}">${fmt.eur(g.summe || 0)}</b>` : ''}${ic('down')}</summary>
             <div role="rowgroup">${liste.length ? liste.map(zeile).join('') : `<p class="muted sm pad-s">${nurMitMenge ? 'Keine Position mit Menge.' : 'Keine Positionen.'}</p>`}</div>
-            <div class="pg-foot">${darf ? `<button type="button" class="btn ghost sm" data-neu="${esc(g.schluessel)}">${ic('plus')}Eigene Position</button>` : '<span></span>'}<span>Summe ${esc(g.name || GRUPPEN[g.schluessel] || '')} <b class="num">${fmt.eur(g.summe || 0)}</b></span></div>
+            <div class="pg-foot">${darf ? `<button type="button" class="btn ghost sm" data-neu="${esc(g.schluessel)}">${ic('plus')}Eigene Position</button>` : '<span></span>'}${mitPreis() ? `<span>Summe ${esc(g.name || GRUPPEN[g.schluessel] || '')} <b class="num">${fmt.eur(g.summe || 0)}</b></span>` : '<span></span>'}</div>
           </details>`;
         }).join('')}
       </div>
@@ -104,7 +104,7 @@ export default async function positionen(el, ctx) {
             <tr class="sum"><th scope="row">Ergebnis</th><td class="r num"><b class="${d.ergebnis < 0 ? 'neg' : ''}">${d.ergebnis != null ? fmt.eur(d.ergebnis) : '–'}</b></td><td class="r num">${d.ergebnisProzent != null ? fmt.pct(d.ergebnisProzent) : ''}</td></tr></tfoot></table></div>
       </section>`}
       `}
-      <p class="fineprint">Einheitspreise sind Verrechnungspreise des Betriebs und gelten nur für dieses Bauvorhaben. Änderungen wirken nicht auf andere Baustellen und nicht auf die Firmenvorlage.</p>
+      <p class="fineprint" ${mitPreis() ? '' : 'hidden'}>Einheitspreise sind Verrechnungspreise des Betriebs und gelten nur für dieses Bauvorhaben. Änderungen wirken nicht auf andere Baustellen und nicht auf die Firmenvorlage.</p>
     </div>`;
   }
   const neu = async () => { await lade(); if (ctx.aktuell()) { const v = document.getElementById('view'); const st = v ? v.scrollTop : 0; zeichne(); if (v) v.scrollTop = st; } ctx.meldungenNeu(); };
