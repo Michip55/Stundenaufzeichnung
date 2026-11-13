@@ -228,7 +228,7 @@ module.exports = function positionenRouten(api, bt) {
       }
       const ohneSummenzeile = gelesen.offen.map((p) => ({ zeile: p.zeile, bezeichnung: p.bezeichnung }));
       if (uebernehmen) {
-        if (fehler.length) throw ungueltig(`Die Datei enthält ${fehler.length} ungültige Zeile(n) – nichts übernommen.`, { fehler });
+        if (fehler.length) throw ungueltig(`Die Datei enthält ${fehler.length} ungültige Zeile(n) – nichts übernommen.`, { zeilenFehler: fehler });
         db.transaktion(() => {
           for (const p of neu) {
             const sort = (db.eins('SELECT MAX(sortierung) AS m FROM katalog WHERE gruppe = ?', p.gruppe).m || 0) + 10;

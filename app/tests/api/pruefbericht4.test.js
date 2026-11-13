@@ -198,7 +198,10 @@ test('Prüfbericht 4', async (t) => {
     const vorher = s.db.eins('SELECT COUNT(*) AS n FROM katalog').n;
     r = await imp(buf, '?uebernehmen=1');
     assert.equal(r.status, 400);
-    assert.equal(r.daten.fehler.length, 3);
+    // N-01 (Nachprüfung 4): Fehlertext bleibt Text, Zeilenliste unter eigenem Schlüssel
+    assert.equal(typeof r.daten.fehler, 'string');
+    assert.match(r.daten.fehler, /3 ungültige Zeile\(n\)/);
+    assert.equal(r.daten.zeilenFehler.length, 3);
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM katalog').n, vorher);
     assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM katalog WHERE bezeichnung = 'Dup'").n, 0);
   });
