@@ -15,7 +15,7 @@ Stand: 12.11.2026 · Diese Datei ist der Vertrag zwischen `app/server` (Backend)
 | PDF | `pdfkit` (Bautagesbericht im Aufbau der Papiervorlage) |
 | Oberfläche | Vanilla-JS-SPA (kein Build), Design aus `prototype/`, PWA (Manifest + Service Worker), responsive Handy/Tablet/PC |
 | Tests | `node --test` (Unit + API gegen echten Server auf Zufallsport mit `:memory:`-DB), Playwright E2E (`require('playwright')`, kein Install) |
-| Start | `cd app && npm install && npm run seed && npm start` → http://localhost:3000 |
+| Start | Vorführung: `cd app && npm install && BAUTAG_DEMO=1 npm run seed && BAUTAG_DEMO=1 npm start` → http://localhost:3000; Echtbetrieb: `node server/einrichten.js` (siehe Abschnitt 9) |
 
 Ordner: `app/server/` (Backend, Opus), `app/public/` (Oberfläche, Fable), `app/tests/unit|api` (Opus), `app/tests/e2e` (Fable), `app/package.json` (gemeinsam: Scripts `start`, `seed`, `test`, `test:e2e`).
 

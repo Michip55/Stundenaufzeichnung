@@ -2,25 +2,33 @@
 
 Zeiterfassung, Bautagesbericht und Nachkalkulation für einen Erdbau-/Pflasterbetrieb. Node.js 22 (CommonJS), Express 5, SQLite über das eingebaute `node:sqlite`, PDF mit `pdfkit`. Der API-Vertrag steht in `../API.md`.
 
-## Starten
+## Starten (Vorführung mit Testdaten)
 
 ```bash
 cd app
 npm install
-npm run seed                   # erzeugt data/bautag.db neu (fiktive Testdaten, ca. 3 Wochen Historie)
-BAUTAG_DEMO=1 npm run seed     # dasselbe für Vorführungen: PIN 1234 ohne Pflicht zur Änderung
-npm start                      # http://localhost:3000 – liefert auch die Oberfläche aus app/public aus
+BAUTAG_DEMO=1 npm run seed     # erzeugt data/bautag.db neu mit fiktiven Testdaten (ca. 3 Wochen Historie)
+BAUTAG_DEMO=1 npm start        # http://localhost:3000 – liefert auch die Oberfläche aus app/public aus
 npm test                       # Unit- und API-Tests (node:test, :memory:-Datenbank)
 ```
 
-> **Start-PIN `1234` für alle Testdaten-Benutzer – vor Echtbetrieb ändern!**
-> Ohne `BAUTAG_DEMO=1` muss jeder Benutzer die PIN beim ersten Anmelden ändern (`POST /api/auth/pin`);
-> bis dahin antworten alle anderen Routen mit 403 `PIN_AENDERN`. Mit `BAUTAG_DEMO=1` bleibt 1234 ohne
-> Änderungspflicht – **nur für Vorführungen**. Die Testdaten sind frei erfunden und gehören nicht in den Echtbetrieb.
-> PIN-Länge: Mitarbeiter/Polier mind. 4, Bauleiter/Büro/GF mind. 6 Ziffern, keine Folgen wie 1234/1111.
-> Setzt die GF eine PIN zurück, muss der Benutzer sie beim nächsten Anmelden ändern.
+> **Testdaten nur zur Vorführung:** `npm run seed` läuft nur mit `BAUTAG_DEMO=1`. Alle Testdaten-Benutzer haben die
+> PIN `1234` ohne Änderungspflicht – **nie im Echtbetrieb verwenden**, die Daten sind frei erfunden.
 
-Die Meldung `ExperimentalWarning: SQLite is an experimental feature` von Node 22 ist harmlos.
+## Inbetriebnahme (Echtbetrieb)
+
+1. `cd app && npm install`
+2. Leere Datenbank mit der ersten Geschäftsführung anlegen (PIN selbst wählen, mind. 6 Ziffern, keine Folge):
+   ```bash
+   node server/einrichten.js --name "Vorname Nachname" --pnr 1 --pin <eigene PIN>
+   # oder ohne Argumente: interaktive Abfrage; oder BAUTAG_GF_NAME / BAUTAG_GF_PNR / BAUTAG_GF_PIN
+   ```
+   Angelegt werden Rechte-Matrix, Lohngruppen, Geräte und Material der Papiervorlage – **ohne Preise** (unter „Preise“ erfassen).
+3. `npm start` (hinter einem HTTPS-Reverse-Proxy mit `TRUST_PROXY=1`).
+4. **Mindestens zwei Verwaltungs-Konten anlegen** (Büro und/oder zweite GF): Nur GF bzw. Büro können gesperrte GF-/Büro-Konten entsperren. Der Server warnt beim Start, solange es weniger als zwei sind.
+5. Mitarbeiter, Poliere und Bauleiter anlegen (Start-PIN wird beim ersten Anmelden geändert), Baustellen erfassen, Bauleiter/Polier zuordnen.
+
+**Notfall – alle Verwaltungs-Konten gesperrt:** lokal am Server `node server/entsperren.js <Personalnummer>` (wird protokolliert). Kontosperren laufen außerdem von selbst ab (24 h, dann 48 h, dann 7 Tage).
 
 ## Umgebungsvariablen
 
