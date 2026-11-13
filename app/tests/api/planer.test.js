@@ -127,12 +127,13 @@ test('Baustellenplaner', async (t) => {
     const vorher = alleMeldungen();
     const v1 = await c.buero.post('/plan/veroeffentlichen', { von: FR, vorschau: true });
     assert.equal(v1.status, 200);
-    assert.equal(v1.daten.anzahl, 7);
-    assert.ok(v1.daten.empfaenger.every((e) => e.art === 'neu'));
+    assert.equal(v1.daten.anzahl, 8); // 7 Personen + Partie-Meldung an den Polier (G-12: Vorschau = Versand)
+    assert.ok(v1.daten.empfaenger.every((e) => e.art === 'neu' || (e.art === 'partie' && e.benutzerId === U.polier)));
+    assert.equal(v1.daten.empfaenger.filter((e) => e.art === 'partie').length, 1);
     assert.equal(alleMeldungen(), vorher);
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM plan_mitteilung').n, 0);
     const r = await c.buero.post('/plan/veroeffentlichen', { von: FR });
-    assert.equal(r.daten.benachrichtigt, 7);
+    assert.equal(r.daten.benachrichtigt, 8);
     const m = planMeldungen(U.mitarbeiter).pop();
     assert.equal(m.titel, 'Einsatz morgen: WHA Pitten');
     assert.equal(m.text, 'Morgen 06:30 WHA Pitten, Treffpunkt Bauhof · Fahrzeug: LKW 4-Achser Mulde und Kran Volvo FMX 460 · Hinweis vorhanden');

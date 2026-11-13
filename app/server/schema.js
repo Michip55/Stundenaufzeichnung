@@ -1146,6 +1146,21 @@ ALTER TABLE abwesenheit ADD COLUMN antrag_id TEXT;
 ALTER TABLE abwesenheit ADD COLUMN antwort TEXT;
 CREATE INDEX abwesenheit_antrag ON abwesenheit(antrag_id);
 `
+  },
+  {
+    version: 25,
+    name: 'Prüfbericht 6: gespeicherte Planer-Tage (G-01)',
+    sql: `
+-- Ein Tag, für den je ein Einsatz gespeichert wurde, bleibt gespeichert (nie wieder Vorschau) – auch wenn alle Einsätze gelöscht werden
+CREATE TABLE plan_tag (
+  datum TEXT PRIMARY KEY,
+  gespeichert TEXT NOT NULL
+);
+INSERT OR IGNORE INTO plan_tag (datum, gespeichert) SELECT datum, MIN(erstellt) FROM plan_einsatz GROUP BY datum;
+CREATE TRIGGER plan_tag_merken AFTER INSERT ON plan_einsatz BEGIN
+  INSERT OR IGNORE INTO plan_tag (datum, gespeichert) VALUES (NEW.datum, NEW.erstellt);
+END;
+`
   }
 ];
 

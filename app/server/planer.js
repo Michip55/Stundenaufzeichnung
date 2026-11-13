@@ -75,6 +75,8 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
   if (E.planFortschreiben === false || !istArbeitstag(datum)) return null;
   if (datum < K.heute || datum > plusTage(K.heute, 14)) return null;
   if (db.eins('SELECT 1 AS x FROM plan_einsatz WHERE datum = ? AND geloescht = 0 LIMIT 1', datum)) return null;
+  // G-01: ein schon gespeicherter Tag (auch wenn inzwischen alle Einsätze gelöscht sind) ist nie wieder Vorschau
+  if (db.eins('SELECT 1 AS x FROM plan_tag WHERE datum = ?', datum)) return null;
   const q = quelleTag(db, datum);
   if (!q) return null;
   const einsaetze = [];
@@ -251,8 +253,20 @@ function personInhalt(benutzerId, datum, staende, fuhrStaende) {
   return { datum, einsatz, fuhren: fuhren.map((f) => require('./fuhren').fuhreFuerFahrer(f)) };
 }
 
+/** Relative Beschriftung (G-05): „heute“, „morgen“ (nur Kalender-Morgen), sonst „am Mo 16.11.“ */
+function tagLabel(datum, heute) {
+  return datum === heute ? 'heute' : datum === plusTage(heute, 1) ? 'morgen' : `am ${deKurz(datum)}`;
+}
+/** Für die Partie relevanter Inhalt eines veröffentlichten Stands (ohne Personen-Notizen) – G-12 */
+function partieHash(st) {
+  return hash([st.baustelleId, st.beginn || null, st.treffpunkt || '', st.arbeit || '', st.fahrzeug || null, st.notiz || '', st.benoetigt || '',
+    st.personen.map((p) => p.benutzerId).sort((a, b) => a - b),
+    st.anlagen.map((a) => [a.anlageId, a.fahrer ? a.fahrer.benutzerId : null, a.notiz || '']).sort((a, b) => a[0] - b[0])]);
+}
+
 function kurzText(inhalt, datum, heute) {
-  const tag = datum === heute ? 'Heute' : datum === plusTage(heute, 1) ? 'Morgen' : `Am ${deKurz(datum)}`;
+  const l = tagLabel(datum, heute);
+  const tag = l.charAt(0).toUpperCase() + l.slice(1);
   const teile = [];
   const e = inhalt.einsatz;
   if (e) {
@@ -321,14 +335,19 @@ function veroeffentlichen(bt, o) {
       meldungen.push({ pid, neu, h, art, alt });
       empfaenger.push({ benutzerId: pid, name: (K.personen.get(pid) || {}).name, art, datum: d });
     }
-    // Poliere: je Einsatz mit neuem Inhalt
+    // Poliere: je Einsatz nur bei für die Partie relevanten Änderungen (G-12: reine Personen-Notizen nicht –
+    // die betroffene Person bekommt ihre eigene Meldung); erscheinen auch in der Vorschau (art "partie")
     const polierMeldungen = [];
     for (const { e, st } of neueStaende) {
-      const h = inhaltsHash(e);
-      if (e.veroeffentlicht_hash === h) continue;
+      const h = partieHash(st);
+      const alt = e.veroeffentlicht_stand ? JSON.parse(e.veroeffentlicht_stand) : null;
+      if (alt && partieHash(alt) === h) continue;
       const bs = K.baustellen.get(e.baustelle_id) || {};
       const poliere = new Set([...(bs.polier_id ? [bs.polier_id] : []), ...e.personen.filter((p) => p.kolonne_polier_id).map((p) => p.kolonne_polier_id)]);
-      for (const pol of poliere) polierMeldungen.push({ pol, e, st, h });
+      for (const pol of poliere) {
+        polierMeldungen.push({ pol, e, st, h });
+        empfaenger.push({ benutzerId: pol, name: (K.personen.get(pol) || {}).name, art: 'partie', datum: d, baustelleId: e.baustelle_id });
+      }
     }
     if (o.trocken) continue;
     einsaetzeAnzahl += neueStaende.length;
@@ -344,11 +363,11 @@ function veroeffentlichen(bt, o) {
         } else {
           const k = kurzText(m.neu, d, heute);
           const ziel = m.neu.einsatz ? m.neu.einsatz.baustelle.name : `${m.neu.fuhren.length} Fuhren`;
-          benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: `${m.art === 'geaendert' ? 'Geändert: ' : ''}Einsatz ${k.tag.toLowerCase()}: ${ziel}`, text: k.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}` });
+          benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: `${m.art === 'geaendert' ? 'Geändert: ' : ''}Einsatz ${tagLabel(d, heute)}: ${ziel}`, text: k.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}` });
         }
       }
       for (const { pol, e, st, h } of polierMeldungen) {
-        const tag = d === heute ? 'heute' : d === plusTage(heute, 1) ? 'morgen' : `am ${deKurz(d)}`;
+        const tag = tagLabel(d, heute);
         benachrichtige(db, { benutzerId: pol, typ: 'plan', titel: `Ihre Partie ${tag}: ${st.baustelle.kurz || st.baustelle.name}`, text: `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`, zeit, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}` });
       }
       db.protokolliere({ zeit, benutzerId: o.ctx.benutzer.id, art: 'plan', objekt: `plan:${d}`, neu: { einsaetze: neueStaende.length, fuhren: neueFuhren.length, meldungen: meldungen.length }, text: `Einteilung ${de(d)} veröffentlicht (${meldungen.length} Personen benachrichtigt)` });
@@ -394,7 +413,10 @@ function pruefeErinnerung(bt) {
     ? `Die Einteilung für ${deKurz(n)} ist nur als Vorschau (wie ${de(vs.quelleDatum)}) vorhanden.${abw.length ? ` Abweichungen: ${abw.join('; ')}.` : ''} Bitte prüfen und veröffentlichen.`
     : `${offen.length} Einsatz/Einsätze für ${deKurz(n)} sind geändert, aber noch nicht veröffentlicht.`;
   const zeit = jetzt.toISOString();
-  const titel = 'Einteilung für morgen noch nicht veröffentlicht';
+  // G-05: Freitag/vor Feiertagen ist „morgen“ der nächste Arbeitstag – im Titel ausdrücklich benennen
+  const WT_LANG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  const fuer = n === plusTage(heute, 1) ? 'morgen' : `${WT_LANG[wochentag(n)]} ${n.slice(8, 10)}.${n.slice(5, 7)}.`;
+  const titel = `Einteilung für ${fuer} noch nicht veröffentlicht`;
   for (const b of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')")) {
     benachrichtige(db, { benutzerId: b.id, typ: 'plan', titel, text, zeit, schluessel: `plan:erinnerung:${heute}` });
   }
@@ -411,5 +433,5 @@ function pruefeErinnerung(bt) {
 module.exports = {
   PLANBAR, CODE_TEXT, hash, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
   ladeEinsaetze, ladeEinsatz, vorschauTag, materialisieren, einsatzJson, inhaltsHash, konflikteTag, konflikteFuer, personInhalt, kurzText,
-  veroeffentlichen, staendeJson, pruefeErinnerung, feiertag
+  veroeffentlichen, staendeJson, pruefeErinnerung, feiertag, tagLabel, partieHash
 };

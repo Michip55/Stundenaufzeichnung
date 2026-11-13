@@ -116,6 +116,9 @@ module.exports = function planerRouten(api, bt) {
         if (!e.vorschau && (!e.veroeffentlicht_zeit || j.geaendertNachVeroeffentlichung)) unveroeffentlicht++;
         einsaetze.push(j);
       }
+      // G-14: gelöschte, schon veröffentlichte Einsätze und Fuhren sind unveröffentlichte Änderungen (Meldung erst beim Veröffentlichen)
+      unveroeffentlicht += db.alle('SELECT baustelle_id FROM plan_einsatz WHERE datum = ? AND geloescht = 1 AND veroeffentlicht_stand IS NOT NULL', d).filter((e) => sicht(e.baustelle_id)).length;
+      unveroeffentlicht += db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND status = 'storniert' AND veroeffentlicht_stand IS NOT NULL", d).filter((f) => fuhreRechte(ctx, f)).length;
       for (const k of kt) {
         const betrifft = liste.filter((e) => (k.einsatzIds || []).includes(e.id) || (e.id == null && ((k.benutzerId && e.personen.some((p) => p.benutzer_id === k.benutzerId)) || (k.anlageId && e.anlagen.some((a) => a.anlage_id === k.anlageId)))));
         if (planer || betrifft.some((e) => sicht(e.baustelle_id)) || (k.fuhreIds && !k.einsatzIds.length)) {
@@ -523,7 +526,7 @@ module.exports = function planerRouten(api, bt) {
   api.get('/plan/partie', (req, res) => {
     const ich = req.ctx.benutzer;
     if (!['polier', 'bauleiter'].includes(ich.rolle) && !istPlaner(req.ctx)) throw keinZugriff('„Meine Partie“ ist für Poliere.');
-    const d = req.query.datum ? v.datum(String(req.query.datum), 'datum') : plusTage(heute(), 1);
+    const d = req.query.datum ? v.datum(String(req.query.datum), 'datum') : P.naechsterArbeitstag(heute()); // G-05: nächster Arbeitstag
     const K = kontext(d, d);
     const lese = new Map(db.alle('SELECT benutzer_id, gelesen, bestaetigt FROM plan_mitteilung WHERE datum = ?', d).map((x) => [x.benutzer_id, x]));
     const S = K.S;
