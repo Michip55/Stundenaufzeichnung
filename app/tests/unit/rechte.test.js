@@ -72,3 +72,23 @@ test('entferneEuroFelder entfernt €-Felder rekursiv (auch verschachtelt)', () 
   assert.deepEqual(R.findeEuroFelder(ein).sort(), ['$.bericht.kostenTag', '$.budgetVerbrauchProzent', '$.kostensatz', '$.liste[0].ek', '$.liste[0].vk']);
   assert.deepEqual(R.findeEuroFelder(aus), []);
 });
+
+test('B-01: benutzer nur GF; stammdaten für Polier/Mitarbeiter gesperrt', () => {
+  for (const rolle of ['mitarbeiter', 'polier', 'bauleiter', 'buero']) {
+    assert.equal(R.effektiveRechte(rolle, { benutzer: true }, ['benutzer']).has('benutzer'), false, rolle);
+  }
+  assert.equal(R.effektiveRechte('polier', { stammdaten: true }, ['stammdaten']).has('stammdaten'), false);
+  assert.equal(R.effektiveRechte('bauleiter', {}, ['stammdaten']).has('stammdaten'), true);
+});
+
+test('B-03: PIN-Regeln je Rolle', () => {
+  const { pinFehler } = require('../../server/auth');
+  assert.equal(pinFehler('4826', 'mitarbeiter'), null);
+  assert.match(pinFehler('4826', 'gf'), /6 bis 12/);
+  assert.equal(pinFehler('482619', 'buero'), null);
+  assert.match(pinFehler('1234', 'polier'), /Zahlenfolge/);
+  assert.match(pinFehler('987654', 'gf'), /Zahlenfolge/);
+  assert.match(pinFehler('7777', 'polier'), /gleichen/);
+  assert.match(pinFehler('12a4', 'polier'), /Ziffern/);
+  assert.match(pinFehler('1234567890123', 'polier'), /bis 12/);
+});

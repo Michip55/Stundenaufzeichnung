@@ -130,11 +130,13 @@ Fiktive Daten wie im Prototyp (`prototype/data/data.js`): ~30 Mitarbeiter, 6–8
 
 ## 6. Abweichungen Backend (Stand Umsetzung)
 
+> Wo Abschnitt 7 (nach Prüfbericht 1) etwas anderes sagt, gilt **Abschnitt 7** (z. B. Sitzungsdauer, Namensliste ohne Rolle, Sperre je IP, Abwesenheitsstatus).
+
 Alle Punkte sind **additiv** oder Präzisierungen; bestehende Felder/Routen sind wie oben umgesetzt.
 
 **Ergänzte Routen**
 - `GET /zeit/anwesend` → `[{benutzerId, name, rolle, status:"arbeit"|"pause", seit, baustelleId, schichtBeginn}]` alle gerade Eingestempelten. Erlaubt mit `bericht_freigeben` ODER `stammdaten` ODER `lohn` ODER `kalk_sehen`, sonst 403. Bauleiter (und Polier mit Ausnahme `bericht_freigeben`) sehen nur Personen auf ihren eigenen Baustellen. Keine €-Felder.
-- `GET /zeit/kolonne?baustelleId=` (Recht `kolonne`, nur eigene Baustellen) → `[{benutzerId, name, rolle, partie, status, seit, baustelleId, code}]` – Partie mit aktuellem Stempelstatus („bereits gestempelt um …“).
+- `GET /zeit/kolonne?baustelleId=` (Recht `kolonne`, nur eigene Baustellen) → `[{benutzerId, name, rolle, partie, status, seit, baustelleId, code}]` – Partie (nur Rollen mitarbeiter/polier) mit aktuellem Stempelstatus („bereits gestempelt um …“); `code` nur genehmigte Abwesenheit.
 - `POST /berichte/:id/personal-aktualisieren` – Personal erneut aus den Stempelungen übernehmen (nur Entwurf; SEG-Stunden bleiben).
 - `GET /leistungen` → `[{id, code, text, einheit, ep?}]` (EP nur mit `preise_sehen`).
 - `GET /benutzer` (Recht `benutzer`) → `[{id, name, rolle, lohngruppe, baustelleId, pnr, aktiv}]`.
@@ -172,7 +174,7 @@ Alle Punkte sind **additiv** oder Präzisierungen; bestehende Felder/Routen sind
 Bezug: `app/PRUEFBERICHT_1.md`. Neue/geänderte Routen und Regeln; alles andere bleibt wie oben.
 
 ### Anmeldung (B-03, M-05)
-- `GET /auth/benutzerliste` → nur noch `[{id, name}]` (keine Rolle). Mit `BAUTAG_LOGIN_LISTE=0` abgeschaltet → **404** `{code:"NICHT_GEFUNDEN"}`; dann Anmeldung über die Personalnummer.
+- `GET /auth/benutzerliste` → nur noch `[{id, name}]` (keine Rolle). `POST /auth/login` antwortet zusätzlich mit `mussPinAendern`. Mit `BAUTAG_LOGIN_LISTE=0` abgeschaltet → **404** `{code:"NICHT_GEFUNDEN"}`; dann Anmeldung über die Personalnummer.
 - `POST /auth/login` akzeptiert `{benutzerId, pin}` **oder** `{pnr, pin}`. PIN: 4–12 Ziffern.
 - **Sperre je (Benutzer, Client-IP)** mit steigender Dauer: 5 Fehlversuche → 5 min, nächste Sperre 15 min, danach jeweils 60 min (Zähler zurück nach erfolgreicher Anmeldung oder PIN-Reset durch die GF). Ein Fremder sperrt damit nur sich selbst aus. Zusätzlich je Client-IP höchstens 30 Fehlversuche in 5 min (429). Antwort 429 `{code:"ZU_VIELE_VERSUCHE"}` + `Retry-After`. Die Client-IP ist `req.ip`; hinter einem Reverse-Proxy **muss** `TRUST_PROXY=1` gesetzt sein (sonst wäre es die Proxy-Adresse), dann gelten `X-Forwarded-For`/`X-Forwarded-Proto` des Proxys.
 - **PIN-Länge:** Mitarbeiter/Polier mind. 4, Bauleiter/Büro/GF mind. 6 Ziffern (max. 12). Keine Folgen wie `1111`, `1234`, `654321` (400).
@@ -233,6 +235,8 @@ Bezug: `app/PRUEFBERICHT_1.md`. Neue/geänderte Routen und Regeln; alles andere 
 ### Sonstiges (M-06, N-03, N-04, N-05, N-08)
 - Header: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Strict-Transport-Security` nur bei HTTPS. `X-Forwarded-Proto` wird nur mit `TRUST_PROXY=1` beachtet.
 - `GET /gesundheit` liefert `db` für alle Rollen.
+- `/monat` je Tag zusätzlich `quelle`, `unplausibel`, `codeStatus`; oben `beantragt:[{benutzerId,name,datum,code}]` und `offeneSchichten`. `/zeit/woche` je Tag ebenso `quelle`, `unplausibel`.
+- Testdaten: Büro/GF/Bauleiter haben Personalnummern 1101/1102/1103 (Mitarbeiter 1001–1030).
 - Geldbeträge werden kaufmännisch gerundet (`1.005` → `1.01`).
 - Personalnummer (`pnr`) ist eindeutig: doppelte → 409.
 - Statische Pfade mit Dateiendung oder Punkt-Segment (z. B. `/js/fehlt.js`, `/.git/config`), die es nicht gibt → **404** statt `index.html`.

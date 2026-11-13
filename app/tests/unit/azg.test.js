@@ -55,3 +55,8 @@ test('geteilte Schicht am selben Tag ist keine Ruhezeit-Verletzung', () => {
   const sch = schichten([b('kommen', '2026-11-10', '07:00'), b('gehen', '2026-11-10', '10:00'), b('kommen', '2026-11-10', '11:00'), b('gehen', '2026-11-10', '14:00')]);
   assert.deepEqual(azgWarnungen(sch), []);
 });
+
+test('B-05: ausgestempelte Schicht über 16 Std. → Warnung unplausibel', () => {
+  const sch = schichten([b('kommen', '2026-11-10', '07:00'), b('gehen', '2026-11-12', '11:00')]);
+  assert.ok(azgWarnungen(sch).some((w) => w.typ === 'unplausibel' && w.datum === '2026-11-10'));
+});
