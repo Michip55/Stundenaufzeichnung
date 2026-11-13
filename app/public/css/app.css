@@ -618,3 +618,10 @@ a.link { color: var(--blue); font-weight: 600; text-decoration: underline; }
 
 /* C-04: Schichten in der Zeitkorrektur */
 .korr-datum { width: 92px; flex: none; } .korr li { flex-wrap: wrap; } .sf-std { display: flex; align-items: center; min-height: 52px; font-weight: 800; font-size: 17px; color: #17307a; }
+
+/* Handy: lange Kennzeichen umbrechen statt überlaufen */
+[data-benutzer] { flex-wrap: wrap; }
+@media (max-width: 719px) {
+  .rep-row { flex-wrap: wrap; } .rep-meta { flex: 1 1 100%; flex-wrap: wrap; gap: 6px 10px; padding-left: 84px; } .rep-row > .ic:last-child { display: none; }
+  .rep-row .rep-txt { flex: 1 1 0; }
+}
