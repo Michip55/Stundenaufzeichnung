@@ -7,14 +7,18 @@
  *   sichtbarer Text ohne € / Beträge, keine verbotenen Menüpunkte.
  * - ALLE Netzwerkantworten während des Rundgangs werden wie in rechte-matrix.test.js geprüft
  *   (Schlüssel, €-Beträge, Kanarienvögel): Die Oberfläche darf verbotene Daten nicht einmal EMPFANGEN.
- * - Geteiltes Gerät: Polier meldet sich ab, Mitarbeiter meldet sich an – im Browser-Speicher
- *   (localStorage, IndexedDB, Cache Storage) darf nichts vom Polier lesbar bleiben; die Offline-
- *   Warteschlange des Poliers darf nie mit der Sitzung des Mitarbeiters gesendet werden.
+ * - Geteiltes Gerät: Polier meldet sich ab, Mitarbeiter meldet sich an – in KEINEM Speicher des Geräts (G2-011:
+ *   localStorage, sessionStorage, IndexedDB aller Datenbanken, Cache Storage samt Inhalt der Antworten, Cookies auch
+ *   HttpOnly) darf etwas vom Polier im Klartext lesbar bleiben: sein Name in jeder Schreibweise, seine Kennung/Pnr.,
+ *   Telefon, Sitzung, und nichts, was der Mitarbeiter selbst nicht sehen darf (H.scanne mit allen Kanarien); nach dem
+ *   Abmelden bleibt nur die feste Positivliste. Die Offline-Warteschlange des Poliers darf nie mit der Sitzung des
+ *   Mitarbeiters gesendet werden.
  * - Service Worker: /api wird nie zwischengespeichert.
  * - F-044: Identitäten auch MIT allen vergebbaren Ausnahmen (Mitarbeiter, Polier) und der Bauleiter (Menü = Büro-Menü,
  *   keine GF-Vorbehalte). Eine Antwort, die nicht (rechtzeitig) gelesen werden kann, ist ein Befund – nie still verworfen.
  * - F-042: jedes sichtbare Bedienelement mit Ziel (Links, data-href/-nav, Knöpfe mit Klick-Handler im Trockenlauf,
- *   Benachrichtigungen) darf nicht auf eine für die Identität gesperrte Seite oder Datei führen.
+ *   Benachrichtigungen) darf nicht auf eine für die Identität gesperrte Seite oder Datei führen. G2-010: auch jedes
+ *   Element außerhalb von #view (Kopfleiste, Seitenleiste, untere Leiste, Glocke-Panel), je Bildschirmgröße.
  */
 const { chromium } = require('playwright');
 const fs = require('node:fs');
@@ -41,6 +45,82 @@ const IDENTITAETEN = [
 const ZEIT_ANTWORT = 15000, ZEIT_WARTEN = 30000;
 // sichtbarer Text: €-Zeichen oder Betrag mit zwei Nachkommastellen und Währung
 const GELD_SICHTBAR = /€|\bEUR\b|\d+,\d{2}\s?€/;
+
+/* ---------- G2-011: Gerätespeicher ---------- */
+// nach dem Abmelden erlaubt (gehört zum Gerät bzw. ist versiegelt, ui.js abmelden: GERAET/WARTEND); Testattrappen e2e_*
+const SPEICHER_NACH_ABMELDEN = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
+
+/** Alle Speicher des Geräts: localStorage, sessionStorage, IndexedDB (alle DBs, alle Stores, Schlüssel + Werte), Cache Storage (Inhalt), Cookies (auch HttpOnly) */
+async function geraeteSpeicher(page, ctx) {
+  const roh = await page.evaluate(async () => {
+    const ls = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); ls[k] = localStorage.getItem(k); }
+    const ss = {}; for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); }
+    const idb = {};
+    try {
+      for (const d of (indexedDB.databases ? await indexedDB.databases() : [])) {
+        idb[d.name] = await new Promise((ok) => {
+          const r = indexedDB.open(d.name);
+          r.onsuccess = () => {
+            const db = r.result; const out = {}; const st = [...db.objectStoreNames];
+            if (!st.length) { db.close(); return ok(out); }
+            const t = db.transaction(st, 'readonly'); let n = st.length;
+            for (const x of st) { const g = t.objectStore(x).getAll(); const gk = t.objectStore(x).getAllKeys(); g.onsuccess = () => { gk.onsuccess = () => { out[x] = { schluessel: gk.result.map(String), werte: g.result }; if (!--n) { db.close(); ok(out); } }; }; }
+          };
+          r.onerror = () => ok({ fehler: 'nicht lesbar' });
+        });
+      }
+    } catch (e) { idb.__fehler = String(e); }
+    const cache = {};
+    try {
+      for (const n of await caches.keys()) {
+        const c = await caches.open(n);
+        for (const q of await c.keys()) { const a = await c.match(q); let t = ''; try { const b = new Uint8Array(await a.clone().arrayBuffer()); t = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 300000)); } catch (_) { t = '[unlesbar]'; } cache[`${n} ${q.url}`] = t; }
+      }
+    } catch (e) { cache.__fehler = String(e); }
+    let swCaches = [];
+    try { swCaches = navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).map((r) => r.scope) : []; } catch (_) { /* egal */ }
+    return { ls, ss, idb, cache, swCaches, cookie: document.cookie };
+  });
+  roh.cookies = (await ctx.cookies()).map((c) => ({ name: c.name, value: c.value, httpOnly: c.httpOnly }));
+  return roh;
+}
+
+/** Werte des Poliers (Vorbenutzer) im Klartext: Name in jeder Schreibweise, Kennung, Pnr., Telefon, Sitzungs-Cookie */
+function speicherBefunde(sp, polierSitzung, { nurGeheim = false } = {}) {
+  const v = [];
+  for (const c of sp.cookies || []) if (polierSitzung.includes(c.value)) v.push(`Sitzungs-Cookie des Poliers (${c.name}) bleibt im Browser`);
+  const alles = JSON.stringify({ ls: sp.ls, ss: sp.ss, idb: sp.idb, cache: sp.cache, cookie: sp.cookie });
+  for (const g of (H.ZUSTAND.geheim || []).filter((x) => x.id === U.polier)) if (alles.includes(g.wert)) v.push(`${g.art} des Poliers im Gerätespeicher`);
+  // nach der Anmeldung des Mitarbeiters gehören neue Einträge ihm (sein Plan nennt z. B. seinen Polier) – dann nur Geheimnisse
+  if (nurGeheim) return v;
+  const text = H.W.vergleich(JSON.stringify({ ls: sp.ls, ss: sp.ss, idb: sp.idb, cache: sp.cache, cookie: sp.cookie }));
+  const formen = H.W.namensVarianten('Josef Haidbauer', 1001).map((x) => x.form);
+  for (const f of formen) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu');
+    const m = re.exec(text);
+    if (m) { v.push(`Name des Poliers („${m[0]}“) im Gerätespeicher: …${text.slice(Math.max(0, m.index - 60), m.index + 60)}…`); break; }
+  }
+  // Kennung/Pnr. nur in Daten (nicht im Programmtext der App-Hülle im Cache Storage)
+  const daten = H.W.vergleich(JSON.stringify({ ls: sp.ls, ss: sp.ss, idb: sp.idb, cookie: sp.cookie, cache: Object.fromEntries(Object.entries(sp.cache || {}).filter(([k]) => /\/api\//.test(k))) }));
+  const kennung = /"(uid|benutzerId|erstelltVon|ersteller|personId)"\s*:\s*1\b|"benutzer"\s*:\s*\{\s*"id"\s*:\s*1\b|\\"(uid|benutzerId)\\"\s*:\s*1\b|\b1001\b/.exec(daten);
+  if (kennung) v.push(`Kennung/Pnr. des Poliers im Gerätespeicher: …${daten.slice(Math.max(0, kennung.index - 60), kennung.index + 60)}…`);
+  if (text.includes(H.TEXT.telefonPolier) || text.includes(H.TEXT.telefonPolier.replace(/\s/g, ''))) v.push('Telefon des Poliers im Gerätespeicher');
+  return v;
+}
+
+/** Alles im Speicher wie eine Antwort an den Mitarbeiter prüfen (Kanarien, €, fremde Abwesenheiten, Bild-Kanarien) */
+async function speicherScan(sp) {
+  const parse = (w) => { if (typeof w !== 'string') return w; try { return JSON.parse(w); } catch (_) { return w; } };
+  const obj = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, w]) => [k, parse(w)]));
+  // Cache Storage: Programmdateien der App-Hülle (Service Worker) sind Programmtext – wie statische Dateien im Rundgang nur
+  // auf Daten (Kanarien, Bild-Kanarien) prüfen; alles andere (z. B. /api/…) vollständig
+  const statisch = (k) => { try { return !new URL(k.split(' ').slice(1).join(' ')).pathname.startsWith('/api/'); } catch (_) { return false; } };
+  const cache = Object.entries(sp.cache || {});
+  const daten = { localStorage: obj(sp.ls), sessionStorage: obj(sp.ss), indexedDB: sp.idb, cacheStorage: obj(Object.fromEntries(cache.filter(([k]) => !statisch(k)))), cookies: (sp.cookies || []).map((c) => `${c.name}=${c.value}`) };
+  const v = await H.scanne('mitarbeiter', { status: 200, daten, headers: new Map() }, { route: 'GERAETESPEICHER', url: 'Gerätespeicher', ich: U.mitarbeiter });
+  for (const [k, t] of cache.filter(([x]) => statisch(x))) v.push(...await H.scanne('mitarbeiter', { status: 200, daten: t, headers: new Map() }, { route: 'GERAETESPEICHER', url: `Cache ${k}`, ich: U.mitarbeiter, nurKanarien: true }));
+  return v.map((x) => x.replace(/^mitarbeiter Gerätespeicher → 200: /, ''));
+}
 
 async function main() {
   const basis = await H.erstelleBasis();
@@ -149,6 +229,12 @@ async function main() {
       const warten = mitschneiden(page, rolle, wo0, { mitAusnahmen: ident.ausnahmen });
       await anmelden(page, H.ID[rolle]);
       const gesperrteSeiten = new Set(), ziele = [];
+      // G2-010: Rahmen außerhalb von #view (Kopfleiste, Seitenleiste, untere Leiste, Glocke-Panel) – jedes Element
+      for (const k of await BE.rahmenKlicks(page, s.basis)) {
+        if (k.hash) ziele.push({ seite: '(Rahmen)', ziel: k.hash, name: `${k.name} (Klick im Rahmen)` });
+        for (const u of [...k.geoeffnet, ...k.downloads]) { const st = await BE.urlStatus(page, u); if ([401, 403].includes(st)) notiere(`${wo0} (Rahmen): „${k.name}“ öffnet gesperrte Adresse ${u} (${st})`); }
+        if (k.gesperrt.length) notiere(`${wo0} (Rahmen): „${k.name}“ löst gesperrte Anfrage aus (${k.gesperrt.join(', ')})`);
+      }
       for (const r of ROUTEN) {
         if (process.env.BAUTAG_RECHTE_UI_LOG) console.log(`  ${wo0} #${r}`);
         // Adresse direkt eintippen: jede 4. Route als vollständiger Neuaufruf, sonst Hash-Wechsel (SPA)
@@ -222,6 +308,7 @@ async function main() {
     const page = await ctx.newPage();
     await anmelden(page, U.polier);
     log('Polier angemeldet');
+    const polierSitzung = (await ctx.cookies()).filter((c) => /session|sitzung|bindung/i.test(c.name)).map((c) => c.value).filter((x) => x && x.length >= 16);
     for (const r of ['/stempeln', '/einsatz', '/partie', '/fuhrpark', '/berichte', `/bericht/${F.bericht.bs1}`, '/abwesenheiten', '/urlaub']) { await page.evaluate((h) => { location.hash = h; }, r); await page.waitForTimeout(900); }
     // Offline-Warteschlange des Poliers (wie nach Stempeln ohne Netz)
     await page.evaluate((id) => {
@@ -241,18 +328,14 @@ async function main() {
     const bestaetige = await page.$('[data-ok]');
     if (bestaetige) { await bestaetige.click().catch(() => {}); await page.waitForTimeout(500); }
     log('abgemeldet');
-    const speicher = await page.evaluate(async () => {
-      const ls = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); ls[k] = localStorage.getItem(k); }
-      const idb = {};
-      if (indexedDB.databases) {
-        for (const d of await indexedDB.databases()) {
-          idb[d.name] = await new Promise((ok) => { const r = indexedDB.open(d.name); r.onsuccess = () => { const db = r.result; const out = {}; const st = [...db.objectStoreNames]; if (!st.length) return ok(out); const t = db.transaction(st, 'readonly'); let n = st.length; for (const x of st) { const g = t.objectStore(x).getAll(); g.onsuccess = () => { out[x] = g.result; if (!--n) ok(out); }; } }; r.onerror = () => ok(null); });
-        }
-      }
-      const ss = {}; for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); }
-      return { ls, idb, ss, cookie: document.cookie };
-    });
+    const speicher = await geraeteSpeicher(page, ctx);
     log('Speicher gelesen: ' + Object.keys(speicher.ls).join(','));
+    // G2-011: jeder Speicher des Geräts – Werte des Poliers (Name jeder Schreibweise, Kennung, Telefon, Sitzung) und alles,
+    // was der Mitarbeiter (nächste Person) nicht sehen darf; nach dem Abmelden nur die Positivliste
+    for (const b of speicherBefunde(speicher, polierSitzung)) notiere(`geteiltes Gerät: nach Abmelden des Poliers – ${b}`);
+    for (const b of await speicherScan(speicher)) notiere(`geteiltes Gerät: nach Abmelden des Poliers – ${b}`);
+    for (const [k, w] of Object.entries(speicher.ls)) if (!SPEICHER_NACH_ABMELDEN.has(k) && w && w !== '[]' && w !== '{}' && w !== 'null') notiere(`geteiltes Gerät: nach Abmelden bleibt localStorage[${k}] (nicht in der Positivliste): ${String(w).slice(0, 120)}`);
+    for (const [k, w] of Object.entries(speicher.ss)) if (w) notiere(`geteiltes Gerät: nach Abmelden bleibt sessionStorage[${k}]: ${String(w).slice(0, 120)}`);
     const polierDaten = (wert) => {
       const t = JSON.stringify(wert);
       return /"uid":1\b|"benutzerId":1\b|Haidbauer|"benutzer":\{"id":1\b/.test(t);
@@ -274,6 +357,10 @@ async function main() {
     if (nachher.length !== vorher) notiere(`geteiltes Gerät: Offline-Buchung des Poliers wurde nach Benutzerwechsel gesendet (als Benutzer ${nachher.map((x) => x.benutzer_id).join(',')})`);
     const sichtbar = await page.evaluate(() => document.body.innerText);
     if (/Haidbauer/.test(sichtbar) && !/Polier/.test(sichtbar)) notiere('geteiltes Gerät: Name des Vorbenutzers in der Oberfläche des Mitarbeiters');
+    // G2-011: auch NACH der Anmeldung des Mitarbeiters – alle Speicher, Werte des Poliers und Kanarien
+    const nachMa = await geraeteSpeicher(page, ctx);
+    for (const b of speicherBefunde(nachMa, polierSitzung, { nurGeheim: true })) notiere(`geteiltes Gerät: nach Anmeldung des Mitarbeiters – ${b}`);
+    for (const b of await speicherScan(nachMa)) notiere(`geteiltes Gerät: nach Anmeldung des Mitarbeiters – ${b}`);
     await ctx.close();
   }
 
