@@ -119,6 +119,15 @@ async function laufe(browser, g) {
   // Servicebuch-Prüfungen (tests/e2e/fuhrpark.js): Werkzeuge dieses Laufs und gemeinsamer Zustand über die Rollen hinweg
   const dialogUeberlauf = async (wo) => { const r = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => { const b = d.querySelector('.dlg-body'); return Math.max(d.scrollWidth - d.clientWidth, b ? b.scrollWidth - b.clientWidth : 0, d.getBoundingClientRect().right - window.innerWidth); })); pruef(r.every((x) => x <= 1), `[${wo}] Dialog läuft horizontal über (${r})`); };
   const heute = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(jetzt()));
+  // Testwerkzeug (nicht die Oberfläche): heutige Abwesenheiten aus Sicht des Büros, eigene Sitzung außerhalb der Seite
+  const abwesendeHeute = async () => {
+    const kopf = { 'content-type': 'application/json', 'x-bautag-test-token': TEST_TOKEN };
+    const l = await fetch(srv.url + '/api/auth/login', { method: 'POST', headers: kopf, body: JSON.stringify({ benutzerId: 101, pin: PIN }) });
+    const cookie = (/bt_session=[^;]*/.exec(l.headers.get('set-cookie') || '') || [''])[0];
+    const r = await fetch(`${srv.url}/api/abwesenheiten?von=${heute()}&bis=${heute()}`, { headers: { ...kopf, cookie } });
+    if (!r.ok) throw new Error(`Abwesenheiten (Büro) für den Test: ${r.status}`);
+    return (await r.json()).filter((a) => a.status !== 'abgelehnt').map((a) => a.benutzerId);
+  };
   // Nach „wieder online“: festes Signal, dass der Server aus der Seite wirklich wieder erreichbar ist (unter Last dauert das Umschalten)
   const netzDa = () => page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
   const h = { netzDa, page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
@@ -544,9 +553,12 @@ async function laufe(browser, g) {
     const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => v !== String(ich.benutzer.id));
     pruef(freieIds.length >= 1, 'B-07: außer dem Polier ist niemand aus der Partie zur Auswahl (Testdaten)');
     pruef(await page.locator(`dialog[open] input[name="wer"][value="${ich.benutzer.id}"]`).count() === 1, 'D-09: Polier kann Schlechtwetter nicht für sich selbst melden');
-    // gemeldet wird jemand, der heute eingestempelt ist (also sicher nicht abwesend) – Abwesenheiten erfährt der Polier nicht
+    // gemeldet wird jemand, der heute eingestempelt und nicht abwesend ist – Abwesenheiten erfährt der Polier nicht (auch nicht
+    // über die Kolonne, API.md 15.2: dort ist auch eine abwesende Person eingestempelt). Die Wahrheit holt nur der Test beim Büro.
     const kol = (await api('GET', `/zeit/kolonne?baustelleId=${bsId}`)).json;
-    const swWer = String((kol.find((m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && ['arbeit', 'pause'].includes(m.status)) || kol.find((m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && m.kolonneMoeglich !== false) || { benutzerId: freieIds[0] }).benutzerId);
+    const abwesend = await abwesendeHeute();
+    const frei = (m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && !abwesend.includes(m.benutzerId);
+    const swWer = String((kol.find((m) => frei(m) && ['arbeit', 'pause'].includes(m.status)) || kol.find(frei) || { benutzerId: freieIds[0] }).benutzerId);
     await page.locator(`dialog[open] input[name="wer"][value="${swWer}"]`).check();
     await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
     await page.click('dialog[open] button[type="submit"]');
@@ -617,7 +629,7 @@ async function laufe(browser, g) {
     await page.waitForSelector('dialog[open] #abw-e');
     pruef(await page.locator('dialog[open] select[name="code"] option').count() === 4, 'B-07: Büro kann nicht alle Kürzel eintragen');
     await page.selectOption('dialog[open] select[name="code"]', 'K');
-    // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – der Polier kann sie danach nicht einstempeln
+    // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – über die Kolonne bucht der Polier sie trotzdem (15.2: kein Rückschluss)
     const heuteW = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const daHeute = (await api('GET', '/zeit/anwesend')).json.map((x) => x.benutzerId);
     const abwHeute = (await api('GET', `/abwesenheiten?von=${heuteW}&bis=${heuteW}`)).json.map((x) => x.benutzerId);
@@ -1325,14 +1337,16 @@ async function laufe(browser, g) {
     await page.click('#glocke'); await page.waitForSelector('#notif-panel #notif-inhalt :is(.notif, .state.empty)');
     await keinEuro('polier benachrichtigungen');
     await page.click('#notif-panel [data-zu]');
-    // C-11: Person mit genehmigtem Krankenstand lässt sich nicht einstempeln – Meldung des Servers steht in der Zeile
+    // API.md 15.2 (ersetzt C-11 für die Kolonne): eine Person mit genehmigtem Krankenstand wird über die Kolonne wie jede andere
+    // gebucht – der Polier erfährt nichts, das Büro erhält „Stempelung trotz eingetragener Abwesenheit … – bitte klären“
     await geh('/kolonne');
     await page.selectOption('#kol-bs', String(bsId)); await sleep(300); await bereit();
     await page.locator(`.crew-row:has-text("${kranker.name}") .check`).click();
     await page.click('[data-typ="kommen"]');
     await page.click('#kol-los');
-    await page.waitForSelector(`.crew-row:has-text("${kranker.name}") .crew-err`);
-    pruef((await page.locator(`.crew-row:has-text("${kranker.name}") .crew-err`).innerText()).length > 8, 'C-11: keine Begründung beim abgelehnten Einstempeln');
+    await page.waitForSelector(`.crew-row:has-text("${kranker.name}") :is(.chip:has-text("gebucht"), .crew-err)`);
+    pruef(await page.locator(`.crew-row:has-text("${kranker.name}") .chip:has-text("gebucht")`).count() === 1, '15.2: Kolonne lehnt eine Person mit Krankenstand ab (Rückschluss auf Abwesenheit)');
+    pruef(!/kann heute nicht|Krank|abwesend/i.test(await page.locator('#view').innerText()), '15.2: Kolonne verrät dem Polier die Abwesenheit');
     await ueberlauf('kolonne krank'); await shot('kolonne-krank'); await keinEuro('kolonne krank');
     await toastWeg();
     await abmelden();
@@ -1588,6 +1602,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SACKGASSEN) {
       console.log('    Rundgang „keine Sackgassen“ …');
       try { const sg = await require('./sackgassen').laufe(browser, g); r.fehler.push(...sg.fehler); r.schritte += sg.schritte; } catch (e) { r.fehler.push('Abbruch Sackgassen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Kolonne ohne Abwesenheits-Rückschluss (tests/e2e/kolonne.js, API.md 15.2)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_KOLONNE) {
+      console.log('    Kolonne ohne Abwesenheits-Rückschluss …');
+      try { const kr = await require('./kolonne').laufe(browser, g); r.fehler.push(...kr.fehler); r.schritte += kr.schritte; } catch (e) { r.fehler.push('Abbruch Kolonne: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

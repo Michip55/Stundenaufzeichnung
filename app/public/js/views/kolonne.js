@@ -7,10 +7,10 @@ const ST = { arbeit: ['eingestempelt', 'st-green'], pause: ['Pause', 'st-amber']
 
 export default async function kolonne(el, ctx) {
   const [baustellen, mitarbeiter] = await Promise.all([get('/baustellen'), get('/mitarbeiter')]);
-  let aktive = baustellen.filter((b) => !b.status || b.status === 'aktiv');
-  // Polier: nur Baustellen der eigenen Partie
+  // F-033 / API.md 15.2: nur Baustellen, auf denen der Server die Kolonne erlaubt. `baustellenIds` (/auth/ich) ist genau die
+  // Serverregel (rechte.baustelleImBereich): Büro/GF alle, Polier und Mitarbeiter mit Ausnahme „kolonne“ nur die eigene Partie.
   const eigeneIds = ctx.ich.baustellenIds || [];
-  if (ctx.ich.benutzer.rolle === 'polier' && aktive.some((b) => eigeneIds.includes(b.id))) aktive = aktive.filter((b) => eigeneIds.includes(b.id));
+  const aktive = baustellen.filter((b) => (!b.status || b.status === 'aktiv') && eigeneIds.includes(b.id));
   const ausPlan = ctx.query.get('plan') === '1' && aktive.some((b) => b.id === Number(ctx.query.get('baustelleId'))) ? Number(ctx.query.get('baustelleId')) : null;
   const gemerkt = ausPlan ?? speicher.lies('bt_baustelle');
   let baustelleId = aktive.some((b) => b.id === gemerkt) ? gemerkt : (aktive.find((b) => eigeneIds.includes(b.id)) || aktive[0] || {}).id;
@@ -48,7 +48,7 @@ export default async function kolonne(el, ctx) {
     const tName = TYPEN.find((t) => t[0] === typ)[1];
     el.innerHTML = `
     <div class="page narrow wide-md">
-      ${!aktive.length ? banner('warn', 'Keine aktive Baustelle vorhanden.') : ''}
+      ${!aktive.length ? banner('warn', 'Keine aktive Baustelle, auf der Sie die Kolonne stempeln dürfen.') : ''}
       <section class="card pad stack-s">
         <label class="field"><span class="field-label">Baustelle</span>
           <select id="kol-bs" class="input lg">${aktive.map((b) => `<option value="${b.id}" ${b.id === baustelleId ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
@@ -107,7 +107,8 @@ export default async function kolonne(el, ctx) {
     }
   });
   await ladePartie();
-  // aus „Meine Partie“: die heute eingeplante Mannschaft ist schon ausgewählt
-  if (ausPlan != null) partie.filter((m) => m.geplant && (!m.status || m.status === 'aus') && !m.code && m.kolonneMoeglich !== false).forEach((m) => gewaehlt.add(m.benutzerId));
+  // aus „Meine Partie“: die heute eingeplante Mannschaft ist schon ausgewählt – unabhängig von Abwesenheiten (API.md 15.2);
+  // `code` kommt nur bei Sicht auf Abwesenheiten (Büro/GF bzw. die eigene), für Polier/Mitarbeiter ist er bei anderen immer null
+  if (ausPlan != null) partie.filter((m) => m.geplant && (!m.status || m.status === 'aus') && !m.code).forEach((m) => gewaehlt.add(m.benutzerId));
   zeichne();
 }
