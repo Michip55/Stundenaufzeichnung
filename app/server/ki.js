@@ -72,8 +72,10 @@ async function anfrage(bt, o) {
   const tag = wienDatum(bt.uhr());
   const e = einstellungen(db);
   const key = o.apiKey || schluessel(bt);
-  if (!key) throw new KiFehler('Kein API-Schlüssel hinterlegt.', 'ungueltig');
-  if (!o.ohneLimit && heuteNutzung(db, tag).aufrufe >= (e.tagesLimit || 200)) throw new KiFehler('KI-Tageslimit erreicht', 'limit_tag');
+  // N-061: Fehler vor dem Absenden kennzeichnen – dann wurde nichts übermittelt (kein kiHinweis nötig)
+  const vorher = (text, art) => Object.assign(new KiFehler(text, art), { nichtGesendet: true });
+  if (!key) throw vorher('Kein API-Schlüssel hinterlegt.', 'ungueltig');
+  if (!o.ohneLimit && heuteNutzung(db, tag).aufrufe >= (e.tagesLimit || 200)) throw vorher('KI-Tageslimit erreicht', 'limit_tag');
   const protokoll = (ok, usage, fehler) => db.lauf('INSERT INTO ki_nutzung (zeit, tag, zweck, benutzer_id, eingabe_tokens, ausgabe_tokens, ok, fehler) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     bt.uhr().toISOString(), tag, o.zweck, o.benutzerId || null, usage ? usage.input_tokens : null, usage ? usage.output_tokens : null, ok ? 1 : 0, fehler || null);
   let r;

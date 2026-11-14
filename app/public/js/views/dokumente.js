@@ -33,6 +33,16 @@ export async function dokumenteTab(box, b, ctx) {
   await lade();
   const katName = (s) => (kats.find((k) => k.schluessel === s) || {}).name || s;
   const schreibKats = () => kats.filter(darfKat);
+  const katOption = (k, gewaehlt) => `<option value="${esc(k.schluessel)}" ${gewaehlt ? 'selected' : ''}>${esc(k.name)}${k.finanziell ? ' – enthält Preise' : k.polier ? ' – Polier liest mit' : ''}</option>`;
+  /** N-103/N-104: Server verlangt eine Bestätigung (409 mit bestaetigung) → Rückfrage, dann erneut mit bestaetigtPreisfrei:true */
+  async function mitBestaetigung(senden, titel) {
+    try { return await senden({}); }
+    catch (x) {
+      if (!(x.status === 409 && x.daten && x.daten.bestaetigung === 'bestaetigtPreisfrei')) throw x;
+      if (!(await bestaetigen(titel, x.message, 'Ja, enthält keine Preise', 'danger'))) return null;
+      return senden({ bestaetigtPreisfrei: true });
+    }
+  }
   const sicht = () => { const q = suche.trim().toLowerCase(); return docs.filter((d) => (!kat || d.kategorie === kat) && (!q || `${d.titel} ${d.dateiname || ''} ${(d.tags || []).join(' ')} ${d.notiz || ''}`.toLowerCase().includes(q))); };
   const zahl = (s) => docs.filter((d) => !d.geloescht && (!s || d.kategorie === s)).length;
 
@@ -44,7 +54,8 @@ export async function dokumenteTab(box, b, ctx) {
     const l = sicht();
     box.innerHTML = fehler ? banner('err', esc(fehler)) : `<div class="dok" id="dokumente">
       <aside class="dok-kat" aria-label="Kategorien"><button type="button" class="dok-kat-btn${kat ? '' : ' on'}" data-kat="" aria-pressed="${!kat}"><span>Alle Dokumente</span><b>${zahl('')}</b></button>
-        ${kats.map((k) => `<button type="button" class="dok-kat-btn${kat === k.schluessel ? ' on' : ''}" data-kat="${esc(k.schluessel)}" aria-pressed="${kat === k.schluessel}"><span>${esc(k.name)}${k.finanziell ? ` ${ic('euro', 'xs')}` : ''}</span><b>${zahl(k.schluessel)}</b></button>${ctx.kann('benutzer') ? `<button type="button" class="icon-btn sm dok-kat-edit" data-kat-edit="${esc(k.schluessel)}" aria-label="Kategorie ${esc(k.name)} bearbeiten" title="Kategorie bearbeiten">${ic('edit')}</button>` : ''}`).join('')}${ctx.kann('benutzer') ? `<button type="button" class="dok-kat-btn neu" id="dok-kat-neu">${ic('plus', 'xs')}<span>Eigene Kategorie</span></button>` : ''}</aside>
+        ${kats.map((k) => { const knopf = `<button type="button" class="dok-kat-btn${kat === k.schluessel ? ' on' : ''}" data-kat="${esc(k.schluessel)}" aria-pressed="${kat === k.schluessel}"><span>${esc(k.name)}${k.finanziell ? ` ${ic('euro', 'xs')}` : ''}</span><b>${zahl(k.schluessel)}</b></button>`;
+          return ctx.kann('benutzer') ? `<div class="dok-kat-zeile">${knopf}<button type="button" class="icon-btn sm dok-kat-edit" data-kat-edit="${esc(k.schluessel)}" aria-label="Kategorie ${esc(k.name)} bearbeiten" title="Kategorie bearbeiten">${ic('edit')}</button></div>` : knopf; }).join('')}${ctx.kann('benutzer') ? `<button type="button" class="dok-kat-btn neu" id="dok-kat-neu">${ic('plus', 'xs')}<span>Eigene Kategorie</span></button>` : ''}</aside>
       <div class="dok-haupt-sp stack-s">
         <div class="toolbar wrap"><label class="search weit"><span>${ic('file')}</span><input type="search" id="dok-suche" placeholder="Titel, Dateiname oder Stichwort" aria-label="Dokumente durchsuchen" value="${esc(suche)}"></label>
           ${schreibKats().length ? `<button type="button" class="btn primary" id="dok-neu">${ic('plus')}Hochladen</button><button type="button" class="btn ghost" id="dok-kamera">${ic('camera')}Foto</button><input type="file" id="dok-datei" class="vh" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.xlsx,application/pdf,image/*" tabindex="-1" aria-hidden="true"><input type="file" id="dok-foto" class="vh" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">` : `<span class="chip st-grey" id="dok-nur-lesen">nur lesen</span>`}</div>
@@ -72,7 +83,8 @@ export async function dokumenteTab(box, b, ctx) {
       if (name.length < 2) { err.hidden = false; err.textContent = 'Bitte einen Namen eintragen.'; return; }
       const body = { name, ...(eigen ? { finanziell: f.get('finanziell') === 'on', polier: f.get('polier') === 'on' } : {}) };
       try {
-        const r = k ? await put(`/dokument-kategorien/${encodeURIComponent(k.schluessel)}`, body) : await post('/dokument-kategorien', body);
+        const r = k ? await mitBestaetigung((extra) => put(`/dokument-kategorien/${encodeURIComponent(k.schluessel)}`, { ...body, ...extra }), '„Enthält Preise“ abschalten?') : await post('/dokument-kategorien', body);
+        if (!r) return;
         dlg.zu(); toast(k ? 'Kategorie gespeichert.' : 'Kategorie angelegt.'); if (!k) kat = (r && r.schluessel) || ''; neu();
       } catch (x) { err.hidden = false; err.textContent = x.status === 409 ? (x.message || 'Diese Kategorie gibt es schon.') : x.message; }
     });
@@ -93,7 +105,7 @@ export async function dokumenteTab(box, b, ctx) {
     const start = sk.some((k) => k.schluessel === (vorKat || kat)) ? vorKat || kat : (sk.find((k) => k.schluessel === 'sonstiges') || sk[0]).schluessel;
     const dlg = dialog({ titel: ok.length > 1 ? `${ok.length} Dateien hochladen` : 'Datei hochladen', breit: true, inhalt: `<form id="dkf" class="stack-s" novalidate>
       ${abgelehnt.length ? banner('warn', abgelehnt.map(esc).join('<br>')) : ''}
-      <div class="form-grid"><label class="field"><span class="field-label">Kategorie</span><select class="input lg" name="kategorie">${sk.map((k) => `<option value="${esc(k.schluessel)}" ${k.schluessel === start ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></label>
+      <div class="form-grid"><label class="field"><span class="field-label">Kategorie</span><select class="input lg" name="kategorie">${sk.map((k) => katOption(k, k.schluessel === start)).join('')}</select></label>
         <label class="field"><span class="field-label">Datum des Dokuments</span><input class="input lg" type="date" name="datum" value="${wienHeute()}"></label></div>
       <ul class="plain dok-upload" id="dok-upload">${ok.map((d, i) => `<li data-up="${i}"><label class="field weit"><span class="field-label">${esc(d.name)} · ${esc(groesse(d.size))}</span><input class="input" name="titel${i}" maxlength="200" required value="${esc(d.name.replace(/\.[^.]+$/, ''))}" aria-label="Titel für ${esc(d.name)}"></label><span class="dok-up-stand" aria-live="polite"></span></li>`).join('')}</ul>
       <label class="field"><span class="field-label">Stichworte (optional, mit Komma)</span><input class="input lg" name="tags" maxlength="200" placeholder="z. B. Einbauten, Stand 11/2026"></label>
@@ -125,7 +137,7 @@ export async function dokumenteTab(box, b, ctx) {
       <div class="dok-vorschau">${schau}</div>
       <div class="btn-row"><a class="btn ghost" id="dok-laden" href="${esc(url)}" download="${esc(d.dateiname || 'dokument')}">${ic('download')}Herunterladen</a></div>
       ${schreib ? `<form id="dmf" class="form-grid" novalidate><label class="field full"><span class="field-label">Titel</span><input class="input lg" name="titel" required maxlength="200" value="${esc(d.titel)}"></label>
-        <label class="field"><span class="field-label">Kategorie</span><select class="input lg" name="kategorie">${schreibKats().map((x) => `<option value="${esc(x.schluessel)}" ${x.schluessel === d.kategorie ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">Kategorie</span><select class="input lg" name="kategorie" ${d.rechnungId ? 'disabled aria-describedby="dok-re-hinweis"' : ''}>${schreibKats().map((x) => katOption(x, x.schluessel === d.kategorie)).join('')}</select>${d.rechnungId ? '<small class="muted" id="dok-re-hinweis">Mit einer Rechnung verknüpft – bleibt in dieser Kategorie. Zum Verschieben oder Löschen erst die Verknüpfung in der Rechnung lösen.</small>' : ''}</label>
         <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" value="${esc(d.datum || '')}"></label>
         <label class="field full"><span class="field-label">Stichworte</span><input class="input lg" name="tags" maxlength="200" value="${esc((d.tags || []).join(', '))}"></label>
         <label class="field full"><span class="field-label">Notiz</span><textarea class="input lg" name="notiz" rows="2" maxlength="2000">${esc(d.notiz || '')}</textarea></label><p class="form-err full" role="alert" hidden></p></form>`
@@ -138,7 +150,8 @@ export async function dokumenteTab(box, b, ctx) {
     if (!schreib) return;
     $('#dmf', dlg.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target); const err = $('.form-err', dlg.el);
-      try { await put(`/baustellen/${b.id}/dokumente/${d.id}`, { titel: String(f.get('titel')).trim(), kategorie: f.get('kategorie'), datum: f.get('datum') || null, notiz: String(f.get('notiz') || '').trim(), tags: String(f.get('tags') || '').split(',').map((t) => t.trim()).filter(Boolean).slice(0, 10) }); dlg.zu(); toast('Gespeichert.'); neu(); }
+      const body = { titel: String(f.get('titel')).trim(), ...(d.rechnungId ? {} : { kategorie: f.get('kategorie') }), datum: f.get('datum') || null, notiz: String(f.get('notiz') || '').trim(), tags: String(f.get('tags') || '').split(',').map((t) => t.trim()).filter(Boolean).slice(0, 10) };
+      try { const r = await mitBestaetigung((extra) => put(`/baustellen/${b.id}/dokumente/${d.id}`, { ...body, ...extra }), 'Dokument mit Preisen verschieben?'); if (!r) return; dlg.zu(); toast('Gespeichert.'); neu(); }
       catch (x) { err.hidden = false; err.textContent = x.message; }
     });
     $('#dok-version-neu', dlg.el).addEventListener('click', () => $('#dok-version-datei', dlg.el).click());

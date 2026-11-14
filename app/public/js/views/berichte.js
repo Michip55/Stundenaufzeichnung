@@ -55,7 +55,7 @@ export async function berichte(el, ctx) {
       papierErkennen(datei).then((r) => {
         const v = (r && r.vorschlag) || {};
         if (!v.datum && !v.baustelleId) { toast('Datum und Kostenstelle konnten nicht gelesen werden – bitte den Bericht händisch anlegen und das Foto dort anhängen.', 'warn'); neuerBericht(ctx, baustellen, f.baustelleId); return; }
-        toast(`Erkannt: ${[v.kst ? 'KST ' + v.kst : '', v.datum ? fmt.datum(v.datum) : ''].filter(Boolean).join(', ')} – bitte prüfen.`);
+        toast(`Erkannt: ${[v.kst ? 'KST ' + v.kst : '', v.datum ? fmt.datum(v.datum) : ''].filter(Boolean).join(', ')} – bitte prüfen.${r.kiHinweis ? ` ${r.kiHinweis}` : ''}`);
         neuerBericht(ctx, baustellen, v.baustelleId || f.baustelleId, v.datum);
       }).catch((x) => toast(x.netz ? 'Keine Verbindung.' : x.message, 'warn'));
     }

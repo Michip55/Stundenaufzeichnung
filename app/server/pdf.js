@@ -153,7 +153,8 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   const vorlageMat = opt.materialien || [];
   const vorlageIds = new Set(vorlageMat.map((m) => m.id));
   const matZeilen = [
-    ...vorlageMat.map((m) => ({ name: m.name, einheit: m.einheit === 'to' && /aushub|bruch/i.test(m.code + m.name) ? 'to/m3' : m.einheit === 'to' ? 'to.' : m.einheit, menge: matMenge.has(m.id) ? matMenge.get(m.id).menge : null })),
+    // N-009: erfasste Zeilen mit Name/Einheit aus dem Bericht (Stand beim Erfassen), leere Vorlagezeilen aus den Stammdaten
+    ...vorlageMat.map((v) => { const z = matMenge.get(v.id); const m = z ? { code: v.code, name: z.name, einheit: z.einheit } : v; return { name: m.name, einheit: m.einheit === 'to' && /aushub|bruch/i.test(m.code + m.name) ? 'to/m3' : m.einheit === 'to' ? 'to.' : m.einheit, menge: z ? z.menge : null }; }),
     ...bericht.material.filter((m) => !vorlageIds.has(m.materialId)).map((m) => ({ name: m.name, einheit: m.einheit, menge: m.menge }))
   ];
   for (const m of matZeilen) {
@@ -184,11 +185,13 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   const vorlageG = opt.geraete || [];
   const vorlageGIds = new Set(vorlageG.map((g) => g.id));
   const sonstige = [...new Map(bericht.geraete.filter((g) => !vorlageGIds.has(g.geraetId)).map((g) => [g.geraetId, { ...g, stunden: gStd.get(g.geraetId) }])).values()];
-  const links = vorlageG.slice(0, 7).map((g) => ({ name: g.name, std: gStd.get(g.id) }));
+  const gName = new Map(bericht.geraete.map((g) => [g.geraetId, g.name])); // N-009: Name aus dem Bericht
+  const vName = (g) => (gName.has(g.id) ? gName.get(g.id) : g.name);
+  const links = vorlageG.slice(0, 7).map((g) => ({ name: vName(g), std: gStd.get(g.id) }));
   if (sonstige.length) sonstige.forEach((g) => links.push({ name: g.name, std: g.stunden }));
   else links.push({ name: '', std: null });
-  links.push(...vorlageG.slice(7, 11).map((g) => ({ name: g.name, std: gStd.get(g.id) })));
-  const rechts = vorlageG.slice(11).map((g) => ({ name: g.name, std: gStd.get(g.id) }));
+  links.push(...vorlageG.slice(7, 11).map((g) => ({ name: vName(g), std: gStd.get(g.id) })));
+  const rechts = vorlageG.slice(11).map((g) => ({ name: vName(g), std: gStd.get(g.id) }));
   const halb = RECHTS_B / 2;
   const gz = Math.max(links.length, rechts.length);
   for (let i = 0; i < gz; i++) {

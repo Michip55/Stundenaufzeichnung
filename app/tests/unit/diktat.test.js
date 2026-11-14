@@ -91,3 +91,13 @@ test('Gemischter Bericht (realistisch, Tastatur-Diktat)', () => {
   assert.equal(r.quelle, 'regeln');
   assert.ok(r.erkannt.length >= 5);
 });
+
+test('N-115: Freitext aus dem Originaltext – Dezimalkomma bleibt, Zahlerkennung unverändert', () => {
+  const v = D.auswerten('Randleisten versetzt auf 28,5 lfm, Gefälle 2,5 Prozent hergestellt. Am 12.11.2026 Preis netto 1.234,00 EUR notiert', { geraete: [], materialien: [], personen: [] }).vorschlag;
+  assert.equal(v.arbeitsleistung, 'Randleisten versetzt auf 28,5 lfm. Gefälle 2,5 Prozent hergestellt. Am 12.11.2026 Preis netto 1.234,00 EUR notiert.');
+  const r = D.auswerten('Regie Leitung freigelegt 1,5 Stunden. Vorkommnis: Wasserrohr in 0,8 m Tiefe angefahren', { geraete: [], materialien: [], personen: [] }).vorschlag;
+  assert.deepEqual(r.regie, [{ text: 'Regie Leitung freigelegt 1,5 Stunden', stunden: 1.5 }]);
+  assert.equal(r.vorkommnisse, 'Wasserrohr in 0,8 m Tiefe angefahren.');
+  // Zahlerkennung arbeitet weiter mit Punkt
+  assert.equal(D.zahlenNormalisieren('4,5 m³'), '4.5 m³');
+});

@@ -8,6 +8,15 @@ const { pruefeAlleBudgets } = require('../budget');
 const { pruefeZip } = require('../katalog-excel');
 
 const CODE = /^[a-z0-9_-]{1,20}$/;
+/** N-037: Leistungen tragen LV-Positionsnummern („01.01“) – Punkt erlaubt (Leistungscodes sind nie Positions-Quelle) */
+const CODE_LEISTUNG = /^[a-z0-9._-]{1,20}$/;
+/** N-013: reservierte Werte der Positions-Quellen (quelle.ref 'alle' = alle Einträge) – nie als Code/ID */
+const RESERVIERT = new Set(['alle']);
+function pruefeCode(a, c, feld = 'code') {
+  if (!(a === 'leistungen' ? CODE_LEISTUNG : CODE).test(c)) throw ungueltig(`${feld}: 1–20 Zeichen a–z, 0–9, _ oder -${a === 'leistungen' ? ' (bei Leistungen auch Punkt, z. B. 01.01)' : ''}.`);
+  if (RESERVIERT.has(c)) throw new ApiFehler(422, 'UNGUELTIG', `${feld}: „${c}“ ist reserviert (steht in der Nachkalkulation für „alle Einträge“) – bitte einen anderen Code wählen.`);
+  return c;
+}
 const DEF = {
   geraete: { tabelle: 'geraet', schluessel: 'code', euro: ['kostensatz', 'verrechnungssatz'], felder: ['code', 'name', 'gruppe', 'einheit', 'anlageId', 'aktiv', 'sortierung'], name: 'Gerät' },
   materialien: { tabelle: 'material', schluessel: 'code', euro: ['ek', 'vk'], felder: ['code', 'name', 'einheit', 'dichte', 'naturmaterial', 'aktiv', 'sortierung'], name: 'Material' },
@@ -42,6 +51,19 @@ function verwendung(db, art, z) {
 }
 const benutzt = (u) => Object.values(u).some((x) => x > 0);
 
+/**
+ * N-009: Die Einheit eines Materials/Geräts, das schon in Berichten oder Fuhren steht, bleibt fest – sonst
+ * bekämen erfasste Mengen eine andere Bedeutung (Nachkalkulation, Berichte). Stattdessen neuen Eintrag anlegen.
+ */
+function pruefeEinheit(db, art, z, einheit) {
+  if (einheit === undefined || einheit === z.einheit || !['geraete', 'materialien'].includes(art)) return;
+  const u = verwendung(db, art, z);
+  const n = u.berichte + u.fuhren;
+  if (!n) return;
+  const was = art === 'geraete' ? 'Gerät' : 'Material';
+  throw konflikt(`Die Einheit von „${z.name}“ (${z.einheit}) kann nicht geändert werden – sie wird in ${u.berichte} Berichtszeile(n)${u.fuhren ? ` und ${u.fuhren} Fuhre(n)` : ''} verwendet. Bitte ein neues ${was} mit der neuen Einheit anlegen und das alte deaktivieren.`, { verwendet: u });
+}
+
 /** Quellen-Art je Stammdaten-Art (Positions-Quellen speichern den CODE, nicht die id) */
 const QUELLE_ART = { geraete: 'geraet', materialien: 'material' };
 /**
@@ -51,6 +73,7 @@ const QUELLE_ART = { geraete: 'geraet', materialien: 'material' };
 function codeVerweise(db, art, alt, neu) {
   const qa = QUELLE_ART[art];
   if (!qa) return [];
+  if (RESERVIERT.has(neu)) throw new ApiFehler(422, 'UNGUELTIG', `code: „${neu}“ ist reserviert.`); // N-013: nie auf 'alle' umschreiben
   const out = [];
   for (const tabelle of ['katalog', 'projektposition']) {
     for (const z of db.alle(`SELECT id, quelle FROM ${tabelle} WHERE quelle LIKE ?`, `%"art":"${qa}"%`)) {
@@ -92,9 +115,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     const f = {};
     const t = (k, max, { pflicht = !teil, min = 1 } = {}) => { if (!teil || body[k] !== undefined) { const x = body[k] == null ? '' : v.text(body[k], k, { max, pflicht }); if (pflicht && x.length < min) throw ungueltig(`${k} fehlt.`); f[SPALTEN[k] || k] = x || null; } };
     if (d.schluessel === 'code' && (!teil || body.code !== undefined)) {
-      const c = String(body.code || '').trim().toLowerCase();
-      if (!CODE.test(c)) throw ungueltig('code: 1–20 Zeichen a–z, 0–9, _ oder -.');
-      f.code = c;
+      f.code = pruefeCode(a, String(body.code || '').trim().toLowerCase());
     }
     if (a === 'leistungen') t('text', 200); else t('name', 120);
     if (a !== 'lohngruppen') {
@@ -146,7 +167,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     const e = euro(req, d, body);
     if (a === 'lohngruppen') {
       let id = body.id == null ? String(f.name).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20) : String(body.id);
-      if (!CODE.test(id)) throw ungueltig('id: 1–20 Zeichen a–z, 0–9, _ oder -.');
+      pruefeCode(a, id, 'id');
       if (db.eins('SELECT id FROM lohngruppe WHERE id = ?', id)) throw konflikt(`Die Lohngruppe ${id} gibt es bereits.`);
       f.id = id;
     } else if (db.eins(`SELECT id FROM ${d.tabelle} WHERE code = ?`, f.code)) throw konflikt(`Der Code ${f.code} ist schon vergeben.`);
@@ -172,6 +193,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     const f = felder(a, d, body, true);
     if (Object.keys(f).length && a !== 'lohngruppen' && !req.ctx.hat('stammdaten')) throw keinZugriff('Stammdaten ändern dürfen Büro bzw. GF (Recht stammdaten).');
     // 12.21 (geändert 13.11.2026): Code auch bei Verwendung änderbar – Verweise per Code werden mitgezogen
+    pruefeEinheit(db, a, z, f.einheit);
     let umbenennen = null;
     if (f.code !== undefined && f.code !== z.code) {
       if (db.eins(`SELECT id FROM ${d.tabelle} WHERE code = ? AND id <> ?`, f.code, z.id)) throw konflikt(`Der Code ${f.code} ist schon vergeben.`);
@@ -273,10 +295,11 @@ module.exports = function stammdatenVerwaltung(api, bt) {
           e.push({ feld: k, wert: w });
         }
         if (!z) {
-          if (a === 'lohngruppen') f.id = code;
+          if (a === 'lohngruppen') f.id = pruefeCode(a, code, 'id');
           neu.push({ [key]: code, name: f.name || f.text });
           plan.push({ neu: true, f, e });
         } else {
+          pruefeEinheit(db, a, z, f.einheit);
           const diff = {};
           for (const [k2, x] of Object.entries(f)) if (k2 !== 'code' && z[k2] !== x && !(z[k2] == null && x == null)) diff[k2] = { alt: z[k2], neu: x };
           for (const x of e) diff[x.feld] = { alt: z[x.feld], neu: x.wert };

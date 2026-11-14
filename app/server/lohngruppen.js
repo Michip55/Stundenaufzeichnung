@@ -51,10 +51,18 @@ function verlaufJson(db, benutzerId, heute) {
   }));
 }
 
+/** N-081: strenge Prüfung (Rückwandlung) – Date.parse nimmt auch 2026-11-31 oder 2026-02-30 an */
+function kalenderDatum(d) {
+  if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const [y, m, t] = d.split('-').map(Number);
+  const x = new Date(Date.UTC(y, m - 1, t));
+  return x.getUTCFullYear() === y && x.getUTCMonth() === m - 1 && x.getUTCDate() === t;
+}
+
 /** gueltigAb prüfen (Standard heute; rückwirkend nur mit Bestätigung) */
 function pruefeGueltigAb(gueltigAb, rueckwirkend, heute) {
   const d = gueltigAb === undefined || gueltigAb === null || gueltigAb === '' ? heute : gueltigAb;
-  if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`))) throw ungueltig('lohngruppeGueltigAb muss ein Datum JJJJ-MM-TT sein.');
+  if (!kalenderDatum(d)) throw ungueltig('lohngruppeGueltigAb muss ein gültiges Datum JJJJ-MM-TT sein.');
   if (d < BASIS) throw ungueltig('lohngruppeGueltigAb darf nicht vor dem 01.01.2000 liegen.');
   if (d > plusTage(heute, 731)) throw ungueltig('lohngruppeGueltigAb darf höchstens 2 Jahre in der Zukunft liegen.');
   if (d < heute && rueckwirkend !== true) {

@@ -28,9 +28,9 @@ function ladeBerichtRoh(db, id) {
   if (!b) return null;
   b.personal = db.alle(`SELECT bp.*, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id
     WHERE bp.bericht_id = ? ORDER BY bp.pos, bp.id`, id);
-  b.geraete = db.alle(`SELECT bg.geraet_id, bg.stunden, bg.anlage_id, g.code, g.name, g.sortierung FROM bericht_geraet bg JOIN geraet g ON g.id = bg.geraet_id
+  b.geraete = db.alle(`SELECT bg.geraet_id, bg.stunden, bg.anlage_id, g.code, COALESCE(bg.name, g.name) AS name, g.sortierung FROM bericht_geraet bg JOIN geraet g ON g.id = bg.geraet_id
     WHERE bg.bericht_id = ? ORDER BY g.sortierung, g.id`, id);
-  b.material = db.alle(`SELECT bm.material_id, bm.menge, m.code, m.name, m.einheit, m.vorlage, m.sortierung FROM bericht_material bm JOIN material m ON m.id = bm.material_id
+  b.material = db.alle(`SELECT bm.material_id, bm.menge, m.code, COALESCE(bm.name, m.name) AS name, COALESCE(bm.einheit, m.einheit) AS einheit, m.vorlage, m.sortierung FROM bericht_material bm JOIN material m ON m.id = bm.material_id
     WHERE bm.bericht_id = ? ORDER BY m.sortierung, m.id`, id);
   b.regie = db.alle('SELECT text, stunden FROM bericht_regie WHERE bericht_id = ? ORDER BY pos, id', id);
   b.unterschriften = db.alle('SELECT u.*, b.name AS erfasst_von_name FROM unterschrift u LEFT JOIN benutzer b ON b.id = u.erfasst_von WHERE u.bericht_id = ?', id);

@@ -96,7 +96,8 @@ export default async function preise(el, ctx) {
         if (o.ja) { body[k] = f.get(k) === 'on'; continue; }
         const v = String(f.get(k) || '').trim();
         if (o.pflicht && !v) return zeig(`${text} fehlt.`, k);
-        if (o.code && v && !/^[a-z0-9_-]{1,20}$/i.test(v)) return zeig('Nur Buchstaben, Ziffern, Bindestrich und Unterstrich (höchstens 20 Zeichen).', k);
+        if (o.code && v && !(t.art === 'leistungen' ? /^[a-z0-9._-]{1,20}$/i : /^[a-z0-9_-]{1,20}$/i).test(v)) return zeig(t.art === 'leistungen' ? 'Nur Buchstaben, Ziffern, Punkt, Bindestrich und Unterstrich (höchstens 20 Zeichen), z. B. 01.01.' : 'Nur Buchstaben, Ziffern, Bindestrich und Unterstrich (höchstens 20 Zeichen).', k);
+        if (o.code && v.toLowerCase() === 'alle') return zeig('„alle“ ist reserviert (steht in der Nachkalkulation für alle Einträge) – bitte einen anderen Code wählen.', k);
         if (o.zahl) { if (v === '') { body[k] = null; continue; } const n = parseZahl(v); if (!(n >= 0.1 && n <= 5)) return zeig('Bitte eine Zahl zwischen 0,1 und 5 eintragen.', k); body[k] = n; continue; }
         if (o.nurNeu && !v) continue;
         body[k] = o.code ? v.toLowerCase() : v;
@@ -116,6 +117,7 @@ export default async function preise(el, ctx) {
         $('#st-ok', dlg.el).disabled = false;
         const codeFeld = t.felder.some(([k]) => k === 'code') ? 'code' : z ? null : 'id';
         if (x.status === 422) return zeig(x.message || 'Dieser Wert ist nicht erlaubt.', codeFeld);
+        if (x.status === 409 && x.daten && x.daten.verwendet) return zeig(x.message, e.target.elements.einheit ? 'einheit' : null); // N-009: Einheit bei Verwendung fest
         if (x.status === 409 && !(x.daten && x.daten.version != null)) return zeig('Diesen Code gibt es schon.', codeFeld);
         zeig(x.status === 409 ? 'Inzwischen von jemand anderem geändert – bitte schließen und neu laden.' : x.message);
       }

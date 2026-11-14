@@ -76,6 +76,9 @@ async function stammdatenUndLebenslauf(h, z) {
 
   // 12.22 Lohngruppe stichtaggenau: Wechsel mit „gültig ab“ (künftig) erscheint im Verlauf und lässt sich zurücknehmen
   const lgPerson = (await api('GET', '/mitarbeiter')).json.filter((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false).pop();
+  // N-078 (unten): Person ohne Lohngruppe schon vor dem Laden der Benutzerliste anlegen
+  const ohne = await api('POST', '/benutzer', { name: `E2E Ohne Lohngruppe ${k}`, rolle: 'mitarbeiter', pin: '4826' });
+  pruef(ohne.status === 201 || ohne.status === 200, `A2-Lohn: Person ohne Lohngruppe anlegen → ${ohne.status} ${JSON.stringify(ohne.json).slice(0, 200)}`);
   await geh('/benutzer');
   await page.locator(`[data-bearb="${lgPerson.id}"]`).first().click();
   await page.waitForSelector('dialog[open] #bf');
@@ -102,6 +105,21 @@ async function stammdatenUndLebenslauf(h, z) {
   await page.waitForFunction(() => !document.querySelector('#lg-verlauf [data-lg-weg]'));
   await toastWeg();
   await page.locator('dialog[open] [data-zu]').first().click();
+  // N-078: erste Lohngruppe über die Oberfläche → Datum leer, gilt von Anfang an (Basisstand 2000-01-01)
+  {
+    await page.locator(`[data-bearb="${ohne.json.id}"]`).first().click();
+    await page.waitForSelector('dialog[open] #bf');
+    const lgErst = (await page.locator('#bf [name="lohngruppe"] option').evaluateAll((o) => o.map((x) => x.value))).find((v) => v);
+    await page.selectOption('#bf [name="lohngruppe"]', lgErst);
+    pruef(await page.locator('#lg-ab').inputValue() === '', 'A2-Lohn: erste Lohngruppe – „gültig ab“ ist vorbelegt (soll leer = von Anfang an)');
+    pruef(await page.locator('#lg-anfang').isVisible(), 'A2-Lohn: Hinweis „leer = von Anfang an“ fehlt');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open] #bf'));
+    await toastWeg();
+    const v0 = (await api('GET', `/benutzer/${ohne.json.id}/lohngruppen-verlauf`)).json;
+    pruef(Array.isArray(v0) && v0.length === 1 && v0[0].gueltigAb === '2000-01-01' && v0[0].lohngruppeId === lgErst, `A2-Lohn: erste Lohngruppe gilt nicht von Anfang an (${JSON.stringify(v0).slice(0, 200)})`);
+    await api('PUT', `/benutzer/${ohne.json.id}`, { aktiv: false });
+  }
   // Bauvorhaben Y für den Lebenslauf (Bauleiter zugeteilt)
   const leute = (await api('GET', '/mitarbeiter')).json;
   const bl = leute.find((m) => m.name === 'Stefan Aigner');
@@ -946,6 +964,31 @@ async function dokumenteUndRechnungen(h, z) {
   await page.click('#dok-kat-neu'); await page.waitForSelector('dialog[open] #dkk');
   await page.fill('#dkk [name="name"]', `Vermessung ${k}`);
   await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForSelector('#dkk .form-err:not([hidden])'); });
+  // N-099: gleicher Name wie eine eingebaute Kategorie (andere Schreibweise) → abgelehnt, nichts angelegt
+  await page.fill('#dkk [name="name"]', 'pläne');
+  await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForFunction(() => /bereits/.test((document.querySelector('#dkk .form-err') || {}).textContent || '')); });
+  pruef((await api('GET', '/dokument-kategorien')).json.filter((x) => x.name.toLowerCase() === 'pläne').length === 1, 'A2-Dok: zweite Kategorie „Pläne“ angelegt');
+  await page.click('dialog[open] [data-zu]');
+  // N-099: Zähler und Bearbeiten-Stift überlappen nicht
+  {
+    const ueberlapp = await page.evaluate(() => [...document.querySelectorAll('.dok-kat-zeile')].filter((z) => {
+      const a = z.querySelector('.dok-kat-btn b').getBoundingClientRect(), b = z.querySelector('.dok-kat-edit').getBoundingClientRect();
+      return a.width && b.width && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    }).map((z) => z.querySelector('[data-kat]').dataset.kat));
+    pruef(ueberlapp.length === 0, `A2-Dok: Zähler und Bearbeiten-Stift überlappen (${ueberlapp.join(', ')})`);
+  }
+  // N-104: „enthält Preise“ abschalten, solange Dokumente darin liegen → Rückfrage; Abbrechen ändert nichts
+  pruef((await api('POST', `/baustellen/${W}/dokumente`, { kategorie: kKalk.schluessel, titel: `Kalkulation intern ${k}`, dateiBase64: PDF('Kalkulation').toString('base64'), dateiname: 'kalk.pdf' })).status === 201, 'A2-Dok: Dokument in finanzieller eigener Kategorie nicht ablegbar');
+  await page.click(`[data-kat-edit="${kKalk.schluessel}"]`);
+  await page.waitForSelector('dialog[open] #dkk');
+  await page.uncheck('#dkk [name="finanziell"]');
+  await h.absichtlich(async () => { // 409 mit Rückfrage ist gewollt
+    await page.click('#dkk-ok');
+    await page.waitForFunction(() => [...document.querySelectorAll('dialog[open] p')].some((p) => /bisher nur mit Preisrecht sichtbar/.test(p.textContent)));
+  });
+  await page.locator('dialog[open] [data-zu]').last().click();
+  await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 1);
+  pruef((await api('GET', '/dokument-kategorien')).json.find((x) => x.schluessel === kKalk.schluessel).finanziell === true, 'A2-Dok: „enthält Preise“ ohne Bestätigung abgeschaltet');
   await page.click('dialog[open] [data-zu]');
   // Bearbeiten/Löschen: eigene umbenennen, eingebaute nur umbenennen, löschen nur wenn leer
   await page.click(`[data-kat-edit="${kVerm.schluessel}"]`);

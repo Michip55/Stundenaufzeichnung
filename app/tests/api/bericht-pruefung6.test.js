@@ -76,6 +76,12 @@ test('G-15: Foto an die KI nur ohne EXIF/GPS und mit Hinweis', async (t) => {
   assert.equal(r.daten.kiHinweis, 'Das Foto wird an die KI übermittelt (Anthropic; ohne EXIF/GPS).');
   const bild = Buffer.from(aufrufe[aufrufe.length - 1].messages[0].content[0].source.data, 'base64');
   assert.ok(!bild.includes(Buffer.from('GPSLatitude')) && !bild.includes(Buffer.from('Exif')), 'kein EXIF/GPS an die KI');
-  const p = await pol.post(`/berichte/${b.id}/papier`, { bildBase64: jpg.toString('base64'), dateiname: 'p.jpg' });
+  // 14.6 (N-116): dasselbe Bild als Papierbericht wäre 409 – eigenes Papierfoto (gleiche Metadaten, anderer Bildinhalt)
+  const jpgPapier = Buffer.from(jpg.toString('latin1').replace('\x34\xff\xd0\x56', '\x35\xff\xd0\x56'), 'latin1');
+  assert.ok(jpgPapier.includes(Buffer.from('GPSLatitude')) && !jpgPapier.equals(jpg));
+  const p = await pol.post(`/berichte/${b.id}/papier`, { bildBase64: jpgPapier.toString('base64'), dateiname: 'p.jpg' });
+  assert.equal(p.status, 201, JSON.stringify(p.daten));
+  const bildP = Buffer.from(aufrufe[aufrufe.length - 1].messages[0].content[0].source.data, 'base64');
+  assert.ok(!bildP.includes(Buffer.from('GPSLatitude')) && !bildP.includes(Buffer.from('Exif')), 'kein EXIF/GPS an die KI (Papier)');
   assert.equal(p.daten.kiHinweis, 'Das Foto wird an die KI übermittelt (Anthropic; ohne EXIF/GPS).');
 });

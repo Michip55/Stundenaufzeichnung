@@ -9,6 +9,7 @@ const B = require('./berichte');
 
 const MAX_FOTOS = 10;
 const MAX_PAPIER = 5;
+const ART_NAME = { foto: 'Foto', lieferschein: 'Lieferschein', papier: 'Papierbericht' };
 
 function ordner(bt) { return path.join(bt.uploads, 'berichte'); }
 
@@ -34,6 +35,8 @@ function fotoSpeichern(bt, req, b, body, art = 'foto') {
   let bild;
   try { bild = Bild.bildPruefen(body.bildBase64); } catch (e) { throw ungueltig(e.message); }
   const gleich = db.eins('SELECT * FROM bericht_foto WHERE bericht_id = ? AND sha256 = ?', b.id, bild.sha256);
+  // N-116: gleiches Bild nur innerhalb derselben Art zusammenführen – sonst 409 (keine fremde Art zurückgeben)
+  if (gleich && gleich.art !== art) throw konflikt(`Dieses Bild liegt schon als ${ART_NAME[gleich.art] || gleich.art} beim Bericht – bitte ein anderes Foto wählen.`, { fotoId: gleich.id, art: gleich.art });
   if (gleich) return { foto: gleich, neu: false };
   if (art === 'papier') {
     if (db.eins("SELECT COUNT(*) AS n FROM bericht_foto WHERE bericht_id = ? AND art = 'papier'", b.id).n >= MAX_PAPIER) throw ungueltig(`Höchstens ${MAX_PAPIER} Seiten Papierbericht je Bericht.`);
