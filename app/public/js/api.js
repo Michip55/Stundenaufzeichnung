@@ -82,7 +82,10 @@ export function geraetArtBeiAnmeldung(benutzerId, letzterBenutzer = null) {
   const wechsel = vorher != null && vorher !== Number(benutzerId);
   let gespeichert = false;
   try { gespeichert = localStorage.getItem(GERAET_ART) != null || inhaber != null; } catch (e) { gespeichert = false; }
-  if (wechsel) { setzGeraetArt('geteilt', benutzerId); return { art: 'geteilt', zurueckgesetzt: art === 'eigen' }; }
+  if (wechsel) {
+    if (gespeichert) setzGeraetArt('geteilt', benutzerId); // nie gewählt: nichts speichern, es gilt ohnehin „geteilt“
+    return { art: 'geteilt', zurueckgesetzt: art === 'eigen' };
+  }
   if (gespeichert && inhaber !== Number(benutzerId)) setzGeraetArt(art, benutzerId); // die Wahl gehört ab jetzt dieser Person
   return { art, zurueckgesetzt: false };
 }

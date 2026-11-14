@@ -96,6 +96,10 @@ test('15.12 G2-018: nachgesendete Einträge (ersteller) werden weder abgebrochen
 test('15.12 G2-021: „Eigenes Handy“ gilt nur für die Person, die es gewählt hat', async () => {
   const A = await modul('api.js');
   await mitUmgebung(async () => {
+    // nie gewählt: ein Benutzerwechsel speichert nichts (R-08: nur nötige Gerätedaten), es gilt „geteilt“
+    assert.deepEqual(A.geraetArtBeiAnmeldung(2, 1), { art: 'geteilt', zurueckgesetzt: false });
+    assert.equal(localStorage.getItem(A.GERAET_ART), null);
+    assert.equal(localStorage.getItem(A.GERAET_ART_BENUTZER), null);
     // neues Gerät, Person 1 wählt vor der Anmeldung „eigen“ und meldet sich an → bleibt, gehört jetzt Person 1
     A.setzGeraetArt('eigen');
     assert.equal(A.geraetArtInhaber(), null);
