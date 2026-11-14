@@ -67,7 +67,7 @@ test('Selbst-/Peer-Varianten der Verwaltungsrouten (F-053)', { timeout: 10 * 60 
       await nein(id, 'POST', `/benutzer/${id}/entsperren`, {}, 'das eigene Konto entsperrt eine andere Person');
       await nein(id, 'DELETE', `/benutzer/${id}/2fa`, undefined, 'die eigene 2FA setzt eine andere Person zurück');
       // der Fehlversuch selbst wird gezählt (Anmeldebremse) – sonst ändert sich nichts
-      await nein(id, 'POST', '/auth/pin', { alt: '999999', neu: '583920' }, 'PIN-Wechsel nur mit richtiger alter PIN', ['login_versuch', 'login_konto']);
+      await nein(id, 'POST', '/auth/pin', { alt: '999999', neu: '583920' }, 'PIN-Wechsel nur mit richtiger alter PIN', ['login_versuch', 'login_konto', 'login_konto_fehler']); // 15.12 (G2-020): Fenster der Fehlversuche
     }
     // 15.9: für JEDE Rolle, auch die GF – PIN/Name/Telefon/Lohngruppe/Rechte des eigenen Kontos über die Verwaltung würden
     // die alte PIN bzw. das Vier-Augen-Prinzip umgehen (eigene PIN nur /auth/pin, eigenes Telefon nur /auth/telefon)

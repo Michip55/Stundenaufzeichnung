@@ -69,7 +69,7 @@ test('N-004/N-027: richtige PIN setzt den Zähler falscher 2FA-Codes nicht zurü
   assert.equal((await c.post('/auth/login/2fa', { vorgang: r.daten.vorgang, code: code() })).status, 200);
 });
 
-test('N-004: erst die vollständige Anmeldung (PIN + Code) setzt die PIN-Zähler zurück', async (t) => {
+test('N-004: erst die vollständige Anmeldung (PIN + Code) setzt den PIN-Zähler je IP zurück – den kontoweiten nie (G2-020)', async (t) => {
   const s = await starte({ schluessel: SCHLUESSEL });
   t.after(() => s.stop());
   const gf = await s.login(U.gf);
@@ -84,7 +84,9 @@ test('N-004: erst die vollständige Anmeldung (PIN + Code) setzt die PIN-Zähler
   assert.equal(s.db.eins('SELECT fehlversuche FROM login_konto WHERE benutzer_id = ?', U.gf).fehlversuche, 3);
   assert.equal((await c.post('/auth/login/2fa', { vorgang: r.daten.vorgang, code: code() })).status, 200);
   assert.ok(!s.db.eins('SELECT 1 AS x FROM login_versuch WHERE benutzer_id = ?', U.gf));
-  assert.ok(!s.db.eins('SELECT 1 AS x FROM login_konto WHERE benutzer_id = ?', U.gf));
+  // 15.12 (G2-020): das kontoweite 24-h-Fenster bleibt – auch nach vollständiger Anmeldung
+  assert.equal(s.db.eins('SELECT fehlversuche FROM login_konto WHERE benutzer_id = ?', U.gf).fehlversuche, 3);
+  assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM login_konto_fehler WHERE benutzer_id = ?', U.gf).n, 3);
 });
 
 test('N-004: falsche Codes in den 2FA-Einstellungen zählen ebenfalls kontoweit und werden gemeldet', async (t) => {

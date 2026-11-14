@@ -161,6 +161,26 @@ function hashGleich(a, b) {
 }
 
 /**
+ * Ist die Sitzung abgelaufen (Konto inaktiv, Untätigkeit je Rolle, Höchstdauer)? `s` braucht aktiv, rolle, erstellt,
+ * letzte_aktivitaet. Dieselbe Regel gilt beim Laden der Sitzung und vor jedem Push-Versand (G2-019).
+ */
+function sitzungAbgelaufen(s, jetzt, konfig = sitzungsKonfig()) {
+  const t = jetzt.getTime();
+  const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
+  const letzte = new Date(s.letzte_aktivitaet).getTime(), erstellt = new Date(s.erstellt).getTime();
+  return !s.aktiv || !Number.isFinite(letzte) || !Number.isFinite(erstellt) || t - letzte > inaktivMs || t - erstellt > konfig.maxH * 3600000;
+}
+
+/** G2-019: abgelaufene Sitzungen löschen (stündlich) – mit ihnen enden über den Trigger auch ihre Push-Abos → Anzahl */
+function abgelaufeneSitzungenLoeschen(db, jetzt, konfig = sitzungsKonfig()) {
+  let n = 0;
+  for (const s of db.alle('SELECT s.token_hash, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id')) {
+    if (sitzungAbgelaufen(s, jetzt, konfig)) n += db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash).changes;
+  }
+  return n;
+}
+
+/**
  * Lädt Benutzer zur Sitzung (oder null). Aktualisiert die letzte Aktivität.
  */
 function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = undefined) {
@@ -174,9 +194,8 @@ function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = unde
     return null;
   }
   const t = jetzt.getTime();
-  const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
-  if (!s.aktiv || t - new Date(s.letzte_aktivitaet).getTime() > inaktivMs || t - new Date(s.sitzung_erstellt).getTime() > konfig.maxH * 3600000) {
-    db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h);
+  if (sitzungAbgelaufen({ ...s, erstellt: s.sitzung_erstellt }, jetzt, konfig)) {
+    db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h); // G2-019: der Trigger sitzung_ende_push löscht die Push-Abos dieser Sitzung
     return null;
   }
   if (t - new Date(s.letzte_aktivitaet).getTime() > 30 * 1000) {
@@ -305,10 +324,22 @@ class LoginBremse {
     for (const [k] of nachAlter) { if (this.ip.size <= ziel) break; this.ip.delete(k); }
   }
 
-  /** Nur nach vollständiger Anmeldung (PIN bzw. PIN + zweiter Faktor) aufrufen – N-004 */
+  /**
+   * Nur nach vollständiger Anmeldung (PIN bzw. PIN + zweiter Faktor) aufrufen – N-004.
+   * G2-020: setzt nur den kurzen Zähler je (Benutzer, IP) und die Eskalationsstufe der Kontosperre zurück – NIE das kontoweite
+   * 24-h-Fenster der Fehlversuche. Sonst könnte verteiltes PIN-Raten mit je 19 Versuchen zwischen zwei echten Anmeldungen
+   * dauerhaft unter der Grenze bleiben.
+   */
   erfolg(benutzerId, ip) {
     this.db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
-    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId); // auch Eskalationsstufe zurück
+    this.db.lauf('UPDATE login_konto SET sperren = 0 WHERE benutzer_id = ? AND gesperrt = 0', benutzerId);
+  }
+
+  /** G2-020: Fehlversuche des Kontos im gleitenden 24-h-Fenster (ältere werden dabei entfernt) → {anzahl, erster} */
+  kontoFenster(benutzerId, jetzt = this.uhr().getTime()) {
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ? AND zeit <= ?', benutzerId, new Date(jetzt - KONTO_FENSTER_MS).toISOString());
+    const z = this.db.eins('SELECT COUNT(*) AS n, MIN(zeit) AS erster FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
+    return { anzahl: z.n, erster: z.erster || null };
   }
 
   /** Konto gesperrt? → 423 (befristet, D-01) */
@@ -320,6 +351,7 @@ class LoginBremse {
     if (rest <= 0) {
       // Sperre abgelaufen: Zähler neu, Eskalationsstufe bleibt bis zur nächsten erfolgreichen Anmeldung
       this.db.lauf('UPDATE login_konto SET gesperrt = 0, fehlversuche = 0, erster = NULL WHERE benutzer_id = ?', benutzerId);
+      this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
       return;
     }
     const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). Büro oder Geschäftsführung können es vorher entsperren.`);
@@ -333,9 +365,11 @@ class LoginBremse {
     const jetzt = this.uhr().getTime();
     const k = this.db.eins('SELECT * FROM login_konto WHERE benutzer_id = ?', benutzerId);
     if (k && k.gesperrt && new Date(k.gesperrt_bis || 0).getTime() > jetzt) return false; // schon gesperrt – ein weiterer Fehlversuch hebt die Sperre nie auf
-    const neuesFenster = !k || !k.erster || jetzt - new Date(k.erster).getTime() > KONTO_FENSTER_MS;
-    const n = neuesFenster ? 1 : k.fehlversuche + 1;
-    const erster = neuesFenster ? new Date(jetzt).toISOString() : k.erster;
+    // G2-020: gleitendes Fenster – jeder Fehlversuch zählt genau 24 h, keine erfolgreiche Anmeldung setzt ihn zurück
+    this.db.lauf('INSERT INTO login_konto_fehler (benutzer_id, zeit) VALUES (?, ?)', benutzerId, new Date(jetzt).toISOString());
+    const f = this.kontoFenster(benutzerId, jetzt);
+    const n = f.anzahl;
+    const erster = f.erster;
     const stufe = k ? k.sperren : 0;
     const sperren = n >= KONTO_MAX_FEHLVERSUCHE;
     if (sperren) { this.kontoSperren(benutzerId); return true; }
@@ -355,6 +389,7 @@ class LoginBremse {
     this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, 0, NULL, 1, ?, ?, ?)
       ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = 0, erster = NULL, gesperrt = 1, gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
     benutzerId, new Date(jetzt).toISOString(), stufe + 1, bis);
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId); // die Sperre ersetzt das Fenster
   }
 
   /**
@@ -381,6 +416,7 @@ class LoginBremse {
   /** Büro/GF bzw. entsperren.js: Kontosperre und alle kontoweiten Zähler aufheben */
   kontoEntsperren(benutzerId) {
     this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
     this.db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
   }
 
@@ -392,7 +428,7 @@ class LoginBremse {
 
 module.exports = {
   COOKIE, BINDUNG, ERSTELLER_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
-  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler,
+  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse
 };

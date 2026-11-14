@@ -1330,6 +1330,34 @@ CREATE TABLE geraet_schluessel (
   erstellt TEXT NOT NULL
 );
 `
+  },
+  {
+    version: 43,
+    name: '15.12 (G2-019, G2-020): Push-Abo an die Sitzung gebunden; kontoweite Fehlversuche im gleitenden 24-h-Fenster',
+    // push_abo.sitzung_hash = token_hash der Sitzung, die das Abo angelegt hat. Endet die Sitzung (Abmelden, Ablauf, Rotation,
+    // Bindungsfehler, Deaktivierung, Sperre, PIN-/2FA-Reset …), löscht der Trigger ihre Abos – gleich, welcher Code die Sitzung löscht.
+    // Bestehende Abos haben keine Sitzung und werden entfernt; die Geräte schalten Push nach der nächsten Anmeldung neu ein.
+    // login_konto_fehler: je Fehlversuch eine Zeile; es zählen die der letzten 24 h. Der Bestand wird mit dem Zeitpunkt
+    // des ersten Fehlversuchs übernommen (läuft damit frühestens ab).
+    sql: `
+ALTER TABLE push_abo ADD COLUMN sitzung_hash TEXT;
+CREATE INDEX push_abo_sitzung ON push_abo(sitzung_hash);
+DELETE FROM push_abo;
+CREATE TRIGGER sitzung_ende_push AFTER DELETE ON sitzung BEGIN
+  DELETE FROM push_abo WHERE sitzung_hash = OLD.token_hash;
+END;
+CREATE TABLE login_konto_fehler (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  zeit TEXT NOT NULL
+);
+CREATE INDEX login_konto_fehler_benutzer ON login_konto_fehler(benutzer_id, zeit);
+WITH RECURSIVE z(b, e, i, n) AS (
+  SELECT benutzer_id, erster, 1, fehlversuche FROM login_konto WHERE gesperrt = 0 AND erster IS NOT NULL AND fehlversuche > 0 AND benutzer_id IN (SELECT id FROM benutzer)
+  UNION ALL SELECT b, e, i + 1, n FROM z WHERE i < n AND i < 100
+)
+INSERT INTO login_konto_fehler (benutzer_id, zeit) SELECT b, e FROM z;
+`
   }
 ];
 

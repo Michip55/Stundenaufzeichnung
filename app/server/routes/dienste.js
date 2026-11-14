@@ -30,10 +30,12 @@ module.exports = function diensteRouten(api, bt) {
     if (!/^[A-Za-z0-9_-]+=*$/.test(p256dh) || !/^[A-Za-z0-9_-]+=*$/.test(auth)) throw ungueltig('keys müssen Base64url sein.');
     const geraet = body.geraet == null ? null : v.text(body.geraet, 'geraet', { max: 100, pflicht: false });
     const ich = req.ctx.benutzer.id;
+    // 15.12 (G2-019): das Abo gehört zur Sitzung, die es anlegt – endet sie, endet das Abo (Trigger sitzung_ende_push)
+    const sitzung = require('../auth').sha256(req.token);
     const alt = db.eins('SELECT id FROM push_abo WHERE endpoint = ?', endpoint);
     db.transaktion(() => {
-      if (alt) db.lauf('UPDATE push_abo SET benutzer_id = ?, p256dh = ?, auth = ?, geraet = ?, fehler = NULL WHERE id = ?', ich, p256dh, auth, geraet, alt.id);
-      else db.lauf('INSERT INTO push_abo (benutzer_id, endpoint, p256dh, auth, geraet, erstellt) VALUES (?, ?, ?, ?, ?, ?)', ich, endpoint, p256dh, auth, geraet, jetzt());
+      if (alt) db.lauf('UPDATE push_abo SET benutzer_id = ?, p256dh = ?, auth = ?, geraet = ?, fehler = NULL, sitzung_hash = ? WHERE id = ?', ich, p256dh, auth, geraet, sitzung, alt.id);
+      else db.lauf('INSERT INTO push_abo (benutzer_id, endpoint, p256dh, auth, geraet, erstellt, sitzung_hash) VALUES (?, ?, ?, ?, ?, ?, ?)', ich, endpoint, p256dh, auth, geraet, jetzt(), sitzung);
       const ueber = db.alle('SELECT id FROM push_abo WHERE benutzer_id = ? ORDER BY erstellt DESC, id DESC', ich).slice(10);
       for (const u of ueber) db.lauf('DELETE FROM push_abo WHERE id = ?', u.id);
     });

@@ -123,6 +123,7 @@ function createApp(opt = {}) {
     sicher('Rechnungen', require('./rechnungen').pruefeRechnungen);
     sicher('Urlaubsanträge', require('./routes/urlaub').pruefeAntraege);
     sicher('Plan-Erinnerung', require('./planer').pruefeErinnerung); // nie automatisch veröffentlichen (12.8c)
+    sicher('Sitzungen', (x) => require('./auth').abgelaufeneSitzungenLoeschen(x.db, x.uhr(), x.sitzung)); // 15.12 (G2-019): samt Push-Abos
     require('./push').anstossen(bt);
   };
   try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }

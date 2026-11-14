@@ -31,9 +31,11 @@ test('15.5 F-014: Push-Abos enden mit Abmelden, PIN-/2FA-Reset, Deaktivierung, R
   const gf = await s.login(U.gf);
 
   await t.test('Abmelden mit endpoint löscht das Abo DIESES Geräts (andere Geräte bleiben)', async () => {
+    // je Gerät eine eigene Sitzung (15.12: das Abo gehört zur Sitzung, die es angelegt hat)
     const buero = await s.login(U.buero);
+    const bueroHandy = await s.login(U.buero);
     assert.equal((await buero.post('/push/abo', { endpoint: 'https://tablet1.example.test/push/a', keys: KEYS })).status, 201);
-    assert.equal((await buero.post('/push/abo', { endpoint: 'https://handy.example.test/push/b', keys: KEYS })).status, 201);
+    assert.equal((await bueroHandy.post('/push/abo', { endpoint: 'https://handy.example.test/push/b', keys: KEYS })).status, 201);
     assert.equal((await buero.post('/auth/logout', { endpoint: 'https://tablet1.example.test/push/a' })).status, 200);
     assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = 'https://tablet1.example.test/push/a'").n, 0);
     assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = 'https://handy.example.test/push/b'").n, 1);
