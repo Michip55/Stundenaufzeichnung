@@ -173,7 +173,7 @@ module.exports = function planerRouten(api, bt) {
     }
     const baustellen = [...K.baustellen.values()]
       .filter((b) => !b.intern && sicht(b.id) && (P.PLANBAR.includes(b.phase) || einsaetze.some((e) => e.baustelleId === b.id)))
-      .map((b) => { const pol = b.polier_id ? K.personen.get(b.polier_id) : null; return { id: b.id, kst: b.kst, name: b.name, kurz: b.kurz, polier: pol ? { id: b.polier_id, name: pol.name } : null, phase: b.phase }; })
+      .map((b) => { const pol = b.polier_id ? K.personen.get(b.polier_id) : null; return { id: b.id, kst: b.kst, name: b.name, kurz: b.kurz, polier: pol ? { id: b.polier_id, name: pol.name } : null, phase: require('../bauvorhaben').sichtPhase(req.ctx, b) }; }) // 15.11: ohne Geldphasen
       .sort((a, b) => a.kst.localeCompare(b.kst));
     res.json({ von, bis, tage, baustellen, einsaetze, frei, konflikte, kennzahlen, unveroeffentlicht, serien });
   });
@@ -668,27 +668,32 @@ module.exports = function planerRouten(api, bt) {
     const phase = req.query.phase ? String(req.query.phase) : null;
     const { kalkulationFuer } = require('../daten');
     const { darfKalk } = require('../rechte');
+    // 15.11 (G2-001/G2-023): Phase, Archiv, Filter und Zähler in der Sicht des Aufrufers – ohne Preis-/Kalkulationsrecht keine
+    // Geldphasen (Schlussrechnung, Bezahlt, Archiviert), auch nicht als Filterwert oder Zähler
+    const BV = require('../bauvorhaben');
     const alle = db.alle('SELECT * FROM baustelle WHERE intern = 0 ORDER BY kst').filter((b) => zeitplanSicht(ctx, b));
     const filter = {};
-    for (const b of alle) if (b.phase !== 'archiviert') filter[b.phase] = (filter[b.phase] || 0) + 1;
-    const liste = alle.filter((b) => (archiv ? b.phase === 'archiviert' : b.phase !== 'archiviert')).filter((b) => !phase || b.phase === phase);
+    for (const b of alle) if (!BV.imArchiv(ctx, b)) { const p = BV.sichtPhase(ctx, b); filter[p] = (filter[p] || 0) + 1; }
+    const liste = alle.filter((b) => (archiv ? BV.imArchiv(ctx, b) : !BV.imArchiv(ctx, b))).filter((b) => !phase || BV.sichtPhase(ctx, b) === phase);
     const vonQ = req.query.von ? v.datum(String(req.query.von), 'von') : null;
     const bisQ = req.query.bis ? v.datum(String(req.query.bis), 'bis') : null;
     const bauvorhaben = liste.map((b) => {
       const ab = db.alle('SELECT * FROM plan_abschnitt WHERE baustelle_id = ? ORDER BY von, sortierung, id', b.id).filter((a) => (!vonQ || a.bis >= vonQ) && (!bisQ || a.von <= bisQ)).map(abschnittJson);
       const ph = new Map(db.alle('SELECT phase, MAX(datum) AS d FROM baustelle_phase WHERE baustelle_id = ? GROUP BY phase', b.id).map((x) => [x.phase, x.d]));
       const meilensteine = [];
+      const geld = BV.siehtZahlungsstand(ctx, b);
       for (const [art, d] of [['fertiggestellt', ph.get('fertiggestellt')], ['abgenommen', b.abnahme_datum || ph.get('abgenommen')], ['schlussrechnung', ph.get('schlussrechnung')], ['bezahlt', ph.get('bezahlt')], ['gewaehrleistung', b.gewaehrleistung_bis]]) {
+        if (!geld && BV.GELD_PHASEN.includes(art)) continue; // 15.11: Rechnungs-/Zahlungsmeilensteine nur mit Zahlungsstand
         if (d) meilensteine.push({ art, datum: d, erreicht: d <= heute() });
       }
-      const o = { baustelle: { id: b.id, kst: b.kst, name: b.name, kurz: b.kurz, phase: b.phase }, abschnitte: ab, meilensteine };
+      const o = { baustelle: { id: b.id, kst: b.kst, name: b.name, kurz: b.kurz, phase: BV.sichtPhase(ctx, b) }, abschnitte: ab, meilensteine };
       if (darfKalk(ctx, b)) { try { o.baustelle.leistungsstandProzent = kalkulationFuer(db, b).leistungsstandProzent; } catch (_) { /* egal */ } }
       return o;
     });
     // N-114: Zähler zusätzlich als Liste – der Schlüssel „schlussrechnung“ in `filter` fällt für Rollen ohne preise_sehen dem
     // €-Sicherheitsnetz (Schlüsselname) zum Opfer; die Phase als Wert ist kein €-Feld
     const phasen = Object.entries(filter).map(([phase, anzahl]) => ({ phase, anzahl }));
-    res.json({ bauvorhaben, filter, phasen, archivAnzahl: alle.filter((b) => b.phase === 'archiviert').length });
+    res.json({ bauvorhaben, filter, phasen, archivAnzahl: alle.filter((b) => BV.imArchiv(ctx, b)).length });
   });
   function abschnittFelder(body, teil) {
     const f = {};
@@ -955,9 +960,12 @@ module.exports = function planerRouten(api, bt) {
     const body = v.objekt(req.body);
     let b;
     try { b = Bild.bildPruefen(body.bildBase64); } catch (e) { throw ungueltig(e.message); }
-    const gleich = db.eins('SELECT id FROM plan_fuhre_foto WHERE fuhre_id = ? AND sha256 = ?', f.id, b.sha256);
+    // 15.11 (G2-030): Zusammenführen und Höchstzahl nur über die Belege, die der Aufrufer sieht (N-112: ohne preise_sehen/
+    // stammdaten nur selbst hochgeladene) – nie in ein fremdes, verborgenes Foto zusammenführen, fremde zählen nicht mit
+    const sichtbare = db.alle('SELECT id, sha256, erstellt_von FROM plan_fuhre_foto WHERE fuhre_id = ? ORDER BY id', f.id).filter((x) => Belege.sichtbar(req.ctx, x.erstellt_von));
+    const gleich = sichtbare.find((x) => x.sha256 === b.sha256);
     if (gleich) return res.json({ id: gleich.id, url: `/api/plan/fuhren/${f.id}/foto/${gleich.id}` });
-    if (db.eins('SELECT COUNT(*) AS n FROM plan_fuhre_foto WHERE fuhre_id = ?', f.id).n >= 5) throw ungueltig('Höchstens 5 Fotos je Fuhre.');
+    if (sichtbare.length >= 5) throw ungueltig('Höchstens 5 Fotos je Fuhre.');
     const datei = Bild.speichere(fotoOrdner(), b.mime, b.daten);
     const id = db.transaktion(() => {
       const r = db.lauf('INSERT INTO plan_fuhre_foto (fuhre_id, datei, mime, groesse, sha256, dateiname, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', f.id, datei, b.mime, b.daten.length, b.sha256, Bild.sichererName(body.dateiname, b.mime), jetzt(), req.ctx.benutzer.id);

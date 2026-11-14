@@ -19,7 +19,7 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
     lat: bs.lat, lng: bs.lng
   };
   const mitPreisen = darfPreise(ctx, bs);
-  Object.assign(o, require('../bauvorhaben').phaseFelder(db, bs, mitPreisen)); // API.md 12.15
+  Object.assign(o, require('../bauvorhaben').phaseFelder(db, bs, mitPreisen, ctx)); // API.md 12.15; 15.11: Phase in der Sicht des Aufrufers
   if (detail && (ctx.hat('stammdaten') || ctx.hat('bericht_freigeben'))) { o.agEmail = bs.ag_email; o.berichtMail = bs.bericht_mail === 1; }
   const mitKalk = darfKalk(ctx, bs);
   if (mitPreisen) o.auftragssumme = bs.auftragssumme;
@@ -111,9 +111,12 @@ module.exports = function stammdatenRouten(api, bt) {
     const jahr = q.jahr && /^\d{4}$/.test(String(q.jahr)) ? String(q.jahr) : null;
     const ag = typeof q.auftraggeber === 'string' && q.auftraggeber ? q.auftraggeber.toLowerCase().slice(0, 100) : null;
     const suche = typeof q.suche === 'string' && q.suche ? q.suche.toLowerCase().slice(0, 100) : null;
+    // 15.11 (G2-001/G2-023): Archiv und Jahr in der Sicht des Aufrufers – ohne Zahlungsstand zählt „abgeschlossen“ als Archiv,
+    // das Jahr nie nach Archivierungs- oder Zahlungsdatum
+    const BV = require('../bauvorhaben');
     const liste = db.alle('SELECT * FROM baustelle ORDER BY intern, kst')
-      .filter((bs) => (alleZeigen ? true : archiv ? bs.phase === 'archiviert' : bs.phase !== 'archiviert'))
-      .filter((bs) => !jahr || String(bs.archiviert_am || bs.ende || bs.phase_seit || '').startsWith(jahr))
+      .filter((bs) => (alleZeigen ? true : archiv ? BV.imArchiv(req.ctx, bs) : !BV.imArchiv(req.ctx, bs)))
+      .filter((bs) => !jahr || BV.jahrDatum(req.ctx, bs).startsWith(jahr))
       .filter((bs) => !ag || String(bs.auftraggeber || '').toLowerCase().includes(ag))
       .filter((bs) => !suche || [bs.kst, bs.name, bs.kurz, bs.auftraggeber].some((x) => String(x || '').toLowerCase().includes(suche)))
       .filter((bs) => sichtbar(req.ctx, bs))
@@ -273,7 +276,7 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/baustellen/:id/fremdleistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen (€) sieht, wer das Recht preise_sehen hat.');
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen sieht, wer das Recht preise_sehen hat.'); // 15.11 (G2-015): kein €-Zeichen im Fehlertext
     res.json(db.alle('SELECT * FROM fremdleistung WHERE baustelle_id = ? ORDER BY datum DESC, id DESC', bs.id)
       .map((f) => ({ id: f.id, text: f.text, betrag: f.betrag, datum: f.datum, erstellt: f.erstellt, erstelltVon: f.erstellt_von })));
   });

@@ -240,6 +240,9 @@ async function laufe(browser, g) {
     await toastWeg();
     await stelleAntrag();
     const antragId = (await eigenerAntrag()).id;
+    // 15.11 (G2-017): der Mitarbeiter bekommt eine nicht fortlaufende Kennung; das Büro sieht später die Tabellen-ID
+    pruef(/^p[0-9a-f]{20}$/.test(String(antragId)), `G2-017: Mitarbeiter bekommt eine fortlaufende Abwesenheits-ID (${antragId})`);
+    const antragMa = { benutzerId: ich.benutzer.id, datum: morgen };
     pruef(await page.locator('#abw-offen, [data-entscheid]').count() === 0, 'B-07: Mitarbeiter sieht die Genehmigungsliste');
     await toastWeg();
     await geh('/pin'); await keinEuro('pin');
@@ -614,14 +617,16 @@ async function laufe(browser, g) {
     const [popup] = await Promise.all([context.waitForEvent('page'), page.click('#pdf')]);
     await popup.close();
     // B-07: Büro genehmigt den Antrag des Mitarbeiters; erst dann zählt er im Monat
-    const monatU = async () => { const m = (await api('GET', `/monat?monat=${String((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).datum).slice(0, 7)}`)).json; return (m.mitarbeiter.find((x) => x.name === NAME.mitarbeiter) || {}).u; };
+    const bueroAntragId = (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === antragMa.benutzerId && a.datum === antragMa.datum).id;
+    pruef(typeof bueroAntragId === 'number', 'G2-017: Büro behält die Tabellen-ID');
+    const monatU = async () => { const m = (await api('GET', `/monat?monat=${String((await api('GET', '/abwesenheiten')).json.find((a) => a.id === bueroAntragId).datum).slice(0, 7)}`)).json; return (m.mitarbeiter.find((x) => x.name === NAME.mitarbeiter) || {}).u; };
     const uVor = await monatU();
     await geh('/abwesenheiten');
-    pruef(await page.locator(`#abw-offen li[data-abw="${antragId}"]`).count() === 1, 'B-07: Antrag des Mitarbeiters fehlt in der Genehmigungsliste');
+    pruef(await page.locator(`#abw-offen li[data-abw="${bueroAntragId}"]`).count() === 1, 'B-07: Antrag des Mitarbeiters fehlt in der Genehmigungsliste');
     await ueberlauf('abwesenheiten büro'); await shot('abwesenheiten-buero');
-    await page.click(`#abw-offen li[data-abw="${antragId}"] [data-entscheid="genehmigt"]`);
-    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), antragId);
-    pruef((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).status === 'genehmigt', 'B-07: Genehmigung nicht am Server');
+    await page.click(`#abw-offen li[data-abw="${bueroAntragId}"] [data-entscheid="genehmigt"]`);
+    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), bueroAntragId);
+    pruef((await api('GET', '/abwesenheiten')).json.find((a) => a.id === bueroAntragId).status === 'genehmigt', 'B-07: Genehmigung nicht am Server');
     const uNach = await monatU();
     pruef(uNach === uVor + 1, `B-07: Urlaubstag zählt nicht erst ab Genehmigung (vorher ${uVor}, nachher ${uNach})`);
     await toastWeg();
@@ -1626,6 +1631,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_GERAETEWAHL) {
       console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
       try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {
+      console.log('    Korrekturen G2 (Zahlungsstand, Tafel, gesperrte Bericht-Adresse) …');
+      try { const kg = await require('./korrekturen-g2').laufe(browser, g); r.fehler.push(...kg.fehler); r.schritte += kg.schritte; } catch (e) { r.fehler.push('Abbruch Korrekturen G2: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

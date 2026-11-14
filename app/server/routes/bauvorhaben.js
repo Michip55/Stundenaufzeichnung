@@ -68,7 +68,9 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
     if (!sichtbar(req.ctx, bs)) throw keinZugriff();
     // N-111: Notizen zum Phasenwechsel (oft mit Rechnungsangaben) nur mit Preisrecht für diese Baustelle – sonst fehlt das Feld
     const mitNotiz = req.ctx.hat('preise_sehen') && darfPreise(req.ctx, bs);
-    res.json(db.alle(`SELECT p.*, b.name AS von_name FROM baustelle_phase p LEFT JOIN benutzer b ON b.id = p.von WHERE p.baustelle_id = ? ORDER BY p.zeit, p.id`, bs.id)
+    // 15.11 (G2-001/G2-023): ohne Preis-/Kalkulationsrecht keine Einträge der Geldphasen (Schlussrechnung, Bezahlt, Archiviert, Angebot)
+    const eintraege = db.alle(`SELECT p.*, b.name AS von_name FROM baustelle_phase p LEFT JOIN benutzer b ON b.id = p.von WHERE p.baustelle_id = ? ORDER BY p.zeit, p.id`, bs.id);
+    res.json(BV.verlaufFuer(req.ctx, bs, eintraege)
       .map((p) => ({ phase: p.phase, phaseName: BV.PHASE_NAMEN[p.phase], von: p.von ? { id: p.von, name: p.von_name } : null, zeit: p.zeit, datum: p.datum, ...(mitNotiz ? { notiz: p.notiz || '' } : {}) })));
   });
 

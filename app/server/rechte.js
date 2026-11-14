@@ -192,6 +192,16 @@ function darfBenutzerVerwalten(ctx, zielRolle) {
   return ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
 }
 
+/**
+ * 15.5 (F-050/F-051): Verwaltungsstufe eines Kontos – 3 = Geschäftsführung (bzw. Recht „benutzer“), 2 = Büro/Bauleiter
+ * (bzw. Recht „stammdaten“), 1 = alle anderen. Zählt die höhere aus Rolle und tatsächlichen Rechten.
+ */
+function verwaltungsStufe(rolle, rechte) {
+  if (rolle === 'gf' || rechte.has('benutzer')) return 3;
+  if (['buero', 'bauleiter'].includes(rolle) || rechte.has('stammdaten')) return 2;
+  return 1;
+}
+
 /** Aktive Konten, die gesperrte GF-/Büro-Konten entsperren können (D-01): GF und Büro mit stammdaten */
 function entsperrKonten(db) {
   return db.alle("SELECT * FROM benutzer WHERE aktiv = 1 AND rolle IN ('gf','buero','bauleiter')")
@@ -210,7 +220,7 @@ function eigeneBaustellenIds(db, benutzer) {
   return alle.filter((b) => baustelleImBereich(benutzer, b)).map((b) => b.id);
 }
 
-module.exports = { BUERO_ROLLEN,
+module.exports = { BUERO_ROLLEN, verwaltungsStufe,
   ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, PREIS_LOHN_RECHTE,
   istGesperrt, istImmer, effektiveRechte, bereich, baustelleImBereich, darfPreise, darfKalk,
   EURO_FELDER, KALK_FELDER, entferneEuroFelder, findeEuroFelder,

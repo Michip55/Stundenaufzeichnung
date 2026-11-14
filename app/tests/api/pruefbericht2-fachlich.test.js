@@ -153,7 +153,14 @@ test('C-01, C-03, C-10: Lohn ohne Doppelzählung, Bericht-Korrektur gilt, Zeitum
     let r = await pol.putV(`/berichte/${bericht1}`, { personal: [...basis, { benutzerId: 9, von1: '07:00', bis1: '15:00' }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /gehört nicht zur Partie/);
+    // 15.11 (G2-016): der Polier (ohne stammdaten/lohn) erfährt Zeiten und Baustelle einer anderen Person nicht – die Zeile
+    // wird gespeichert, das Büro bekommt den Hinweis; das Büro selbst wird mit Baustelle und Zeiten abgelehnt (wie bisher)
     r = await pol.putV(`/berichte/${bericht1}`, { personal: [...basis, { benutzerId: 9, von1: '07:00', bis1: '15:00', gast: true }] });
+    assert.equal(r.status, 200, JSON.stringify(r.daten));
+    assert.ok(!/26-038|gestempelt/.test(JSON.stringify(r.daten)));
+    for (let i = 0; i < 100 && !s.db.eins("SELECT 1 AS x FROM benachrichtigung WHERE benutzer_id = ? AND schluessel = ?", U.buero, `bericht-ueberschneidung:${bericht1}:9`); i++) await new Promise((x) => setTimeout(x, 10));
+    assert.ok(s.db.eins("SELECT 1 AS x FROM benachrichtigung WHERE benutzer_id = ? AND schluessel = ?", U.buero, `bericht-ueberschneidung:${bericht1}:9`), 'Hinweis an das Büro');
+    r = await buero.putV(`/berichte/${bericht1}`, { personal: [...basis, { benutzerId: 9, von1: '07:00', bis1: '15:00', gast: true }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /07:00 bis 15:00 auf Baustelle 26-038 gestempelt/);
     r = await pol.putV(`/berichte/${bericht1}`, { personal: [...basis, { benutzerId: U.gf, von1: '07:00', bis1: '12:00', gast: true }] });
@@ -167,7 +174,12 @@ test('C-01, C-03, C-10: Lohn ohne Doppelzählung, Bericht-Korrektur gilt, Zeitum
     const b2 = await pol8.post('/berichte', { baustelleId: BS.kogler, datum: '2026-12-14' });
     const p9 = b2.daten.personal.find((p) => p.benutzerId === 9);
     assert.deepEqual([p9.von1, p9.bis1, p9.stunden], ['07:00', '15:00', 8]);
+    // 15.11 (G2-016): Polier ohne Auskunft (gespeichert, Hinweis ans Büro) – Büro mit genauer Ablehnung
     r = await pol8.putV(`/berichte/${b2.daten.id}`, { personal: b2.daten.personal.map((p) => (p.benutzerId === 9 ? { ...p, bis1: '17:00' } : p)) });
+    assert.equal(r.status, 200, JSON.stringify(r.daten));
+    assert.ok(!/26-041|bereits im Bericht/.test(JSON.stringify(r.daten)));
+    assert.equal((await pol8.putV(`/berichte/${b2.daten.id}`, { personal: b2.daten.personal })).status, 200);
+    r = await buero.putV(`/berichte/${b2.daten.id}`, { personal: b2.daten.personal.map((p) => (p.benutzerId === 9 ? { ...p, bis1: '17:00' } : p)) });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /bereits im Bericht von Baustelle 26-041/);
   });

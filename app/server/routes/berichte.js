@@ -246,6 +246,13 @@ function pruefePersonal(db, liste, kontext) {
     if (segStunden > stunden) throw ungueltig(`${f}: SEG-Stunden dürfen die Arbeitsstunden nicht übersteigen.`);
     // C-01: Überschneidungen
     const zeilenIv = bloeckeAlsZeitpunkte(datum, z);
+    // 15.11 (G2-016): ohne stammdaten/lohn verrät die Prüfung bei ANDEREN Personen weder Baustelle noch Zeiten noch (über
+    // „kein Fehler“) eine Abwesenheit – die Zeile wird gespeichert, die Überschneidung klärt das Büro (wie 15.2 Kolonne)
+    const nurMelden = ohneSicht && benutzerId !== kontext.ctx.benutzer.id;
+    const ueberschneidung = (text) => {
+      if (!nurMelden) throw ungueltig(text);
+      if (kontext.ueberschneidungen && !kontext.ueberschneidungen.some((x) => x.benutzerId === benutzerId)) kontext.ueberschneidungen.push({ benutzerId, name: person.name });
+    };
     if (zeilenIv.length) {
       for (const sch of eigene) {
         for (const x of sch.intervalle) {
@@ -253,7 +260,7 @@ function pruefePersonal(db, liste, kontext) {
           if (x.art !== 'arbeit' || (x.baustelleId === bs.id && sch.datum === datum)) continue;
           if (zeilenIv.some((r) => iv(r, [x.von, x.bis]) > 0)) {
             const kst = (db.eins('SELECT kst FROM baustelle WHERE id = ?', x.baustelleId) || {}).kst || '?';
-            throw ungueltig(`${f}: ${person.name} ist von ${hmZ(x.von)} bis ${hmZ(x.bis)} auf Baustelle ${kst} gestempelt${sch.datum !== datum ? ` (Schicht vom ${sch.datum.split('-').reverse().join('.')})` : ''} – die Zeiten überschneiden sich.`);
+            ueberschneidung(`${f}: ${person.name} ist von ${hmZ(x.von)} bis ${hmZ(x.bis)} auf Baustelle ${kst} gestempelt${sch.datum !== datum ? ` (Schicht vom ${sch.datum.split('-').reverse().join('.')})` : ''} – die Zeiten überschneiden sich.`);
           }
         }
       }
@@ -261,12 +268,32 @@ function pruefePersonal(db, liste, kontext) {
           JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ?`, benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)) {
         const oIv = bloeckeAlsZeitpunkte(o.datum, o); // D-03: echte Zeitpunkte des jeweiligen Berichtstags
         if (zeilenIv.some((r) => oIv.some((x) => iv(r, x) > 0))) {
-          throw ungueltig(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
+          ueberschneidung(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
         }
       }
     }
     return { benutzerId, ...z, pauseMin, stunden: r2(stunden), code, segStunden, gast: gast && !partie && !gestempeltHier, name: person.name };
   });
+}
+
+/**
+ * 15.11 (G2-016): Überschneidung einer fremden Zeile, die ein Aufrufer ohne stammdaten/lohn gespeichert hat → Hinweis an alle,
+ * die Berichte freigeben und stammdaten oder lohn haben (Büro, Bauleiter, GF über ihre Rechte) – nie an Polier/Mitarbeiter.
+ */
+function meldeUeberschneidung(bt, b, von, liste) {
+  try {
+    const { db } = bt;
+    const zeit = bt.uhr().toISOString();
+    const empf = empfaengerMitRecht(db, ['stammdaten|lohn', 'bericht_freigeben']).filter((e) => !PERSONAL_ROLLEN.includes(e.rolle));
+    const tag = b.datum.split('-').reverse().join('.');
+    for (const x of liste) {
+      for (const e of empf) {
+        benachrichtige(db, { benutzerId: e.id, typ: 'bericht', titel: 'Zeiten überschneiden sich', text: `Bautagesbericht ${b.baustelle.kst} vom ${tag}: Die Zeiten von ${x.name} überschneiden sich mit einer anderen Buchung (eingetragen von ${von.name}) – bitte klären.`, zeit, baustelleId: b.baustelle.id, schluessel: `bericht-ueberschneidung:${b.id}:${x.benutzerId}`, erfordert: ['lohn|stammdaten'] });
+      }
+    }
+  } catch (e) {
+    console.error('Hinweis „Zeiten überschneiden sich“ nicht gespeichert:', e && e.message); // eslint-disable-line no-console
+  }
 }
 
 function pruefeUpdate(db, body, kontext) {
@@ -463,7 +490,13 @@ module.exports = function berichtRouten(api, bt) {
     if (datum > heute) throw ungueltig('Ein Bericht kann nicht für ein zukünftiges Datum angelegt werden.');
     if (datum < plusTage(heute, -366)) throw ungueltig('Das Datum liegt mehr als ein Jahr zurück.');
     // API.md 12.15: nach Bauende/Archiv keine neuen Berichte (Tage bis zum Phasenwechsel bleiben möglich)
-    if (bs.status === 'abgeschlossen' && (['archiviert', 'storniert'].includes(bs.phase) || !bs.phase_seit || datum > bs.phase_seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${require('../bauvorhaben').PHASE_NAMEN[bs.phase] || bs.phase}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
+    // 15.11 (G2-001/G2-023): ohne Zahlungsstand weder der Name der Geldphase im Text noch ihr Datum als Grenze (sonst ließe sich
+    // das Datum der Schlussrechnung/Zahlung durch Probieren erfragen) – Grenze ist dann das Datum der letzten Bauphase
+    const BV = require('../bauvorhaben');
+    const sicht = BV.siehtZahlungsstand(req.ctx, bs);
+    const seit = sicht || BV.neutralePhase(bs) === bs.phase ? bs.phase_seit
+      : (db.eins(`SELECT MAX(datum) AS d FROM baustelle_phase WHERE baustelle_id = ? AND phase NOT IN (${BV.GELD_PHASEN.map(() => '?').join(', ')})`, bs.id, ...BV.GELD_PHASEN) || {}).d || bs.abnahme_datum || null;
+    if (bs.status === 'abgeschlossen' && (['archiviert', 'storniert'].includes(bs.phase) || !seit || datum > seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${BV.phaseName(BV.sichtPhase(req.ctx, bs))}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
     const vorhanden = db.eins('SELECT id FROM bericht WHERE baustelle_id = ? AND datum = ?', baustelleId, datum);
     if (vorhanden) throw konflikt('Für diese Baustelle und diesen Tag gibt es bereits einen Bericht.', { id: vorhanden.id });
     const zeit = jetzt();
@@ -491,7 +524,8 @@ module.exports = function berichtRouten(api, bt) {
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const body = v.objekt(req.body);
     pruefeBerichtVersion(body, b, true);
-    const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr(), ctx: req.ctx });
+    const ueberschneidungen = []; // 15.11 (G2-016): Überschneidungen fremder Zeilen ohne stammdaten/lohn → Klärung beim Büro
+    const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr(), ctx: req.ctx, ueberschneidungen });
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
     // Datenschutz (API.md 13.2, 15.1): wer fremde Abwesenheiten nicht sieht, kann sie weder löschen noch ändern –
     // verborgene Zeilen und Codes bleiben serverseitig erhalten; Konflikte sieht nur das Büro (abwesenheitHinweise, Protokoll)
@@ -507,7 +541,12 @@ module.exports = function berichtRouten(api, bt) {
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `${p.name} als Gast (nicht Partie, nicht gestempelt) in Bericht ${b.baustelle.kst} ${b.datum} eingetragen` });
       }
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Bericht ${b.baustelle.kst} ${b.datum} bearbeitet: ${Object.keys(u).join(', ')}` });
+      for (const x of ueberschneidungen) {
+        db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Bericht ${b.baustelle.kst} ${b.datum}: Zeiten von ${x.name} überschneiden sich mit einer anderen Buchung – bitte klären` });
+      }
     });
+    // Hinweis erst NACH der Antwort (Antwort und Laufzeit hängen nicht davon ab, ob es eine Überschneidung gab)
+    if (ueberschneidungen.length) setImmediate(() => meldeUeberschneidung(bt, b, req.ctx.benutzer, ueberschneidungen));
     const o = berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id));
     // Servicebuch (API.md 11.4): Hinweis auf gesperrte Anlagen – Speichern wird nicht verhindert
     o.hinweise = [];

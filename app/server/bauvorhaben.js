@@ -6,6 +6,7 @@ const { ungueltig, konflikt, keinZugriff } = require('./fehler');
 const { wienDatum, plusTage, istDatum } = require('./datum');
 const { parseJson } = require('./daten');
 const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
+const { darfPreise, darfKalk } = require('./rechte');
 
 const PHASEN = ['angebot', 'geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert', 'storniert'];
 const PHASE_NAMEN = {
@@ -39,11 +40,73 @@ function phaseAusStatus(status) {
 // 15.4 (F-016/F-021): Phasen/Lebenslauf allein mit dem Recht stammdaten – nie nach Rollenname oder bauleiterId (13.1)
 const istPlaner = (ctx) => ctx.hat('stammdaten');
 
+/*
+ * 15.11 (G2-001/G2-023, Inhaberregel 2): Rechnungs- und Zahlungsstand. Die Phasen „Schlussrechnung gelegt“, „Bezahlt“ und
+ * „Archiviert“ (nach der Zahlung) sowie „Angebot“ sind Geld-/Vertragsstand. Wer für die Baustelle weder preise_sehen noch
+ * kalk_sehen hat (Polier, Mitarbeiter – auch mit Ausnahmen), sieht nur die Bauphasen geplant, in Arbeit, pausiert,
+ * fertiggestellt, abgenommen, storniert; alles nach der Abnahme heißt neutral „abgeschlossen“ – ohne Datum der Geldphase.
+ * EINE Regel für Baustellen-JSON, Phasenverlauf, Tafel, Zeitplan, Archiv, Filter/Zähler und Fehlertexte.
+ */
+const NEUTRAL = 'abgeschlossen';
+const NEUTRAL_NAME = 'Abgeschlossen';
+/** Phasen, die ohne Preis-/Kalkulationsrecht nie (auch nicht im Verlauf) erscheinen */
+const GELD_PHASEN = ['angebot', 'schlussrechnung', 'bezahlt', 'archiviert'];
+/** Sieht ctx den Rechnungs-/Zahlungsstand dieser Baustelle? (Recht preise_sehen oder kalk_sehen; ohne ctx nie) */
+function siehtZahlungsstand(ctx, bs) {
+  return Boolean(ctx && ctx.rechte && typeof ctx.rechte.has === 'function') && (darfPreise(ctx, bs) || darfKalk(ctx, bs));
+}
+/** Neutrale Phase ohne Geldstand */
+function neutralePhase(bs) {
+  if (bs.phase === 'angebot') return 'geplant';
+  if (bs.phase === 'schlussrechnung' || bs.phase === 'bezahlt') return NEUTRAL;
+  if (bs.phase === 'archiviert') return bs.phase_vor_archiv === 'storniert' ? 'storniert' : NEUTRAL;
+  return bs.phase;
+}
+/** Phase, wie ctx sie sieht */
+function sichtPhase(ctx, bs) { return siehtZahlungsstand(ctx, bs) ? bs.phase : neutralePhase(bs); }
+/** Name einer (auch neutralen) Phase */
+const phaseName = (p) => (p === NEUTRAL ? NEUTRAL_NAME : PHASE_NAMEN[p] || p);
+/**
+ * Steht die Baustelle für ctx im Archiv („Abgeschlossene Bauvorhaben“)? Mit Zahlungsstand: Phase archiviert. Ohne: jede
+ * neutral abgeschlossene Baustelle (Schlussrechnung, Bezahlt, Archiviert) und archivierte stornierte – so verrät der Wechsel
+ * zwischen laufender Liste und Archiv nie, ob bezahlt oder archiviert wurde.
+ */
+function imArchiv(ctx, bs) {
+  if (siehtZahlungsstand(ctx, bs)) return bs.phase === 'archiviert';
+  return neutralePhase(bs) === NEUTRAL || bs.phase === 'archiviert';
+}
+/** „seit“-Datum der Phase für ctx – ohne Zahlungsstand bei neutraler Phase kein Datum (es wäre das Datum der Geldphase) */
+function phaseSeitFuer(ctx, bs) {
+  return siehtZahlungsstand(ctx, bs) || neutralePhase(bs) === bs.phase ? bs.phase_seit : null;
+}
+/** Datum für den Jahresfilter des Archivs – ohne Zahlungsstand nie Archivierungs-/Zahlungsdatum */
+function jahrDatum(ctx, bs) {
+  if (siehtZahlungsstand(ctx, bs)) return String(bs.archiviert_am || bs.ende || bs.phase_seit || '');
+  return String(bs.ende || bs.abnahme_datum || phaseSeitFuer(ctx, bs) || '');
+}
+/**
+ * Phasenverlauf für ctx: ohne Zahlungsstand fallen Einträge der Geldphasen weg (auch „Archiv aufgehoben“ zurück auf eine
+ * Geldphase); dadurch doppelte aufeinanderfolgende Einträge (z. B. abgenommen → [Schlussrechnung] → abgenommen) werden
+ * zusammengefasst, damit kein Zwischenschritt erkennbar bleibt.
+ */
+function verlaufFuer(ctx, bs, eintraege) {
+  if (siehtZahlungsstand(ctx, bs)) return eintraege;
+  const aus = [];
+  for (const e of eintraege) {
+    if (GELD_PHASEN.includes(e.phase)) continue;
+    if (aus.length && aus[aus.length - 1].phase === e.phase) continue;
+    aus.push(e);
+  }
+  return aus;
+}
+
 /** Felder für das Baustellen-JSON (ohne €; € ergänzt der Aufrufer mit Preisrecht) */
-function phaseFelder(db, bs, mitPreisen) {
+function phaseFelder(db, bs, mitPreisen, ctx = null) {
   const fm = parseJson(bs.fertigmeldung, null);
+  // 15.11: ohne ctx (Server-intern) wie bisher; mit ctx die Sicht des Aufrufers
+  const p = ctx ? sichtPhase(ctx, bs) : bs.phase;
   const o = {
-    phase: bs.phase, phaseName: PHASE_NAMEN[bs.phase], phaseSeit: bs.phase_seit, archiviert: bs.phase === 'archiviert',
+    phase: p, phaseName: phaseName(p), phaseSeit: ctx ? phaseSeitFuer(ctx, bs) : bs.phase_seit, archiviert: ctx ? imArchiv(ctx, bs) : bs.phase === 'archiviert',
     abnahmeDatum: bs.abnahme_datum, gewaehrleistungBis: bs.gewaehrleistung_bis
   };
   if (fm) {
@@ -164,4 +227,4 @@ function pruefeBauvorhaben(bt) {
   }
 }
 
-module.exports = { pruefePhaseRecht, PHASEN, PHASE_NAMEN, UEBERGAENGE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };
+module.exports = { pruefePhaseRecht, PHASEN, PHASE_NAMEN, NEUTRAL, GELD_PHASEN, siehtZahlungsstand, neutralePhase, sichtPhase, phaseName, imArchiv, phaseSeitFuer, jahrDatum, verlaufFuer, UEBERGAENGE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };

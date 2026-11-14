@@ -62,6 +62,7 @@ function createApp(opt = {}) {
   const uhr = erzeugeUhr(opt.uhr !== undefined ? opt.uhr : process.env.BAUTAG_UHR);
   const db = opt.db || oeffneDatenbank(dbPath);
   db.uhr = uhr; // für Hilfsfunktionen ohne bt (z. B. Anlagenstatus im Bericht)
+  require('./oeffentlich').geheimnis(db); // 15.11 (G2-017): Geheimnis der öffentlichen Kennungen gleich beim Start anlegen
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
@@ -320,7 +321,8 @@ function createApp(opt = {}) {
   app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     if (err instanceof ApiFehler) {
       if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
-      return res.status(err.status).json({ fehler: err.message, code: err.code, ...(err.extra || {}) });
+      const g = require('./fehler').geldfreierFehler(req.ctx, err.status, err.message, err.extra); // 15.11 (G2-015)
+      return res.status(err.status).json({ fehler: g.text, code: err.code, ...(g.extra || {}) });
     }
     if (err && /UNIQUE constraint failed/.test(String(err.message))) return res.status(409).json({ fehler: 'Der Eintrag ist bereits vorhanden (doppelter Wert).', code: 'KONFLIKT' });
     if (err && err.type === 'entity.parse.failed') return res.status(400).json({ fehler: 'Ungültiges JSON.', code: 'UNGUELTIG' });

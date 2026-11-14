@@ -36,15 +36,17 @@ function fotoSpeichern(bt, req, b, body, art = 'foto') {
   const { db } = bt;
   let bild;
   try { bild = Bild.bildPruefen(body.bildBase64); } catch (e) { throw ungueltig(e.message); }
-  const gleich = db.eins('SELECT * FROM bericht_foto WHERE bericht_id = ? AND sha256 = ?', b.id, bild.sha256);
+  // 15.11 (G2-030): Zusammenführen und Höchstzahl nur über die Fotos, die der Aufrufer sieht – ein fremd hochgeladener
+  // Lieferschein (N-112) ist für ihn nicht vorhanden: kein 409, keine Zusammenführung, er zählt nicht mit; ein gleiches Bild
+  // wird als eigene Kopie gespeichert (dieselbe Antwort wie für ein neues Bild)
+  const sichtbare = db.alle('SELECT * FROM bericht_foto WHERE bericht_id = ? ORDER BY id', b.id).filter((f) => Belege.berichtFotoSichtbar(req.ctx, f));
+  const gleich = sichtbare.find((f) => f.sha256 === bild.sha256);
   // N-116: gleiches Bild nur innerhalb derselben Art zusammenführen – sonst 409 (keine fremde Art zurückgeben)
-  // N-112: ein fremd hochgeladener Lieferschein bleibt unsichtbar – auch nicht als „bestehendes Foto“ zurückgeben
-  if (gleich && !Belege.berichtFotoSichtbar(req.ctx, gleich)) throw konflikt('Dieses Bild liegt schon beim Bericht – bitte ein anderes Foto wählen.');
   if (gleich && gleich.art !== art) throw konflikt(`Dieses Bild liegt schon als ${ART_NAME[gleich.art] || gleich.art} beim Bericht – bitte ein anderes Foto wählen.`, { fotoId: gleich.id, art: gleich.art });
   if (gleich) return { foto: gleich, neu: false };
   if (art === 'papier') {
-    if (db.eins("SELECT COUNT(*) AS n FROM bericht_foto WHERE bericht_id = ? AND art = 'papier'", b.id).n >= MAX_PAPIER) throw ungueltig(`Höchstens ${MAX_PAPIER} Seiten Papierbericht je Bericht.`);
-  } else if (db.eins("SELECT COUNT(*) AS n FROM bericht_foto WHERE bericht_id = ? AND art <> 'papier'", b.id).n >= MAX_FOTOS) {
+    if (sichtbare.filter((f) => f.art === 'papier').length >= MAX_PAPIER) throw ungueltig(`Höchstens ${MAX_PAPIER} Seiten Papierbericht je Bericht.`);
+  } else if (sichtbare.filter((f) => f.art !== 'papier').length >= MAX_FOTOS) {
     throw ungueltig(`Höchstens ${MAX_FOTOS} Fotos je Bericht.`);
   }
   const beschreibung = body.beschreibung == null ? null : v.text(body.beschreibung, 'beschreibung', { max: 300, pflicht: false });

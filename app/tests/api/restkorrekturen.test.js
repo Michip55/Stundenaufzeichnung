@@ -271,8 +271,11 @@ test('N-112: Lieferschein im Bericht – JSON, Bilddatei, internes und AG-PDF, F
   // fremden Lieferschein weder ändern noch löschen noch per gleichem Bild „zurückbekommen“
   assert.equal((await pol.put(`/berichte/${bid}/fotos/${fremd.daten.foto.id}`, { beschreibung: 'x' })).status, 404);
   assert.equal((await pol.del(`/berichte/${bid}/fotos/${fremd.daten.foto.id}`)).status, 404);
+  // 15.11 (G2-030): ein gleiches Bild wie der fremde Lieferschein ist für den Polier ein neues Bild – eigene Kopie, kein 409
+  // (verriete die Existenz), nie die fremde Foto-ID
   const gleich = await pol.post(`/berichte/${bid}/lieferschein`, { bildBase64: b64(testPng()), dateiname: 'ls.png' });
-  assert.equal(gleich.status, 409);
+  assert.equal(gleich.status, 201, JSON.stringify(gleich.daten));
+  assert.notEqual(gleich.daten.foto.id, fremd.daten.foto.id);
   assert.ok(!JSON.stringify(gleich.daten).includes('LS-FREMD'));
   // PDFs (intern und AG, mit Fotos) – die interne Fassung braucht bericht_freigeben (Ausnahme für den Polier)
   assert.equal((await (await s.login(U.gf)).put('/rechte/ausnahme', { benutzerId: U.polier, recht: 'bericht_freigeben', wert: true })).status, 200);

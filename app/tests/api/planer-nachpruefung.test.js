@@ -334,6 +334,14 @@ test('N-114: Zeitplan-Phasenzähler auch für den Polier (ohne preise_sehen) vol
   s.db.lauf("UPDATE baustelle SET phase = 'schlussrechnung' WHERE id = ?", BS.pitten);
   const pol = await s.login(U.polier);
   const z = (await pol.get('/plan/zeitplan')).daten;
-  assert.ok(z.bauvorhaben.some((b) => b.baustelle.phase === 'schlussrechnung'));
-  assert.ok(z.phasen.some((x) => x.phase === 'schlussrechnung' && x.anzahl === 1), JSON.stringify(z.phasen));
+  // 15.11 (G2-001/G2-023): der Polier sieht den Rechnungsstand nicht – die Baustelle ist für ihn „abgeschlossen“ (Archiv);
+  // Zähler bleiben vollständig: laufende Zähler + Archiv = alle sichtbaren Bauvorhaben
+  assert.ok(!JSON.stringify(z).includes('schlussrechnung'), JSON.stringify(z.phasen));
+  const archiv = (await pol.get('/plan/zeitplan?archiv=1')).daten;
+  assert.deepEqual(archiv.bauvorhaben.map((b) => [b.baustelle.id, b.baustelle.phase]), [[BS.pitten, 'abgeschlossen']]);
+  assert.equal(z.phasen.reduce((a, x) => a + x.anzahl, 0) + z.archivAnzahl, z.bauvorhaben.length + archiv.bauvorhaben.length);
+  // Büro (preise_sehen): Zähler mit „schlussrechnung“ wie bisher
+  const bz = (await (await s.login(U.buero)).get('/plan/zeitplan')).daten;
+  assert.ok(bz.bauvorhaben.some((b) => b.baustelle.phase === 'schlussrechnung'));
+  assert.ok(bz.phasen.some((x) => x.phase === 'schlussrechnung' && x.anzahl === 1), JSON.stringify(bz.phasen));
 });

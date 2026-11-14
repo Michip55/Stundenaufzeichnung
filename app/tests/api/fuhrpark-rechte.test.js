@@ -182,7 +182,8 @@ test('Servicebuch: Rechte je Rolle und Route, nie € für Mitarbeiter/Polier', 
     const basis = { anlageId: 25, art: 'service', datum: '2026-11-12', werkstatt: 'intern', titel: 'Grundplatte gereinigt', zaehler: [{ art: 'bh', anzeige: 1300 }] };
     const r1 = await pfp.post('/fuhrpark/eintraege', { ...basis, kosten: 120 });
     assert.equal(r1.status, 400);
-    assert.match(r1.daten.fehler, /Kosten/);
+    // 15.11 (G2-015): an den Polier kein Fehlertext mit Geldwörtern
+    assert.doesNotMatch(r1.daten.fehler, /Kosten|Preis|€|Euro|Rechnung/i);
     const r2 = await pfp.post('/fuhrpark/eintraege', basis);
     assert.equal(r2.status, 201, JSON.stringify(r2.daten));
     assert.ok(!('kosten' in r2.daten));
@@ -225,7 +226,7 @@ test('Servicebuch: Rechte je Rolle und Route, nie € für Mitarbeiter/Polier', 
     const pfp = c.polierFP;
     const w1 = await pfp.post('/fuhrpark/eintraege', { ...basis, zaehler: [{ art: 'bh', anzeige: 1320 }], rechnungNr: 'RE-X' });
     assert.equal(w1.status, 400);
-    assert.match(w1.daten.fehler, /Rechnungsnummer/);
+    assert.doesNotMatch(w1.daten.fehler, /Rechnung|Preis|€|Kosten/i); // 15.11 (G2-015)
     const w2 = await pfp.post('/fuhrpark/eintraege', { ...basis, zaehler: [{ art: 'bh', anzeige: 1320 }], rechnungNr: '' });
     assert.equal(w2.status, 201);
     const e = (await c.buero.get(`/fuhrpark/eintraege/${r.daten.id}`)).daten;

@@ -222,7 +222,8 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     if (r2.status === 201 && (r2.daten.id === 7777 || s.db.eins('SELECT COUNT(*) AS n FROM benutzer_recht WHERE benutzer_id = ?', r2.daten.id).n)) v.push('POST /benutzer übernimmt id/rechte aus dem Body');
     // Status-Felder in Anträgen, Berichten, Meldungen
     const a = await ma.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2026-12-28', code: 'U', status: 'genehmigt', entschieden: '2026-11-12', entschiedenVon: U.gf });
-    if (a.status < 300 && s.db.eins('SELECT status FROM abwesenheit WHERE id = ?', a.daten.id).status !== 'beantragt') v.push('Mitarbeiter genehmigt eigenen Urlaub per status im Body');
+    // 15.11 (G2-017): die Antwort an den Mitarbeiter trägt keine Tabellen-ID – Eintrag über Person und Tag
+    if (a.status < 300 && s.db.eins("SELECT status FROM abwesenheit WHERE benutzer_id = ? AND datum = '2026-12-28'", U.mitarbeiter).status !== 'beantragt') v.push('Mitarbeiter genehmigt eigenen Urlaub per status im Body');
     const z = await ma.post('/abwesenheiten/zeitraum', { benutzerId: U.mitarbeiter, von: '2026-12-29', bis: '2026-12-30', code: 'U', status: 'genehmigt' });
     if (z.status < 300 && z.daten.status !== 'beantragt') v.push('Mitarbeiter genehmigt eigenen Zeitraum-Antrag per status im Body');
     const be = (await c.polier.get(`/berichte/${F.bericht.bs1}`)).daten;
