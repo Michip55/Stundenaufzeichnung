@@ -7,6 +7,8 @@
 # N-030: Ob gebaut werden muss, entscheidet die Revision, aus der das laufende Image gebaut wurde (Label
 #        org.opencontainers.image.revision), nicht nur „git pull hat etwas gebracht“. Scheitert der Bau,
 #        wird der Programmstand auf den vorigen zurückgesetzt; der nächste Aufruf versucht es erneut.
+#        „Bereits aktuell“ nur, wenn zusätzlich der LAUFENDE Container genau dieses Image verwendet (Image-ID per
+#        docker inspect) – wurde ein Lauf nach dem Bau und vor „up -d“ abgebrochen, startet der nächste das Image.
 # N-031: Die Caddyfile ist als Einzeldatei eingebunden – nach jeder Änderung wird Caddy neu erstellt.
 set -Eeuo pipefail
 
@@ -32,6 +34,21 @@ gebaute_revision() {
   return 0
 }
 
+# Image-ID, mit der der Container „app“ gerade läuft (leer, wenn er nicht läuft)
+laufendes_image() {
+  local c
+  c="$("${COMPOSE[@]}" ps -q app 2>/dev/null | head -n 1 || true)"
+  [[ -n "$c" ]] || return 0
+  docker inspect --format '{{.Image}}' "$c" 2>/dev/null || true
+  return 0
+}
+
+# Image-ID von bautag:aktuell (leer, wenn es fehlt)
+aktuelles_image() {
+  docker image inspect bautag:aktuell --format '{{.Id}}' 2>/dev/null || true
+  return 0
+}
+
 # Läuft Caddy mit der aktuellen Caddyfile? Sonst neu erstellen (ein Neuladen liest die alte Datei weiter).
 caddy_abgleichen() {
   if "${COMPOSE[@]}" exec -T caddy cat /etc/caddy/Caddyfile 2>/dev/null | cmp -s - "$DIR/Caddyfile"; then return 0; fi
@@ -49,21 +66,31 @@ ALT="$(git rev-parse HEAD)"
 GEBAUT="$(gebaute_revision)"
 git pull --ff-only
 NEU="$(git rev-parse HEAD)"
+LAEUFT="$(laufendes_image)"
+BAUEN=1
 if [[ "$GEBAUT" == "$NEU" ]]; then
-  echo "Bereits aktuell ($NEU)."
-  caddy_abgleichen
-  exit 0
-fi
-if [[ "$ALT" == "$NEU" ]]; then
-  echo "Programmstand $NEU ist noch nicht gebaut (laufender Container: ${GEBAUT:-unbekannt}) – wird jetzt gebaut."
+  if [[ -n "$LAEUFT" && "$LAEUFT" == "$(aktuelles_image)" ]]; then
+    echo "Bereits aktuell ($NEU)."
+    caddy_abgleichen
+    exit 0
+  fi
+  # N-030: gebaut, aber nicht gestartet (z. B. Abbruch nach dem Bau) bzw. Container läuft nicht → starten, nicht bauen
+  echo "Programmstand $NEU ist gebaut, läuft aber noch nicht (laufendes Image: ${LAEUFT:-keines}) – wird jetzt gestartet."
+  BAUEN=0
+elif [[ "$ALT" == "$NEU" ]]; then
+  echo "Programmstand $NEU ist noch nicht gebaut (Image: ${GEBAUT:-unbekannt}) – wird jetzt gebaut."
 else
   git log --oneline "$ALT..$NEU" | head -n 20
 fi
 
-echo "==> 3/5 Container bauen (vorige Version bleibt als bautag:vorher)"
-if docker image inspect bautag:aktuell >/dev/null 2>&1; then docker tag bautag:aktuell bautag:vorher; fi
+echo "==> 3/5 Container bauen (laufende Version bleibt als bautag:vorher)"
+# Zurückschalten auf das Image, mit dem der Container läuft – nicht auf ein gebautes, aber nie gestartetes
+if [[ -n "$LAEUFT" ]]; then docker tag "$LAEUFT" bautag:vorher
+elif docker image inspect bautag:aktuell >/dev/null 2>&1; then docker tag bautag:aktuell bautag:vorher; fi
 export BAUTAG_REVISION="$NEU"
-if ! "${COMPOSE[@]}" build app; then
+if [[ "$BAUEN" == 0 ]]; then
+  echo "Bereits gebaut – kein neuer Bau nötig."
+elif ! "${COMPOSE[@]}" build app; then
   echo "FEHLER: Die neue Version ließ sich nicht bauen – die bisherige Version läuft unverändert weiter." >&2
   if [[ "$ALT" != "$NEU" ]]; then git reset --hard "$ALT" >/dev/null; fi
   echo "Programmstand zurückgesetzt auf $ALT. Der nächste Aufruf von update.sh versucht es erneut." >&2
@@ -72,6 +99,8 @@ if ! "${COMPOSE[@]}" build app; then
 fi
 
 echo "==> 4/5 Starten"
+# Läuft der Container schon mit dem neuen Image, ist „up -d“ ohne Wirkung; sonst wird er neu erstellt
+if [[ "$(laufendes_image)" != "$(aktuelles_image)" ]]; then echo "Container wird mit dem neuen Image gestartet."; fi
 if "${COMPOSE[@]}" up -d; then
   echo "==> 5/5 Prüfen"
   if gesund; then
