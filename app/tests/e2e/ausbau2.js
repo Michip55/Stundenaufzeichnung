@@ -359,7 +359,12 @@ async function planer(h, z) {
   /* ---- Mitarbeiter: noch kein Einsatz, Push-Abo (Attrappe) ---- */
   const ichM = await anmelden('mitarbeiter');
   const L = ichM.benutzer.id;
-  pruef((await api('POST', '/push/abo', { endpoint: `https://push.example.test/e2e-${k}-${L}`, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' }, geraet: 'E2E' })).status < 300, 'A2-Plan: Push-Abo (Attrappe) nicht möglich');
+  // 15.12 (G2-019): ein Abo gilt nur, solange die Sitzung lebt, die es angelegt hat. Der Mitarbeiter meldet sich an diesem Gerät
+  // gleich ab – das Abo kommt daher von seinem eigenen Handy (eigene Sitzung, bleibt angemeldet), dorthin gehen die Meldungen.
+  const maHandy = await h.neuerKontext({});
+  const maLogin = await maHandy.request.post(`${h.srv.url}/api/auth/login`, { data: { benutzerId: L, pin: '1234' } });
+  pruef(maLogin.ok(), `A2-Plan: Anmeldung am Handy des Mitarbeiters (${maLogin.status()})`);
+  pruef((await maHandy.request.post(`${h.srv.url}/api/push/abo`, { data: { endpoint: `https://push.example.test/e2e-${k}-${L}`, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' }, geraet: 'E2E' } })).status() < 300, 'A2-Plan: Push-Abo (Attrappe) nicht möglich');
   const st = (await api('GET', '/zeit/status')).json;
   if (st.status !== 'aus') { if (st.status === 'pause') await api('POST', '/zeit/stempeln', { typ: 'pause_ende' }); await api('POST', '/zeit/stempeln', { typ: 'gehen' }); }
   await geh('/einsatz');
@@ -494,6 +499,7 @@ async function planer(h, z) {
   await page.waitForSelector('#tg-stand[data-zustand="veroeffentlicht"]');
   push = (await ausgang()).push.filter((p) => p.benutzerId === L);
   pruef(push.length === pushVorher + 2 && /Geändert/.test(`${push[push.length - 1].title} ${push[push.length - 1].body}`), 'A2-Plan: „Geändert“-Meldung an die betroffene Person fehlt');
+  await maHandy.close();
   await toastWeg();
 
   // 8) Heute: Einsatz für die Stempeluhr-Vorauswahl + Fuhre (Formular), dann veröffentlichen

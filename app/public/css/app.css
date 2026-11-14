@@ -1071,3 +1071,9 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 .geraet-opt input:focus-visible + span { outline: 3px solid rgba(31, 85, 196, .45); outline-offset: 2px; }
 .geraet-info { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; line-height: 1.35; }
 .geraet-wahl.im-menue { margin: 0; padding: 14px 18px; }
+/* 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – deutlich zeigen */
+.geraet-wahl[data-art="eigen"] .geraet-info { background: var(--amber-bg); color: #7a4204; font-weight: 600; padding: 8px 10px; border-radius: 10px; }
+.geraet-hinweis:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--amber-bg); color: #7a4204; border-bottom: 1px solid #f3d58a; }
+.geraet-hinweis > .ic { width: 20px; height: 20px; flex: none; }
+.geraet-hinweis .gh-txt { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; line-height: 1.35; }
+.geraet-hinweis .gh-txt b { font-size: 14.5px; }

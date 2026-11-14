@@ -174,7 +174,9 @@ export const speicher = {
   raeumeBenutzer() {
     // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
     // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art'];
+    // 15.12 (G2-021): bt_geraet_art_benutzer = wer die Gerätewahl getroffen hat (sie gilt nur für diese Person);
+    // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
@@ -188,6 +190,10 @@ export const GERAET_TEXT = {
   eigen: 'Angemeldet bleiben bis zum Abmelden – längstens so lange, wie der Server die Sitzung hält. Nur wählen, wenn sonst niemand dieses Gerät benutzt.',
   geteilt: 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.'
 };
+// 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – bei einer anderen Anmeldung wieder „geteilt“
+export const geraetInfo = (art) => art === 'eigen'
+  ? `${GERAET_TEXT.eigen} Gilt nur für die Person, die es gewählt hat: Meldet sich jemand anderer an, ist das Gerät wieder ein „Geteiltes Gerät“.`
+  : `${GERAET_TEXT.geteilt} Die Wahl gilt für dieses Gerät.`;
 export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '' } = {}) => `
   <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}">
     <legend>${esc(titel)}</legend>
@@ -195,7 +201,7 @@ export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '' }
       <label><input type="radio" class="vh" name="geraet-art" value="eigen" ${art === 'eigen' ? 'checked' : ''}><span>${ic('user')}<b>Eigenes Handy</b><small>nur ich benutze es</small></span></label>
       <label><input type="radio" class="vh" name="geraet-art" value="geteilt" ${art === 'eigen' ? '' : 'checked'}><span>${ic('users')}<b>Geteiltes Gerät</b><small>z. B. Tablet im Bauhof</small></span></label>
     </div>
-    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(GERAET_TEXT[art === 'eigen' ? 'eigen' : 'geteilt'])} Die Wahl gilt für dieses Gerät und bleibt nach dem Abmelden.</p>
+    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt'))}</p>
   </fieldset>`;
 /** Radiogruppe der Gerätewahl in `wurzel` binden; `beiWahl(art)` wird bei jeder Änderung aufgerufen */
 export function bindeGeraetWahl(wurzel, beiWahl) {
@@ -203,7 +209,7 @@ export function bindeGeraetWahl(wurzel, beiWahl) {
     const r = e.target.closest && e.target.closest('input[name="geraet-art"]');
     if (!r) return;
     const box = r.closest('.geraet-wahl'); const art = r.value === 'eigen' ? 'eigen' : 'geteilt';
-    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = `${GERAET_TEXT[art]} Die Wahl gilt für dieses Gerät und bleibt nach dem Abmelden.`; }
+    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art); }
     beiWahl(art);
   });
 }

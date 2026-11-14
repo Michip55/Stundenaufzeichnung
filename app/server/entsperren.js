@@ -19,6 +19,7 @@ function entsperren(db, pnr, jetzt = new Date()) {
   if (!b) throw new Error(`Keine Person mit Personalnummer ${pnr}.`);
   db.transaktion(() => {
     db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', b.id);
+    db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', b.id); // G2-020: gleitendes Fenster
     db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ?', b.id);
     db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', b.id);
     db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Notfall-Entsperrung per Kommandozeile: ${b.name} (Pnr. ${pnr})` });
@@ -68,6 +69,7 @@ function pinZuruecksetzen(db, pnr, jetzt = new Date()) {
     db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', b.id);
     db.lauf('DELETE FROM push_abo WHERE benutzer_id = ?', b.id);
     db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', b.id);
+    db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', b.id); // G2-020: gleitendes Fenster
     db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ?', b.id);
     db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', b.id);
     benachrichtige(db, { benutzerId: b.id, typ: 'sicherheit', titel: 'PIN zurückgesetzt', text: 'Ihre PIN wurde am Server mit dem Notfall-Befehl zurückgesetzt. Bei der nächsten Anmeldung wählen Sie eine neue PIN. Haben Sie das nicht veranlasst, bitte sofort reagieren.', zeit, schluessel: `pin-reset:${b.id}:${zeit}` });

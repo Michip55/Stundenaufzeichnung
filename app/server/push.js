@@ -5,6 +5,7 @@
  */
 const G = require('./geheim');
 const B = require('./benachrichtigung');
+const auth = require('./auth');
 
 const TYPEN = ['budget', 'fuhrpark', 'schaden', 'abwesenheit', 'bericht', 'plan', 'azg', 'sicherheit', 'baustelle', 'rechnung', 'email', 'urlaub'];
 const NUR_VERWALTUNG = ['budget', 'rechnung', 'email'];
@@ -121,6 +122,23 @@ async function sende(bt, abo, daten) {
 }
 
 /**
+ * G2-019: Lebt die Sitzung, die dieses Abo angelegt hat – gleiche Person, Konto aktiv, weder untätig noch über der Höchstdauer
+ * (dieselbe Regel wie beim Laden der Sitzung)? Ohne lebende Sitzung bekommt das Gerät nichts mehr: wer es danach hält,
+ * ist nicht diese Person. Eine abgelaufene, noch nicht aufgeräumte Sitzung wird dabei gelöscht (Trigger löscht ihre Abos).
+ */
+function aboSitzungLebt(bt, abo) {
+  const { db } = bt;
+  if (!abo.sitzung_hash) return false;
+  const s = db.eins('SELECT s.token_hash, s.benutzer_id, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', abo.sitzung_hash);
+  if (!s || s.benutzer_id !== abo.benutzer_id) return false;
+  if (auth.sitzungAbgelaufen(s, bt.uhr(), bt.sitzung || auth.sitzungsKonfig())) {
+    db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash);
+    return false;
+  }
+  return true;
+}
+
+/**
  * An alle Abos eines Benutzers senden → {gesendet, fehler} (+ abgebrochen:true, wenn vorSenden den Versand beendet hat)
  * @param {{vorSenden?: () => boolean}} opt  vorSenden: vor JEDEM Abo erneut prüfen (z. B. Rechte); false → nichts mehr senden
  */
@@ -129,6 +147,8 @@ async function anBenutzer(bt, benutzerId, daten, { vorSenden = null } = {}) {
   let gesendet = 0, fehler = 0, abgebrochen = false;
   for (const a of db.alle('SELECT * FROM push_abo WHERE benutzer_id = ?', benutzerId)) {
     if (vorSenden && !vorSenden()) { abgebrochen = true; break; }
+    // G2-019: vor JEDEM Abo (auch nach dem await des vorigen) prüfen, ob seine Sitzung noch lebt – sonst Abo und Meldung verwerfen
+    if (!aboSitzungLebt(bt, a)) { db.lauf('DELETE FROM push_abo WHERE id = ?', a.id); continue; }
     const r = await sende(bt, a, daten);
     if (r === 'ok') { gesendet++; db.lauf('UPDATE push_abo SET zuletzt = ?, fehler = NULL WHERE id = ?', bt.uhr().toISOString(), a.id); } else if (r === 'weg') db.lauf('DELETE FROM push_abo WHERE id = ?', a.id);
     else { fehler++; db.lauf('UPDATE push_abo SET fehler = ? WHERE id = ?', r, a.id); }
@@ -194,4 +214,4 @@ function anstossen(bt) {
   setImmediate(() => { verteilen(bt).catch(() => {}); });
 }
 
-module.exports = { abosLoeschen, endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };
+module.exports = { aboSitzungLebt, abosLoeschen, endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };
