@@ -1047,7 +1047,9 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 .an-knoepfe { display: flex; flex-wrap: wrap; gap: 6px; } .an-tage summary, .an-erledigt summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0; } .an-tage li { font-size: 13px; padding: 2px 0; } .an-erledigt { border-top: 1px solid var(--line-2); margin-top: 8px; padding-top: 6px; } .ur-seite .an-zeile { padding-left: 0; padding-right: 0; }
 @media (max-width: 719px) { .an-knoepfe .btn { flex: 1 1 auto; min-height: 44px; } }
 
-.dok-kat { position: relative; } .dok-kat-edit { align-self: flex-end; margin: -38px 4px 4px 0; opacity: .5; } .dok-kat-edit:hover, .dok-kat-edit:focus-visible { opacity: 1; } .dok-kat-btn { padding-right: 40px; } .dok-kat-btn b { margin-right: 0; }
-@media (max-width: 899px) { .dok-kat-edit { margin: 0 6px 0 -6px; align-self: center; } .dok-kat-btn { padding-right: 10px; } }
+/* N-099: Kategorie-Zeile als Grid – Name umbricht, Zähler und Stift in eigenen Spalten (kein Überlappen) */
+.dok-kat { position: relative; } .dok-kat-zeile { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; }
+.dok-kat-btn > span { min-width: 0; overflow-wrap: anywhere; } .dok-kat-edit { margin: 0; opacity: .5; } .dok-kat-edit:hover, .dok-kat-edit:focus-visible { opacity: 1; }
+@media (max-width: 899px) { .dok-kat-zeile { flex: none; } .dok-kat-zeile .dok-kat-btn > span { overflow-wrap: normal; } }
 
 .c-abwesend, .c-BU, .c-ZA { background: #eceef1; color: #4a525c; }

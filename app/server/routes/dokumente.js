@@ -35,7 +35,10 @@ module.exports = function dokumentRouten(api, bt) {
     throw keinZugriff('Projektdokumente sehen Büro, GF, Bauleiter und Polier der Baustelle.');
   }
 
-  function json(d, dateien, n, alleVersionen = true) {
+  /** N-050: Rechnung, mit der das Dokument verknüpft ist (auch stornierte – das PDF zeigt Beträge) */
+  const rechnungZu = (dokumentId) => db.eins('SELECT id, nr FROM rechnung WHERE dokument_id = ? ORDER BY id LIMIT 1', dokumentId);
+  function json(d, dateien, n, alleVersionen = true, mitRechnung = false) {
+    const r = mitRechnung ? rechnungZu(d.id) : null;
     const akt = dateien.find((x) => x.nr === d.version) || dateien[dateien.length - 1] || {};
     const url = (x) => `/api/baustellen/${d.baustelle_id}/dokumente/${d.id}/datei?version=${x.nr}`;
     return {
@@ -43,7 +46,8 @@ module.exports = function dokumentRouten(api, bt) {
       version: d.version, dateiname: akt.dateiname, mime: akt.mime, groesse: akt.groesse, url: akt.nr ? url(akt) : null,
       versionen: alleVersionen ? dateien.map((x) => ({ nr: x.nr, dateiname: x.dateiname, mime: x.mime, groesse: x.groesse, erstellt: x.erstellt, erstelltVon: x.erstellt_von ? { id: x.erstellt_von, name: n.get(x.erstellt_von) } : null, notiz: x.notiz || '', url: url(x) })) : undefined,
       erstellt: d.erstellt, erstelltVon: d.erstellt_von ? { id: d.erstellt_von, name: n.get(d.erstellt_von) } : null, geaendert: d.geaendert,
-      ...(d.geloescht_zeit ? { geloescht: { zeit: d.geloescht_zeit, von: d.geloescht_von ? { id: d.geloescht_von, name: n.get(d.geloescht_von) } : null, grund: d.geloescht_grund || '' } } : {})
+      ...(d.geloescht_zeit ? { geloescht: { zeit: d.geloescht_zeit, von: d.geloescht_von ? { id: d.geloescht_von, name: n.get(d.geloescht_von) } : null, grund: d.geloescht_grund || '' } } : {}),
+      ...(r ? { rechnungId: r.id } : {}) // 12.16; nur mit Preisrecht (Inhaberregel 2)
     };
   }
   const dateienVon = (id) => db.alle('SELECT * FROM dokument_datei WHERE dokument_id = ? ORDER BY nr', id);
@@ -91,8 +95,12 @@ module.exports = function dokumentRouten(api, bt) {
   api.post('/dokument-kategorien', (req, res) => {
     if (!req.ctx.hat('benutzer')) throw keinZugriff('Kategorien legt die Geschäftsführung an.');
     const body = v.objekt(req.body);
-    const name = v.text(body.name, 'name', { max: 60 });
-    const schluessel = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || `kat_${Date.now()}`;
+    const name = v.text(body.name, 'name', { max: 60 }).trim();
+    if (name.length < 2) throw ungueltig('name: mindestens 2 Zeichen.');
+    // N-051/N-099: gleicher Name (ohne Groß-/Kleinschreibung) wie im PUT → 409
+    if (namePruefen(name)) throw konflikt('Eine Kategorie mit diesem Namen gibt es bereits.');
+    const schluessel = name.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || `kat_${Date.now()}`;
     if (kategorien().has(schluessel)) throw konflikt('Diese Kategorie gibt es bereits.');
     const fl = katFlags(body, { finanziell: false, polier: false });
     const sort = (db.eins('SELECT MAX(sortierung) AS m FROM dokument_kategorie').m || 0) + 10;
@@ -100,6 +108,11 @@ module.exports = function dokumentRouten(api, bt) {
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `dokument_kategorie:${schluessel}`, neu: { name, ...fl }, text: `Dokumentkategorie „${name}“ angelegt` });
     res.status(201).json({ schluessel, name, ...fl, eigen: true });
   });
+  /** Name schon vergeben? (ohne Groß-/Kleinschreibung, Leerzeichen am Rand egal) */
+  function namePruefen(name, ohne = null) {
+    const n = name.trim().toLocaleLowerCase('de');
+    return db.alle('SELECT schluessel, name FROM dokument_kategorie').some((x) => x.schluessel !== ohne && x.name.trim().toLocaleLowerCase('de') === n);
+  }
   /** Rechte-Flags (finanziell/polier, Aliase enthaeltPreise/polierLesen): enthält Preise → nie für Polier */
   function katFlags(body, alt) {
     const wert = (a, b, feld) => (body[a] !== undefined ? v.bool(body[a], a) : body[b] !== undefined ? v.bool(body[b], b) : alt[feld]);
@@ -116,10 +129,9 @@ module.exports = function dokumentRouten(api, bt) {
   api.put('/dokument-kategorien/:schluessel', (req, res) => {
     const k = katLaden(req);
     const body = v.objekt(req.body);
-    const name = body.name === undefined ? k.name : v.text(body.name, 'name', { max: 60 });
+    const name = body.name === undefined ? k.name : v.text(body.name, 'name', { max: 60 }).trim();
     if (name.length < 2) throw ungueltig('name: mindestens 2 Zeichen.');
-    const andere = db.alle('SELECT schluessel, name FROM dokument_kategorie WHERE schluessel <> ?', k.schluessel);
-    if (andere.some((x) => x.name.toLowerCase() === name.toLowerCase())) throw konflikt('Eine Kategorie mit diesem Namen gibt es bereits.');
+    if (namePruefen(name, k.schluessel)) throw konflikt('Eine Kategorie mit diesem Namen gibt es bereits.');
     const alt = { finanziell: k.finanziell === 1, polier: k.polier === 1 };
     let fl = alt;
     if (k.eigen) fl = katFlags(body, alt);
@@ -127,6 +139,13 @@ module.exports = function dokumentRouten(api, bt) {
       // eingebaute Kategorien: nur der Name; die Rechte (Preise/Polier) sind fest
       const gewollt = katFlags(body, alt);
       if (gewollt.finanziell !== alt.finanziell || gewollt.polier !== alt.polier) throw ungueltig('Bei eingebauten Kategorien lässt sich nur der Name ändern.');
+    }
+    // N-104: „enthält Preise“ abschalten macht vorhandene Dokumente für Rollen ohne Preisrecht sichtbar → nur mit Bestätigung
+    if (alt.finanziell && !fl.finanziell) {
+      const anzahl = db.eins('SELECT COUNT(*) AS n FROM dokument WHERE kategorie = ?', k.schluessel).n;
+      if (anzahl && body.bestaetigtPreisfrei !== true) {
+        throw konflikt(`In „${k.name}“ liegen ${anzahl} Dokument(e), die bisher nur mit Preisrecht sichtbar waren. Ohne „enthält Preise“ werden sie${fl.polier ? ' auch für den Polier' : ''} sichtbar – bitte bestätigen, dass sie keine Preise enthalten (bestaetigtPreisfrei:true).`, { anzahl, bestaetigung: 'bestaetigtPreisfrei' });
+      }
     }
     db.transaktion(() => {
       db.lauf('UPDATE dokument_kategorie SET name = ?, finanziell = ?, polier = ? WHERE schluessel = ?', name, fl.finanziell ? 1 : 0, fl.polier ? 1 : 0, k.schluessel);
@@ -160,7 +179,7 @@ module.exports = function dokumentRouten(api, bt) {
       .filter((d) => zugriff(req.ctx, bs.get(d.baustelle_id), K.get(d.kategorie) || { finanziell: 1 }))
       .filter((d) => !such || [d.titel, d.notiz, d.tags, (K.get(d.kategorie) || {}).name].some((x) => String(x || '').toLowerCase().includes(such)))
       .filter((d) => !tag || JSON.parse(d.tags || '[]').some((t) => t.toLowerCase() === tag))
-      .map((d) => json(d, dateienVon(d.id), n));
+      .map((d) => json(d, dateienVon(d.id), n, true, darfPreise(req.ctx, bs.get(d.baustelle_id))));
   }
 
   api.get('/baustellen/:id/dokumente', (req, res) => {
@@ -180,7 +199,7 @@ module.exports = function dokumentRouten(api, bt) {
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const { d } = laden(req, bs, { geloescht: istVerwaltung(req.ctx) });
-    res.json(json(d, dateienVon(d.id), namen()));
+    res.json(json(d, dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs)));
   });
 
   api.post('/baustellen/:id/dokumente', (req, res) => {
@@ -226,15 +245,28 @@ module.exports = function dokumentRouten(api, bt) {
     pruefeBaustelle(req.ctx, bs);
     const { d, z } = laden(req, bs);
     if (z !== 'schreiben') throw keinZugriff();
-    const f = felder(v.objekt(req.body), true);
+    const body = v.objekt(req.body);
+    const f = felder(body, true);
     if (f.kategorie && zugriff(req.ctx, bs, kategorien().get(f.kategorie)) !== 'schreiben') throw keinZugriff('In diese Kategorie dürfen Sie nicht verschieben.');
+    if (f.kategorie && f.kategorie !== d.kategorie) {
+      // N-050: ein mit einer Rechnung verknüpftes PDF bleibt in „Ausgangsrechnungen“
+      const r = rechnungZu(d.id);
+      if (r) throw konflikt(`Das Dokument ist mit der Rechnung ${r.nr} verknüpft und bleibt in „${(kategorien().get(d.kategorie) || {}).name || d.kategorie}“. Erst die Verknüpfung in der Rechnung lösen.`, { rechnungId: r.id });
+      // N-103: aus einer Kategorie mit Preisen in eine ohne → alle Versionen werden für Rollen ohne Preisrecht sichtbar
+      const von = kategorien().get(d.kategorie) || { finanziell: 1 };
+      const nach = kategorien().get(f.kategorie);
+      if (von.finanziell && !nach.finanziell && body.bestaetigtPreisfrei !== true) {
+        const n = db.eins('SELECT COUNT(*) AS n FROM dokument_datei WHERE dokument_id = ?', d.id).n;
+        throw konflikt(`„${d.titel}“ lag in „${von.name}“ (enthält Preise). In „${nach.name}“ werden alle ${n} Version(en)${nach.polier ? ' auch für den Polier' : ''} sichtbar – bitte bestätigen, dass keine Version Preise enthält (bestaetigtPreisfrei:true).`, { versionen: n, bestaetigung: 'bestaetigtPreisfrei' });
+      }
+    }
     const k = Object.keys(f);
     if (!k.length) throw ungueltig('Keine Änderungen angegeben.');
     db.transaktion(() => {
       db.lauf(`UPDATE dokument SET ${k.map((x) => `${x} = ?`).join(', ')}, geaendert = ? WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), d.id);
-      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, alt: Object.fromEntries(k.map((x) => [x, d[x]])), neu: f, text: `Dokument „${d.titel}“ geändert` });
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, alt: Object.fromEntries(k.map((x) => [x, d[x]])), neu: { ...f, ...(body.bestaetigtPreisfrei === true && f.kategorie !== d.kategorie ? { bestaetigtPreisfrei: true } : {}) }, text: `Dokument „${d.titel}“ geändert` });
     });
-    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen()));
+    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs)));
   });
 
   api.delete('/baustellen/:id/dokumente/:did', (req, res) => {
@@ -243,6 +275,8 @@ module.exports = function dokumentRouten(api, bt) {
     const { d, z } = laden(req, bs);
     if (z !== 'schreiben') throw keinZugriff();
     const grund = req.body && req.body.grund != null ? v.text(req.body.grund, 'grund', { max: 300, pflicht: false }) : null;
+    const r = rechnungZu(d.id); // N-050: verknüpftes Rechnungs-PDF nicht stillschweigend löschen
+    if (r) throw konflikt(`Das Dokument ist mit der Rechnung ${r.nr} verknüpft. Erst die Verknüpfung in der Rechnung lösen, dann löschen.`, { rechnungId: r.id });
     db.transaktion(() => {
       db.lauf('UPDATE dokument SET geloescht_zeit = ?, geloescht_von = ?, geloescht_grund = ? WHERE id = ?', jetzt(), req.ctx.benutzer.id, grund, d.id);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, neu: { geloescht: true, grund }, text: `Dokument „${d.titel}“ gelöscht (wiederherstellbar)` });

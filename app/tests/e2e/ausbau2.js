@@ -953,6 +953,29 @@ async function dokumenteUndRechnungen(h, z) {
   await page.click('#dok-kat-neu'); await page.waitForSelector('dialog[open] #dkk');
   await page.fill('#dkk [name="name"]', `Vermessung ${k}`);
   await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForSelector('#dkk .form-err:not([hidden])'); });
+  // N-099: gleicher Name wie eine eingebaute Kategorie (andere Schreibweise) → abgelehnt, nichts angelegt
+  await page.fill('#dkk [name="name"]', 'pläne');
+  await h.absichtlich(async () => { await page.click('#dkk-ok'); await page.waitForFunction(() => /bereits/.test((document.querySelector('#dkk .form-err') || {}).textContent || '')); });
+  pruef((await api('GET', '/dokument-kategorien')).json.filter((x) => x.name.toLowerCase() === 'pläne').length === 1, 'A2-Dok: zweite Kategorie „Pläne“ angelegt');
+  await page.click('dialog[open] [data-zu]');
+  // N-099: Zähler und Bearbeiten-Stift überlappen nicht
+  {
+    const ueberlapp = await page.evaluate(() => [...document.querySelectorAll('.dok-kat-zeile')].filter((z) => {
+      const a = z.querySelector('.dok-kat-btn b').getBoundingClientRect(), b = z.querySelector('.dok-kat-edit').getBoundingClientRect();
+      return a.width && b.width && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    }).map((z) => z.querySelector('[data-kat]').dataset.kat));
+    pruef(ueberlapp.length === 0, `A2-Dok: Zähler und Bearbeiten-Stift überlappen (${ueberlapp.join(', ')})`);
+  }
+  // N-104: „enthält Preise“ abschalten, solange Dokumente darin liegen → Rückfrage; Abbrechen ändert nichts
+  pruef((await api('POST', `/baustellen/${W}/dokumente`, { kategorie: kKalk.schluessel, titel: `Kalkulation intern ${k}`, dateiBase64: PDF('Kalkulation').toString('base64'), dateiname: 'kalk.pdf' })).status === 201, 'A2-Dok: Dokument in finanzieller eigener Kategorie nicht ablegbar');
+  await page.click(`[data-kat-edit="${kKalk.schluessel}"]`);
+  await page.waitForSelector('dialog[open] #dkk');
+  await page.uncheck('#dkk [name="finanziell"]');
+  await page.click('#dkk-ok');
+  await page.waitForFunction(() => [...document.querySelectorAll('dialog[open] p')].some((p) => /bisher nur mit Preisrecht sichtbar/.test(p.textContent)));
+  await page.locator('dialog[open] [data-zu]').last().click();
+  await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 1);
+  pruef((await api('GET', '/dokument-kategorien')).json.find((x) => x.schluessel === kKalk.schluessel).finanziell === true, 'A2-Dok: „enthält Preise“ ohne Bestätigung abgeschaltet');
   await page.click('dialog[open] [data-zu]');
   // Bearbeiten/Löschen: eigene umbenennen, eingebaute nur umbenennen, löschen nur wenn leer
   await page.click(`[data-kat-edit="${kVerm.schluessel}"]`);
