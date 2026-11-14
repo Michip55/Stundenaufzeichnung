@@ -17,6 +17,20 @@ const ARTEN = {
   },
 };
 
+// Antwort aus dem Modus „Zahlungseingänge“ (je Zeile eine Zahlung) – sonst OP-Liste
+const zahlModus = (v) => v.art === 'zahlungen';
+const STATUS = { offen: 'offen', teilbezahlt: 'teilbezahlt', bezahlt: 'bezahlt', ueberfaellig: 'überfällig', storniert: 'storniert' };
+const st = (x) => esc(STATUS[x] || x || '');
+/** Vorschau der zugeordneten Zeilen (N-024/N-095): je Modus eigene Spalten, Änderung als Text statt true/false */
+function zugeordnetTabelle(v) {
+  const zm = zahlModus(v);
+  const aend = (z) => (z.aenderung === true ? (zm ? 'wird gebucht' : `Zahlung ${fmt.eur(z.betrag)} wird gebucht`) : zm && z.bereitsGebucht ? 'bereits gebucht' : 'keine');
+  const kopf = zm ? '<th>Zeile</th><th>Rechnung</th><th>Zahlungsdatum</th><th class="num">Betrag</th><th class="num">Offen bisher</th><th class="num">Offen neu</th><th>Status</th><th>Änderung</th>'
+    : '<th>Zeile</th><th>Rechnung</th><th class="num">Offen bisher</th><th class="num">Offen neu</th><th>Status</th><th>Änderung</th>';
+  const zeile = (z) => `<tr data-imp-aenderung="${z.aenderung === true ? 'ja' : 'nein'}"><td>${esc(z.zeile ?? '')}</td><td><b>${esc(z.nr)}</b>${z.typ === 'gutschrift' ? ' <small class="muted">Gutschrift</small>' : ''}</td>${zm ? `<td>${esc(z.datum ? fmt.datum(z.datum) : '')}</td><td class="num">${fmt.eur(z.betrag)}</td>` : ''}<td class="num">${fmt.eur(z.alt && z.alt.offen)}</td><td class="num">${fmt.eur(z.neu && z.neu.offen)}</td><td>${st(z.alt && z.alt.status)}${z.aenderung === true ? ` → <b>${st(z.neu && z.neu.status)}</b>` : ''}</td><td>${esc(aend(z))}</td></tr>`;
+  return `<div class="tbl-wrap"><table class="tbl" id="imp-zugeordnet"><thead><tr>${kopf}</tr></thead><tbody>${v.zugeordnet.map(zeile).join('')}</tbody></table></div>`;
+}
+
 export function importAssistent(ctx, art, opt = {}) {
   const A = ARTEN[art];
   let datei = null, b64 = '', zu = null, kopf = [], vorschau = null, schritt = 1, modus = 'op';
@@ -76,8 +90,9 @@ export function importAssistent(ctx, art, opt = {}) {
     const v = vorschau;
     const kern = art === 'bmd-op' ? `
       <div class="chip-row"><span class="chip st-green" data-imp-zugeordnet="${(v.zugeordnet || []).length}">${(v.zugeordnet || []).length} zugeordnet</span><span class="chip ${(v.unbekannt || []).length ? 'st-amber' : 'st-grey'}" data-imp-unbekannt="${(v.unbekannt || []).length}">${(v.unbekannt || []).length} nicht zugeordnet</span>${(v.fehler || []).length ? `<span class="chip st-red">${v.fehler.length} Fehler</span>` : ''}<span class="muted sm">${v.zeilen ?? 0} Zeilen gelesen</span></div>
-      ${(v.zugeordnet || []).length ? `<div class="tbl-wrap"><table class="tbl" id="imp-zugeordnet"><thead><tr><th>Rechnung</th><th class="num">Offen bisher</th><th class="num">Offen neu</th><th>Status</th><th>Änderung</th></tr></thead><tbody>${v.zugeordnet.map((z) => `<tr><td><b>${esc(z.nr)}</b></td><td class="num">${fmt.eur(z.alt && z.alt.offen)}</td><td class="num">${fmt.eur(z.neu && z.neu.offen)}</td><td>${esc((z.alt && z.alt.status) || '')} → <b>${esc((z.neu && z.neu.status) || '')}</b></td><td>${esc(z.aenderung || 'keine')}</td></tr>`).join('')}</tbody></table></div>` : ''}
-      ${(v.unbekannt || []).length ? `<h4 class="sub-h">Nicht zugeordnet – Rechnung in BauTag nicht erfasst</h4><div class="tbl-wrap"><table class="tbl" id="imp-unbekannt"><thead><tr><th>Zeile</th><th>Belegnr.</th><th>Kunde</th><th class="num">Offen</th></tr></thead><tbody>${v.unbekannt.map((u) => `<tr><td>${u.zeile}</td><td>${esc(u.belegnr || '')}</td><td>${esc(u.kunde || '')}</td><td class="num">${fmt.eur(u.offen)}</td></tr>`).join('')}</tbody></table></div>` : ''}`
+      ${(v.zugeordnet || []).length ? zugeordnetTabelle(v) : ''}
+      ${(v.unbekannt || []).length ? `<h4 class="sub-h">Nicht zugeordnet – Rechnung in BauTag nicht erfasst</h4><div class="tbl-wrap"><table class="tbl" id="imp-unbekannt"><thead><tr><th>Zeile</th><th>Belegnr.</th><th>Kunde</th><th class="num">${zahlModus(v) ? 'Betrag' : 'Offen'}</th></tr></thead><tbody>${v.unbekannt.map((u) => `<tr><td>${u.zeile}</td><td>${esc(u.belegnr || '')}</td><td>${esc(u.kunde || '')}</td><td class="num">${fmt.eur(zahlModus(v) ? u.betrag : u.offen)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${(v.uebersprungen || []).length ? `<details class="muted sm" id="imp-uebersprungen"><summary>${v.uebersprungen.length} Zeile${v.uebersprungen.length === 1 ? '' : 'n'} ohne Belegnummer nicht berücksichtigt</summary><ul class="plain">${v.uebersprungen.slice(0, 50).map((x) => `<li>Zeile ${esc(x.zeile)}: ${esc(x.text)}</li>`).join('')}</ul></details>` : ''}`
       : `<div class="chip-row"><span class="chip st-green" data-imp-positionen="${(v.positionen || []).length}">${(v.positionen || []).length} Positionen</span><span class="chip st-outline">LV-Summe ${fmt.eur(v.summe)}</span></div>
       ${(v.warnungen || []).length ? banner('warn', v.warnungen.map((w) => esc(w.text || w)).join('<br>')) : ''}
       ${(v.positionen || []).length ? `<div class="tbl-wrap imp-hoch"><table class="tbl" id="imp-positionen"><thead><tr><th>OZ</th><th>Kurztext</th><th>EH</th><th class="num">Menge</th><th class="num">EP</th><th class="num">GP</th></tr></thead><tbody>${v.positionen.map((p) => `<tr><td>${esc(p.oz || '')}</td><td>${esc(p.kurztext || '')}</td><td>${esc(p.einheit || '')}</td><td class="num">${fmt.zahl(p.menge, 3)}</td><td class="num">${p.ep != null ? fmt.eur(p.ep) : '–'}</td><td class="num">${p.gp != null ? fmt.eur(p.gp) : '–'}</td></tr>`).join('')}</tbody></table></div>
@@ -100,8 +115,15 @@ export function importAssistent(ctx, art, opt = {}) {
   }
   function s4(r) {
     schritt = 4;
-    const n = typeof r.uebernommen === 'number' ? r.uebernommen : art === 'bmd-op' ? (r.zugeordnet || []).length : (r.positionen || []).length;
-    box.innerHTML = `${schritte()}<div id="imp-fertig" data-uebernommen="${n}">${banner('ok', art === 'bmd-op' ? `<b>${n} Rechnung${n === 1 ? '' : 'en'} aktualisiert.</b> Der Zahlungsstand entspricht jetzt der BMD-Liste.` : `<b>${n} LV-Position${n === 1 ? '' : 'en'} als Soll gespeichert.</b>`)}</div>`;
+    // N-024: gezählt wird, was wirklich gebucht wurde (nicht jede zugeordnete Zeile); Text je Modus
+    const geaendert = (r.zugeordnet || []).filter((z) => z.aenderung === true);
+    const n = art === 'bmd-op' ? (typeof r.rechnungenGeaendert === 'number' ? r.rechnungenGeaendert : new Set(geaendert.map((z) => z.rechnungId)).size) : typeof r.uebernommen === 'number' ? r.uebernommen : (r.positionen || []).length;
+    const b = typeof r.anzahlBuchungen === 'number' ? r.anzahlBuchungen : geaendert.length;
+    const rn = (x) => `${x} Rechnung${x === 1 ? '' : 'en'}`;
+    const text = art !== 'bmd-op' ? `<b>${n} LV-Position${n === 1 ? '' : 'en'} als Soll gespeichert.</b>`
+      : zahlModus(r) ? (b ? `<b>${b} Zahlung${b === 1 ? '' : 'en'} gebucht</b> (${rn(n)}).` : '<b>Keine neuen Zahlungen</b> – alle Zahlungen der Datei waren bereits gebucht.')
+        : (n ? `<b>${rn(n)} aktualisiert.</b> Der Zahlungsstand entspricht jetzt der BMD-Liste.` : '<b>Keine Änderungen</b> – der Zahlungsstand entsprach bereits der BMD-Liste.');
+    box.innerHTML = `${schritte()}<div id="imp-fertig" data-uebernommen="${art === 'bmd-op' ? b : n}">${banner('ok', text)}</div>`;
     toast('Import übernommen.'); if (opt.fertig) opt.fertig(r);
   }
   s1();

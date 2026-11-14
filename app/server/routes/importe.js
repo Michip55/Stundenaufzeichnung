@@ -78,34 +78,65 @@ module.exports = function importRouten(api, bt) {
     if (art === 'op' && ix.offen < 0) throw ungueltig(`Spalte für den offenen Betrag („${Z.spalten.offen}“) nicht gefunden.`);
     const rechnungen = new Map(db.alle('SELECT * FROM rechnung WHERE storniert IS NULL').map((r) => [r.nr_norm, r]));
     const heute = wienDatum(bt.uhr());
-    const zugeordnet = [], unbekannt = [], fehler = [], buchungen = [];
+    const zugeordnet = [], unbekannt = [], fehler = [], uebersprungen = [], buchungen = [];
+    const eur = (x) => R.r2(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const de = (d) => d.split('-').reverse().join('.');
+    // N-001/N-003/N-007/N-056: jede Zeile rechnet gegen den Stand NACH den vorigen Zeilen derselben Datei
+    const staende = new Map();
+    const stand = (r) => { let x = staende.get(r.id); if (!x) { x = { s: R.rechnungStand(db, r, heute), gebucht: 0 }; staende.set(r.id, x); } return x; };
+    const statusBei = (r, st, offen) => (offen <= 0.004 ? 'bezahlt' : heute > st.s.faellig && r.typ !== 'gutschrift' ? 'ueberfaellig' : st.s.zahlungen.some((x) => !x.ruecklass) || st.gebucht > 0 ? 'teilbezahlt' : 'offen');
+    const belegZeile = new Map(), zahlungZeile = new Map();
     zeilen.forEach((z, i) => {
       const nr = String(z[ix.belegnr] ?? '').trim();
-      if (!nr) return;
       const zeile = i + 1 + (Z.kopfzeile ? 1 : 0);
+      // N-095: Zeilen ohne Belegnummer (z. B. Summenzeilen) nicht still verwerfen, sondern ausweisen
+      if (!nr) { uebersprungen.push({ zeile, text: 'Keine Belegnummer – Zeile nicht berücksichtigt (z. B. Summen- oder Leerzeile).' }); return; }
       const r = rechnungen.get(R.nrNorm(nr));
       const kunde = ix.kunde >= 0 ? String(z[ix.kunde] ?? '') : '';
       if (art === 'op') {
         const offen = I.zahl(z[ix.offen], Z.dezimal);
         if (offen === null || Number.isNaN(offen)) { fehler.push({ zeile, text: `${nr}: offener Betrag ist keine Zahl.` }); return; }
         if (!r) { unbekannt.push({ zeile, belegnr: nr, kunde, offen }); return; }
-        const s = R.rechnungStand(db, r, heute);
-        const ziel = R.r2(Math.max(0, offen));
+        if (belegZeile.has(r.nr_norm)) { fehler.push({ zeile, text: `${nr}: Die Belegnummer steht mehrfach in der Datei (zuerst in Zeile ${belegZeile.get(r.nr_norm)}) – bitte die Datei prüfen.` }); return; }
+        belegZeile.set(r.nr_norm, zeile);
+        const st = stand(r);
+        const s = st.s;
+        // N-008: Gutschriften stehen in der OP-Liste negativ (offener Betrag zugunsten des Kunden); ein negativer Betrag bei einer Rechnung ist eine Überzahlung
+        const gutschrift = r.typ === 'gutschrift';
+        if (gutschrift ? offen > 0.004 : offen < -0.004) {
+          fehler.push({ zeile, text: gutschrift ? `${nr}: Gutschrift mit positivem offenem Betrag in BMD (${eur(offen)}) – Gutschriften stehen in der OP-Liste negativ. Bitte prüfen.` : `${nr}: negativer offener Betrag in BMD (${eur(offen)}) – Überzahlung? Bitte in BMD prüfen.` });
+          return;
+        }
+        const ziel = R.r2(Math.abs(offen));
         const diff = R.r2(s.offen - ziel);
         const zd = ix.zahlungsdatum >= 0 ? I.datum(z[ix.zahlungsdatum], Z.datumFormat) : null;
-        if (diff < -0.004) { fehler.push({ zeile, text: `${nr}: offener Betrag in BMD (${ziel}) ist höher als in BauTag (${s.offen}) – bitte prüfen.` }); return; }
-        const neuStatus = ziel <= 0.004 ? 'bezahlt' : s.status === 'ueberfaellig' ? 'ueberfaellig' : 'teilbezahlt';
-        zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, alt: { offen: s.offen, status: s.status }, neu: { offen: ziel, status: diff > 0.004 ? neuStatus : s.status }, aenderung: diff > 0.004 });
-        if (diff > 0.004) buchungen.push({ r, betrag: diff, datum: zd && zd <= heute ? zd : heute, schluessel: `op:${r.nr_norm}:${ziel}` });
+        if (diff < -0.004) { fehler.push({ zeile, text: `${nr}: offener Betrag in BMD (${eur(ziel)}) ist höher als in BauTag (${eur(s.offen)}) – bitte prüfen.` }); return; }
+        const aenderung = diff > 0.004;
+        zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, typ: r.typ, alt: { offen: s.offen, status: s.status }, neu: { offen: aenderung ? ziel : s.offen, status: aenderung ? statusBei(r, { ...st, gebucht: diff }, ziel) : s.status }, betrag: aenderung ? diff : 0, aenderung });
+        if (aenderung) { buchungen.push({ r, betrag: diff, datum: zd && zd <= heute ? zd : heute, schluessel: `op:${r.nr_norm}:${ziel}` }); st.gebucht = R.r2(st.gebucht + diff); }
       } else {
-        const betrag = I.zahl(z[ix.bezahlt >= 0 ? ix.bezahlt : ix.brutto], Z.dezimal);
+        const roh = I.zahl(z[ix.bezahlt >= 0 ? ix.bezahlt : ix.brutto], Z.dezimal);
         const zd = ix.zahlungsdatum >= 0 ? I.datum(z[ix.zahlungsdatum], Z.datumFormat) : ix.datum >= 0 ? I.datum(z[ix.datum], Z.datumFormat) : null;
-        if (!betrag || Number.isNaN(betrag) || !zd) { fehler.push({ zeile, text: `${nr}: Betrag oder Datum fehlt.` }); return; }
-        if (!r) { unbekannt.push({ zeile, belegnr: nr, kunde, betrag }); return; }
-        const schl = `za:${r.nr_norm}:${zd}:${R.r2(betrag)}`;
-        const doppelt = db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE import_schluessel = ?', schl);
-        zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, betrag: R.r2(betrag), datum: zd, aenderung: !doppelt });
-        if (!doppelt) buchungen.push({ r, betrag: R.r2(betrag), datum: zd, schluessel: schl });
+        if (!roh || Number.isNaN(roh) || !zd) { fehler.push({ zeile, text: `${nr}: Betrag oder Datum fehlt.` }); return; }
+        if (!r) { unbekannt.push({ zeile, belegnr: nr, kunde, betrag: roh }); return; }
+        const gutschrift = r.typ === 'gutschrift';
+        if (gutschrift ? roh > 0 : roh < 0) { fehler.push({ zeile, text: gutschrift ? `${nr}: Gutschrift mit positivem Betrag (${eur(roh)}) – Auszahlungen auf Gutschriften stehen negativ. Bitte prüfen.` : `${nr}: negativer Betrag (${eur(roh)}) – bitte prüfen.` }); return; }
+        const betrag = R.r2(Math.abs(roh));
+        const schl = `za:${r.nr_norm}:${zd}:${betrag}`;
+        // N-007: Duplikate (Belegnr. + Datum + Betrag) auch innerhalb der Datei
+        if (zahlungZeile.has(schl)) { fehler.push({ zeile, text: `${nr}: Dieselbe Zahlung (${de(zd)}, ${eur(betrag)}) steht mehrfach in der Datei (zuerst in Zeile ${zahlungZeile.get(schl)}) – bitte prüfen.` }); return; }
+        zahlungZeile.set(schl, zeile);
+        const doppelt = !!db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE import_schluessel = ?', schl);
+        const st = stand(r);
+        const altOffen = R.r2(st.s.offen - st.gebucht);
+        const alt = { offen: altOffen, status: st.gebucht > 0 ? statusBei(r, st, altOffen) : st.s.status };
+        if (doppelt) { zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, typ: r.typ, betrag, datum: zd, alt, neu: alt, aenderung: false, bereitsGebucht: true }); return; }
+        // N-007/N-056: keine Überzahlung (wie die händische Zahlung)
+        if (betrag > altOffen + 0.005) { fehler.push({ zeile, text: `${nr}: Die Zahlung (${eur(betrag)}) übersteigt den offenen Betrag (${eur(altOffen)})${r.ruecklass_art ? ' – Rücklass-Auszahlungen bitte händisch als Rücklass erfassen' : ''}. Bitte prüfen.` }); return; }
+        const neuOffen = R.r2(altOffen - betrag);
+        st.gebucht = R.r2(st.gebucht + betrag);
+        zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, typ: r.typ, betrag, datum: zd, alt, neu: { offen: neuOffen, status: statusBei(r, st, neuOffen) }, aenderung: true, bereitsGebucht: false });
+        buchungen.push({ r, betrag, datum: zd, schluessel: schl });
       }
     });
     // G-04: Übernahme mit Fehlerzeilen → 400 im Standardformat, nichts gespeichert (wie E-05/Katalog-Import)
@@ -114,12 +145,15 @@ module.exports = function importRouten(api, bt) {
     if (uebernehmen && buchungen.length) {
       db.transaktion(() => {
         for (const b of buchungen) {
+          // Sicherheitsnetz (N-001): nie mehr als den aktuell offenen Betrag buchen – sonst alles zurückrollen
+          const jetztOffen = R.rechnungStand(db, b.r, heute).offen;
+          if (b.betrag > jetztOffen + 0.005) throw konflikt(`${b.r.nr}: Die Zahlung (${eur(b.betrag)}) übersteigt den offenen Betrag (${eur(jetztOffen)}) – nichts übernommen. Bitte die Vorschau neu laden.`);
           db.lauf("INSERT INTO rechnung_zahlung (rechnung_id, datum, betrag, skonto, ruecklass, notiz, quelle, import_schluessel, erfasst, erfasst_von) VALUES (?, ?, ?, 0, 0, ?, 'bmd', ?, ?, ?)", b.r.id, b.datum, b.betrag, `BMD-Import ${body.dateiname ? String(body.dateiname).slice(0, 80) : ''}`.trim(), b.schluessel, jetzt(), req.ctx.benutzer.id);
         }
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'rechnung', objekt: 'import_bmd', neu: { art, buchungen: buchungen.length, unbekannt: unbekannt.length }, text: `BMD-Import (${art === 'op' ? 'Offene Posten' : 'Zahlungseingänge'}): ${buchungen.length} Zahlung(en) gebucht` });
       });
     }
-    res.json({ zeilen: zeilen.length, zugeordnet, unbekannt, fehler, uebernommen: uebernehmen });
+    res.json({ zeilen: zeilen.length, art, zugeordnet, unbekannt, fehler, uebersprungen, anzahlBuchungen: buchungen.length, rechnungenGeaendert: new Set(buchungen.map((x) => x.r.id)).size, uebernommen: uebernehmen });
   });
 
   /* ---------- Leistungsverzeichnis ---------- */

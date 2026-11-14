@@ -75,7 +75,7 @@ test('Ausgangsrechnungen', async (t) => {
     const zcsv = (await c.buero.get('/zahlungseingaenge.csv?von=2026-10-01&bis=2026-11-12')).daten.toString('utf8');
     assert.match(zcsv, /14\.10\.2026;AR 2026\/101;26-041;.*;11172,01;228;nein;manuell/);
     const k = (await c.buero.get(`/kalkulation/${BS.kogler}`)).daten;
-    assert.deepEqual(k.rechnungen, { verrechnetNetto: 50000, bezahlt: 20000, offen: 28500, ruecklassOffen: 1500 });
+    assert.deepEqual(k.rechnungen, { verrechnetNetto: 50000, bezahlt: 20000, skontoGenommen: 0, offen: 28500, ruecklassOffen: 1500, ruecklassBezahlt: 0 });
     // Phase-Vorschlag: Schlussrechnung erfasst → Kogler ab „abgenommen“
     const bs = () => s.db.eins('SELECT version FROM baustelle WHERE id = ?', BS.kogler).version;
     await c.buero.post(`/baustellen/${BS.kogler}/phase`, { version: bs(), phase: 'fertiggestellt' });

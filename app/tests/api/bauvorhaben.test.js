@@ -66,7 +66,10 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal(r.daten.gewaehrleistungBis, `${Number(heute.slice(0, 4)) + 3}${heute.slice(4)}`);
     const p = (await c.polier.get(`/baustellen/${BS.pitten}/phasen`)).daten;
     assert.deepEqual(p.slice(-2).map((x) => x.phase), ['fertiggestellt', 'abgenommen']);
-    assert.equal(p[p.length - 2].notiz, 'bestätigt');
+    // N-111 (API.md 14.2): Notizen zum Phasenwechsel nur mit Preisrecht – der Polier sieht die Phasen, aber keine Notiz
+    assert.ok(p.every((x) => !('notiz' in x)), JSON.stringify(p));
+    const pb = (await c.bauleiter.get(`/baustellen/${BS.pitten}/phasen`)).daten;
+    assert.equal(pb[pb.length - 2].notiz, 'bestätigt');
   });
 
   await t.test('Schlussrechnung (Betrag nur mit preise_bearbeiten), €-Schutz', async () => {

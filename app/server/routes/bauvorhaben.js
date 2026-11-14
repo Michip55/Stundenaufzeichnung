@@ -65,8 +65,10 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   api.get('/baustellen/:id/phasen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     if (!sichtbar(req.ctx, bs)) throw keinZugriff();
+    // N-111: Notizen zum Phasenwechsel (oft mit Rechnungsangaben) nur mit Preisrecht für diese Baustelle – sonst fehlt das Feld
+    const mitNotiz = req.ctx.hat('preise_sehen') && darfPreise(req.ctx, bs);
     res.json(db.alle(`SELECT p.*, b.name AS von_name FROM baustelle_phase p LEFT JOIN benutzer b ON b.id = p.von WHERE p.baustelle_id = ? ORDER BY p.zeit, p.id`, bs.id)
-      .map((p) => ({ phase: p.phase, phaseName: BV.PHASE_NAMEN[p.phase], von: p.von ? { id: p.von, name: p.von_name } : null, zeit: p.zeit, datum: p.datum, notiz: p.notiz || '' })));
+      .map((p) => ({ phase: p.phase, phaseName: BV.PHASE_NAMEN[p.phase], von: p.von ? { id: p.von, name: p.von_name } : null, zeit: p.zeit, datum: p.datum, ...(mitNotiz ? { notiz: p.notiz || '' } : {}) })));
   });
 
   api.put('/baustellen/:id/abschluss', (req, res) => {
@@ -118,7 +120,13 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
       offeneSchlussrechnungen: { anzahl: offen.length }
     };
     if (offen.every((b) => darfPreise(req.ctx, b)) && req.ctx.hat('preise_sehen')) {
-      o.offeneSchlussrechnungen.summe = Math.round(offen.reduce((a, b) => a + ((parseJson(b.schlussrechnung, {}) || {}).betrag || 0), 0) * 100) / 100;
+      // N-057: offener Betrag der erfassten (nicht stornierten) Schlussrechnungen; nur ohne erfasste Schlussrechnung der Phasen-Betrag
+      const R = require('../rechnungen');
+      o.offeneSchlussrechnungen.summe = R.r2(offen.reduce((a, b) => {
+        const sr = db.alle("SELECT * FROM rechnung WHERE baustelle_id = ? AND typ = 'schluss' AND storniert IS NULL", b.id);
+        if (sr.length) return a + sr.reduce((x, r) => x + R.rechnungStand(db, r).offen, 0);
+        return a + ((parseJson(b.schlussrechnung, {}) || {}).betrag || 0);
+      }, 0));
     }
     res.json(o);
   });

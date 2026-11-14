@@ -855,9 +855,12 @@ async function dokumenteUndRechnungen(h, z) {
   await page.waitForSelector('#imp-vorschau');
   pruef(await page.locator('[data-imp-zugeordnet="1"]').count() === 1 && await page.locator('[data-imp-unbekannt="1"]').count() === 1 && /RE-FREMD-9/.test(await page.locator('#imp-unbekannt').innerText()), `A2-BMD: Vorschau (1 zugeordnet, 1 unbekannt) falsch: ${(await page.locator('#imp-vorschau').innerText()).replace(/\s+/g, ' ').slice(0, 200)}`);
   pruef((await api('GET', `/rechnungen/${re.id}`)).json.offen === 6400, 'A2-BMD: Vorschau hat schon gebucht');
+  // N-024/N-095: Spalte „Änderung“ als Text (nicht „true“), mit dem zu buchenden Betrag
+  { const t = (await page.locator('#imp-zugeordnet').innerText()).replace(/\s+/g, ' '); pruef(!/\btrue\b|\bfalse\b/.test(t) && /Zahlung (€\s*)?5\.000,00 wird gebucht/.test(t), `A2-BMD: Vorschau zeigt die Änderung nicht lesbar (${t.slice(0, 200)})`); }
   await dialogUeberlauf('bmd vorschau'); await shot('bmd-vorschau');
   await page.click('#imp-ok');
   await page.waitForSelector('#imp-fertig', { timeout: 6000 }).catch(async () => pruef(false, `A2-BMD: Übernehmen scheitert: ${(await page.locator('#imp-assistent').innerText()).replace(/\s+/g, ' ').slice(-260)}`));
+  pruef(/1 Rechnung aktualisiert/.test(await page.locator('#imp-fertig').innerText()), `A2-BMD: Erfolgsmeldung zählt falsch (${(await page.locator('#imp-assistent').innerText()).replace(/\s+/g, ' ').slice(-160)})`);
   re = (await api('GET', `/rechnungen/${re.id}`)).json;
   pruef(re.offen === 1400 && (re.zahlungen || []).some((x) => x.quelle === 'bmd' || x.betrag === 5000), `A2-BMD: offener Betrag nach Import ${re.offen} statt 1400`);
   pruef((await api('GET', '/import/bmd-op/zuordnung')).json.spalten.belegnr === 'Belegnr', 'A2-BMD: Zuordnung wurde nicht gespeichert');

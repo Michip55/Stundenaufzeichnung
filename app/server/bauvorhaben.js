@@ -73,8 +73,10 @@ function phaseVorschlag(db, bs) {
   if (!r.length) return null;
   const { rechnungStand } = require('./rechnungen');
   const staende = r.map((x) => rechnungStand(db, x));
-  const allesBezahlt = staende.every((x) => x.status === 'bezahlt');
-  const ruecklass = staende.reduce((a, x) => a + x.ruecklassOffen, 0);
+  // N-106: Gutschriften sind keine Forderung – sie zählen für „alles bezahlt“ nicht mit
+  const forderungen = staende.filter((x) => x.vorzeichen === 1);
+  const allesBezahlt = forderungen.length > 0 && forderungen.every((x) => x.status === 'bezahlt');
+  const ruecklass = forderungen.reduce((a, x) => a + x.ruecklassOffen, 0);
   if (bs.phase === 'schlussrechnung' && allesBezahlt) return { phase: 'bezahlt', grund: ruecklass > 0 ? 'Alle Rechnungen bezahlt (Haftrücklass noch offen).' : 'Alle Rechnungen bezahlt.' };
   if (bs.phase === 'bezahlt' && allesBezahlt && ruecklass <= 0.005) return { phase: 'archiviert', grund: 'Bezahlt, kein offener Rücklass – kann archiviert werden.' };
   return null;
