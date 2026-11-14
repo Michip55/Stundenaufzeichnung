@@ -1618,6 +1618,11 @@ async function laufe(browser, g) {
       console.log('    Geteiltes Gerät (Sitzung, Speicher, Push, Warteschlangen) …');
       try { const gr = await require('./geraet').laufe(browser, g); r.fehler.push(...gr.fehler); r.schritte += gr.schritte; } catch (e) { r.fehler.push('Abbruch Gerät: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (tests/e2e/geraetewahl.js, API.md 15.8)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_GERAETEWAHL) {
+      console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
+      try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

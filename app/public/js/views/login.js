@@ -1,6 +1,6 @@
 // Anmeldung: Benutzer wählen (oder Personalnummer eingeben, wenn die Namensliste abgeschaltet ist), dann PIN.
-import { get, post } from '../api.js';
-import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, $ } from '../ui.js';
+import { get, post, geraetArt, setzGeraetArt } from '../api.js';
+import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, geraetWahl, bindeGeraetWahl, $ } from '../ui.js';
 import { geraetPushAbo } from './push.js';
 
 // 15.5: Anmeldung der App am Gerät – Sitzung mit Bindungs-Cookie (F-029); das Push-Abo dieses Geräts nennen,
@@ -49,6 +49,8 @@ export default async function login(root, { angemeldet }) {
     </main>
   </div>`;
   const card = $('#login-card', root);
+  // 15.8: Gerätewahl je Gerät – gilt sofort für die nächste Anmeldung und bleibt nach dem Abmelden erhalten
+  bindeGeraetWahl(card, setzGeraetArt);
   const untertitel = (b) => [b.rolle ? rolleText(b.rolle) : '', b.id === speicher.lies('bt_letzter') ? 'zuletzt angemeldet' : ''].filter(Boolean).join(' · ');
 
   function zeigeListe() {
@@ -58,7 +60,8 @@ export default async function login(root, { angemeldet }) {
     card.innerHTML = `
       <div class="login-head"><h2>Anmelden</h2><p>Wer bist du?</p></div>
       <label class="search"><span>${ic('user')}</span><input id="login-suche" type="search" placeholder="Name suchen" aria-label="Name suchen" value="${esc(suche)}" autocomplete="off"></label>
-      <div class="login-list" id="login-list"></div>`;
+      <div class="login-list" id="login-list"></div>
+      ${geraetWahl(geraetArt())}`;
     const zeichne = () => {
       const g = liste.filter((b) => b.name.toLowerCase().includes(suche.toLowerCase()));
       g.sort((a, b) => (b.id === zuletzt) - (a.id === zuletzt));
@@ -80,7 +83,8 @@ export default async function login(root, { angemeldet }) {
         <p class="form-err" id="pnr-err" role="alert" ${meldung ? '' : 'hidden'}>${esc(meldung)}</p>
         <button type="submit" class="btn primary lg block">Weiter${ic('right')}</button>
         <p class="muted sm">Die Personalnummer steht am Lohnzettel. Bei Fragen hilft das Büro.</p>
-      </form>`;
+      </form>
+      ${geraetWahl(geraetArt())}`;
     $('#pnr-form', card).addEventListener('submit', (e) => {
       e.preventDefault();
       const wert = $('#pnr', card).value.trim();

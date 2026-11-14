@@ -1056,3 +1056,16 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 @media (max-width: 899px) { .dok-kat-zeile { flex: none; } .dok-kat-zeile .dok-kat-btn > span { overflow-wrap: normal; } }
 
 .c-abwesend, .c-BU, .c-ZA { background: #eceef1; color: #4a525c; }
+
+/* ---------- 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (Anmeldeseite, Mehr) ---------- */
+.geraet-wahl { border: 0; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line-2); min-width: 0; flex: none; }
+.geraet-wahl legend { font-size: 13px; font-weight: 700; color: var(--muted); padding: 0; margin-bottom: 8px; float: left; width: 100%; }
+.geraet-opt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; clear: both; }
+.geraet-opt label { position: relative; cursor: pointer; min-width: 0; }
+.geraet-opt label > span { min-height: 56px; border-radius: 12px; border: 1.5px solid var(--line); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 6px; text-align: center; line-height: 1.15; }
+.geraet-opt label > span .ic { width: 18px; height: 18px; }
+.geraet-opt b { font-weight: 700; font-size: 14px; } .geraet-opt small { color: var(--muted); font-size: 12px; }
+.geraet-opt input:checked + span { background: var(--graphite); border-color: var(--graphite); color: #fff; } .geraet-opt input:checked + span small { color: #d5dae0; }
+.geraet-opt input:focus-visible + span { outline: 3px solid rgba(31, 85, 196, .45); outline-offset: 2px; }
+.geraet-info { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; line-height: 1.35; }
+.geraet-wahl.im-menue { margin: 0; padding: 14px 18px; }

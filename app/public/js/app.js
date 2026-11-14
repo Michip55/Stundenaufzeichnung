@@ -1,6 +1,6 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, bindungLoeschen } from './api.js';
+import { get, post, abmeldenVormerken, bindungLoeschen, geraetArt, sperreMinutenFuer } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import login from './views/login.js';
@@ -439,10 +439,12 @@ function lokalAbmelden() {
 /* ---------- 15.5 (F-029): Sperre nach Untätigkeit am Gerät ---------- */
 // Nach ich.sperreMinuten ohne Bedienung (Feldrollen 30 min, Büro wie die Sitzung) meldet die App ab – auch ohne Netz.
 // Die letzte Bedienung wird am Gerät gemerkt, damit auch ein Neustart der App nach langer Pause abmeldet.
+// 15.8: Auf einem Gerät, das als „Eigenes Handy“ gewählt ist, gilt stattdessen die Sitzungsdauer des Servers (ich.sitzungMinuten) –
+// keine zusätzliche Sperre am Gerät; Abmelden, Versiegeln und Benutzerwechsel bleiben wie in 15.5.
 const AKTIV = 'bt_aktiv';
 let aktivMem = Date.now(), aktivGeschrieben = 0;
 const letzteBedienung = () => { const g = Number(speicher.lies(AKTIV, 0)) || 0; return g || aktivMem; };
-function untaetig() { return !!ich && Number(ich.sperreMinuten) > 0 && Date.now() - letzteBedienung() > ich.sperreMinuten * 60000; }
+function untaetig() { const min = sperreMinutenFuer(ich, geraetArt()); return !!ich && min > 0 && Date.now() - letzteBedienung() > min * 60000; }
 let sperrt = false;
 function sperrePruefen() {
   if (sperrt || !untaetig()) return false;
@@ -460,6 +462,8 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel']) window.addEv
 window.addEventListener('hashchange', () => bedient());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sperrePruefen(); });
 setInterval(sperrePruefen, 30000);
+// 15.8: Gerätewahl geändert (Mehr): die Untätigkeit zählt ab jetzt – ein Wechsel auf „geteilt“ meldet nicht sofort ab
+window.addEventListener('bt:geraet-art', () => { aktivMem = Date.now(); aktivGeschrieben = aktivMem; if (ich) speicher.setz(AKTIV, aktivMem); });
 window.addEventListener('bt:abgemeldet', () => { if (ich) { toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); lokalAbmelden(); } });
 // 15.5 (F-029): wieder online → ein vorgemerktes Abmelden sofort nachholen (api.js holt es vor jeder Anfrage nach)
 window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').catch(() => {}); });
