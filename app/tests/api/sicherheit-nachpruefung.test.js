@@ -219,3 +219,29 @@ test('N-032: große Body-Grenzen nur mit Sitzung und nur für echte Upload-Route
   // öffentliche Fernunterschrift bleibt bei 12 MB (ohne Anmeldung)
   assert.notEqual((await anon.post('/fern/ungueltig', gross, JSONKOPF)).status, 413);
 });
+
+test('N-063: ohne BAUTAG_SCHLUESSEL keine Klartext-Geheimnisse außerhalb von Vorführung/Test; NODE_ENV in jeder Schreibweise', async (t) => {
+  const { createApp, StartFehler } = require('../../server/index');
+  const G = require('../../server/geheim');
+  const alt = process.env.BAUTAG_SCHLUESSEL;
+  delete process.env.BAUTAG_SCHLUESSEL;
+  t.after(() => { if (alt !== undefined) process.env.BAUTAG_SCHLUESSEL = alt; });
+  for (const nodeEnv of ['Production', ' production ', 'PRODUCTION']) {
+    assert.throws(() => createApp({ dbPath: ':memory:', nodeEnv, demo: false }), (e) => e instanceof StartFehler && /BAUTAG_SCHLUESSEL fehlt/.test(e.message), nodeEnv);
+  }
+  assert.throws(() => G.verschluesseln({ demo: false, test: false }, 'geheim'), (e) => e.code === 'KEIN_SCHLUESSEL');
+  assert.equal(G.verschluesseln({ demo: true }, 'geheim'), 'klar:geheim'); // Vorführung bleibt möglich
+  // Betrieb ohne NODE_ENV und ohne Schlüssel (wie früher laut README): Warnung, 2FA abgelehnt, VAPID nicht gespeichert
+  const s = await starte({ demo: false });
+  t.after(() => s.stop());
+  assert.ok(s.app.bt.warnungen.some((w) => /BAUTAG_SCHLUESSEL fehlt/.test(w) && /NODE_ENV=production/.test(w)));
+  assert.equal(s.db.einstellung('vapid', null), null);
+  const gf = await s.login(U.gf);
+  assert.ok(require('../../server/push').vapid(s.app.bt).publicKey); // Push geht, Schlüssel nur im Speicher
+  assert.equal(s.db.einstellung('vapid', null), null);
+  const r = await gf.post('/auth/2fa/einrichten', { pin: '1234' });
+  assert.equal(r.status, 400);
+  assert.match(r.daten.fehler, /BAUTAG_SCHLUESSEL/);
+  assert.ok(!s.db.eins('SELECT 1 AS x FROM benutzer_2fa'));
+  assert.ok(!s.db.alle('SELECT geheimnis FROM benutzer_2fa').some((z) => /^klar:/.test(z.geheimnis)));
+});

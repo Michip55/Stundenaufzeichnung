@@ -31,7 +31,8 @@ const CSP = [
 /** Start verweigern (G-06, G-11) – Fehler mit klarer Meldung statt Stacktrace */
 class StartFehler extends Error {}
 function startPruefen(opt) {
-  const produktion = (opt.nodeEnv !== undefined ? opt.nodeEnv : process.env.NODE_ENV) === 'production';
+  // N-063: Schreibweise egal („Production“, „ production “)
+  const produktion = String((opt.nodeEnv !== undefined ? opt.nodeEnv : process.env.NODE_ENV) || '').trim().toLowerCase() === 'production';
   const test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
   const demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   if (produktion && test) throw new StartFehler('BAUTAG_TEST=1 ist im Echtbetrieb (NODE_ENV=production) verboten: Die Test-Schnittstellen dürfen dort nie aktiv sein. Bitte BAUTAG_TEST aus deploy/.env entfernen.');
@@ -122,6 +123,10 @@ function createApp(opt = {}) {
   bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
+  // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) deutlich warnen
+  if (!require('./geheim').schluesselGueltig(bt.schluessel)) {
+    bt.warnungen.push(`BAUTAG_SCHLUESSEL fehlt oder ist kürzer als ${require('./geheim').MIN_PRODUKTION} Zeichen – ${bt.demo || bt.test ? 'Vorführ-/Testbetrieb: Geheimnisse werden im Klartext gespeichert. ' : 'Zwei-Faktor-Anmeldung, SMTP-Passwort und KI-Schlüssel können nicht gespeichert werden, Push-Schlüssel gelten nur bis zum Neustart. '}Für den Echtbetrieb NODE_ENV=production und BAUTAG_SCHLUESSEL setzen (openssl rand -hex 32).`);
+  }
   // G-11/G-03: „klar:“-Geheimnisse nachverschlüsseln, unlesbare melden (neuer/falscher BAUTAG_SCHLUESSEL)
   try {
     const g = require('./geheim').geheimnisseAbgleichen(bt);

@@ -88,6 +88,8 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     const b = ich(req);
     if (!ROLLEN.includes(b.rolle)) throw ungueltig('Zwei-Faktor-Anmeldung gibt es für Bauleiter, Büro und Geschäftsführung.');
     if (aktiv(db, b.id)) throw konflikt('Die Zwei-Faktor-Anmeldung ist bereits eingerichtet.');
+    // N-063: das TOTP-Geheimnis wird nie im Klartext gespeichert (außer Vorführung/Test)
+    if (!G.schluesselVorhanden(bt) && !G.klarErlaubt(bt)) throw ungueltig('Zum Einrichten der Zwei-Faktor-Anmeldung muss auf dem Server BAUTAG_SCHLUESSEL gesetzt sein (mindestens 32 Zeichen, siehe deploy/.env).');
     await pinPruefen(req, b, v.objekt(req.body).pin);
     const geheimnis = T.neuesGeheimnis();
     const salz = crypto.randomBytes(16).toString('hex');

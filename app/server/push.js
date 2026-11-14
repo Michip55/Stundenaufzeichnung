@@ -17,6 +17,11 @@ function typenFuerRolle(rolle) {
 function vapid(bt) {
   const { db } = bt;
   let v = db.einstellung('vapid', null);
+  if (!v && !G.schluesselVorhanden(bt) && !G.klarErlaubt(bt)) {
+    // N-063: ohne BAUTAG_SCHLUESSEL nie im Klartext speichern – Schlüssel nur bis zum Neustart (Startwarnung)
+    if (!bt.vapidFluechtig) { const k = require('web-push').generateVAPIDKeys(); bt.vapidFluechtig = { publicKey: k.publicKey, privateKey: k.privateKey }; }
+    return { ...bt.vapidFluechtig };
+  }
   if (!v) {
     const k = require('web-push').generateVAPIDKeys();
     v = { publicKey: k.publicKey, privateKey: G.verschluesseln(bt, k.privateKey), erstellt: bt.uhr().toISOString() };
