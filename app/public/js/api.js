@@ -24,6 +24,33 @@ export const abmeldenOffen = () => !!merker();
 export function bindungLoeschen() {
   try { document.cookie = `bt_bindung=; Path=/; Max-Age=0; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) { /* egal */ }
 }
+
+// 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ – je Gerät (nicht je Person), bleibt beim Abmelden erhalten.
+// Ohne Wahl gilt „geteilt“ (sicherer Standard). Die Wahl ändert nur die Sperre nach Untätigkeit AM GERÄT; der Server erfährt
+// sie nicht und vertraut ihr nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.
+export const GERAET_ART = 'bt_geraet_art';
+export function geraetArt() {
+  try { return localStorage.getItem(GERAET_ART) === 'eigen' ? 'eigen' : 'geteilt'; } catch (e) { return 'geteilt'; }
+}
+export function setzGeraetArt(art) {
+  const neu = art === 'eigen' ? 'eigen' : 'geteilt';
+  try { localStorage.setItem(GERAET_ART, neu); } catch (e) { /* gesperrt: es bleibt beim sicheren Standard */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('bt:geraet-art', { detail: neu }));
+  return neu;
+}
+/**
+ * Minuten ohne Bedienung, nach denen die App am Gerät abmeldet (15.5/15.8). „geteilt“: `sperreMinuten` des Servers
+ * (Mitarbeiter/Polier 30, Büro/Bauleiter/GF wie die Sitzung). „eigen“: die Sitzungsdauer des Servers (`sitzungMinuten`) –
+ * keine zusätzliche Sperre am Gerät, aber nie länger, als der Server die Sitzung ohnehin hält. Fehlt sie (alter Stand), bleibt die Sperre.
+ */
+export function sperreMinutenFuer(ich, art) {
+  if (!ich) return 0;
+  const geteilt = Number(ich.sperreMinuten) > 0 ? Number(ich.sperreMinuten) : 0;
+  if (art !== 'eigen' || !geteilt) return geteilt;
+  const sitzung = Number(ich.sitzungMinuten) > 0 ? Number(ich.sitzungMinuten) : 0;
+  return Math.max(geteilt, sitzung);
+}
+
 let nachholen = null;
 async function abmeldenNachholen() {
   const m = merker();
