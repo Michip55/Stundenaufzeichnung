@@ -1063,12 +1063,29 @@ async function urlaub(h, z) {
   const meld = (await api('GET', '/benachrichtigungen')).json.filter((n) => `${n.titel} ${n.text}`.includes(name) && `${n.titel} ${n.text}`.includes(kurz(von)));
   pruef(meld.length === 1 && /6 Arbeitstage/.test(`${meld[0].titel} ${meld[0].text}`), `A2-Url: nicht genau eine Benachrichtigung zum Antrag (${meld.length})`);
   const kontoVor = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
+  // „Abwesenheiten“: Tage des mehrtägigen Antrags nur mit Verweis „als Ganzes entscheiden“, der eintägige ZA-Antrag mit Genehmigen/Ablehnen (N-086)
+  await geh('/abwesenheiten');
+  await page.waitForSelector('#abw-offen');
+  const tageAbw = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L && a.antragId === antrag1);
+  const tagFehler = [];
+  for (const a of tageAbw) {
+    const li = page.locator(`#abw-offen li[data-abw="${a.id}"]`);
+    const link = li.locator('a[data-zum-antrag]');
+    if (await li.count() !== 1 || await li.locator('[data-entscheid]').count() !== 0 || await link.count() !== 1
+      || !/Teil eines Antrags \(6 Tage\) – als Ganzes entscheiden/.test(await link.innerText()) || await link.getAttribute('href') !== `#/urlaub?monat=${a.datum.slice(0, 7)}`) tagFehler.push(a.datum);
+  }
+  pruef(tageAbw.length === 6 && !tagFehler.length, `A2-Url: „Abwesenheiten“ bietet für Tage eines mehrtägigen Antrags Einzelentscheidung statt „als Ganzes entscheiden“ (${tageAbw.length} Tage, falsch: ${tagFehler.join(', ')})`);
+  const zaAbw = (await api('GET', `/abwesenheiten?von=${zaTag}&bis=${zaTag}`)).json.find((a) => a.benutzerId === L);
+  const zaLi = page.locator(`#abw-offen li[data-abw="${zaAbw && zaAbw.id}"]`);
+  pruef(zaAbw && await zaLi.locator('[data-entscheid="genehmigt"]').count() === 1 && await zaLi.locator('[data-entscheid="abgelehnt"]').count() === 1 && await zaLi.locator('[data-zum-antrag]').count() === 0, 'A2-Url: eintägiger Antrag auf „Abwesenheiten“ ohne Genehmigen/Ablehnen');
   await geh(`/urlaub?monat=${monat}`);
   const liste = g.mobil ? '#ur-partie' : '#ur-antraege';
   await page.waitForSelector(`${liste} [data-antrag="${antrag1}"]`);
   const z1 = page.locator(`${liste} [data-antrag="${antrag1}"]`).first();
   pruef(new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · Urlaub · .*${kurz(von).replace(/\./g, '\\.')}.*${kurz(bis).replace(/\./g, '\\.')}`).test((await z1.innerText()).replace(/\s+/g, ' ')) && /6 Arbeitstage/.test(await z1.innerText()), `A2-Url: Antrag nicht gruppiert dargestellt (${(await z1.innerText()).replace(/\s+/g, ' ').slice(0, 120)})`);
-  pruef(await page.locator('[data-tag-entscheid], [data-entscheid]').count() === 0, 'A2-Url: es gibt Knöpfe zum Entscheiden einzelner Tage');
+  // Entschieden wird nur über die zwei Knöpfe des ganzen Antrags; die Tagesliste ist reine Ansicht (N-086: Selektoren an tatsächlich gerenderte Elemente geknüpft)
+  pruef(await z1.locator('[data-antrag-entscheid]').count() === 2 && await z1.locator('.an-tage li[data-tag]').count() === 6 && await z1.locator('.an-tage li[data-tag] :is(button, a, input, select)').count() === 0, 'A2-Url: Antrag ohne genau einen Genehmigen/Ablehnen-Satz oder Tagesliste mit Bedienelementen');
+  pruef(await page.locator('#view button:not([data-antrag-entscheid]), #view a:not([data-antrag-entscheid])').filter({ hasText: /genehmigen|ablehnen|als Ganzes entscheiden/i }).count() === 0, 'A2-Url: es gibt Knöpfe zum Entscheiden einzelner Tage');
   if (!g.mobil) {
     // Klick auf einen Tag öffnet den ganzen Antrag; beantragt = schraffiert, genehmigt = gefüllt
     pruef(await page.locator('#ur-kalender tr[data-person]').count() >= 10 && await page.locator('#ur-kalender tr.ur-gruppe').count() >= 2 && await page.locator('#ur-legende span').count() >= 7, 'A2-Url: Team-Kalender (Zeilen, Partien, Legende) unvollständig');
@@ -1077,7 +1094,7 @@ async function urlaub(h, z) {
     await ueberlauf('urlaub monat'); await shot('urlaub-monat');
     await zelleV.click();
     await page.waitForSelector(`dialog[open] #ur-eintrag [data-antrag="${antrag1}"]`);
-    pruef(/6 Arbeitstage/.test(await page.locator('#ur-eintrag').innerText()) && await page.locator('#ur-eintrag [data-tag-entscheid], #ur-eintrag [data-entscheid]').count() === 0 && await page.locator('#ur-eintrag .an-tage li').count() === 6, 'A2-Url: Tag öffnet nicht den ganzen Antrag (Tagesliste nur zur Ansicht)');
+    pruef(/6 Arbeitstage/.test(await page.locator('#ur-eintrag').innerText()) && await page.locator('#ur-eintrag [data-antrag-entscheid]').count() === 2 && await page.locator('#ur-eintrag .an-tage li :is(button, a, input, select)').count() === 0 && await page.locator('#ur-eintrag .an-tage li').count() === 6, 'A2-Url: Tag öffnet nicht den ganzen Antrag (Tagesliste nur zur Ansicht)');
     await dialogUeberlauf('urlaub antrag ganz');
     await page.click('#ur-eintrag [data-antrag-entscheid="genehmigt"]');
     await page.waitForSelector(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"][data-status="genehmigt"].ok`);
