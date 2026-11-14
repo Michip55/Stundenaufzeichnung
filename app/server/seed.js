@@ -396,7 +396,7 @@ function seed(db, opt = {}) {
 
   // Budget-Alarme für den Ausgangsstand auslösen (an Bauleiter/Büro/GF)
   pruefeAlleBudgets({ db, uhr: () => jetzt }, { anlass: 'Einspielen der Testdaten' });
-  // 12.25: interne Kostenstellen Büro (9000) und Werkstatt/Bauhof (9100); Kieswerk/Grube = 90-001 (intern)
+  // 12.25: interne Kostenstellen Büro (90-000) und Werkstatt/Bauhof (90-100); Kieswerk/Grube = 90-001 (intern)
   require('./kostenstellen').anlegen(db, require('./kostenstellen').STANDARD_INTERN.slice(0, 2), new Date(jetzt).toISOString());
   return { heute, historieTage: historie.length };
 }

@@ -72,6 +72,7 @@ const TEXT = {
   dokFinBs1: 'DOKFIN-KANARIE-BS1', dokFinBs3: 'DOKFIN-KANARIE-BS3', dokSvBs1: 'DOKSV-KANARIE-BS1', dokPlanBs3: 'DOKPLAN-KANARIE-BS3', dokPlanBs1: 'DOKPLAN-OK-BS1',
   krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2',
   telefonAnderer: '+43 699 3333 3131', telefonPolier: '+43 664 1111 1111', smtp: 'smtp-kanarie.example.test', alarmAn: 'alarm-kanarie@example.test',
+  rechnungServicebuch: 'SB-RECHNUNG-KANARIE-4711', // Rechnungsnr. der Werkstatt im Servicebuch: nur mit preise_sehen (14.11.2026)
   schadenEigen: 'SCHADEN-EIGEN-KANARIE von Mitarbeiter 2', schadenFremd: 'SCHADEN-FREMD-KANARIE von Mitarbeiter 14', lvKurztext: 'LV-KANARIE-POSITION'
 };
 
@@ -92,7 +93,7 @@ function verboteneKanarien(rolle) {
   const text = (schluessel) => k.push({ name: `Text ${schluessel}`, formen: [TEXT[schluessel]] });
   if (rolle === 'mitarbeiter' || rolle === 'polier') {
     for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
-    ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext'].forEach(text);
+    ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch'].forEach(text);
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
@@ -233,6 +234,8 @@ async function scanne(rolle, r, k) {
         for (const [key, wert] of Object.entries(x)) {
           const p = `${pfad}.${key}`;
           if (!geld && GELD_SCHLUESSEL.test(key) && geldWert(wert) && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: €-Schlüssel ${p}=${JSON.stringify(wert).slice(0, 80)}`);
+          // 14.11.2026: Rechnungs-/Belegnummern (Werkstatt, Lieferant) im Fuhrpark nur mit preise_sehen – auch als Text, auch leer gilt der Schlüssel als Leck
+          if (!geld && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /rechnung|beleg|lieferant/i.test(key) && typeof wert !== 'boolean' && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Rechnungs-/Beleg-Schlüssel ${p}=${JSON.stringify(wert).slice(0, 80)} im Fuhrpark`);
           if (!lohn && LOHN_SCHLUESSEL.test(key) && wert != null && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Lohngruppe ${p}=${JSON.stringify(wert).slice(0, 80)}`);
           lauf(wert, p);
         }
@@ -287,6 +290,7 @@ async function scanne(rolle, r, k) {
     const m = GELD_TEXT.exec(text);
     if (m) v.push(`${wo}: €-Betrag im Text „${text.slice(Math.max(0, m.index - 40), m.index + 40).replace(/\s+/g, ' ')}“`);
   }
+  if (['mitarbeiter', 'polier'].includes(rolle) && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /Rechnungs?-?nr|Rechnungsnummer/i.test(text)) v.push(`${wo}: Rechnungsnummer (Spalte/Text) im Fuhrpark ohne preise_sehen`);
   if (['mitarbeiter', 'polier'].includes(rolle)) { // Bauleiter wie Büro (Inhaber 13.11.2026): sieht den Grund
     const m = /\bKrank(enstand|meldung)?\b/.exec(text);
     if (m) v.push(`${wo}: Wort „${m[0]}“ (Gesundheitsdaten) im Text „…${text.slice(Math.max(0, m.index - 60), m.index + 40).replace(/\s+/g, ' ')}…“`);
@@ -494,7 +498,7 @@ async function erstelleBasis() {
     F.schaden = { eigen: sch2.id, eigenFoto: sch2.fotos[0].id, fremd: sch14.id, fremdFoto: sch14.fotos[0].id };
     // Servicebuch-Eintrag mit Reparaturkosten (€ global)
     const a30 = (await gf.get('/fuhrpark/anlagen/30')).daten;
-    const eintrag = await erwarte(await gf.post('/fuhrpark/eintraege', { anlageId: 30, zaehler: a30.zaehler.filter((z) => z.aktiv !== false).map((z) => ({ art: z.art, anzeige: Math.ceil(z.aktuell || 0) })), art: 'reparatur', datum: '2026-11-10', titel: 'Reparatur Hydraulik', werkstatt: 'eigen', kosten: GELD.global.reparatur }), 201, 'Servicebuch-Eintrag');
+    const eintrag = await erwarte(await gf.post('/fuhrpark/eintraege', { anlageId: 30, zaehler: a30.zaehler.filter((z) => z.aktiv !== false).map((z) => ({ art: z.art, anzeige: Math.ceil(z.aktuell || 0) })), art: 'reparatur', datum: '2026-11-10', titel: 'Reparatur Hydraulik', werkstatt: 'eigen', kosten: GELD.global.reparatur, rechnungNr: TEXT.rechnungServicebuch }), 201, 'Servicebuch-Eintrag');
     F.eintrag = eintrag.id;
     F.anlage = 4;
     F.zaehler = s.db.eins('SELECT id FROM zaehler WHERE anlage_id = 4 ORDER BY id').id;

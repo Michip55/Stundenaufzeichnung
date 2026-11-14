@@ -197,7 +197,7 @@ test('D-06: Testdaten nur im Demo-Modus, Einrichtung einer leeren Echt-Datenbank
     assert.equal(db.eins('SELECT COUNT(*) AS n FROM geraet').n, 23);
     assert.equal(db.eins('SELECT SUM(kostensatz) AS s FROM geraet').s, 0);
     assert.equal(db.eins('SELECT COUNT(*) AS n FROM baustelle WHERE intern = 0').n, 0);
-    assert.deepEqual(db.alle('SELECT kst, name FROM baustelle WHERE intern = 1').map((b) => [b.kst, b.name]), [['9000', 'Büro']]); // 12.25
+    assert.deepEqual(db.alle('SELECT kst, name FROM baustelle WHERE intern = 1').map((b) => [b.kst, b.name]), [['90-000', 'Büro']]); // 12.25
     assert.equal(db.eins('SELECT muss_pin_aendern FROM benutzer').muss_pin_aendern, 0);
     assert.throws(() => einrichten(db, { name: 'Zweite GF', pnr: 2, pin: '582917' }), /bereits Benutzer/);
     db.schliessen();

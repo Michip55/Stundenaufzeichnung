@@ -200,6 +200,40 @@ test('Servicebuch: Rechte je Rolle und Route, nie € für Mitarbeiter/Polier', 
     assert.ok(prot.some((p) => /75\.5/.test(JSON.stringify(p.neu))));
   });
 
+  await t.test('Rechnungsnummer der Werkstatt nur mit preise_sehen (JSON, CSV, PDF, Schreiben) – 14.11.2026', async () => {
+    const RN = 'RE-REGRESSION-0815';
+    const basis = { anlageId: 25, art: 'reparatur', datum: '2026-11-12', werkstatt: 'Fachwerkstatt', titel: 'Hydraulikschlauch', zaehler: [{ art: 'bh', anzeige: 1310 }] };
+    const r = await c.buero.post('/fuhrpark/eintraege', { ...basis, rechnungNr: RN });
+    assert.equal(r.status, 201, JSON.stringify(r.daten));
+    assert.equal(r.daten.rechnungNr, RN);
+    for (const rolle of ['bauleiter', 'gf']) assert.equal((await c[rolle].get(`/fuhrpark/eintraege/${r.daten.id}`)).daten.rechnungNr, RN, rolle);
+    for (const rolle of ['polier', 'polierFP', 'mitarbeiterFP']) {
+      for (const p of [`/fuhrpark/eintraege/${r.daten.id}`, '/fuhrpark/eintraege?anlageId=25', '/fuhrpark/anlagen/25', '/fuhrpark/maengel']) {
+        const x = await c[rolle].get(p);
+        if (x.status !== 200) continue;
+        const j = JSON.stringify(x.daten);
+        assert.ok(!j.includes(RN) && !/"rechnungNr"/.test(j), `${rolle} ${p}: Rechnungsnummer`);
+      }
+      const pdf = await c[rolle].get('/fuhrpark/anlagen/25/servicebuch.pdf');
+      if (pdf.status === 200) assert.ok(!pdfText(pdf.daten).includes(RN), `${rolle} PDF`);
+    }
+    const csvP = (await c.polierFP.get('/fuhrpark/export.csv?art=eintraege')).daten.toString('utf8');
+    assert.ok(!csvP.includes(RN) && !/Rechnungsnr/.test(csvP), 'CSV ohne preise_sehen');
+    const csvB = (await c.buero.get('/fuhrpark/export.csv?art=eintraege')).daten.toString('utf8');
+    assert.ok(csvB.includes(RN) && /Rechnungsnr\./.test(csvB), 'CSV Büro mit Rechnungsnr.');
+    // Schreiben ohne Recht: Wert → 400, leer → ignoriert
+    const pfp = c.polierFP;
+    const w1 = await pfp.post('/fuhrpark/eintraege', { ...basis, zaehler: [{ art: 'bh', anzeige: 1320 }], rechnungNr: 'RE-X' });
+    assert.equal(w1.status, 400);
+    assert.match(w1.daten.fehler, /Rechnungsnummer/);
+    const w2 = await pfp.post('/fuhrpark/eintraege', { ...basis, zaehler: [{ art: 'bh', anzeige: 1320 }], rechnungNr: '' });
+    assert.equal(w2.status, 201);
+    const e = (await c.buero.get(`/fuhrpark/eintraege/${r.daten.id}`)).daten;
+    assert.equal((await pfp.put(`/fuhrpark/eintraege/${e.id}`, { version: e.version, rechnungNr: 'RE-Y' })).status, 400);
+    assert.equal((await pfp.put(`/fuhrpark/eintraege/${e.id}`, { version: e.version, arbeiten: 'Schlauch getauscht' })).status, 200);
+    assert.equal(s.db.eins('SELECT rechnung_nr FROM servicebuch_eintrag WHERE id = ?', e.id).rechnung_nr, RN, 'Polier-Speichern lässt die Nummer stehen');
+  });
+
   await t.test('Ohne Leserecht: Detail ohne Plan/Einträge, nur eigene Mängel', async () => {
     const d = (await c.mitarbeiter.get('/fuhrpark/anlagen/24')).daten;
     assert.equal(d.leserecht, false);

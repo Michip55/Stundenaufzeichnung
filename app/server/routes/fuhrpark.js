@@ -740,6 +740,13 @@ module.exports = function fuhrparkRouten(api, bt) {
     res.json(D.eintragJson(db, eintragAus(req.params.id), stand(), req.ctx));
   });
 
+  /** Rechnungs-/Belegnummer der Werkstatt: nur mit preise_sehen (leer wird ohne Recht ignoriert) */
+  function rechnungFeld(req, body) {
+    if (body.rechnungNr === undefined) return undefined;
+    const leer = body.rechnungNr === null || String(body.rechnungNr).trim() === '';
+    if (!D.euro(req.ctx)) { if (leer) return undefined; throw ungueltig('Die Rechnungsnummer darf nur mit dem Recht „Preise sehen“ erfasst werden.'); }
+    return leer ? null : v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false });
+  }
   function kostenFeld(req, body) {
     if (body.kosten === undefined || body.kosten === null) return undefined;
     if (!D.euro(req.ctx)) throw ungueltig('Kosten dürfen nur mit dem Recht „Preise sehen“ erfasst werden.');
@@ -773,7 +780,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       werkstatt: v.text(body.werkstatt, 'werkstatt', { max: 200 }), titel: v.text(body.titel, 'titel', { max: 200 }),
       arbeiten: v.text(body.arbeiten, 'arbeiten', { max: 5000, pflicht: false }), teile: v.text(body.teile, 'teile', { max: 5000, pflicht: false }),
       arbeitsstunden_intern: v.zahl(body.arbeitsstundenIntern, 'arbeitsstundenIntern', { min: 0, max: 10000, pflicht: false }),
-      rechnung_nr: v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false }), pruefer: v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false })
+      rechnung_nr: rechnungFeld(req, body) ?? null, pruefer: v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false })
     };
     const kosten = kostenFeld(req, body);
     const pruefErgebnis = v.auswahl(body.pruefErgebnis, 'pruefErgebnis', PRUEF, { pflicht: false });
@@ -874,7 +881,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (body.arbeiten !== undefined) set.arbeiten = v.text(body.arbeiten, 'arbeiten', { max: 5000, pflicht: false });
     if (body.teile !== undefined) set.teile = v.text(body.teile, 'teile', { max: 5000, pflicht: false });
     if (body.arbeitsstundenIntern !== undefined) set.arbeitsstunden_intern = v.zahl(body.arbeitsstundenIntern, 'arbeitsstundenIntern', { min: 0, max: 10000, pflicht: false });
-    if (body.rechnungNr !== undefined) set.rechnung_nr = v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false });
+    const rn = rechnungFeld(req, body);
+    if (rn !== undefined) set.rechnung_nr = rn;
     if (body.pruefer !== undefined) set.pruefer = v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false });
     const kosten = kostenFeld(req, body);
     if (kosten !== undefined) set.kosten = kosten;
@@ -1219,7 +1227,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     const bis = req.query.bis ? v.datum(String(req.query.bis), 'bis') : null;
     const kosten = mitKosten(req);
     const S = stand();
-    const inhalt = X.csvExport(db, S, { art, von, bis, kosten });
+    const inhalt = X.csvExport(db, S, { art, von, bis, kosten, rechnung: D.euro(req.ctx) });
     protokoll(req, 'export', `fuhrpark:${art}`, `Fuhrpark-Export ${art}${kosten ? ' mit Kosten' : ''} erstellt`);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="BauTag_Fuhrpark_${art}_${S.H}.csv"`);

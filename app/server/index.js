@@ -83,7 +83,7 @@ function createApp(opt = {}) {
   bt.bestand = bestand;
   if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
-  require('./kostenstellen').bueroSicherstellen(db, uhr().toISOString()); // 12.25: interne Kostenstelle „Büro“ (KST 9000)
+  require('./kostenstellen').bueroSicherstellen(db, uhr().toISOString()); // 12.25: interne Kostenstelle „Büro“ (KST 90-000)
   // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
   bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
   bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS
@@ -141,6 +141,7 @@ function createApp(opt = {}) {
       bt.warnungen.push('Push-Schlüssel (VAPID) war mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – neu erzeugt; Geräte müssen Push neu einschalten.');
     }
   } catch (e) { console.error('[BauTag] Geheimnisse prüfen:', e.message); }
+  bt.warnungen.push(...require('./kostenstellen').altCodesOffen(db)); // Migration 29: Ziel-KST belegt
   const verwalter = require('./rechte').entsperrKonten(db);
   if (verwalter.length < 2) {
     bt.warnungen.push(`Nur ${verwalter.length} aktives Verwaltungs-Konto (GF/Büro) kann gesperrte Konten entsperren – bitte mindestens zwei anlegen (Notfall: node server/entsperren.js <Personalnummer>).`);

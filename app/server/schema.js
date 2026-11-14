@@ -1201,6 +1201,28 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
 -- Die Kostenstellen-Art ist das bestehende Kennzeichen baustelle.intern (0 = Baustelle, 1 = interne Kostenstelle).
 ALTER TABLE benutzer ADD COLUMN standard_kostenstelle_id INTEGER REFERENCES baustelle(id);
 `
+  },
+  {
+    version: 29,
+    name: '12.25: interne Kostenstellen im Format NN-NNN (9000 → 90-000, 9100 → 90-100)',
+    sql: `
+-- Büro: 9000 → 90-000, nur wenn 90-000 frei ist
+INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
+  SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9000"}', '{"kst":"90-000"}', 'Interne Kostenstelle ' || name || ': KST 9000 → 90-000 (einheitliches Format NN-NNN)'
+  FROM baustelle WHERE kst = '9000' AND intern = 1 AND NOT EXISTS (SELECT 1 FROM baustelle WHERE kst = '90-000');
+UPDATE baustelle SET kst = '90-000' WHERE kst = '9000' AND intern = 1 AND NOT EXISTS (SELECT 1 FROM baustelle WHERE kst = '90-000');
+INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
+  SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9000"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9000 nicht umbenannt – 90-000 ist schon vergeben'
+  FROM baustelle WHERE kst = '9000' AND intern = 1;
+-- Werkstatt/Bauhof: 9100 → 90-100, nur wenn 90-100 frei ist
+INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
+  SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', '{"kst":"90-100"}', 'Interne Kostenstelle ' || name || ': KST 9100 → 90-100 (einheitliches Format NN-NNN)'
+  FROM baustelle WHERE kst = '9100' AND intern = 1 AND NOT EXISTS (SELECT 1 FROM baustelle WHERE kst = '90-100');
+UPDATE baustelle SET kst = '90-100' WHERE kst = '9100' AND intern = 1 AND NOT EXISTS (SELECT 1 FROM baustelle WHERE kst = '90-100');
+INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
+  SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
+  FROM baustelle WHERE kst = '9100' AND intern = 1;
+`
   }
 ];
 

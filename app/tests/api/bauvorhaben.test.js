@@ -36,7 +36,7 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal((await phase('bauleiter', { phase: 'pausiert' }, fremd)).status, 200);
     assert.equal((await phase('bauleiter', { phase: 'in_arbeit' }, fremd)).status, 200);
     // interne Kostenstelle: keine Phasen (12.25)
-    const buero = s.db.eins("SELECT id FROM baustelle WHERE kst = '9000'").id;
+    const buero = s.db.eins("SELECT id FROM baustelle WHERE kst = '90-000'").id;
     assert.equal((await phase('buero', { phase: 'pausiert' }, buero)).status, 422);
   });
 

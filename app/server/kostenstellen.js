@@ -1,16 +1,18 @@
 'use strict';
 /**
- * Interne Kostenstellen (API.md 12.25): z. B. „Büro“ (KST 9000), „Werkstatt/Bauhof“ (9100), „Kieswerk/Grube“ (9200).
+ * Interne Kostenstellen (API.md 12.25): „Büro“ (KST 90-000), „Werkstatt/Bauhof“ (90-100), „Kieswerk/Grube“ (90-001) – Format NN-NNN wie jede KST.
  * Kennzeichen baustelle.intern = 1. Stempeln erlaubt (zählt in Monat/Lohn/BUAK/AZG), ausgeschlossen von Nachkalkulation,
  * Positionen, Budget, Auftragssumme, Rechnungen, Phasen/Archiv, Zeitplan, Planer, Fuhren-Zielen, Wetter, Bericht, Dokumenten.
  */
 const { ApiFehler } = require('./fehler');
 
-const BUERO_KST = '9000';
+const BUERO_KST = '90-000';
+/** Frühere Codes der Demo-Datenbanken (vor Migration 29) */
+const ALT_KST = { '9000': '90-000', '9100': '90-100' };
 const STANDARD_INTERN = [
-  { kst: '9000', name: 'Büro', kurz: 'Büro' },
-  { kst: '9100', name: 'Werkstatt/Bauhof', kurz: 'Werkstatt' },
-  { kst: '9200', name: 'Kieswerk/Grube', kurz: 'Grube' }
+  { kst: '90-000', name: 'Büro', kurz: 'Büro' },
+  { kst: '90-100', name: 'Werkstatt/Bauhof', kurz: 'Werkstatt' },
+  { kst: '90-001', name: 'Kieswerk/Grube', kurz: 'Grube' }
 ];
 
 /** Legt fehlende interne Kostenstellen an (nur gegebene KST); idempotent → angelegte IDs */
@@ -28,10 +30,12 @@ function anlegen(db, liste, zeit) {
   return neu;
 }
 
-/** „Büro“-Kostenstelle (KST 9000) sicherstellen → id */
+/** „Büro“-Kostenstelle (KST 90-000) sicherstellen → id (eine nicht umbenannte alte „9000“ gilt weiter als Büro) */
 function bueroSicherstellen(db, zeit = new Date().toISOString()) {
-  anlegen(db, [STANDARD_INTERN[0]], zeit);
-  const b = db.eins("SELECT id FROM baustelle WHERE kst = ? AND intern = 1", BUERO_KST) || db.eins("SELECT id FROM baustelle WHERE intern = 1 AND name = 'Büro'");
+  const vorhanden = db.eins("SELECT id FROM baustelle WHERE intern = 1 AND kst IN (?, '9000') ORDER BY kst = ? DESC", BUERO_KST, BUERO_KST);
+  if (vorhanden) return vorhanden.id;
+  anlegen(db, [STANDARD_INTERN[0]], zeit); // legt nichts an, wenn 90-000 schon (als echte Baustelle) vergeben ist
+  const b = db.eins('SELECT id FROM baustelle WHERE kst = ? AND intern = 1', BUERO_KST) || db.eins("SELECT id FROM baustelle WHERE intern = 1 AND name = 'Büro'");
   return b ? b.id : null;
 }
 
@@ -41,16 +45,22 @@ function standardFuer(db, benutzer) {
   if (!b) return null;
   if (b.standard_kostenstelle_id) return b.standard_kostenstelle_id;
   if (['buero', 'bauleiter', 'gf'].includes(b.rolle)) {
-    const bu = db.eins("SELECT id FROM baustelle WHERE intern = 1 AND kst = ?", BUERO_KST);
+    const bu = db.eins("SELECT id FROM baustelle WHERE intern = 1 AND kst = ?", BUERO_KST) || db.eins("SELECT id FROM baustelle WHERE intern = 1 AND kst = '9000'");
     if (bu) return bu.id;
   }
   return b.baustelle_id || null;
 }
 
 const istIntern = (bs) => Boolean(bs && bs.intern);
+/** Nicht umbenannte alte Codes (Migration 29 hat sie wegen belegter Ziel-KST stehen gelassen) → Warntexte */
+function altCodesOffen(db) {
+  return Object.entries(ALT_KST).filter(([alt]) => db.eins('SELECT 1 AS x FROM baustelle WHERE kst = ? AND intern = 1', alt))
+    .map(([alt, neu]) => `Interne Kostenstelle „${alt}“ wurde nicht auf „${neu}“ umbenannt, weil „${neu}“ schon vergeben ist – bitte im Büro prüfen (Stammdaten → Baustellen).`);
+}
+
 /** Fachfunktion nur für echte Baustellen → 422 bei interner Kostenstelle */
 function nurBaustelle(bs, was) {
   if (istIntern(bs)) throw new ApiFehler(422, 'UNGUELTIG', `${bs.kst} ${bs.name} ist eine interne Kostenstelle – ${was} gibt es nur für Baustellen.`);
 }
 
-module.exports = { BUERO_KST, STANDARD_INTERN, anlegen, bueroSicherstellen, standardFuer, istIntern, nurBaustelle };
+module.exports = { BUERO_KST, ALT_KST, STANDARD_INTERN, altCodesOffen, anlegen, bueroSicherstellen, standardFuer, istIntern, nurBaustelle };

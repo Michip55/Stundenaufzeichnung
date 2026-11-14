@@ -293,11 +293,12 @@ function eintragJson(db, e, S, ctx) {
   const o = {
     id: e.id, anlageId: e.anlage_id, anlage: A ? { id: A.row.id, nummer: A.row.nummer, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen } : null,
     art: e.art, datum: e.datum, werkstatt: e.werkstatt, titel: e.titel, arbeiten: e.arbeiten, teile: e.teile, arbeitsstundenIntern: e.arbeitsstunden_intern,
-    rechnungNr: e.rechnung_nr, pruefErgebnis: e.pruef_ergebnis, pruefer: e.pruefer, zaehler, erledigt, maengel,
+    pruefErgebnis: e.pruef_ergebnis, pruefer: e.pruefer, zaehler, erledigt, maengel,
     ...(e.storniert ? { storniert: { zeit: e.storniert, grund: e.storno_grund, von: person(S.namen, e.storno_von) } } : {}),
     erfasst: e.erfasst, erfasstVon: person(S.namen, e.erfasst_von), version: e.version
   };
-  if (euro(ctx)) o.kosten = e.kosten;
+  // Kosten und Rechnungs-/Belegnummer der Werkstatt nur mit preise_sehen (14.11.2026, wie die Oberfläche)
+  if (euro(ctx)) { o.kosten = e.kosten; o.rechnungNr = e.rechnung_nr; }
   return o;
 }
 

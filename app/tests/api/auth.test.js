@@ -43,7 +43,7 @@ test('Anmeldung, Sitzung, Abmeldung, Sperre', async (t) => {
     assert.equal(ich.status, 200);
     assert.equal(ich.daten.benutzer.rolle, 'buero');
     assert.ok(ich.daten.rechte.includes('lohn'));
-    assert.equal(ich.daten.baustellenIds.length, 10); // 8 + interne Kostenstellen Büro (9000), Werkstatt (9100) – 12.25
+    assert.equal(ich.daten.baustellenIds.length, 10); // 8 + interne Kostenstellen Büro (90-000), Werkstatt (90-100) – 12.25
     // Session-Token wird nur gehasht gespeichert
     const tok = c.cookie.split('=')[1];
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM sitzung WHERE token_hash = ?', tok).n, 0);
