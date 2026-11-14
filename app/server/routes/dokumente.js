@@ -9,7 +9,8 @@ const { darfPreise, baustelleImBereich } = require('../rechte');
 const { baustelleAusPfad } = require('./hilfe');
 const D = require('../dokument-pruefung');
 
-const istVerwaltung = (ctx) => ['buero', 'gf'].includes(ctx.benutzer.rolle) || ctx.hat('stammdaten');
+// 15.4 (F-016/F-021): Projektdokumente verwalten allein mit dem Recht stammdaten – nie nach Rollenname oder bauleiterId
+const istVerwaltung = (ctx) => ctx.hat('stammdaten');
 
 module.exports = function dokumentRouten(api, bt) {
   const { db } = bt;
@@ -23,16 +24,14 @@ module.exports = function dokumentRouten(api, bt) {
     const ich = ctx.benutzer;
     if (kat.finanziell && !darfPreise(ctx, bs)) return null;
     if (istVerwaltung(ctx)) return 'schreiben';
-    if (ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id) return kat.finanziell && !ctx.hat('preise_bearbeiten') ? 'lesen' : 'schreiben';
     if (ich.rolle === 'polier' && baustelleImBereich(ich, bs) && kat.polier) return 'lesen';
     return null;
   }
   function pruefeBaustelle(ctx, bs) {
     const ich = ctx.benutzer;
     if (istVerwaltung(ctx)) return;
-    if (ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id) return;
     if (ich.rolle === 'polier' && baustelleImBereich(ich, bs)) return;
-    throw keinZugriff('Projektdokumente sehen Büro, GF, Bauleiter und Polier der Baustelle.');
+    throw keinZugriff('Projektdokumente sehen, wer das Recht stammdaten hat, und der Polier der Baustelle.');
   }
 
   /** N-050: Rechnung, mit der das Dokument verknüpft ist (auch stornierte – das PDF zeigt Beträge) */
@@ -286,7 +285,7 @@ module.exports = function dokumentRouten(api, bt) {
 
   api.post('/baustellen/:id/dokumente/:did/wiederherstellen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!istVerwaltung(req.ctx)) throw keinZugriff('Wiederherstellen dürfen Büro bzw. GF.');
+    if (!istVerwaltung(req.ctx)) throw keinZugriff('Wiederherstellen darf, wer das Recht stammdaten hat.');
     const { d } = laden(req, bs, { geloescht: true });
     db.transaktion(() => {
       db.lauf('UPDATE dokument SET geloescht_zeit = NULL, geloescht_von = NULL, geloescht_grund = NULL WHERE id = ?', d.id);

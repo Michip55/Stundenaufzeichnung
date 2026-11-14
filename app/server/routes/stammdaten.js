@@ -59,10 +59,10 @@ function pruefeVersion(body, aktuell, was = 'Die Baustelle') {
   if (version !== aktuell) throw konflikt(`${was} wurde inzwischen von jemand anderem geändert. Bitte neu laden und die Änderung wiederholen.`, { version: aktuell });
 }
 
-/** Bauleiter-/Polier-Zuordnung ändern nur Büro und GF (C-05) */
+/** Bauleiter-/Polier-Zuordnung (C-05): Sicherheitsnetz allein über das Recht stammdaten (15.4) – nie über den Rollennamen */
 function pruefeZuordnung(ctx, body) {
-  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !require('../rechte').BUERO_ROLLEN.includes(ctx.benutzer.rolle)) {
-    throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet nur das Büro bzw. die Geschäftsführung zu.');
+  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !ctx.hat('stammdaten')) {
+    throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet zu, wer das Recht stammdaten hat.');
   }
 }
 
@@ -222,11 +222,12 @@ module.exports = function stammdatenRouten(api, bt) {
     if (datum < plusTage(heute, -731)) throw ungueltig('datum liegt mehr als 2 Jahre zurück.');
     return datum;
   }
-  const darfLeistung = (ctx, bs) => ctx.hat('preise_bearbeiten') || (ctx.benutzer.rolle === 'bauleiter' && bs.bauleiter_id === ctx.benutzer.id);
+  // 15.4 (F-012/F-016/F-019): allein das Recht preise_bearbeiten – nie Rollenname oder bauleiterId (Bauleiter = Büro, 13.1)
+  const darfLeistung = (ctx) => ctx.hat('preise_bearbeiten');
 
   api.get('/baustellen/:id/leistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfKalk(req.ctx, bs) && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Leistungsmeldungen sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    if (!darfKalk(req.ctx, bs) && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Leistungsmeldungen sieht, wer das Recht kalk_sehen oder preise_bearbeiten hat.');
     const mitPreis = darfPreise(req.ctx, bs);
     res.json(db.alle(`SELECT m.*, l.code, l.text, l.einheit, l.ep, b.name AS von_name FROM leistungsmeldung m JOIN leistung l ON l.id = m.leistung_id
         LEFT JOIN benutzer b ON b.id = m.erstellt_von WHERE m.baustelle_id = ? ORDER BY m.datum DESC, m.id DESC`, bs.id).map((m) => {
@@ -239,7 +240,7 @@ module.exports = function stammdatenRouten(api, bt) {
   api.post('/baustellen/:id/leistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
-    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen erfassen dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen erfassen darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
     const body = v.objekt(req.body);
     const leistungId = v.id(body.leistungId, 'leistungId');
     const l = db.eins('SELECT id, code, text FROM leistung WHERE id = ?', leistungId);
@@ -257,7 +258,7 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.delete('/baustellen/:id/leistungen/:lid', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen stornieren dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen stornieren darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
     const lid = v.pfadId(req.params.lid, 'Leistungsmeldungs-ID');
     const m = db.eins('SELECT * FROM leistungsmeldung WHERE id = ? AND baustelle_id = ?', lid, bs.id);
     if (!m) throw nichtGefunden('Leistungsmeldung nicht gefunden.');
@@ -271,7 +272,7 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/baustellen/:id/fremdleistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen (€) sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen (€) sieht, wer das Recht preise_sehen hat.');
     res.json(db.alle('SELECT * FROM fremdleistung WHERE baustelle_id = ? ORDER BY datum DESC, id DESC', bs.id)
       .map((f) => ({ id: f.id, text: f.text, betrag: f.betrag, datum: f.datum, erstellt: f.erstellt, erstelltVon: f.erstellt_von })));
   });

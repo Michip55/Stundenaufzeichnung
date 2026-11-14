@@ -31,7 +31,7 @@ export const kalkTabs = (id, aktiv) => `<div class="tabs" role="tablist" aria-la
 export default async function positionen(el, ctx) {
   const id = ctx.params[0];
   const darf = ctx.kann('preise_bearbeiten');
-  const darfMengen = darf || (ctx.kann('kalk_sehen') && (ctx.ich.baustellenIds || []).map(String).includes(String(id)));
+  const darfMengen = darf; // 15.4: Mengen erfassen allein mit preise_bearbeiten (wie der Server)
   let d, bs = {};
   let nurMitMenge = speicher.lies('bt_pos_nurmenge', false);
   let mitAusgeblendeten = false;

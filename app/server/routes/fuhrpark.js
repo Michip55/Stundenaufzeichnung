@@ -1109,7 +1109,7 @@ module.exports = function fuhrparkRouten(api, bt) {
 
   api.put(`${R}/schaeden/:id`, (req, res) => {
     const m = schadenAus(req, req.params.id);
-    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeiten nur Fuhrpark, Büro und Geschäftsführung.');
+    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeitet, wer das Recht fuhrpark hat.');
     const body = v.objekt(req.body);
     pruefeVersion(body, m, 'Die Schadensmeldung');
     const alt = D.SCHADEN_STATUS[m.status];
@@ -1141,7 +1141,7 @@ module.exports = function fuhrparkRouten(api, bt) {
   api.post(`${R}/schaeden/:id/fotos`, (req, res) => {
     const m = schadenAus(req, req.params.id);
     const offen = ['offen', 'in_arbeit'].includes(m.status);
-    if (!D.istVerwaltung(req.ctx) && !(m.gemeldet_von === req.ctx.benutzer.id && offen)) throw keinZugriff('Fotos ergänzen kann nur der Melder (bei offener Meldung) bzw. Fuhrpark/Büro/GF.');
+    if (!D.istVerwaltung(req.ctx) && !(m.gemeldet_von === req.ctx.benutzer.id && offen)) throw keinZugriff('Fotos ergänzen kann nur der Melder (bei offener Meldung) bzw. wer das Recht fuhrpark hat.');
     const geschrieben = [];
     const r = mitDateiAufraeumen(geschrieben, () => db.transaktion(() => fotoHinzufuegen(req, m, v.objekt(req.body), null, geschrieben)));
     res.status(r.neu ? 201 : 200).json(D.fotoJson(r.foto, stand().namen));
@@ -1167,7 +1167,7 @@ module.exports = function fuhrparkRouten(api, bt) {
   });
 
   api.delete(`${R}/schaeden/:id/fotos/:fid`, (req, res) => {
-    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Fotos löschen nur Fuhrpark, Büro und Geschäftsführung.');
+    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Fotos löscht, wer das Recht fuhrpark hat.');
     const { m, f } = fotoAus(req);
     const g = req.body && req.body.grund !== undefined ? grund(req.body.grund, false) : null;
     db.transaktion(() => {

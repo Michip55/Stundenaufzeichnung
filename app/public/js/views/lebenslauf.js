@@ -19,7 +19,7 @@ const AUS_STATUS = { geplant: 'geplant', aktiv: 'in_arbeit', abgeschlossen: 'fer
 export const phaseVon = (b) => b.phase || AUS_STATUS[b.status] || 'in_arbeit';
 export const phaseText = (p) => (PHASEN[p] || [p || '–'])[0];
 export const phaseChip = (p) => `<span class="chip ${(PHASEN[p] || [0, 'st-grey'])[1]}" data-phase="${esc(p)}">${esc(phaseText(p))}</span>`;
-const planer = (ctx) => ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten'); // Bauleiter wie Büro
+const planer = (ctx) => ctx.kann('stammdaten'); // 15.4: wie der Server allein nach dem Recht (Bauleiter = Büro)
 const eigen = (ctx, b) => (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
 export function ziele(ctx, b) {
   const alle = UEBERGANG[phaseVon(b)] || [];

@@ -53,7 +53,7 @@ export default async function stempeln(el, ctx) {
       // vorgeschlagen; eine andere Wahl (echte Baustelle) bleibt danach erhalten. Alle anderen: nur wenn noch nichts gewählt ist.
       if (s.status === 'aus' && s.standardKostenstelleId != null && !s.geplant && b.some((x) => x.id === s.standardKostenstelleId)) {
         const marke = `${fmt.iso()}:${s.standardKostenstelleId}`;
-        if (wieBuero(ctx.ich.benutzer.rolle) ? speicher.lies('bt_kst_standard') !== marke : wahl == null || !b.some((x) => x.id === wahl)) { wahl = s.standardKostenstelleId; speicher.setz('bt_kst_standard', marke); speicher.setz('bt_baustelle', wahl); }
+        if (wieBuero(ctx.ich.benutzer.rolle) /* rolle-ok: nur Vorschlag der eigenen Kostenstelle (12.25), keine Rechteprüfung */ ? speicher.lies('bt_kst_standard') !== marke : wahl == null || !b.some((x) => x.id === wahl)) { wahl = s.standardKostenstelleId; speicher.setz('bt_kst_standard', marke); speicher.setz('bt_baustelle', wahl); }
       }
       speicher.setz('bt_status', { status: s.status, seit: s.seit, baustelleId: s.baustelleId, heute: s.heute, tag: fmt.iso() });
       speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status, intern: istIntern(x) }))); // ohne Beträge

@@ -2,7 +2,6 @@
 /** Abwesenheiten (K/U/SW/ZA): Antrag, Genehmigen/Ablehnen, Löschen – B-07 */
 const v = require('../validierung');
 const { ungueltig, keinZugriff, konflikt, nichtGefunden } = require('../fehler');
-const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, deDatum, istArbeitstag, feiertag, wochentag } = require('../datum');
 const crypto = require('node:crypto');
 const DS = require('../datenschutz'); // R-01…R-03: Krankenstand/Notizen nur für stammdaten/lohn und die Person selbst
@@ -32,20 +31,14 @@ function json(a) {
 module.exports = function abwesenheitsRouten(api, bt) {
   const { db } = bt;
   const darfEntscheiden = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn');
+  const ENTSCHEIDEN_TEXT = 'Anträge entscheidet, wer das Recht stammdaten oder lohn hat (Büro, Bauleiter, Lohnverrechnung, GF).';
 
   /** Personen, deren Abwesenheiten der Benutzer sehen darf (null = alle) */
   function sichtbareIds(ctx) {
-    if (DS.stufe(ctx) === 'voll') return null; // Büro/Lohn/GF und Bauleiter: alle Personen (nur lesen)
-    const ich = ctx.benutzer;
-    const ids = new Set([ich.id]);
-    // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht – nur die eigenen
-    if (DS.stufe(ctx) === 'keine') return ids;
-    const ber = bereich(ich);
-    if (ber === 'bauleiter' || ich.rolle === 'polier') {
-      const bs = db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').filter((b) => baustelleImBereich(ich, b)).map((b) => b.id);
-      for (const b of db.alle('SELECT id, baustelle_id FROM benutzer')) if (bs.includes(b.baustelle_id)) ids.add(b.id);
-    }
-    return ids;
+    // 15.4: allein nach Rechten (stammdaten|lohn → alle Personen, nur lesen); sonst nur die eigenen –
+    // für Büro und Bauleiter gleich, auch auf Baustellen mit bauleiterId (13.1); Polier/Mitarbeiter wie 13.2
+    if (DS.stufe(ctx) === 'voll') return null;
+    return new Set([ctx.benutzer.id]);
   }
 
   /**
@@ -158,10 +151,9 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const ctx = req.ctx;
     const id = v.pfadId(req.params.id, 'ID');
     const a = db.eins('SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
-    // D-09: SW bestätigt auch der Bauleiter der Stamm-Baustelle der Person
-    const bauleiterSw = a && a.code === 'SW' && ctx.benutzer.rolle === 'bauleiter' && a.stamm != null
-      && Boolean(db.eins('SELECT id FROM baustelle WHERE id = ? AND bauleiter_id = ?', a.stamm, ctx.benutzer.id));
-    if (!darfEntscheiden(ctx) && !bauleiterSw) throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung (Schlechtwetter auch der Bauleiter der Baustelle).');
+    // 15.4 (F-012): entscheiden allein mit stammdaten|lohn – auch SW; die frühere Sonderregel „Bauleiter der
+    // Stamm-Baustelle“ (D-09) entfällt (Bauleiter = Büro, 13.1; bauleiterId vergibt keine Rechte)
+    if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT);
     if (!a) throw nichtGefunden('Abwesenheit nicht gefunden.');
     if (a.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Anträge entscheidet eine andere Person (Vier-Augen-Prinzip).');
     // 12.24: mehrtägige Anträge nur als Ganzes entscheiden (Entscheidung 13.11.2026)
@@ -333,13 +325,10 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const body = v.objekt(req.body);
     const status = v.auswahl(body.status, 'status', ['genehmigt', 'abgelehnt']);
     const antwortText = body.antwort == null || body.antwort === '' ? null : v.text(body.antwort, 'antwort', { max: 300 });
-    if (!darfEntscheiden(ctx) && ctx.benutzer.rolle !== 'bauleiter') throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung (Schlechtwetter auch der Bauleiter der Baustelle).');
+    if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT); // 15.4 (F-012): Rechte vor Existenz, nie nach Rollenname
     const zeilen = db.alle(`SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE ${ANTRAG_SQL} = ? ORDER BY a.datum`, aid);
     if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
     const a0 = zeilen[0];
-    const bauleiterSw = zeilen.every((a) => a.code === 'SW') && ctx.benutzer.rolle === 'bauleiter' && a0.stamm != null
-      && Boolean(db.eins('SELECT id FROM baustelle WHERE id = ? AND bauleiter_id = ?', a0.stamm, ctx.benutzer.id));
-    if (!darfEntscheiden(ctx) && !bauleiterSw) throw keinZugriff('Anträge genehmigt das Büro bzw. die Lohnverrechnung (Schlechtwetter auch der Bauleiter der Baustelle).');
     if (a0.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Anträge entscheidet eine andere Person (Vier-Augen-Prinzip).');
     const offen = zeilen.filter((a) => a.status === 'beantragt');
     if (!offen.length) throw konflikt('Der Antrag ist schon entschieden.');
@@ -458,7 +447,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     let liste;
     if (darfEntscheiden(ctx)) liste = db.alle('SELECT * FROM sw_meldung ORDER BY erstellt DESC LIMIT 500');
     else if (ctx.benutzer.rolle === 'polier') liste = db.alle('SELECT * FROM sw_meldung WHERE polier_id = ? ORDER BY erstellt DESC LIMIT 500', ctx.benutzer.id);
-    else if (ctx.benutzer.rolle === 'bauleiter') { const ids = sichtbareIds(ctx); liste = db.alle('SELECT * FROM sw_meldung ORDER BY erstellt DESC LIMIT 500').filter((m) => ids.has(m.benutzer_id)); } else throw keinZugriff();
+    else throw keinZugriff('Schlechtwetter-Meldungen sieht, wer Abwesenheiten entscheidet (stammdaten/lohn), bzw. der meldende Polier.'); // 15.4 (F-035): kein Rollen-Sonderweg mehr
     res.json(liste.map((m) => swJson(m, namen)));
   });
   api.post('/abwesenheiten/sw-meldungen/:id/bestaetigen', (req, res) => {

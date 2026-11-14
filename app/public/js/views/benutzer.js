@@ -12,13 +12,14 @@ export default async function benutzer(el, ctx) {
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [];
   let tab = !voll ? 'benutzer' : ctx.query.get('reiter') === 'dienste' ? 'dienste' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
-  const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle);
+  const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle); // rolle-ok: Rolle der ZIEL-Person (C-14, wie rechte.BUERO_VERWALTBAR am Server)
   const istGesperrt = (m) => !!(m.gesperrt || m.kontoGesperrt || m.sperre || m.gesperrtSeit);
   async function lade() {
     [r, leute, baustellen] = await Promise.all([voll ? get('/rechte') : {}, get('/benutzer'), get('/baustellen').catch(() => [])]);
     if (!lohngruppen.length && ctx.kann('preise_sehen')) { try { lohngruppen = (await get('/preise')).lohngruppen || []; } catch (e) { /* optional */ } }
   }
   await lade();
+  // rolle-ok: Rollenwahl für die ZIEL-Person (nur die GF macht zum/vom Bauleiter, Server prüft)
   const rollen = (m) => (voll ? r.rollen || Object.keys(ROLLEN) : m && m.rolle === 'bauleiter' ? ['bauleiter'] : BUERO_VERGIBT).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
   const gesperrt = (rolle, recht) => ((r.gesperrt || {})[rolle] || []).includes(recht);
   const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
@@ -70,7 +71,7 @@ export default async function benutzer(el, ctx) {
       : `<input class="input lg" name="lohngruppe" value="${esc((m && m.lohngruppe) || '')}">`;
     const d = dialog({ titel: m ? 'Benutzer bearbeiten' : 'Neuer Benutzer', breit: true, inhalt: `<form id="bf" class="stack-s" autocomplete="off">
       <label class="field"><span class="field-label">Name</span><input class="input lg" name="name" required minlength="2" maxlength="80" value="${esc((m && m.name) || '')}"></label>
-      <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle" ${!voll && m && m.rolle === 'bauleiter' ? 'disabled' : ''} aria-describedby="rolle-hinweis">${rollen(m).map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label class="field"><span class="field-label">Rolle</span><select class="input lg" name="rolle" ${!voll && m && m.rolle === 'bauleiter' /* rolle-ok: Rolle der ZIEL-Person (Anzeige), Server prüft */ ? 'disabled' : ''} aria-describedby="rolle-hinweis">${rollen(m).map((x) => `<option value="${x.schluessel}" ${m && m.rolle === x.schluessel ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (gleiche Rechte wie das Büro) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
       <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
       ${m && lohngruppen.length ? `<div class="field" id="lg-ab-box" hidden><label><span class="field-label">Neue Lohngruppe gültig ab</span><input class="input lg" type="date" name="lohngruppeGueltigAb" id="lg-ab" value="${m.lohngruppe || m.lohngruppeId ? wienHeute() : ''}" min="2000-01-01" aria-describedby="lg-anfang"></label><small class="muted" id="lg-anfang" hidden>Erste Lohngruppe: leer lassen = gilt von Anfang an – auch für bereits erfasste Stunden.</small><small class="price-err" id="lg-rueck" hidden>Ändert die Kosten bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}

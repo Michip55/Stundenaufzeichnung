@@ -41,6 +41,7 @@ let stamm = null;
 async function ladeStamm() {
   if (stamm) return stamm;
   const [anl, leute, mat, bs, ein] = await Promise.all([get('/fuhrpark/anlagen').catch(() => []), get('/mitarbeiter').catch(() => []), get('/materialien').catch(() => []), get('/baustellen').catch(() => []), get('/einstellungen/plan').catch(() => ({}))]);
+  // rolle-ok: Auswahl der ZIEL-Person (Fahrer), keine Rechteprüfung des Aufrufers
   stamm = { anlagen: (Array.isArray(anl) ? anl : anl.anlagen || []).filter(istLkw), alleAnlagen: Array.isArray(anl) ? anl : anl.anlagen || [], leute: leute.filter((m) => m.aktiv !== false && ['mitarbeiter', 'polier', 'bauleiter'].includes(m.rolle)), mat, bs: bs.filter((b) => !b.intern && b.kostenstelle !== 'intern'), grube: (ein && ein.grube) || { text: 'Grube Breitenau' } };
   return stamm;
 }

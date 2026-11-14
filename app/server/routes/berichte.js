@@ -409,7 +409,6 @@ module.exports = function berichtRouten(api, bt) {
     const p = [];
     // Bereich schon in SQL (vor LIMIT)
     const ber = bereich(ctx.benutzer);
-    if (ber === 'bauleiter') { bedingungen.push('b.bauleiter_id = ?'); p.push(ctx.benutzer.id); }
     if (ber === 'partie') { bedingungen.push('(b.polier_id = ? OR b.id = ?)'); p.push(ctx.benutzer.id, ctx.benutzer.baustelle_id ?? -1); }
     if (q.baustelleId !== undefined) { bedingungen.push('r.baustelle_id = ?'); p.push(v.pfadId(String(q.baustelleId), 'baustelleId')); }
     if (q.von !== undefined) { bedingungen.push('r.datum >= ?'); p.push(v.datum(String(q.von), 'von')); }
@@ -610,7 +609,8 @@ module.exports = function berichtRouten(api, bt) {
   api.delete('/berichte/:id/unterschrift/:rolle', (req, res) => {
     const b = ladeMitZugriff(req, true);
     const rolle = v.auswahl(req.params.rolle, 'rolle', ['an', 'bh']);
-    if (rolle === 'bh' && !require('../rechte').BUERO_ROLLEN.includes(req.ctx.benutzer.rolle)) throw keinZugriff('Die Unterschrift des Bauherrn kann nur das Büro bzw. die Geschäftsführung zurückziehen.');
+    // 15.4: Bauherrn-Unterschrift zurückziehen allein mit dem Recht stammdaten (Büro/Bauleiter/GF laut Matrix) – nie nach Rollenname
+    if (rolle === 'bh' && !req.ctx.hat('stammdaten')) throw keinZugriff('Die Unterschrift des Bauherrn zieht zurück, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
     if (b.status !== 'entwurf') throw konflikt('Der Bericht ist vollständig unterschrieben – Unterschriften können nicht mehr zurückgezogen werden.');
     const alt = b.unterschriften.find((u) => u.rolle === rolle);
     if (!alt) throw nichtGefunden('Diese Unterschrift gibt es nicht.');

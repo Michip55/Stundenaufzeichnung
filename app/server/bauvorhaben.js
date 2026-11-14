@@ -24,7 +24,6 @@ const UEBERGAENGE = {
   storniert: ['archiviert', 'geplant'],
   archiviert: []
 };
-const BAULEITER_ZIELE = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
 
 /** Bisheriges Feld `status` aus der Phase */
 function statusAusPhase(phase) {
@@ -37,7 +36,8 @@ function phaseAusStatus(status) {
   return { geplant: 'geplant', aktiv: 'in_arbeit', abgeschlossen: 'fertiggestellt' }[status];
 }
 
-const istPlaner = (ctx) => ['buero', 'gf'].includes(ctx.benutzer.rolle) || ctx.hat('stammdaten');
+// 15.4 (F-016/F-021): Phasen/Lebenslauf allein mit dem Recht stammdaten – nie nach Rollenname oder bauleiterId (13.1)
+const istPlaner = (ctx) => ctx.hat('stammdaten');
 
 /** Felder für das Baustellen-JSON (ohne €; € ergänzt der Aufrufer mit Preisrecht) */
 function phaseFelder(db, bs, mitPreisen) {
@@ -84,8 +84,7 @@ function phaseVorschlag(db, bs) {
 
 /** Grundrecht für Phasenwechsel (vor jeder Zustands-/Versionsprüfung, R-07) */
 function pruefePhaseRecht(ctx, bs) {
-  if (istPlaner(ctx)) return;
-  if (!(ctx.benutzer.rolle === 'bauleiter' && bs.bauleiter_id === ctx.benutzer.id)) throw keinZugriff('Den Stand des Bauvorhabens ändern Büro, GF und der Bauleiter der Baustelle.');
+  if (!istPlaner(ctx)) throw keinZugriff('Den Stand des Bauvorhabens ändert, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
 }
 
 /**
@@ -99,10 +98,7 @@ function wechslePhase(bt, ctx, bs, body) {
   if (bs.phase === 'archiviert') throw konflikt('Die Baustelle ist archiviert – zuerst das Archiv aufheben (nur Geschäftsführung).');
   if (!(UEBERGAENGE[bs.phase] || []).includes(ziel)) throw konflikt(`Von „${PHASE_NAMEN[bs.phase]}“ geht es nicht nach „${PHASE_NAMEN[ziel]}“ (möglich: ${(UEBERGAENGE[bs.phase] || []).map((p) => PHASE_NAMEN[p]).join(', ') || '–'}).`);
   const ich = ctx.benutzer;
-  pruefePhaseRecht(ctx, bs);
-  if (!istPlaner(ctx)) {
-    if (!BAULEITER_ZIELE.includes(ziel) || !BAULEITER_ZIELE.includes(bs.phase)) throw keinZugriff('Als Bauleiter bis „Abgenommen“ – Schlussrechnung, Bezahlung und Archiv erledigt das Büro.');
-  }
+  pruefePhaseRecht(ctx, bs); // 15.4: der frühere Teilweg „Bauleiter der Baustelle bis Abgenommen“ entfällt
   const heute = wienDatum(bt.uhr());
   const datum = body.datum === undefined || body.datum === null ? heute : body.datum;
   if (!istDatum(datum) || datum > plusTage(heute, 1) || datum < plusTage(heute, -3650)) throw ungueltig('datum ist ungültig (nicht in der Zukunft).');
@@ -168,4 +164,4 @@ function pruefeBauvorhaben(bt) {
   }
 }
 
-module.exports = { pruefePhaseRecht, PHASEN, PHASE_NAMEN, UEBERGAENGE, BAULEITER_ZIELE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };
+module.exports = { pruefePhaseRecht, PHASEN, PHASE_NAMEN, UEBERGAENGE, statusAusPhase, phaseAusStatus, phaseFelder, phaseVorschlag, wechslePhase, pruefeBauvorhaben, istPlaner };

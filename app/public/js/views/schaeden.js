@@ -14,8 +14,9 @@ const einsatzChip = (e, cls = 'xs') => { const [t, c, i] = S_EINSATZ[e] || [e, '
 const geraetName = (s) => (s.anlage ? `${s.anlage.bezeichnung}${s.anlage.kennzeichen ? ' · ' + s.anlage.kennzeichen : ''}` : s.fremdGeraet || 'Gerät');
 const offen = (s) => s.status === 'gemeldet' || s.status === 'in_bearbeitung';
 const fotoUrl = (s, f) => f.url || `/api/fuhrpark/schaeden/${s.id}/fotos/${f.id}`;
-const darfAlle = (ctx) => ctx.kann('fuhrpark') || ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle);
-const weiteSicht = (ctx) => darfAlle(ctx) || ['bauleiter', 'polier'].includes(ctx.ich.benutzer.rolle);
+// 15.4: wie der Server – bearbeiten mit fuhrpark, alle sehen mit fuhrpark|stammdaten, der Polier seinen Bereich
+const darfAlle = (ctx) => ctx.kann('fuhrpark');
+const weiteSicht = (ctx) => darfAlle(ctx) || ctx.kann('stammdaten') || ctx.ich.benutzer.rolle === 'polier';
 
 // Geräteliste für die Schadensmeldung ohne Netz am Gerät merken (ohne Kosten, ohne Zählerstände)
 export const merkAnlagen = (l) => speicher.setz('bt_anlagen', arr(l).filter((a) => a.status !== 'ausgeschieden').map((a) => ({ id: a.id, nummer: a.nummer, bezeichnung: a.bezeichnung, kennzeichen: a.kennzeichen, klasse: a.klasse, gesperrt: !!a.gesperrt, verantwortlich: a.verantwortlich ? { id: a.verantwortlich.id } : null, standort: a.standort ? { baustelleId: a.standort.baustelleId } : null })));
