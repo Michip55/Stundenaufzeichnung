@@ -354,7 +354,7 @@ async function planer(h, z) {
   const frei = woche0.frei[morgen];
   const andere = frei.personen.filter((p) => p.status === 'frei' && p.rolle === 'mitarbeiter' && p.benutzerId !== L);
   const [P2, P3, P4, P5] = andere;
-  const lkw = frei.anlagen.find((a) => !a.gesperrt && a.kennzeichen);
+  const lkw = frei.anlagen.find((a) => !a.gesperrt && a.kennzeichen && /^LKW\b/.test(a.bezeichnung || '')); // N-102: Fuhren nur mit LKW (kein Anhänger/PKW)
   pruef(!!(P2 && P3 && P4 && P5 && lkw), 'A2-Plan: zu wenige freie Personen oder kein freier LKW in den Testdaten');
   const pushVorher = (await ausgang()).push.filter((p) => p.benutzerId === L).length;
 
