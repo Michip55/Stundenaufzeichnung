@@ -1,7 +1,7 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, bindungLoeschen, geraetArt, sperreMinutenFuer } from './api.js';
-import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
+import { get, post, abmeldenVormerken, bindungLoeschen, geraetArt, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel } from './api.js';
+import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, GERAET_TEXT, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
@@ -52,6 +52,7 @@ let integCache = null;
 let pollTimer = null;
 let schadenNeu = 0;        // neu gemeldete Schäden (für alle, die sie bearbeiten)
 let schadenWartet = 0;     // eigene Schadensmeldungen, die noch auf Verbindung warten
+let geraetHinweis = false; // 15.12 (G2-021): „Eigenes Handy“ einer anderen Person wurde bei dieser Anmeldung auf „geteilt“ zurückgesetzt
 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
@@ -158,12 +159,14 @@ function rahmen() {
         </div>
       </header>
       <div id="install-hinweis" hidden></div>
+      <div id="geraet-hinweis" class="geraet-hinweis" role="alert" hidden></div>
       <main class="view" id="view" tabindex="-1"></main>
       <nav class="tabbar" id="nav-tab" aria-label="Hauptnavigation">${tabs.map((n) => navLink(n)).join('')}</nav>
     </div>
   </div>`;
   $('#glocke').addEventListener('click', glockeAuf);
   zeigeInstallHinweis();
+  zeigeGeraetHinweis();
   zeigeSync();
   zeigeGlocke();
   zeigeBadge();
@@ -179,6 +182,19 @@ function zeigeInstallHinweis() {
   const zu = $('button', el); if (zu) zu.addEventListener('click', () => { speicher.setz('bt_install_weg', true); zeigeInstallHinweis(); });
 }
 window.addEventListener('bt:install', zeigeInstallHinweis);
+// 15.12 (G2-021): nach einem Benutzerwechsel deutlich zeigen, dass das Gerät wieder als „Geteiltes Gerät“ gilt – mit der Wahl
+function zeigeGeraetHinweis() {
+  const el = $('#geraet-hinweis'); if (!el) return;
+  el.hidden = !(geraetHinweis && ich);
+  el.innerHTML = el.hidden ? '' : `${ic('users')}<div class="gh-txt"><b>Dieses Gerät ist jetzt ein „Geteiltes Gerät“.</b><span>Es war von einer anderen Person als „Eigenes Handy“ eingestellt. ${esc(GERAET_TEXT.geteilt)}</span></div>
+    <div class="btn-zeile"><button type="button" class="btn primary sm" data-geraet="geteilt">Geteiltes Gerät – passt</button><button type="button" class="btn ghost sm" data-geraet="eigen">Das ist mein eigenes Handy</button></div>`;
+  el.querySelectorAll('[data-geraet]').forEach((b) => b.addEventListener('click', () => {
+    const art = setzGeraetArt(b.dataset.geraet, ich ? ich.benutzer.id : null);
+    geraetHinweis = false; zeigeGeraetHinweis();
+    toast(art === 'eigen' ? 'Eigenes Handy: angemeldet bis zum Abmelden (längstens wie die Sitzung am Server).' : 'Geteiltes Gerät: automatische Abmeldung ohne Bedienung.');
+  }));
+}
+window.addEventListener('bt:geraet-art', () => { if (geraetHinweis && ich) { geraetHinweis = false; zeigeGeraetHinweis(); } });
 function markiereNav(id) {
   const tabIds = $$('#nav-tab .nav-item').map((a) => a.dataset.nav);
   $$('.nav-item, .nav-user').forEach((a) => {
@@ -336,7 +352,7 @@ async function zeige() {
     setzOnline(true);
   } catch (e) {
     if (nr !== lauf) return;
-    if (e.status === 401) return; // Abmelde-Ereignis übernimmt
+    if (e.status === 401 || e.veraltet) return; // Abmelde-Ereignis übernimmt; 15.12 (G2-018): Antwort einer beendeten Anmeldung
     if (e.status === 403) { markiereNav(''); setzTitel('Seite nicht verfügbar'); view.innerHTML = keinZugriff(); return; }
     if (e.netz) setzOnline(false); else if (!e.status) console.error(e);
     view.innerHTML = fehlerBox(e);
@@ -350,6 +366,8 @@ window.addEventListener('hashchange', zeige);
 let geraetAufgeraeumt = Promise.resolve();
 function geraetAufraeumen() {
   geraetAufgeraeumt = geraetAufgeraeumt.then(async () => {
+    // 15.12 (G2-032): auch beim Sitzungsablauf (401) endet das Push-Abo im Browser – am Server ist es mit der Sitzung schon gelöscht
+    await pushAbmelden(await geraetPushAbo());
     await Promise.all([nachsendenFertig(), schadenNachsendenFertig(), fuhrenNachsendenFertig()]).catch(() => {});
     await versiegeln().catch(() => {});
     speicher.raeumeBenutzer(); stammVergessen(); // R-08: Einsatzplan, Auswahl, Entwürfe … des Benutzers vom Gerät entfernen
@@ -360,6 +378,7 @@ function geraetAufraeumen() {
 async function pushAbmelden(sub) { if (sub) { try { await sub.unsubscribe(); } catch (e) { /* ohne Netz: der Server löscht das Abo beim Nachholen */ } } }
 
 async function nachLogin() {
+  sitzungWechsel(); // 15.12 (G2-018): nichts, was vor dieser Anmeldung gestartet wurde, landet in ihrem Zustand
   await ladeIch(false, { frisch: true });
   if (location.hash && location.hash !== '#/login' && location.hash !== '#/') zeige(); else location.hash = '#' + start();
 }
@@ -377,6 +396,8 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
       speicher.raeumeBenutzer(); stammVergessen();
       await pushAbmelden(await geraetPushAbo()); // 15.5 (F-014): ihr Push-Abo an diesem Gerät endet
     }
+    // 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – bei einer anderen Person wieder „geteilt“
+    if (geraetArtBeiAnmeldung(ich.benutzer.id, vorher).zurueckgesetzt) geraetHinweis = true;
     speicher.setz('bt_geraet_benutzer', ich.benutzer.id);
     if (frisch) { aktivMem = Date.now(); aktivGeschrieben = aktivMem; speicher.setz(AKTIV, aktivMem); } // Untätigkeit zählt ab der Anmeldung
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
@@ -386,6 +407,7 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     await schluesselHolen(ich.benutzer.id);
     await entsiegeln(ich.benutzer.id, { frisch }).catch(() => {});
   } catch (e) {
+    if (e.veraltet) return; // 15.12 (G2-018): inzwischen ab- bzw. neu angemeldet – der neuere Lauf übernimmt
     if (e.netz) { ich = speicher.lies('bt_ich'); setzOnline(false); }
     else {
       // Sitzung am Server beendet (abgelaufen, abgemeldet): wie Abmelden – Einträge versiegeln, Benutzerdaten löschen
@@ -412,6 +434,7 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
  * ist gelöscht, damit gilt das alte Sitzungs-Cookie auch ohne Netz nicht mehr.
  */
 async function abmelden(opt = {}) {
+  sitzungWechsel(); // 15.12 (G2-018): laufende Anfragen dieser Person abbrechen, späte Antworten verwerfen
   const sub = await geraetPushAbo();
   const endpoint = sub ? sub.endpoint : null;
   try { await post('/auth/logout', endpoint ? { endpoint } : {}); }
@@ -426,7 +449,8 @@ async function abmelden(opt = {}) {
   return lokalAbmelden();
 }
 function lokalAbmelden() {
-  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0;
+  sitzungWechsel(); // 15.12 (G2-018): auch beim Ablauf der Sitzung (401) und bei der Sperre nach Untätigkeit
+  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0; geraetHinweis = false;
   setzBenutzer(null); clearInterval(pollTimer);
   bindungLoeschen();
   speicher.weg('bt_ich'); // ein Neuladen startet nie mehr als diese Person

@@ -11,7 +11,10 @@
  *  4. Die Wahl übersteht das Abmelden und das Neuladen; in „Mehr“ änderbar (zurück auf „geteilt“ → Sperre gilt wieder).
  *  5. Eigenes Handy, Benutzerwechsel: gebundene Sitzung, Abmelden ohne Netz mit Nachholen, Versiegeln der Warteschlange,
  *     Push-Abo endet; der Mitarbeiter sieht und sendet nichts vom Polier; Benutzerwechsel nach Sitzungsablauf; der Polier sendet
- *     nach seiner Anmeldung alles.
+ *     nach seiner Anmeldung alles. 15.12 (G2-021): der Benutzerwechsel setzt „Eigenes Handy“ auf „Geteiltes Gerät“ zurück.
+ *  6. 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – in „Mehr“ gewählt oder vom Vorbenutzer auf
+ *     der Anmeldeseite voreingestellt: die nächste andere Person ist auf „Geteiltes Gerät“ (deutlicher Hinweis, 30-min-Sperre);
+ *     dieselbe Person behält ihre Wahl.
  * Die Untätigkeit wird wie in tests/e2e/geraet.js über die gemerkte letzte Bedienung (bt_aktiv) simuliert; Browser- und
  * Server-Uhr laufen gemeinsam (ctx.clock).
  */
@@ -206,6 +209,9 @@ async function laufe(browser, g) {
     pruef(!/Haidbauer/.test(await page.evaluate(() => document.body.innerText + JSON.stringify(localStorage))), 'eigenes Handy: Angaben des Poliers beim Mitarbeiter');
     pruef(await page.locator('#sync[data-ausstehend="0"][data-abgelehnt="0"]').count() === 1, 'eigenes Handy: Sync-Anzeige des Mitarbeiters zählt Einträge des Poliers');
     pruef(gebunden(U.mitarbeiter) === 1, 'eigenes Handy: Mitarbeiter ohne gebundene Sitzung');
+    // 15.12 (G2-021): die Wahl „Eigenes Handy“ des Poliers gilt nicht für den Mitarbeiter
+    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === String(U.mitarbeiter), `Benutzerwechsel: „Eigenes Handy“ des Poliers gilt für den Mitarbeiter weiter (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    pruef(await page.locator('#geraet-hinweis:not([hidden])').isVisible() && /Geteiltes Gerät/.test(await page.locator('#geraet-hinweis').innerText()), 'Benutzerwechsel: kein deutlicher Hinweis auf „Geteiltes Gerät“');
 
     // Benutzerwechsel ohne Abmelden (Sitzung am Server abgelaufen) → Polier meldet sich an und sendet alles
     db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', U.mitarbeiter);
@@ -216,7 +222,38 @@ async function laufe(browser, g) {
     pruef(gebunden(U.mitarbeiter) === 0 && gebunden(U.polier) === 1, 'eigenes Handy: Rotation/Bindung beim Benutzerwechsel falsch');
     await page.waitForFunction(() => !JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length, null, { timeout: 20000 }).catch(() => {});
     pruef(offlineBuchungen(U.polier) === offVorher + 1, `eigenes Handy: Offline-Stempelung des Poliers nach seiner Anmeldung nicht gesendet (${offVorher}→${offlineBuchungen(U.polier)})`);
-    pruef(await ls('bt_geraet_art') === 'eigen', 'Gerätewahl nach dem Benutzerwechsel verloren');
+    // 15.12 (G2-021): auch der Wechsel Mitarbeiter → Polier ist ein Benutzerwechsel – „geteilt“ bleibt, bis der Polier selbst wählt
+    pruef(await ls('bt_geraet_art') === 'geteilt', `Gerätewahl nach dem Benutzerwechsel nicht „geteilt“ (${await ls('bt_geraet_art')})`);
+
+    /* ---- 6) 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat ---- */
+    await geh('/mehr');
+    await waehle('eigen'); // der Polier wählt selbst in „Mehr“
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Wahl in „Mehr“ nicht mit der Person gespeichert');
+    pruef(await page.locator('#geraet-hinweis').isHidden(), 'Hinweis bleibt nach der eigenen Wahl stehen');
+    await abmelden();
+    pruef(await gewaehlt() === 'eigen', 'Anmeldeseite zeigt die Wahl des Vorbenutzers nicht an');
+    pruef(/Gilt nur für die Person, die es gewählt hat/.test(await page.locator('#geraet-info').innerText()), 'Anmeldeseite warnt nicht, dass „Eigenes Handy“ nur für die wählende Person gilt');
+    await anmelden(U.mitarbeiter, { laden: false }); // die nächste Person bemerkt die Voreinstellung nicht
+    pruef(await ls('bt_geraet_art') === 'geteilt', 'G2-021: „Eigenes Handy“ des Poliers gilt für den nächsten Mitarbeiter');
+    pruef(await page.locator('#geraet-hinweis').isVisible(), 'G2-021: kein Hinweis nach dem Zurücksetzen');
+    await untaetig(31);
+    pruef(await abgemeldet(), 'G2-021: Mitarbeiter am vom Polier voreingestellten Gerät nach 31 min ohne Bedienung weiter angemeldet');
+    // Vorbenutzer (Mitarbeiter) stellt auf der Anmeldeseite still „Eigenes Handy“ ein → gilt nicht für den Polier
+    await zurAnmeldung();
+    await waehle('eigen');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === null, 'Wahl auf der Anmeldeseite (ohne Person) nicht gespeichert');
+    await anmelden(U.polier, { laden: false });
+    pruef(await ls('bt_geraet_art') === 'geteilt', 'G2-021: auf der Anmeldeseite voreingestelltes „Eigenes Handy“ gilt für die nächste Person');
+    pruef(await page.locator('#geraet-hinweis').isVisible(), 'G2-021: kein Hinweis nach dem Zurücksetzen (Voreinstellung)');
+    // der Polier entscheidet sich im Hinweis bewusst für „Eigenes Handy“ – und behält das bei der nächsten eigenen Anmeldung
+    await page.click('#geraet-hinweis [data-geraet="eigen"]');
+    await sleep(150);
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier) && await page.locator('#geraet-hinweis').isHidden(), 'Wahl im Hinweis nicht übernommen');
+    await abmelden();
+    await anmelden(U.polier, { laden: false });
+    pruef(await ls('bt_geraet_art') === 'eigen' && await page.locator('#geraet-hinweis').isHidden(), 'dieselbe Person verliert ihre Wahl „Eigenes Handy“');
+    await untaetig(31);
+    pruef(await angemeldet(), 'dieselbe Person: „Eigenes Handy“ meldet nach 31 min ab');
 
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);
   } finally {

@@ -14,10 +14,15 @@
  *  6. Sitzung abgelaufen, anderer Benutzer meldet sich an: Push-Abo des Vorbenutzers am Server gelöscht, im Browser beendet.
  *  7. Nach dem Abmelden ohne Netz öffnet das alte Sitzungs-Cookie nichts mehr (auch nicht mit gefälschtem bt_ich).
  *  8. Sperre nach Untätigkeit (Feldrolle 30 min) – auch beim Neustart der App.
+ *  9. 15.12 (G2-032, im Code Schritt 7): Sitzung am Server abgelaufen → Push-Abo am Server (mit der Sitzung) und im Browser
+ *     sofort beendet, nicht erst bei der Anmeldung der nächsten Person.
+ * 10. 15.12 (G2-018): verspätete Antwort von GET /benachrichtigungen des Büros kommt nach Abmelden und Anmeldung des Poliers
+ *     (ohne Neuladen) an – sie landet nicht in seiner Glocke, auch nicht bei einem Netzaussetzer.
  */
 const { chromium } = require('playwright');
 const { starte, U, BS, START } = require('../api/hilfe');
 const { pngGrau } = require('../../server/png');
+const { benachrichtige } = require('../../server/benachrichtigung');
 
 const GROESSEN = [
   { name: 'handy', width: 390, height: 844, mobil: true },
@@ -84,8 +89,9 @@ async function laufe(browser, g) {
     const bereit = async () => { await page.waitForFunction(() => !document.querySelector('#view .view-box > .state .spinner, #root > .state .spinner'), null, { timeout: 15000 }); await sleep(80); };
     const geh = async (h) => { await page.evaluate((x) => { location.hash = x; }, '#' + h); await page.waitForFunction((x) => location.hash === '#' + x, h); await bereit(); };
     let ladeNr = 0;
-    async function anmelden(id) {
-      await page.goto(`${s.basis}/?anmelden=${++ladeNr}#/login`);
+    NAME[U.buero] = db.eins('SELECT name FROM benutzer WHERE id = ?', U.buero).name;
+    async function anmelden(id, { laden = true } = {}) {
+      if (laden) await page.goto(`${s.basis}/?anmelden=${++ladeNr}#/login`);
       try { await page.waitForSelector('.login-user'); } catch (e) { throw new Error(`Anmeldeseite ohne Namensliste: ${(await page.evaluate(() => document.body.innerText)).slice(-300)} | ${seitenfehler.join(' | ')}`); }
       await page.fill('#login-suche', NAME[id].split(' ')[1]);
       await page.click(`.login-user:has-text("${NAME[id]}")`);
@@ -239,6 +245,10 @@ async function laufe(browser, g) {
     db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', U.polier); // Ablauf am Server
     await page.evaluate(() => { location.hash = '#/woche'; });
     await page.waitForSelector('#login-card', { timeout: 15000 });
+    // 15.12 (G2-032): mit der Sitzung endet das Abo am Server, und die App beendet es beim Ablauf (401) auch im Browser
+    pruef(anzahl('SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = ?', EP2) === 0, 'Push-Abo des Poliers bleibt nach Ablauf seiner Sitzung am Server bestehen');
+    for (let i = 0; i < 20 && (await abo()).abgemeldet !== 1; i++) await sleep(100);
+    pruef((await abo()).abgemeldet === 1 && !(await abo()).aktiv, 'Push-Abo im Browser beim Ablauf der Sitzung (Anmeldeseite) nicht beendet');
     await anmelden(U.mitarbeiter);
     await sleep(300);
     pruef(anzahl('SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = ?', EP2) === 0, 'Push-Abo des Poliers bleibt nach Anmeldung des Mitarbeiters am selben Gerät');
@@ -276,6 +286,43 @@ async function laufe(browser, g) {
     await page.goto(s.basis + '/#/stempeln');
     await page.waitForSelector('#login-card', { timeout: 15000 }).catch(() => {});
     pruef(await page.locator('#view').count() === 0, 'Neustart der App nach 31 min ohne Bedienung bleibt angemeldet');
+
+    /* ---- 10) 15.12 (G2-018): verspätete Antwort der vorigen Anmeldung landet nicht beim nächsten Benutzer ---- */
+    const zeitJetzt = new Date(jetzt()).toISOString();
+    for (let i = 1; i <= 3; i++) benachrichtige(db, { benutzerId: U.buero, typ: 'sicherheit', titel: `Büro-Meldung ${i}: Rechnung AR-2026-4711 fällig`, text: `Nur für das Büro (${i}).`, zeit: zeitJetzt, schluessel: `e2e-g2-018:${i}` });
+    const polApi = await s.login(U.polier);
+    await polApi.post('/benachrichtigungen/alle-gelesen'); // der Polier hat danach keine ungelesenen Meldungen
+    await anmelden(U.buero);
+    await page.waitForSelector('#glocke.has');
+    let halten = true, freigeben = null, angehalten = null;
+    const gehalten = new Promise((ok) => { angehalten = ok; });
+    const tor = new Promise((ok) => { freigeben = ok; });
+    let spaetZugestellt = null;
+    await page.route('**/api/benachrichtigungen', async (r) => {
+      if (!halten || r.request().method() !== 'GET') return r.continue().catch(() => {});
+      halten = false;
+      const antwort = await r.fetch(); // der Server hat dem Büro geantwortet (200) – das Netz hält die Antwort zurück
+      angehalten(antwort.status());
+      await tor;
+      spaetZugestellt = await r.fulfill({ response: antwort }).then(() => true, () => false);
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // wie der 45-s-Abruf
+    pruef(await Promise.race([gehalten, sleep(8000).then(() => 0)]) === 200, 'Vorbedingung: Abruf der Büro-Meldungen nicht abgefangen');
+    await abmelden();
+    await anmelden(U.polier, { laden: false }); // am selben Tab, ohne Neuladen
+    freigeben();
+    for (let i = 0; i < 30 && spaetZugestellt === null; i++) await sleep(100);
+    await sleep(500);
+    await page.unroute('**/api/benachrichtigungen');
+    const glocke = await page.evaluate(() => ({ zahl: document.querySelector('#glocke-zahl').hidden ? '' : document.querySelector('#glocke-zahl').textContent, label: document.querySelector('#glocke').getAttribute('aria-label') }));
+    pruef(glocke.zahl === '' && glocke.label === 'Benachrichtigungen', `Glocke des Poliers zeigt Meldungen des Büros (${JSON.stringify(glocke)}, spät zugestellt: ${spaetZugestellt})`);
+    await ctx.setOffline(true); // kurzer Netzaussetzer: die Glocke zeigt den gemerkten Stand
+    await page.click('#glocke');
+    await page.waitForSelector('#notif-panel #notif-inhalt :is(.notif, .state.empty)');
+    const panel = await page.locator('#notif-panel').innerText();
+    pruef(!/Büro-Meldung|AR-2026-4711/.test(panel), `Glocke des Poliers enthält Meldungen des Büros: ${panel.slice(0, 160)}`);
+    await page.keyboard.press('Escape');
+    await ctx.setOffline(false);
 
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);
   } finally {
