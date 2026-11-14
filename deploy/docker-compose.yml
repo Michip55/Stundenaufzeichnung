@@ -40,6 +40,10 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # N-032: Obergrenze Arbeitsspeicher (große Uploads, PDF-Prüfung) – der Server (4 GB) bleibt bedienbar; ohne Swap
+    # darüber hinaus. Wert auch in ANLEITUNG.md („Größengrenzen beim Hochladen“).
+    mem_limit: 1536m
+    memswap_limit: 1536m
     logging: *logging
 
   caddy:

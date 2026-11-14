@@ -222,7 +222,12 @@ function git(cwd, ...args) {
   return r.stdout.trim();
 }
 
-/** Zustand des Image/Caddy in Dateien; „compose build“ scheitert, solange zustand/build_fehler existiert */
+/**
+ * Zustand des Image/Caddy in Dateien; „compose build“ scheitert, solange zustand/build_fehler existiert.
+ * image-<tag> enthält die Revision (Label) und dient zugleich als Image-ID; „laufend“ ist die Image-ID des laufenden
+ * Containers (fehlt: Container läuft nicht). „up -d“ bricht update.sh hart ab (kill -9), solange zustand/abbruch existiert;
+ * die Gesundheitsprüfung scheitert, solange zustand/ungesund existiert.
+ */
 function updateUmgebung(o) {
   const zustand = path.join(o, 'zustand');
   const bin = path.join(o, 'bin');
@@ -236,15 +241,20 @@ if [[ "$1" == image && "$2" == inspect ]]; then
   [[ "$*" == *--format* ]] && cat "$Z/image-\${3#bautag:}"
   exit 0
 fi
-if [[ "$1" == tag ]]; then cp "$Z/image-\${2#bautag:}" "$Z/image-\${3#bautag:}"; exit 0; fi
+if [[ "$1" == tag ]]; then
+  if [[ "$2" == bautag:* ]]; then cp "$Z/image-\${2#bautag:}" "$Z/image-\${3#bautag:}"; else printf '%s' "$2" > "$Z/image-\${3#bautag:}"; fi
+  exit 0
+fi
+if [[ "$1" == inspect && "$2" == --format && "$4" == app-container ]]; then cat "$Z/laufend"; exit 0; fi
 if [[ "$1" == compose ]]; then
   D="$(dirname "$3")"; shift 3
   case "$*" in
+    "ps -q app") [[ -f "$Z/laufend" ]] && echo app-container ;;
     "build app") [[ -f "$Z/build_fehler" ]] && { echo "Bau fehlgeschlagen" >&2; exit 1; }; printf '%s' "$BAUTAG_REVISION" > "$Z/image-aktuell"; echo "$BAUTAG_REVISION" >> "$Z/gebaut.txt" ;;
     "up -d --no-deps --force-recreate caddy") cp "$D/Caddyfile" "$Z/caddy-laufend"; echo neu >> "$Z/caddy-neu.txt" ;;
-    "up -d"|"up -d --no-build") [[ -f "$Z/caddy-laufend" ]] || cp "$D/Caddyfile" "$Z/caddy-laufend" ;;
+    "up -d"|"up -d --no-build") [[ -f "$Z/abbruch" ]] && { kill -9 "$PPID"; exit 137; }; cp "$Z/image-aktuell" "$Z/laufend"; echo "$*" >> "$Z/gestartet.txt"; [[ -f "$Z/caddy-laufend" ]] || cp "$D/Caddyfile" "$Z/caddy-laufend" ;;
     "exec -T caddy cat /etc/caddy/Caddyfile") cat "$Z/caddy-laufend" || exit 1 ;;
-    "exec -T app"*) exit 0 ;;
+    "exec -T app"*) [[ -f "$Z/ungesund" ]] && exit 1; exit 0 ;;
   esac
   exit 0
 fi
@@ -263,6 +273,7 @@ exit 0
   git(o, 'clone', '-q', arbeit, server);
   // laufender Stand: Image aus v1, Caddy mit der v1-Caddyfile
   fs.writeFileSync(path.join(zustand, 'image-aktuell'), git(server, 'rev-parse', 'HEAD'));
+  fs.copyFileSync(path.join(zustand, 'image-aktuell'), path.join(zustand, 'laufend'));
   fs.copyFileSync(path.join(server, 'deploy', 'Caddyfile'), path.join(zustand, 'caddy-laufend'));
   const env = {
     ...process.env, PATH: `${bin}:${process.env.PATH}`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
@@ -308,6 +319,55 @@ test('N-030: update.sh baut nach einem gescheiterten Bau beim nächsten Lauf wie
   assert.match(lies('Dockerfile'), /ARG BAUTAG_REVISION=unbekannt\nLABEL org\.opencontainers\.image\.revision=\$BAUTAG_REVISION/);
   assert.match(lies('docker-compose.yml'), /args:\n(\s+#.*\n)?\s+BAUTAG_REVISION: \$\{BAUTAG_REVISION:-unbekannt\}/);
   assert.match(lies('installieren.sh'), /export BAUTAG_REVISION\ndocker compose build app/);
+});
+
+test('N-030 Rest: Abbruch nach dem Bau und vor „up -d“ – der nächste Lauf startet das gebaute Image (Vergleich mit dem laufenden Container)', { skip: istRoot ? false : 'nur als root (Skript verlangt sudo)' }, (t) => {
+  const o = tempOrdner(t);
+  const u = updateUmgebung(o);
+  const v1 = u.z('image-aktuell');
+  const v2 = u.neuerStand('app/version.txt', '2', 'v2');
+  // Lauf wird nach dem Bau beim Starten hart abgebrochen (Stromausfall, SSH-Verbindung weg …)
+  fs.writeFileSync(path.join(u.zustand, 'abbruch'), '');
+  let r = u.lauf();
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  fs.rmSync(path.join(u.zustand, 'abbruch'));
+  assert.equal(u.z('image-aktuell'), v2, 'gebaut');
+  assert.equal(u.z('laufend'), v1, 'läuft noch mit v1');
+  assert.equal(git(u.server, 'rev-parse', 'HEAD'), v2);
+  // nächster Lauf: Image-Label = HEAD, aber der Container läuft mit v1 → kein „Bereits aktuell“, kein neuer Bau, up -d
+  r = u.lauf();
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /Bereits aktuell/);
+  assert.match(r.stdout, /gebaut, läuft aber noch nicht/);
+  assert.equal(u.z('laufend'), v2, 'Container läuft jetzt mit dem gebauten Image');
+  assert.equal(u.z('gebaut.txt').trim().split('\n').length, 1, 'nicht erneut gebaut');
+  assert.match(r.stdout, /Update erfolgreich/);
+  r = u.lauf();
+  assert.match(r.stdout, /Bereits aktuell/);
+  // Container gestoppt (läuft nicht) → wird gestartet statt „Bereits aktuell“
+  fs.rmSync(path.join(u.zustand, 'laufend'));
+  r = u.lauf();
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /Bereits aktuell/);
+  assert.equal(u.z('laufend'), v2);
+  // abgebrochen und die neue Version ist ungesund → zurück auf das Image, mit dem der Container lief (v2), nicht auf v3
+  const v3 = u.neuerStand('app/version.txt', '3', 'v3');
+  fs.writeFileSync(path.join(u.zustand, 'abbruch'), '');
+  u.lauf();
+  fs.rmSync(path.join(u.zustand, 'abbruch'));
+  assert.equal(u.z('image-aktuell'), v3);
+  assert.equal(u.z('laufend'), v2);
+  fs.writeFileSync(path.join(u.zustand, 'ungesund'), '');
+  r = u.lauf();
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /schalte zurück/);
+  assert.equal(u.z('image-vorher'), v2);
+  assert.equal(u.z('laufend'), v2, 'vorige Version läuft wieder');
+  // Skript vergleicht die Image-ID des laufenden Containers mit bautag:aktuell
+  const upd = lies('update.sh');
+  assert.match(upd, /ps -q app/);
+  assert.match(upd, /docker inspect --format '\{\{\.Image\}\}'/);
+  assert.match(upd, /docker image inspect bautag:aktuell --format '\{\{\.Id\}\}'/);
 });
 
 test('N-031: update.sh erstellt Caddy neu, wenn sich die Caddyfile geändert hat – sonst nicht', { skip: istRoot ? false : 'nur als root (Skript verlangt sudo)' }, (t) => {
@@ -437,6 +497,20 @@ test('N-066: Fernunterschrift-Token auch im Caddy-Standard-/Fehlerprotokoll mask
 });
 
 // ---------------------------------------------------------------- N-067
+
+test('N-067 Rest: Testbefehl für die Notfall-E-Mail ist ein Codeblock; kein Inline-Code über Zeilen in deploy/*.md', () => {
+  for (const f of fs.readdirSync(DEPLOY).filter((x) => x.endsWith('.md'))) {
+    let block = false;
+    lies(f).split('\n').forEach((z, i) => {
+      if (/^\s*```/.test(z)) { block = !block; return; }
+      if (!block) assert.equal((z.match(/`/g) || []).length % 2, 0, `${f}:${i + 1} Inline-Code nicht in derselben Zeile geschlossen: ${z}`);
+    });
+    assert.equal(block, false, `${f}: Codeblock nicht geschlossen`);
+  }
+  const anl = lies('ANLEITUNG.md');
+  const notfall = anl.slice(anl.indexOf('## Notfall-E-Mail'), anl.indexOf('\n## ', anl.indexOf('## Notfall-E-Mail') + 5));
+  assert.match(notfall, /\n```\nprintf 'Subject: BauTag Test\\n\\nTest\\n' \| sudo sendmail ihre@adresse\.at\n```\n/);
+});
 
 test('N-067: cron für backup.sh mit PATH inkl. /usr/sbin; backup.sh findet sendmail auch unter cron; Hinweis in ANLEITUNG.md', (t) => {
   const inst = lies('installieren.sh');

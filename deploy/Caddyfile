@@ -19,9 +19,24 @@
 
 {$BAUTAG_DOMAIN} {
 	encode zstd gzip
-	# G-09: größte App-Grenze 35 MB (Dokumente/Importe als Base64-JSON) + Reserve – Tabelle in ANLEITUNG.md
-	request_body {
+	# G-09/N-032: 40 MB nur für POST auf die Upload-/Import-Pfade (App: 35 MB, Base64-JSON, nur mit Sitzung) – gleiche
+	# Pfade wie dokumentPfad in app/server/index.js; alle anderen Anfragen höchstens 13 MB (größte übrige App-Grenze:
+	# Fotos 12 MB). Die beiden Matcher schließen sich aus (sonst gälte die kleinere Grenze). Tabelle in ANLEITUNG.md.
+	@gross {
+		method POST
+		path_regexp gross (?i)^/api/(baustellen/[0-9]+/(dokumente(/[0-9]+/versionen)?|lv-import)|import/bmd-op|stammdaten/[a-z]+/import)/?$
+	}
+	@klein {
+		not {
+			method POST
+			path_regexp klein (?i)^/api/(baustellen/[0-9]+/(dokumente(/[0-9]+/versionen)?|lv-import)|import/bmd-op|stammdaten/[a-z]+/import)/?$
+		}
+	}
+	request_body @gross {
 		max_size 40MB
+	}
+	request_body @klein {
+		max_size 13MB
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
