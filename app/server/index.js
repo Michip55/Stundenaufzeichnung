@@ -123,9 +123,10 @@ function createApp(opt = {}) {
   bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
-  // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) deutlich warnen
+  // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) beim Start deutlich warnen
+  bt.schluesselWarnung = null;
   if (!require('./geheim').schluesselGueltig(bt.schluessel)) {
-    bt.warnungen.push(`BAUTAG_SCHLUESSEL fehlt oder ist kürzer als ${require('./geheim').MIN_PRODUKTION} Zeichen – ${bt.demo || bt.test ? 'Vorführ-/Testbetrieb: Geheimnisse werden im Klartext gespeichert. ' : 'Zwei-Faktor-Anmeldung, SMTP-Passwort und KI-Schlüssel können nicht gespeichert werden, Push-Schlüssel gelten nur bis zum Neustart. '}Für den Echtbetrieb NODE_ENV=production und BAUTAG_SCHLUESSEL setzen (openssl rand -hex 32).`);
+    bt.schluesselWarnung = (`BAUTAG_SCHLUESSEL fehlt oder ist kürzer als ${require('./geheim').MIN_PRODUKTION} Zeichen – ${bt.demo || bt.test ? 'Vorführ-/Testbetrieb: Geheimnisse werden im Klartext gespeichert. ' : 'Zwei-Faktor-Anmeldung, SMTP-Passwort und KI-Schlüssel können nicht gespeichert werden, Push-Schlüssel gelten nur bis zum Neustart. '}Für den Echtbetrieb NODE_ENV=production und BAUTAG_SCHLUESSEL setzen (openssl rand -hex 32).`);
   }
   // G-11/G-03: „klar:“-Geheimnisse nachverschlüsseln, unlesbare melden (neuer/falscher BAUTAG_SCHLUESSEL)
   try {
@@ -339,7 +340,7 @@ if (require.main === module) {
     if (e instanceof StartFehler) { console.error(`[BauTag] START VERWEIGERT: ${e.message}`); process.exit(1); }
     throw e;
   }
-  for (const w of app.bt.warnungen) console.warn('[BauTag] WARNUNG: ' + w);
+  for (const w of [app.bt.schluesselWarnung, ...app.bt.warnungen].filter(Boolean)) console.warn('[BauTag] WARNUNG: ' + w);
   const server = app.listen(port, () => {
     console.log(`BauTag läuft auf http://localhost:${port} (DB: ${app.bt.db.pfad})`);
   });

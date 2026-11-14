@@ -234,7 +234,12 @@ test('N-063: ohne BAUTAG_SCHLUESSEL keine Klartext-Geheimnisse außerhalb von Vo
   // Betrieb ohne NODE_ENV und ohne Schlüssel (wie früher laut README): Warnung, 2FA abgelehnt, VAPID nicht gespeichert
   const s = await starte({ demo: false });
   t.after(() => s.stop());
-  assert.ok(s.app.bt.warnungen.some((w) => /BAUTAG_SCHLUESSEL fehlt/.test(w) && /NODE_ENV=production/.test(w)));
+  assert.match(s.app.bt.schluesselWarnung, /BAUTAG_SCHLUESSEL fehlt.*Zwei-Faktor-Anmeldung.*NODE_ENV=production/);
+  // Startausgabe des Servers enthält die Warnung
+  const { spawnSync } = require('node:child_process');
+  const lauf = spawnSync(process.execPath, [require('node:path').join(__dirname, '..', '..', 'server', 'index.js')],
+    { env: { ...process.env, PORT: '0', BAUTAG_DB: ':memory:', BAUTAG_SCHLUESSEL: '', NODE_ENV: '', BAUTAG_DEMO: '', BAUTAG_TEST: '' }, encoding: 'utf8', timeout: 4000 });
+  assert.match(lauf.stderr, /WARNUNG: BAUTAG_SCHLUESSEL fehlt/);
   assert.equal(s.db.einstellung('vapid', null), null);
   const gf = await s.login(U.gf);
   assert.ok(require('../../server/push').vapid(s.app.bt).publicKey); // Push geht, Schlüssel nur im Speicher
