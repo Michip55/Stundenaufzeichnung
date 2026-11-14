@@ -132,7 +132,9 @@ module.exports = function urlaubRouten(api, bt) {
     if (req.ctx.benutzer.rolle === 'mitarbeiter') liste = liste.filter((b) => b.id === req.ctx.benutzer.id);
     // R-05: Personalnummer nur mit stammdaten/lohn/benutzer (wie /mitarbeiter) bzw. die eigene
     const pnrSichtbar = req.ctx.hat('stammdaten') || req.ctx.hat('lohn') || req.ctx.hat('benutzer');
-    res.json(liste.map((b) => { const k = konto(b, jahr ?? jahrVon(b.id, heute())); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return k; }));
+    // 15.7 (N-034 Rest): vorgabeJahr = laufendes Urlaubsjahr nach der Vorgabe (wie export.csv ohne jahr) – Basis für CSV-Link und Jahresnavigation
+    const vorgabeJahr = standardJahr(heute());
+    res.json(liste.map((b) => { const k = konto(b, jahr ?? jahrVon(b.id, heute())); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return { ...k, vorgabeJahr }; }));
   });
   api.put('/urlaub/konto/:benutzerId/:jahr', (req, res) => {
     if (!verwaltung(req.ctx)) throw keinZugriff('Urlaubskonten pflegen Büro bzw. Lohnverrechnung.');
