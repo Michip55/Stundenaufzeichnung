@@ -85,9 +85,10 @@ function korrekturDialog(a, ctx, fertig) {
     if (!ids.length) { err.hidden = false; err.textContent = 'Bitte mindestens einen Tag wählen – oder den ganzen Antrag löschen.'; return; }
     if (ids.length === a.tage.length) { err.hidden = false; err.textContent = 'Alle Tage gewählt – dafür bitte „Ganzen Antrag löschen“ verwenden.'; return; }
     if (!(await bestaetigen(`${ids.length} Tag${ids.length === 1 ? '' : 'e'} aus dem Antrag entfernen?`, 'Die Tage zählen dann nicht mehr als Abwesenheit.', 'Entfernen', 'danger'))) return;
-    let fehl = '';
-    for (const id of ids) { try { await del(`/abwesenheiten/${id}`); } catch (x) { fehl = x.message; } }
-    dlg.zu(); toast(fehl || 'Antrag korrigiert.', fehl ? 'warn' : 'ok'); ctx.meldungenNeu(); fertig();
+    // 14.3: alle gewählten Tage in einem Schritt (atomar, eine Benachrichtigung an die Person)
+    const ok = $('#an-korr-ok', dlg.el); ok.disabled = true;
+    try { await post(`/abwesenheiten/antraege/${encodeURIComponent(a.antragId)}/korrektur`, { tage: ids.map(Number) }); dlg.zu(); toast('Antrag korrigiert.'); ctx.meldungenNeu(); fertig(); }
+    catch (x) { ok.disabled = false; err.hidden = false; err.textContent = x.message; }
   });
   $('#an-korr-alles', dlg.el).addEventListener('click', async () => {
     if (!(await bestaetigen('Ganzen Antrag löschen?', `${tageText(a.arbeitstage ?? a.tage.length)} von ${a.name || 'dieser Person'} werden gelöscht und zählen nicht mehr.`, 'Löschen', 'danger'))) return;

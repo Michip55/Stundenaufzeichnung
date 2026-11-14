@@ -19,6 +19,14 @@ async function zieh(page, von, nach, { oben = 40 } = {}) {
 }
 const naechsterArbeitstag = (iso, n = 1) => { const d = new Date(iso + 'T12:00:00Z'); let rest = n; while (rest > 0) { d.setUTCDate(d.getUTCDate() + 1); if (![0, 6].includes(d.getUTCDay())) rest -= 1; } return d.toISOString().slice(0, 10); };
 const plusTage = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+/** Abwesenheiten aufräumen: offene Anträge nur als Ganzes (Inhaber 13.11.2026, API.md 14.3), entschiedene Tage einzeln */
+async function abwWeg(api, liste) {
+  const weg = new Set();
+  for (const a of liste) {
+    if (a.status !== 'beantragt') { await api('DELETE', `/abwesenheiten/${a.id}`); continue; }
+    if (!weg.has(a.antragId)) { weg.add(a.antragId); await api('DELETE', `/abwesenheiten/antraege/${encodeURIComponent(a.antragId)}`); }
+  }
+}
 
 /* ================= Stammdaten & Preise (12.21) + Lebenslauf (12.15) ================= */
 async function stammdatenUndLebenslauf(h, z) {
@@ -347,7 +355,7 @@ async function planer(h, z) {
   /* ---- Büro: einteilen (Ziehen, Tastatur, Dialog), Konflikt, Notizen, Veröffentlichen ---- */
   await anmelden('buero');
   // der Mitarbeiter soll heute und morgen einteilbar sein: eigene Abwesenheits-Anträge aus früheren Prüfungen entfernen
-  for (const a of (await api('GET', `/abwesenheiten?von=${heute}&bis=${morgen}`)).json.filter((x) => x.benutzerId === L)) await api('DELETE', `/abwesenheiten/${a.id}`);
+  await abwWeg(api, (await api('GET', `/abwesenheiten?von=${heute}&bis=${morgen}`)).json.filter((x) => x.benutzerId === L));
   const woche0 = (await api('GET', `/plan/woche?von=${morgen}&tage=5`)).json;
   pruef(Array.isArray(woche0.baustellen) && woche0.baustellen.some((b) => b.id === B), 'A2-Plan: /plan/woche ohne die Baustelle des Poliers');
   const B2 = woche0.baustellen.find((b) => b.id !== B).id;
@@ -1050,6 +1058,9 @@ async function urlaub(h, z) {
   await toastWeg();
   // dieselbe Eingabe von der Seite „Abwesenheiten“ (Von–Bis statt einzelner Tag)
   await geh('/abwesenheiten');
+  // N-047: zurückgezogen wird nur der ganze Antrag – ein Knopf für den 6-Tage-Antrag, die übrigen Tage verweisen darauf
+  await page.waitForSelector('#abw-eigene');
+  pruef(await page.locator(`#abw-eigene [data-zurueckziehen][data-antrag-id="${antrag1}"]`).count() === 1 && await page.locator(`#abw-eigene [data-zurueckziehen][data-antrag-id="${antrag1}"][data-tage="6"]`).count() === 1 && await page.locator('#abw-eigene [data-teil-antrag]').count() >= 5, 'A2-Url: „Abwesenheiten“ bietet „Zurückziehen“ je Tag statt je Antrag');
   await page.click('[data-akt="antrag"]');
   await page.waitForSelector('dialog[open] #abw-f');
   pruef(await page.locator('#abw-f [name="von"]').count() === 1 && await page.locator('#abw-f [name="bis"]').count() === 1 && await page.locator('#abw-f [name="notiz"]').count() === 1 && await page.locator('#zr-vorschau').count() === 1, 'A2-Url: „Abwesenheiten“ hat nicht den Von–Bis-Dialog');
@@ -1070,6 +1081,9 @@ async function urlaub(h, z) {
   pruef(new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · Urlaub · .*${kurz(von).replace(/\./g, '\\.')}.*${kurz(bis).replace(/\./g, '\\.')}`).test((await z1.innerText()).replace(/\s+/g, ' ')) && /6 Arbeitstage/.test(await z1.innerText()), `A2-Url: Antrag nicht gruppiert dargestellt (${(await z1.innerText()).replace(/\s+/g, ' ').slice(0, 120)})`);
   pruef(await page.locator('[data-tag-entscheid], [data-entscheid]').count() === 0, 'A2-Url: es gibt Knöpfe zum Entscheiden einzelner Tage');
   if (!g.mobil) {
+    // N-101: „Ganzen Antrag genehmigen“ ragt nicht in den Innenabstand der Karte „Offene Anträge“
+    const raus = await page.locator('#ur-antraege').evaluate((karte) => { const k = karte.getBoundingClientRect(), st = getComputedStyle(karte); const l = k.left + parseFloat(st.paddingLeft) - 0.5, r = k.right - parseFloat(st.paddingRight) + 0.5; return [...karte.querySelectorAll('.an-knoepfe .btn')].filter((b) => { const x = b.getBoundingClientRect(); return x.width > 0 && (x.left < l || x.right > r || b.scrollWidth > b.clientWidth + 1); }).map((b) => `${b.textContent.trim()} (${Math.round(b.getBoundingClientRect().right - r)} px)`); });
+    pruef(raus.length === 0, `A2-Url: Knöpfe ragen aus „Offene Anträge“ heraus (${raus.join(', ')})`);
     // Klick auf einen Tag öffnet den ganzen Antrag; beantragt = schraffiert, genehmigt = gefüllt
     pruef(await page.locator('#ur-kalender tr[data-person]').count() >= 10 && await page.locator('#ur-kalender tr.ur-gruppe').count() >= 2 && await page.locator('#ur-legende span').count() >= 7, 'A2-Url: Team-Kalender (Zeilen, Partien, Legende) unvollständig');
     const zelleV = page.locator(`#ur-kalender [data-zelle][data-person="${L}"][data-datum="${von}"]`);
@@ -1104,7 +1118,8 @@ async function urlaub(h, z) {
   await zKorr.scrollIntoViewIfNeeded(); await zKorr.click();
   await page.waitForSelector('dialog[open] #an-korr');
   pruef(await page.locator('#an-korr [name="tag"]').count() === 6 && /früher zurück/i.test(await page.locator('#an-korr').innerText()), 'A2-Url: Korrektur-Dialog ohne Tagesliste oder Hinweis');
-  await page.locator('#an-korr [name="tag"]').last().check();
+  // N-070/N-093: zwei Tage auf einmal herausnehmen – atomar, eine Benachrichtigung
+  await page.locator('#an-korr [name="tag"]').nth(4).check(); await page.locator('#an-korr [name="tag"]').last().check();
   await dialogUeberlauf('urlaub korrigieren'); await shot('urlaub-korrigieren');
   await page.click('#an-korr-ok');
   await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();
@@ -1112,7 +1127,7 @@ async function urlaub(h, z) {
   await toastWeg();
   const tage3 = (await api('GET', `/abwesenheiten?von=${von}&bis=${bis}`)).json.filter((a) => a.benutzerId === L);
   const kontoNach = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
-  pruef(tage3.length === 5 && !tage3.some((a) => a.datum === bis) && Math.abs((kontoNach.geplant + kontoNach.genommen) - (kontoVor.geplant + kontoVor.genommen) - 5) < 0.001, `A2-Url: Korrektur entfernt den Tag nicht oder das Konto rechnet nicht neu (Tage ${tage3.length}, geplant ${kontoVor.geplant} → ${kontoNach.geplant})`);
+  pruef(tage3.length === 4 && !tage3.some((a) => a.datum === bis) && Math.abs((kontoNach.geplant + kontoNach.genommen) - (kontoVor.geplant + kontoVor.genommen) - 4) < 0.001, `A2-Url: Korrektur entfernt die Tage nicht oder das Konto rechnet nicht neu (Tage ${tage3.length}, geplant ${kontoVor.geplant} → ${kontoNach.geplant})`);
   await ueberlauf('urlaub büro'); await shot('urlaub-buero');
 
   if (!g.mobil) {
@@ -1125,6 +1140,10 @@ async function urlaub(h, z) {
     await ueberlauf('urlaub jahr'); await shot('urlaub-jahr');
     await page.click('[data-tab="konten"]');
     await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]`);
+    // N-034: ohne Wahl das laufende Urlaubsjahr (nicht das Jahr des gezeigten Monats)
+    const laufend = (await api('GET', `/urlaub/konto?benutzerId=${L}`)).json[0];
+    pruef(/Laufendes Urlaubsjahr/.test(await page.locator('#ur-konto-jahr').innerText()) && new RegExp(`Urlaubsjahr ${laufend.jahr}`).test(await page.locator(`#ur-konten tr[data-konto="${L}"] [data-urlaubsjahr]`).innerText()), 'A2-Url: Urlaubskonten zeigen nicht das laufende Urlaubsjahr');
+    if (laufend.jahr !== jahr) { await page.click(`[data-kjahr="${jahr > laufend.jahr ? 1 : -1}"]`); await page.waitForSelector(`#ur-konto-jahr:has-text("Urlaubsjahr ${jahr}")`); }
     await page.click(`#ur-konten tr[data-konto="${L}"] [data-konto-edit]`);
     await page.waitForSelector('dialog[open] #ukf');
     await page.selectOption('#ukf [name="art"]', 'buak');
@@ -1184,6 +1203,8 @@ async function urlaub(h, z) {
   await geh(`/urlaub?monat=${monat}`);
   await page.waitForSelector(`#ur-meine [data-antrag="${antrag1}"][data-status="genehmigt"]`);
   pruef(await page.locator('#ur-meine [data-antrag-entscheid], #ur-meine [data-antrag-korrigieren]').count() === 0 && (await api('GET', '/benachrichtigungen')).json.some((n) => /abgelehnt/i.test(`${n.titel} ${n.text}`)), 'A2-Url: Mitarbeiter kann entscheiden/korrigieren oder bekam keine Meldung zur Ablehnung');
+  const korrMeld = (await api('GET', '/benachrichtigungen')).json.filter((n) => /Korrektur durch das Büro/.test(n.text || '') && (n.text || '').includes(kurz(bis)));
+  pruef(korrMeld.length === 1 && /2 Arbeitstage/.test(korrMeld[0].text), `A2-Url: Korrektur von zwei Tagen ergibt nicht genau eine Benachrichtigung (${korrMeld.length})`);
   await keinEuro('urlaub mitarbeiter 2'); await ueberlauf('urlaub mitarbeiter 2');
   await abmelden();
 
@@ -1415,7 +1436,7 @@ async function arbeitstag(h) {
       await login(page, srv.url, 'Martina Koller');
       const leute = (await apiP(page, 'GET', '/mitarbeiter')).json;
       const polier = leute.find((m) => m.name === 'Josef Haidbauer'), lukas = leute.find((m) => m.name === 'Lukas Brandstätter');
-      for (const a of (await apiP(page, 'GET', `/abwesenheiten?von=${heute}&bis=${naechster}`)).json.filter((x) => x.benutzerId === lukas.id)) await apiP(page, 'DELETE', `/abwesenheiten/${a.id}`);
+      await abwWeg((m, pf) => apiP(page, m, pf), (await apiP(page, 'GET', `/abwesenheiten?von=${heute}&bis=${naechster}`)).json.filter((x) => x.benutzerId === lukas.id));
       pruef((await apiP(page, 'POST', '/plan/einsaetze', { datum: naechster, baustelleId: polier.baustelleId, beginn: '06:30', benutzerIds: [lukas.id, polier.id] })).status === 201, `G-05 (${heute}): Einsatz am nächsten Arbeitstag nicht anlegbar`);
       await gehP(page, '/plan?ansicht=tag');
       await page.waitForSelector('#tg-tag');
@@ -1505,7 +1526,7 @@ async function krank(h) {
   const partie = leute.filter((m) => m.rolle === 'mitarbeiter' && m.aktiv !== false && m.baustelleId === polier.baustelleId && m.name !== 'Lukas Brandstätter');
   const kollege = partie[0], zweiter = partie[1];
   pruef(!!kollege && !!zweiter, 'Abwesenheiten: zu wenige Kollegen in der Partie des Poliers für die Prüfung');
-  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId))) await api('DELETE', `/abwesenheiten/${a.id}`);
+  await abwWeg(api, (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId)));
   const k = await api('POST', '/abwesenheiten/zeitraum', { benutzerId: kollege.id, von: tag, bis: tag, code: 'K', notiz: 'DIAGNOSE-GEHEIM' });
   pruef(k.status === 201 && k.json.status === 'genehmigt', `Abwesenheiten: Krankenstand eintragen → ${k.status}`);
   const u = await api('POST', '/abwesenheiten/zeitraum', { benutzerId: kollege.id, von: tagU, bis: tagU, code: 'U', notiz: 'URLAUB-GEHEIM' });
@@ -1627,7 +1648,7 @@ async function krank(h) {
   await geh('/abwesenheiten');
   await page.waitForSelector('#abw-offen');
   pruef(new RegExp(zweiter.name).test(await page.locator('#abw-offen').innerText()), 'Schlechtwetter: das Büro sieht die Meldung des Poliers nicht unter den offenen Anträgen');
-  for (const a of (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId))) await api('DELETE', `/abwesenheiten/${a.id}`);
+  await abwWeg(api, (await api('GET', `/abwesenheiten?von=${tag}&bis=${tagU}`)).json.filter((x) => [kollege.id, zweiter.id].includes(x.benutzerId)));
   await abmelden();
 }
 

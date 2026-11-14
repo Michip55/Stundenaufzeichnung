@@ -40,6 +40,16 @@ export default async function abwesenheiten(el, ctx) {
     const mehrtaegig = (a) => { const n = a.antragId ? liste.filter((x) => x.antragId === a.antragId).length : 1; return n > 1 ? n : 0; };
     const offen = liste.filter((a) => a.status === 'beantragt' && (darfEntscheiden || (istBauleiter && a.code === 'SW' && a.benutzerId !== ich.id))).sort((a, b) => (a.datum > b.datum ? 1 : -1));
     const andere = liste.filter((a) => a.benutzerId !== ich.id && (!darfEntscheiden || a.status !== 'beantragt') && !offen.includes(a));
+    // Inhaber 13.11.2026: zurückgezogen wird immer der ganze Antrag – ein Knopf je Antrag (beim ersten Tag der Liste)
+    const offenTage = (aid) => eigene.filter((x) => x.antragId === aid && x.status === 'beantragt');
+    const gezeigt = new Set();
+    const zurueckKnopf = (a) => {
+      if (a.status !== 'beantragt') return '';
+      const n = offenTage(a.antragId).length;
+      if (gezeigt.has(a.antragId)) return '<span class="muted sm" data-teil-antrag>gehört zum Antrag weiter oben</span>';
+      gezeigt.add(a.antragId);
+      return `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}" data-antrag-id="${esc(a.antragId)}" data-tage="${n}">${n > 1 ? `Antrag zurückziehen (${n} Tage)` : 'Zurückziehen'}</button>`;
+    };
     el.innerHTML = `
     <div class="page narrow wide-md">
       ${darfEntscheiden || (istBauleiter && offen.length) ? `
@@ -51,7 +61,7 @@ export default async function abwesenheiten(el, ctx) {
 
       <section class="card" id="abw-eigene" aria-labelledby="h-eigene">
         <div class="card-h pad-h"><h3 id="h-eigene">Meine Abwesenheiten</h3><button type="button" class="btn primary sm" data-akt="antrag">${ic("plus")}Beantragen</button></div>
-        ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: a.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}">Zurückziehen</button>` : '' })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
+        ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: zurueckKnopf(a) })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
       </section>
 
       ${darfEntscheiden ? `
@@ -117,8 +127,11 @@ export default async function abwesenheiten(el, ctx) {
       return;
     }
     const z = e.target.closest('[data-zurueckziehen]');
-    if (z && await bestaetigen('Antrag zurückziehen?', 'Der Antrag wird gelöscht.', 'Zurückziehen')) {
-      try { await del(`/abwesenheiten/${z.dataset.zurueckziehen}`); toast('Antrag zurückgezogen.'); neu(); } catch (x) { toast(x.message, 'warn'); }
+    if (z) {
+      const n = Number(z.dataset.tage) || 1;
+      if (await bestaetigen('Antrag zurückziehen?', n > 1 ? `Der ganze Antrag (${n} Tage) wird gelöscht.` : 'Der Antrag wird gelöscht.', 'Zurückziehen')) {
+        try { await del(`/abwesenheiten/antraege/${encodeURIComponent(z.dataset.antragId)}`); toast('Antrag zurückgezogen.'); neu(); } catch (x) { toast(x.message, 'warn'); }
+      }
       return;
     }
     const l = e.target.closest('[data-loeschen]');
