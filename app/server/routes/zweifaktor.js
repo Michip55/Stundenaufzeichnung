@@ -64,7 +64,7 @@ function neueCodes(z) {
   return { klar, gespeichert: JSON.stringify(klar.map((c) => ({ h: T.codeHash(c, z.salz) }))) };
 }
 
-module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, clientIp }) {
+module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zweiFaktorFehlversuch, clientIp }) {
   const { db } = bt;
   const jetzt = () => bt.uhr().toISOString();
   const ich = (req) => { if (!req.ctx) throw nichtAngemeldet(); return req.ctx.benutzer; };
@@ -88,6 +88,8 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     const b = ich(req);
     if (!ROLLEN.includes(b.rolle)) throw ungueltig('Zwei-Faktor-Anmeldung gibt es für Bauleiter, Büro und Geschäftsführung.');
     if (aktiv(db, b.id)) throw konflikt('Die Zwei-Faktor-Anmeldung ist bereits eingerichtet.');
+    // N-063: das TOTP-Geheimnis wird nie im Klartext gespeichert (außer Vorführung/Test)
+    if (!G.schluesselVorhanden(bt) && !G.klarErlaubt(bt)) throw ungueltig('Zum Einrichten der Zwei-Faktor-Anmeldung muss auf dem Server BAUTAG_SCHLUESSEL gesetzt sein (mindestens 32 Zeichen, siehe deploy/.env).');
     await pinPruefen(req, b, v.objekt(req.body).pin);
     const geheimnis = T.neuesGeheimnis();
     const salz = crypto.randomBytes(16).toString('hex');
@@ -112,7 +114,9 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     const c = neueCodes(z);
     db.transaktion(() => {
       db.lauf('UPDATE benutzer_2fa SET aktiv = 1, bestaetigt = ?, codes = ? WHERE benutzer_id = ?', jetzt(), c.gespeichert, b.id);
-      prot(b, `${b.name} hat die Zwei-Faktor-Anmeldung eingerichtet`);
+      // N-119: andere, nur mit PIN eröffnete Sitzungen beenden (wie beim PIN-Wechsel); die aktuelle bleibt
+      const weg = db.lauf('DELETE FROM sitzung WHERE benutzer_id = ? AND token_hash <> ?', b.id, hash(req.token || '')).changes;
+      prot(b, `${b.name} hat die Zwei-Faktor-Anmeldung eingerichtet${weg ? ` (${weg} andere Sitzung(en) beendet)` : ''}`);
     });
     res.json({ aktiv: true, wiederherstellungscodes: c.klar });
   });
@@ -123,7 +127,9 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     if (!z) throw konflikt('Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.');
     const ip = clientIp(req);
     bt.bremse.pruefe(b.id, ip);
-    if (pruefeCode(bt, z, v.objekt(req.body).code) !== 'totp') { fehlversuch(b, ip); throw ungueltig('Der Code stimmt nicht.'); }
+    const art = pruefeCode(bt, z, v.objekt(req.body).code);
+    if (art === 'unlesbar') throw ungueltig(UNLESBAR_TEXT);
+    if (art !== 'totp') { zweiFaktorFehlversuch(b, ip, { anlass: 'einstellungen' }); throw ungueltig('Der Code stimmt nicht.'); }
     const c = neueCodes(z);
     db.transaktion(() => { db.lauf('UPDATE benutzer_2fa SET codes = ? WHERE benutzer_id = ?', c.gespeichert, b.id); prot(b, `${b.name} hat neue Wiederherstellungscodes erzeugt`); });
     res.json({ wiederherstellungscodes: c.klar });
@@ -138,7 +144,7 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     await pinPruefen(req, b, body.pin);
     const art = pruefeCode(bt, z, body.code);
     if (art === 'unlesbar') throw ungueltig(UNLESBAR_TEXT);
-    if (!art) { fehlversuch(b, clientIp(req)); throw ungueltig('Der Code stimmt nicht.'); }
+    if (!art) { zweiFaktorFehlversuch(b, clientIp(req), { anlass: 'einstellungen' }); throw ungueltig('Der Code stimmt nicht.'); }
     db.transaktion(() => { db.lauf('DELETE FROM benutzer_2fa WHERE benutzer_id = ?', b.id); prot(b, `${b.name} hat die Zwei-Faktor-Anmeldung ausgeschaltet`); });
     res.json({ aktiv: false });
   });
@@ -167,7 +173,8 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, cli
     }
     if (!art) {
       db.lauf('UPDATE login_2fa SET versuche = versuche + 1 WHERE token_hash = ?', vg.token_hash);
-      fehlversuch(b, ip);
+      // N-004: kontoweit zählen, protokollieren, Person benachrichtigen (eine Meldung je Anmeldevorgang)
+      zweiFaktorFehlversuch(b, ip, { anlass: 'anmeldung', schluessel: `2fa-falsch:${b.id}:${vg.token_hash.slice(0, 16)}` });
       throw nichtAngemeldet('Der Code stimmt nicht.');
     }
     db.lauf('DELETE FROM login_2fa WHERE token_hash = ?', vg.token_hash);

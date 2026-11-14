@@ -17,6 +17,11 @@ function typenFuerRolle(rolle) {
 function vapid(bt) {
   const { db } = bt;
   let v = db.einstellung('vapid', null);
+  if (!v && !G.schluesselVorhanden(bt) && !G.klarErlaubt(bt)) {
+    // N-063: ohne BAUTAG_SCHLUESSEL nie im Klartext speichern – Schlüssel nur bis zum Neustart (Startwarnung)
+    if (!bt.vapidFluechtig) { const k = require('web-push').generateVAPIDKeys(); bt.vapidFluechtig = { publicKey: k.publicKey, privateKey: k.privateKey }; }
+    return { ...bt.vapidFluechtig };
+  }
   if (!v) {
     const k = require('web-push').generateVAPIDKeys();
     v = { publicKey: k.publicKey, privateKey: G.verschluesseln(bt, k.privateKey), erstellt: bt.uhr().toISOString() };
@@ -62,10 +67,20 @@ const PUSH_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', '
 const PUSH_SUFFIXE = ['.push.apple.com', '.notify.windows.com'];
 const TEST_SUFFIXE = ['.example.test', '.example.invalid'];
 function endpointErlaubt(endpoint, { test = false } = {}) {
+  const roh = String(endpoint);
+  // N-028: Adresse muss in Rohform eindeutig sein – nur druckbares ASCII ohne Backslash, Host nur aus [a-z0-9.-],
+  // höchstens „:443“. Sonst lesen WHATWG-URL (diese Prüfung) und url.parse (web-push beim Senden) verschiedene Hosts.
+  if (roh.length > 1000 || !/^[\x21-\x7e]+$/.test(roh) || roh.includes('\\')) return false;
+  const autoritaet = /^https:\/\/([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?::443)?(?=[/?]|$)/.exec(roh);
+  if (!autoritaet) return false;
   let u;
-  try { u = new URL(String(endpoint)); } catch (_) { return false; }
+  try { u = new URL(roh); } catch (_) { return false; }
   if (u.protocol !== 'https:' || (u.port && u.port !== '443') || u.username || u.password) return false;
   const h = u.hostname.toLowerCase();
+  if (h !== autoritaet[1].toLowerCase()) return false;
+  let alt;
+  try { alt = require('node:url').parse(roh); } catch (_) { return false; } // so liest web-push die Adresse
+  if (String(alt.hostname || '').toLowerCase() !== h || (alt.port && alt.port !== '443')) return false;
   if (!h || h.startsWith('[') || require('node:net').isIP(h) || /^[\d.]+$/.test(h) || h.endsWith('.')) return false;
   if (PUSH_HOSTS.includes(h) || PUSH_SUFFIXE.some((x) => h.endsWith(x) && h.length > x.length)) return true;
   return Boolean(test) && TEST_SUFFIXE.some((x) => h.endsWith(x));

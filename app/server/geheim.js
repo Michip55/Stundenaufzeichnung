@@ -1,7 +1,8 @@
 'use strict';
 /**
  * Verschlüsselung von Geheimnissen in der Datenbank (AES-256-GCM) mit dem Schlüssel aus BAUTAG_SCHLUESSEL
- * (API.md 12.1). Ohne Schlüssel: `verschluesseln(…, {pflicht:true})` wirft; sonst wird mit „klar:“ gespeichert.
+ * (API.md 12.1). Ohne Schlüssel wirft `verschluesseln` (Code KEIN_SCHLUESSEL); nur im Demo- bzw. Testbetrieb
+ * (BAUTAG_DEMO=1, BAUTAG_TEST=1) und ohne `pflicht` wird mit „klar:“ gespeichert (N-063, API.md 14.4).
  */
 const crypto = require('node:crypto');
 
@@ -10,10 +11,13 @@ function schluessel(bt) {
   return roh && roh.length >= 16 ? crypto.createHash('sha256').update(`bautag:${roh}`).digest() : null;
 }
 
+/** Darf ohne Schlüssel im Klartext gespeichert werden? Nur Vorführung/Test – nie im Echtbetrieb (N-063) */
+const klarErlaubt = (bt) => Boolean(bt && (bt.demo || bt.test));
+
 function verschluesseln(bt, text, { pflicht = false } = {}) {
   const k = schluessel(bt);
   if (!k) {
-    if (pflicht) { const e = new Error('BAUTAG_SCHLUESSEL fehlt'); e.code = 'KEIN_SCHLUESSEL'; throw e; }
+    if (pflicht || !klarErlaubt(bt)) { const e = new Error('BAUTAG_SCHLUESSEL fehlt'); e.code = 'KEIN_SCHLUESSEL'; throw e; }
     return `klar:${text}`;
   }
   const iv = crypto.randomBytes(12);
@@ -75,4 +79,4 @@ function geheimnisseAbgleichen(bt) {
   return out;
 }
 
-module.exports = { verschluesseln, entschluesseln, zustand, geheimnisseAbgleichen, schluesselGueltig, MIN_PRODUKTION, schluesselVorhanden: (bt) => Boolean(schluessel(bt)) };
+module.exports = { klarErlaubt, verschluesseln, entschluesseln, zustand, geheimnisseAbgleichen, schluesselGueltig, MIN_PRODUKTION, schluesselVorhanden: (bt) => Boolean(schluessel(bt)) };

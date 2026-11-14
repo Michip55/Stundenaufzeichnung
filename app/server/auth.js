@@ -23,6 +23,11 @@ const KONTO_MAX_FEHLVERSUCHE = 20;
 const KONTO_FENSTER_MS = 24 * 3600 * 1000;
 /** Dauer der Kontosperre (D-01): 24 h, 48 h, danach 7 Tage */
 const KONTO_SPERRSTUFEN_MS = [24 * 3600 * 1000, 48 * 3600 * 1000, 7 * 24 * 3600 * 1000];
+/** N-004/N-027: falsche Zwei-Faktor-Codes je Konto (alle IPs) – 10 in 24 h → Kontosperre wie D-01; eine richtige PIN setzt nichts zurück */
+const ZF_MAX_FEHLVERSUCHE = 10;
+const ZF_FENSTER_MS = 24 * 3600 * 1000;
+/** N-120: In-Memory-Tabelle der IP-Grenze – Obergrenze; abgelaufene Einträge werden gezielt entfernt statt alles zu leeren */
+const IP_TABELLE_MAX = 50000;
 const FELD_ROLLEN = ['mitarbeiter', 'polier'];
 
 function zahlEnv(name, standard) {
@@ -165,6 +170,34 @@ function angemeldet(req, res, next) {
 }
 
 /**
+ * N-120: Client-Adresse für Login-Sperren vereinheitlichen. IPv4 (auch „::ffff:1.2.3.4“) bleibt die volle Adresse,
+ * IPv6 wird auf das /64-Netz gekürzt (ein Anschluss hat meist ein ganzes /64), alles andere zählt gemeinsam als „ungueltig“.
+ */
+function ipSchluessel(roh) {
+  const net = require('node:net');
+  let a = String(roh || '').trim();
+  const zone = a.indexOf('%');
+  if (zone >= 0) a = a.slice(0, zone);
+  const v4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(a);
+  if (v4) a = v4[1];
+  const art = net.isIP(a);
+  if (art === 4) return a;
+  if (art !== 6) return 'ungueltig';
+  // auf 8 Gruppen erweitern (eingebettetes IPv4 am Ende zu zwei Gruppen)
+  let t = a.toLowerCase();
+  const ein4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(t);
+  if (ein4) {
+    const o = ein4[1].split('.').map(Number);
+    t = t.slice(0, -ein4[1].length) + `${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const [links, rechts] = t.includes('::') ? t.split('::') : [t, null];
+  const l = links ? links.split(':') : [];
+  const r = rechts ? rechts.split(':') : [];
+  const gruppen = rechts === null ? l : [...l, ...Array(8 - l.length - r.length).fill('0'), ...r];
+  return `${gruppen.slice(0, 4).map((g) => parseInt(g || '0', 16).toString(16)).join(':')}::/64`;
+}
+
+/**
  * Login-Sperre je (Benutzer, Client-IP) mit steigender Dauer, plus Grenze je Client-IP.
  * Ein Fremder kann so nur sich selbst aussperren, nicht die echten Benutzer.
  */
@@ -199,7 +232,7 @@ class LoginBremse {
     const e = this.ip.get(ip);
     if (!e || jetzt - e.start >= IP_FENSTER_MS) this.ip.set(ip, { start: jetzt, anzahl: 1 });
     else e.anzahl++;
-    if (this.ip.size > 10000) this.ip.clear();
+    if (this.ip.size > IP_TABELLE_MAX) this.ipAufraeumen(jetzt);
     if (!benutzerId) return 0;
     const z = this.db.eins('SELECT fehlversuche, sperren, letzter FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
     // Eskalation verfällt nach 24 h ohne Fehlversuch
@@ -219,6 +252,19 @@ class LoginBremse {
     return 0;
   }
 
+  /**
+   * N-120: abgelaufene Einträge entfernen; reicht das nicht, die ältesten Fenster – nie die ganze Tabelle,
+   * damit niemand mit vielen Adressen die Zähler aller anderen auf einmal löschen kann.
+   */
+  ipAufraeumen(jetzt) {
+    for (const [k, e] of this.ip) if (jetzt - e.start >= IP_FENSTER_MS) this.ip.delete(k);
+    if (this.ip.size <= IP_TABELLE_MAX) return;
+    const ziel = Math.floor(IP_TABELLE_MAX * 0.9);
+    const nachAlter = [...this.ip.entries()].filter(([, e]) => e.anzahl < IP_MAX_FEHLVERSUCHE).sort((a, b) => a[1].start - b[1].start);
+    for (const [k] of nachAlter) { if (this.ip.size <= ziel) break; this.ip.delete(k); }
+  }
+
+  /** Nur nach vollständiger Anmeldung (PIN bzw. PIN + zweiter Faktor) aufrufen – N-004 */
   erfolg(benutzerId, ip) {
     this.db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
     this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId); // auch Eskalationsstufe zurück
@@ -245,21 +291,56 @@ class LoginBremse {
     if (!benutzerId) return false;
     const jetzt = this.uhr().getTime();
     const k = this.db.eins('SELECT * FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    if (k && k.gesperrt && new Date(k.gesperrt_bis || 0).getTime() > jetzt) return false; // schon gesperrt – ein weiterer Fehlversuch hebt die Sperre nie auf
     const neuesFenster = !k || !k.erster || jetzt - new Date(k.erster).getTime() > KONTO_FENSTER_MS;
     const n = neuesFenster ? 1 : k.fehlversuche + 1;
     const erster = neuesFenster ? new Date(jetzt).toISOString() : k.erster;
     const stufe = k ? k.sperren : 0;
     const sperren = n >= KONTO_MAX_FEHLVERSUCHE;
-    const bis = sperren ? new Date(jetzt + KONTO_SPERRSTUFEN_MS[Math.min(stufe, KONTO_SPERRSTUFEN_MS.length - 1)]).toISOString() : (k ? k.gesperrt_bis : null);
-    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = excluded.gesperrt,
-        gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
-    benutzerId, sperren ? 0 : n, sperren ? null : erster, sperren ? 1 : 0, sperren ? new Date(jetzt).toISOString() : null, sperren ? stufe + 1 : stufe, bis);
-    return sperren;
+    if (sperren) { this.kontoSperren(benutzerId); return true; }
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, ?, ?, 0, NULL, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = 0,
+        gesperrt_seit = NULL, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
+    benutzerId, n, erster, stufe, k ? k.gesperrt_bis : null);
+    return false;
   }
 
+  /** Konto befristet sperren (D-01: 24 h, 48 h, danach 7 Tage) */
+  kontoSperren(benutzerId) {
+    const jetzt = this.uhr().getTime();
+    const k = this.db.eins('SELECT sperren FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    const stufe = k ? k.sperren : 0;
+    const bis = new Date(jetzt + KONTO_SPERRSTUFEN_MS[Math.min(stufe, KONTO_SPERRSTUFEN_MS.length - 1)]).toISOString();
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, 0, NULL, 1, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = 0, erster = NULL, gesperrt = 1, gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
+    benutzerId, new Date(jetzt).toISOString(), stufe + 1, bis);
+  }
+
+  /**
+   * N-004/N-027: falscher Zwei-Faktor-Code – eigener kontoweiter Zähler (alle IPs), den keine PIN-Anmeldung zurücksetzt.
+   * @returns {{anzahl:number, gesperrt:boolean}} gesperrt = Konto wurde jetzt gesperrt
+   */
+  zweiFaktorFehlversuch(benutzerId) {
+    const jetzt = this.uhr().getTime();
+    const t = new Date(jetzt).toISOString();
+    const z = this.db.eins('SELECT fehlversuche, erster FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
+    const neuesFenster = !z || !z.erster || jetzt - new Date(z.erster).getTime() > ZF_FENSTER_MS;
+    const n = neuesFenster ? 1 : z.fehlversuche + 1;
+    if (n >= ZF_MAX_FEHLVERSUCHE) {
+      this.db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
+      this.kontoSperren(benutzerId);
+      return { anzahl: n, gesperrt: true };
+    }
+    this.db.lauf(`INSERT INTO login_2fa_fehler (benutzer_id, fehlversuche, erster, letzter) VALUES (?, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, letzter = excluded.letzter`,
+    benutzerId, n, neuesFenster ? t : z.erster, t);
+    return { anzahl: n, gesperrt: false };
+  }
+
+  /** Büro/GF bzw. entsperren.js: Kontosperre und alle kontoweiten Zähler aufheben */
   kontoEntsperren(benutzerId) {
     this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    this.db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
   }
 
   /** Büro/GF entsperrt (PIN-Reset): alle Sperren des Benutzers aufheben */
@@ -269,7 +350,7 @@ class LoginBremse {
 }
 
 module.exports = {
-  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, pinFehler,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse

@@ -31,7 +31,8 @@ const CSP = [
 /** Start verweigern (G-06, G-11) – Fehler mit klarer Meldung statt Stacktrace */
 class StartFehler extends Error {}
 function startPruefen(opt) {
-  const produktion = (opt.nodeEnv !== undefined ? opt.nodeEnv : process.env.NODE_ENV) === 'production';
+  // N-063: Schreibweise egal („Production“, „ production “)
+  const produktion = String((opt.nodeEnv !== undefined ? opt.nodeEnv : process.env.NODE_ENV) || '').trim().toLowerCase() === 'production';
   const test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
   const demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
   if (produktion && test) throw new StartFehler('BAUTAG_TEST=1 ist im Echtbetrieb (NODE_ENV=production) verboten: Die Test-Schnittstellen dürfen dort nie aktiv sein. Bitte BAUTAG_TEST aus deploy/.env entfernen.');
@@ -122,6 +123,11 @@ function createApp(opt = {}) {
   bt.fuhrparkTimer.unref();
 
   bt.warnungen = [];
+  // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) beim Start deutlich warnen
+  bt.schluesselWarnung = null;
+  if (!require('./geheim').schluesselGueltig(bt.schluessel)) {
+    bt.schluesselWarnung = (`BAUTAG_SCHLUESSEL fehlt oder ist kürzer als ${require('./geheim').MIN_PRODUKTION} Zeichen – ${bt.demo || bt.test ? 'Vorführ-/Testbetrieb: Geheimnisse werden im Klartext gespeichert. ' : 'Zwei-Faktor-Anmeldung, SMTP-Passwort und KI-Schlüssel können nicht gespeichert werden, Push-Schlüssel gelten nur bis zum Neustart. '}Für den Echtbetrieb NODE_ENV=production und BAUTAG_SCHLUESSEL setzen (openssl rand -hex 32).`);
+  }
   // G-11/G-03: „klar:“-Geheimnisse nachverschlüsseln, unlesbare melden (neuer/falscher BAUTAG_SCHLUESSEL)
   try {
     const g = require('./geheim').geheimnisseAbgleichen(bt);
@@ -184,10 +190,19 @@ function createApp(opt = {}) {
   const jsonImport = express.json({ limit: '7mb', strict: true });
   const jsonFotos = express.json({ limit: '12mb', strict: true });
   const jsonDokumente = express.json({ limit: '35mb', strict: true });
-  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/; // inkl. Lieferschein/Papier (12.11/12.12)
-  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport
-    : /^\/baustellen\/\d+\/(dokumente|lv-import)|^\/import\/|^\/stammdaten\/[a-z]+\/import$/.test(req.path) ? jsonDokumente
-      : fotoPfad.test(req.path) ? jsonFotos : jsonKlein)(req, res, next));
+  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/i; // inkl. Lieferschein/Papier (12.11/12.12)
+  // N-032: große Grenzen nur für die tatsächlichen Upload-Routen (POST) und nur mit gültiger Sitzung – die Sitzung wird
+  // deshalb VOR dem Lesen des Bodys geprüft; Unangemeldete erhalten 413 statt 35 MB geparst zu bekommen. Ausnahme: die
+  // öffentliche Fernunterschrift (12.9, ohne Anmeldung, Unterschriftsbild ≤ 12 MB).
+  const dokumentPfad = /^\/(baustellen\/\d+\/(dokumente(\/\d+\/versionen)?|lv-import)|import\/bmd-op|stammdaten\/[a-z]+\/import)\/?$/i;
+  api.use(sitzungMiddleware(bt));
+  api.use((req, res, next) => {
+    const gross = req.method === 'POST' && Boolean(req.ctx);
+    const parser = gross && /^\/positionen\/katalog\/import\/?$/i.test(req.path) ? jsonImport
+      : gross && dokumentPfad.test(req.path) ? jsonDokumente
+        : fotoPfad.test(req.path) && (req.ctx || /^\/fern\//i.test(req.path)) ? jsonFotos : jsonKlein;
+    parser(req, res, next);
+  });
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (typeof req.body !== 'object' || Array.isArray(req.body))) {
@@ -195,7 +210,6 @@ function createApp(opt = {}) {
     }
     next();
   });
-  api.use(sitzungMiddleware(bt));
   // Neue Benachrichtigungen nach jeder Anfrage per Push verteilen (API.md 12.3)
   api.use((req, res, next) => { res.on('finish', () => require('./push').anstossen(bt)); next(); });
   if (bt.test) require('./routes/test')(api, bt); // API.md 12.18 – nur Testbetrieb
@@ -326,7 +340,7 @@ if (require.main === module) {
     if (e instanceof StartFehler) { console.error(`[BauTag] START VERWEIGERT: ${e.message}`); process.exit(1); }
     throw e;
   }
-  for (const w of app.bt.warnungen) console.warn('[BauTag] WARNUNG: ' + w);
+  for (const w of [app.bt.schluesselWarnung, ...app.bt.warnungen].filter(Boolean)) console.warn('[BauTag] WARNUNG: ' + w);
   const server = app.listen(port, () => {
     console.log(`BauTag läuft auf http://localhost:${port} (DB: ${app.bt.db.pfad})`);
   });

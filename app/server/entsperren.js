@@ -2,8 +2,8 @@
 /**
  * Notfall-Entsperrung ohne Anmeldung (nur lokal am Server):
  *   node server/entsperren.js <Personalnummer>          Konto- und IP-Sperren aufheben
- *   node server/entsperren.js <Personalnummer> --2fa    zusätzlich Zwei-Faktor-Anmeldung zurücksetzen (G-03)
- *   node server/entsperren.js --2fa-alle                Zwei-Faktor-Anmeldung aller Personen zurücksetzen (z. B. nach neuem BAUTAG_SCHLUESSEL)
+ *   node server/entsperren.js <Personalnummer> --2fa    zusätzlich Zwei-Faktor-Anmeldung zurücksetzen (G-03) und alle Sitzungen beenden
+ *   node server/entsperren.js --2fa-alle                Zwei-Faktor-Anmeldung aller Personen zurücksetzen (z. B. nach neuem BAUTAG_SCHLUESSEL), deren Sitzungen beenden
  * Jeder Vorgang wird protokolliert.
  */
 const path = require('node:path');
@@ -15,6 +15,7 @@ function entsperren(db, pnr, jetzt = new Date()) {
   db.transaktion(() => {
     db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', b.id);
     db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ?', b.id);
+    db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', b.id);
     db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Notfall-Entsperrung per Kommandozeile: ${b.name} (Pnr. ${pnr})` });
   });
   return b;
@@ -30,7 +31,10 @@ function zweiFaktorZuruecksetzen(db, pnr = null, jetzt = new Date()) {
     for (const b of personen) {
       db.lauf('DELETE FROM benutzer_2fa WHERE benutzer_id = ?', b.id);
       db.lauf('DELETE FROM login_2fa WHERE benutzer_id = ?', b.id);
-      db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Zwei-Faktor-Anmeldung von ${b.name} per Kommandozeile zurückgesetzt` });
+      db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', b.id);
+      // N-118: wie DELETE /benutzer/:id/2fa – alte Sitzungen (z. B. auf einem verlorenen Gerät) enden
+      const sitzungen = db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', b.id).changes;
+      db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, neu: { sitzungenBeendet: sitzungen }, text: `Zwei-Faktor-Anmeldung von ${b.name} per Kommandozeile zurückgesetzt` });
     }
   });
   return personen.length;
@@ -49,11 +53,11 @@ if (require.main === module) {
   try {
     if (alle) {
       const n = zweiFaktorZuruecksetzen(db, null);
-      console.log(`Zwei-Faktor-Anmeldung bei ${n} Person(en) zurückgesetzt. Bitte nach der Anmeldung neu einrichten.`);
+      console.log(`Zwei-Faktor-Anmeldung bei ${n} Person(en) zurückgesetzt, ihre Sitzungen sind beendet. Bitte nach der Anmeldung neu einrichten.`);
     } else {
       const b = entsperren(db, pnr);
       console.log(`Entsperrt: ${b.name} (${b.rolle}, Pnr. ${pnr}). Vorgang ist im Protokoll vermerkt.`);
-      if (zf) { zweiFaktorZuruecksetzen(db, pnr); console.log(`Zwei-Faktor-Anmeldung von ${b.name} zurückgesetzt – nach der Anmeldung neu einrichten.`); }
+      if (zf) { zweiFaktorZuruecksetzen(db, pnr); console.log(`Zwei-Faktor-Anmeldung von ${b.name} zurückgesetzt, alle Sitzungen beendet – nach der Anmeldung neu einrichten.`); }
     }
   } catch (e) {
     console.error(e.message);

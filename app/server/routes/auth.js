@@ -25,7 +25,35 @@ function fehlversuch(bt, b, ip) {
   if (gesperrt) throw bt.bremse.fehler(gesperrt);
 }
 
-const clientIp = (req) => req.ip || (req.socket && req.socket.remoteAddress) || '?';
+/**
+ * N-004/N-027: falscher Zwei-Faktor-Code (nach richtiger PIN bzw. in den 2FA-Einstellungen). Zählt kontoweit über alle IPs
+ * (10 in 24 h → Kontosperre, unabhängig von PIN-Anmeldungen), wird protokolliert und der Person gemeldet – die PIN ist dann
+ * offenbar bekannt. Danach zählt der Versuch wie ein PIN-Fehlversuch (Sperre je Benutzer+IP, 20er-Kontogrenze).
+ */
+function zweiFaktorFehlversuch(bt, b, ip, { anlass = 'anmeldung', schluessel = null } = {}) {
+  const zeit = bt.uhr().toISOString();
+  const z = bt.bremse.zweiFaktorFehlversuch(b.id);
+  const wo = anlass === 'anmeldung' ? 'bei der Anmeldung nach richtiger PIN' : 'in den Einstellungen zur Zwei-Faktor-Anmeldung';
+  bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `${b.name}: falscher Zwei-Faktor-Code ${wo} (${z.anzahl}. in 24 Std., IP ${ip})` });
+  benachrichtige(bt.db, {
+    benutzerId: b.id, typ: 'sicherheit', titel: 'Falscher Zwei-Faktor-Code',
+    text: anlass === 'anmeldung'
+      ? 'Bei einer Anmeldung mit Ihrer richtigen PIN wurde ein falscher Code aus der Authenticator-App eingegeben. Waren Sie das nicht, ist Ihre PIN wahrscheinlich bekannt: bitte sofort die PIN ändern und Büro bzw. Geschäftsführung informieren.'
+      : 'In Ihren Einstellungen zur Zwei-Faktor-Anmeldung wurde ein falscher Code eingegeben. Waren Sie das nicht, bitte sofort abmelden, die PIN ändern und Büro bzw. Geschäftsführung informieren.',
+    zeit, schluessel: schluessel || `2fa-falsch:${b.id}:${zeit}`
+  });
+  if (z.gesperrt) {
+    bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. gesperrt (letzte IP ${ip})` });
+    for (const e of bt.db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", b.id)) {
+      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. (die PIN war jeweils richtig) ist die Anmeldung von ${b.name} befristet gesperrt. Die PIN ist vermutlich bekannt – bitte prüfen, PIN zurücksetzen und ggf. entsperren.`, zeit, schluessel: `konto-2fa:${b.id}:${zeit}` });
+    }
+    bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer
+  }
+  fehlversuch(bt, b, ip);
+}
+
+/** N-120: Client-IP für Sperren – IPv6 je /64, IPv4-mapped als IPv4, Unlesbares gemeinsam */
+const clientIp = (req) => auth.ipSchluessel(req.ip || (req.socket && req.socket.remoteAddress) || '');
 
 module.exports = function authRouten(api, bt) {
   const { db } = bt;
@@ -61,14 +89,15 @@ module.exports = function authRouten(api, bt) {
       fehlversuch(bt, b, ip);
       throw nichtAngemeldet('Benutzer oder PIN falsch.');
     }
-    bt.bremse.erfolg(b.id, ip);
     // D-02: PIN kürzer als für die Rolle vorgeschrieben → Wechsel erzwingen
     const zuKurz = !bt.demo && !auth.FELD_ROLLEN.includes(b.rolle) && body.pin.length < 6; // Demo-Modus: 1234 bleibt
     db.lauf('UPDATE benutzer SET pin_laenge = ?, muss_pin_aendern = CASE WHEN ? THEN 1 ELSE muss_pin_aendern END WHERE id = ?', body.pin.length, zuKurz ? 1 : 0, b.id);
     if (zuKurz) b.muss_pin_aendern = 1;
     // API.md 12.7: mit aktiver Zwei-Faktor-Anmeldung erst nach dem Code anmelden
     const zf = require('./zweifaktor');
+    // N-004/N-027: Zähler erst nach dem zweiten Faktor zurücksetzen – eine richtige PIN allein setzt keine Sperre zurück
     if (zf.aktiv(db, b.id)) return res.json({ zweiterFaktor: true, vorgang: zf.neuerVorgang(bt, b.id, ip) });
+    bt.bremse.erfolg(b.id, ip);
     anmelden(req, res, b);
   });
 
@@ -80,7 +109,7 @@ module.exports = function authRouten(api, bt) {
     res.json({ benutzer: benutzerJson(b, true), mussPinAendern: b.muss_pin_aendern === 1 });
   }
 
-  require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip) => fehlversuch(bt, b, ip), clientIp });
+  require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip) => fehlversuch(bt, b, ip), zweiFaktorFehlversuch: (b, ip, o) => zweiFaktorFehlversuch(bt, b, ip, o), clientIp });
 
   api.post('/auth/logout', (req, res) => {
     auth.beendeSitzung(db, req.token);
@@ -138,3 +167,4 @@ module.exports = function authRouten(api, bt) {
 };
 
 module.exports.benutzerJson = benutzerJson;
+module.exports.clientIp = clientIp;

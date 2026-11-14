@@ -1243,6 +1243,19 @@ ALTER TABLE plan_mitteilung ADD COLUMN art TEXT;
 ALTER TABLE urlaub_konto ADD COLUMN beginn TEXT;
 UPDATE urlaub_konto SET beginn = COALESCE((SELECT json_extract(wert, '$.urlaubsjahrBeginn') FROM einstellung WHERE schluessel = 'urlaub'), '01-01');
 `
+  },
+  {
+    version: 33,
+    name: 'Nachprüfung sicherheit: kontoweiter Zähler falscher Zwei-Faktor-Codes (nicht durch PIN-Anmeldung zurückgesetzt)',
+    sql: `
+-- N-004/N-027: falsche 2FA-Codes je Konto über alle IPs; nur Ablauf des 24-h-Fensters, Kontosperre oder Entsperren durch Büro/GF setzen ihn zurück
+CREATE TABLE login_2fa_fehler (
+  benutzer_id INTEGER PRIMARY KEY,
+  fehlversuche INTEGER NOT NULL DEFAULT 0,
+  erster TEXT,
+  letzter TEXT
+);
+`
   }
 ];
 
