@@ -59,6 +59,13 @@ module.exports = function rechnungRouten(api, bt) {
     return f;
   }
 
+  /** Prüfungen über mehrere Felder auf dem Stand nach dem Speichern (N-019, N-107) */
+  function pruefeGesamt(m) {
+    if (m.typ === 'gutschrift' && m.ruecklass_art) throw ungueltig('Eine Gutschrift hat keinen Rücklass.');
+    const b = R.betraege(m);
+    if (b.ruecklass > b.brutto + 0.005) throw ungueltig(`Der Rücklass (${b.ruecklass.toFixed(2).replace('.', ',')}) ist höher als der Bruttobetrag (${b.brutto.toFixed(2).replace('.', ',')}).`);
+  }
+
   api.get('/rechnungen', (req, res) => {
     if (!req.ctx.hat('preise_sehen')) throw keinZugriff();
     const q = req.query;
@@ -81,6 +88,7 @@ module.exports = function rechnungRouten(api, bt) {
     if (!bs) throw nichtGefunden('Baustelle nicht gefunden.');
     if (!req.ctx.hat('preise_bearbeiten') || !sichtbar(req.ctx, bs)) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.');
     const f = felder(v.objekt(req.body), false, bs.id);
+    pruefeGesamt({ ust_modus: 'normal', ust_satz: 20, ...f });
     if (db.eins('SELECT id FROM rechnung WHERE nr_norm = ?', f.nr_norm)) throw konflikt(`Die Rechnungsnummer ${f.nr} gibt es bereits.`);
     f.baustelle_id = bs.id; f.erstellt = jetzt(); f.erstellt_von = req.ctx.benutzer.id;
     const k = Object.keys(f);
@@ -99,7 +107,10 @@ module.exports = function rechnungRouten(api, bt) {
     if (v.zahl(body.version, 'version', { min: 1, ganz: true }) !== r.version) throw konflikt('Die Rechnung wurde inzwischen geändert.', { version: r.version });
     const f = felder(body, true, r.baustelle_id);
     const hatZahlungen = db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE rechnung_id = ? LIMIT 1', r.id);
-    if (hatZahlungen && ['netto', 'ust_modus', 'ust_satz', 'ruecklass_art', 'ruecklass_prozent', 'ruecklass_betrag'].some((k) => f[k] !== undefined && f[k] !== r[k])) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt und Rücklass gesperrt.');
+    // N-108: nach Zahlungen auch Rechnungsdatum (Fälligkeit, Skontofrist), Skonto und der Wechsel zu/von Gutschrift (Vorzeichen) gesperrt
+    const gutschriftWechsel = f.typ !== undefined && (f.typ === 'gutschrift') !== (r.typ === 'gutschrift');
+    if (hatZahlungen && (gutschriftWechsel || ['netto', 'ust_modus', 'ust_satz', 'ruecklass_art', 'ruecklass_prozent', 'ruecklass_betrag', 'datum', 'skonto_prozent', 'skonto_tage'].some((k) => f[k] !== undefined && f[k] !== r[k]))) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt, Rücklass, Rechnungsdatum, Skonto und der Wechsel zu oder von einer Gutschrift gesperrt.');
+    pruefeGesamt({ ...r, ...f });
     if (f.nr_norm && f.nr_norm !== r.nr_norm && db.eins('SELECT id FROM rechnung WHERE nr_norm = ? AND id <> ?', f.nr_norm, r.id)) throw konflikt('Die Rechnungsnummer gibt es bereits.');
     const k = Object.keys(f);
     if (!k.length) throw ungueltig('Keine Änderungen angegeben.');
@@ -115,6 +126,8 @@ module.exports = function rechnungRouten(api, bt) {
     if (r.storniert) throw konflikt('Die Rechnung ist bereits storniert.');
     const grund = v.text(v.objekt(req.body).grund, 'grund', { max: 300 });
     if (grund.length < 3) throw ungueltig('grund: mindestens 3 Zeichen.');
+    // N-053: eine Rechnung mit Zahlungen nicht stornieren – sonst verschwindet das Geld aus Kalkulation und Offenen Posten
+    if (db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE rechnung_id = ? LIMIT 1', r.id)) throw konflikt('Die Rechnung hat Zahlungen – bitte zuerst die Zahlungen löschen, dann stornieren.');
     db.transaktion(() => {
       db.lauf('UPDATE rechnung SET storniert = ?, storniert_grund = ?, storniert_von = ?, version = version + 1 WHERE id = ?', jetzt(), grund, req.ctx.benutzer.id, r.id);
       prot(req, `rechnung:${r.id}`, `Rechnung ${r.nr} storniert: ${grund}`, null, { grund });
@@ -134,8 +147,12 @@ module.exports = function rechnungRouten(api, bt) {
     if (betrag <= 0 && skonto <= 0) throw ungueltig('betrag muss größer als 0 sein.');
     const s = R.rechnungStand(db, r, heute());
     if (skonto > 0) {
-      if (!s.skontoBis || datum > s.skontoBis) throw ungueltig('Skonto nur bei Zahlung innerhalb der Skontofrist.');
+      if (!r.skonto_prozent || !s.skontoBis) throw ungueltig('Diese Rechnung hat kein Skonto.');
+      if (datum > s.skontoBis) throw ungueltig('Skonto nur bei Zahlung innerhalb der Skontofrist.');
       if (ruecklass) throw ungueltig('Kein Skonto auf den Rücklass.');
+      // N-055: höchstens Skontosatz × Zahlbetrag (über alle Zahlungen zusammen)
+      const rest = R.r2(s.skontoMax - s.skontoGenommen);
+      if (skonto > rest + 0.005) throw ungueltig(`Das Skonto ist zu hoch – höchstens ${Math.max(0, rest).toFixed(2).replace('.', ',')} (${String(r.skonto_prozent).replace('.', ',')} % vom Zahlbetrag).`);
     }
     if (ruecklass && !r.ruecklass_art) throw ungueltig('Diese Rechnung hat keinen Rücklass.');
     if (!ruecklass && betrag + skonto > s.offen + 0.005) throw ungueltig(`Die Zahlung übersteigt den offenen Betrag (${s.offen.toFixed(2).replace('.', ',')}).`);
@@ -153,6 +170,7 @@ module.exports = function rechnungRouten(api, bt) {
     const r = laden(req, true);
     const z = db.eins('SELECT * FROM rechnung_zahlung WHERE id = ? AND rechnung_id = ?', v.pfadId(req.params.zid), r.id);
     if (!z) throw nichtGefunden('Zahlung nicht gefunden.');
+    if (r.storniert) throw konflikt('Die Rechnung ist storniert.'); // N-053
     db.transaktion(() => { db.lauf('DELETE FROM rechnung_zahlung WHERE id = ?', z.id); prot(req, `rechnung:${r.id}`, `Zahlung zu ${r.nr} gelöscht`, { datum: z.datum, betrag: z.betrag, skonto: z.skonto }, null); });
     res.json(antwort(r.id));
   });
@@ -163,6 +181,7 @@ module.exports = function rechnungRouten(api, bt) {
     const stufe = v.zahl(body.stufe, 'stufe', { min: 1, max: 3, ganz: true });
     const datum = body.datum == null ? heute() : v.datum(body.datum, 'datum');
     const s = R.rechnungStand(db, r, heute());
+    if (r.typ === 'gutschrift') throw konflikt('Gutschriften werden nicht gemahnt.'); // N-106
     if (r.storniert || s.offen <= 0) throw konflikt('Keine offene Forderung.');
     if (stufe <= s.mahnstufe) throw konflikt(`Mahnstufe ${s.mahnstufe} ist bereits vermerkt (nur steigend).`);
     db.transaktion(() => { db.lauf('INSERT INTO rechnung_mahnung (rechnung_id, stufe, datum, erfasst, erfasst_von) VALUES (?, ?, ?, ?, ?)', r.id, stufe, datum, jetzt(), req.ctx.benutzer.id); prot(req, `rechnung:${r.id}`, `${R.MAHN[stufe]} zu ${r.nr} vermerkt`, null, { stufe, datum }); });
@@ -183,7 +202,8 @@ module.exports = function rechnungRouten(api, bt) {
       const s = R.rechnungStand(db, r, h);
       const b = bs.get(r.baustelle_id);
       if (s.status === 'bezahlt' && s.bezahltAm && s.bezahltAm >= plusTage(h, -365)) dauer.push(R.tageZwischen(r.datum, s.bezahltAm));
-      if (s.ruecklassOffen > 0) { ruecklassSumme += s.ruecklassOffen; ruecklaesse.push({ rechnungId: r.id, nr: r.nr, baustelle: { id: b.id, kst: b.kst, name: b.name }, ruecklassOffen: s.ruecklassOffen, ruecklassFaellig: s.ruecklassFaellig }); }
+      // N-019: Rücklass einer (Alt-)Gutschrift zählt in der Summe negativ
+      if (s.ruecklassOffen > 0) { ruecklassSumme += s.vorzeichen * s.ruecklassOffen; ruecklaesse.push({ rechnungId: r.id, nr: r.nr, typ: r.typ, baustelle: { id: b.id, kst: b.kst, name: b.name }, ruecklassOffen: s.ruecklassOffen, ruecklassFaellig: s.ruecklassFaellig }); }
       if (s.offen <= 0) continue;
       const j = R.rechnungJson(db, r, n);
       const betrag = s.vorzeichen * s.offen;
@@ -209,8 +229,12 @@ module.exports = function rechnungRouten(api, bt) {
     const op = offenePosten(req);
     const z = [['Rechnungs-Nr.', 'Art', 'KST', 'Baustelle', 'Auftraggeber', 'Rechnungsdatum', 'Fällig', 'Brutto', 'Zahlbetrag', 'Bezahlt', 'Offen', 'Status', 'Tage überfällig', 'Mahnstufe']];
     const bs = bsMap();
-    for (const p of op.posten) z.push([p.nr, R.TYPEN[p.typ], p.baustelle.kst, p.baustelle.name, (bs.get(p.baustelle.id) || {}).auftraggeber || '', de(p.datum), de(p.faellig), p.brutto, p.zahlbetrag, p.bezahlt, p.offen, p.status, p.ueberfaelligTage, p.mahnstufe]);
-    for (const x of op.ruecklaesse) z.push([x.nr, 'Rücklass', x.baustelle.kst, x.baustelle.name, '', '', de(x.ruecklassFaellig), '', '', '', x.ruecklassOffen, 'ruecklass', '', '']);
+    // N-052: Gutschriften negativ (wie in den Summen), Summenzeilen = summeOffen bzw. ruecklaesseOffen
+    const vz = (typ) => (typ === 'gutschrift' ? -1 : 1);
+    for (const p of op.posten) { const g = vz(p.typ); z.push([p.nr, R.TYPEN[p.typ], p.baustelle.kst, p.baustelle.name, (bs.get(p.baustelle.id) || {}).auftraggeber || '', de(p.datum), de(p.faellig), R.r2(g * p.brutto), R.r2(g * p.zahlbetrag), R.r2(g * p.bezahlt), R.r2(g * p.offen), p.status, p.ueberfaelligTage, p.mahnstufe]); }
+    z.push(['Summe offene Rechnungen', '', '', '', '', '', '', '', '', '', op.summeOffen, '', '', '']);
+    for (const x of op.ruecklaesse) z.push([x.nr, 'Rücklass', x.baustelle.kst, x.baustelle.name, '', '', de(x.ruecklassFaellig), '', '', '', R.r2(vz(x.typ) * x.ruecklassOffen), 'ruecklass', '', '']);
+    if (op.ruecklaesse.length) z.push(['Summe offene Rücklässe', '', '', '', '', '', '', '', '', '', op.ruecklaesseOffen, '', '', '']);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: 'offene-posten', text: 'Offene-Posten-Liste als CSV exportiert' });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Offene_Posten_${heute()}.csv"`);
@@ -221,12 +245,17 @@ module.exports = function rechnungRouten(api, bt) {
     const von = req.query.von ? v.datum(String(req.query.von), 'von') : plusTage(heute(), -31);
     const bis = req.query.bis ? v.datum(String(req.query.bis), 'bis') : heute();
     const bs = bsMap();
-    const z = [['Datum', 'Rechnungs-Nr.', 'KST', 'Baustelle', 'Auftraggeber', 'Betrag', 'Skonto', 'Rücklass', 'Quelle', 'Notiz']];
-    for (const x of db.alle('SELECT z.*, r.nr, r.baustelle_id FROM rechnung_zahlung z JOIN rechnung r ON r.id = z.rechnung_id WHERE z.datum >= ? AND z.datum <= ? ORDER BY z.datum, z.id', von, bis)) {
+    // N-052/N-053: ohne stornierte Rechnungen; Zahlungen auf Gutschriften (Auszahlungen) negativ; Summenzeile
+    const z = [['Datum', 'Rechnungs-Nr.', 'KST', 'Baustelle', 'Auftraggeber', 'Betrag', 'Skonto', 'Rücklass', 'Quelle', 'Notiz', 'Rechnungsart']];
+    let summe = 0, summeSkonto = 0;
+    for (const x of db.alle('SELECT z.*, r.nr, r.baustelle_id, r.typ FROM rechnung_zahlung z JOIN rechnung r ON r.id = z.rechnung_id WHERE z.datum >= ? AND z.datum <= ? AND r.storniert IS NULL ORDER BY z.datum, z.id', von, bis)) {
       const b = bs.get(x.baustelle_id);
       if (!sichtbar(req.ctx, b)) continue;
-      z.push([de(x.datum), x.nr, b.kst, b.name, b.auftraggeber || '', x.betrag, x.skonto, x.ruecklass ? 'ja' : 'nein', x.quelle, x.notiz || '']);
+      const g = x.typ === 'gutschrift' ? -1 : 1;
+      summe += g * x.betrag; summeSkonto += g * x.skonto;
+      z.push([de(x.datum), x.nr, b.kst, b.name, b.auftraggeber || '', R.r2(g * x.betrag), R.r2(g * x.skonto), x.ruecklass ? 'ja' : 'nein', x.quelle, x.notiz || '', R.TYPEN[x.typ]]);
     }
+    z.push(['Summe', '', '', '', '', R.r2(summe), R.r2(summeSkonto), '', '', '', '']);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: 'zahlungseingaenge', text: `Zahlungseingänge ${von}–${bis} als CSV exportiert` });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Zahlungseingaenge_${von}_${bis}.csv"`);

@@ -21,10 +21,10 @@ export function rechnungDialog(ctx, b, r, fertig) {
   const gesperrt = r && (r.zahlungen || []).length > 0;
   const dlg = dialog({ titel: r ? `Rechnung ${r.nr} bearbeiten` : 'Rechnung erfassen', breit: true, inhalt: `<form id="ref" class="form-grid" novalidate>
     ${r ? '' : `<p class="muted sm full">Die Rechnung selbst wird in BMD bzw. Auer Success geschrieben. Hier werden nur das PDF und die Kopfdaten erfasst, damit Zahlungsstand und offene Posten stimmen.</p>`}
-    ${gesperrt ? `<div class="full">${banner('info', 'Es gibt bereits Zahlungen – Beträge, Umsatzsteuer und Rücklass sind gesperrt.')}</div>` : ''}
-    <label class="field"><span class="field-label">Art</span><select class="input lg" name="typ">${Object.entries(R_TYP).map(([k, t]) => `<option value="${k}" ${(r ? r.typ : 'abschlag') === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${gesperrt ? `<div class="full">${banner('info', 'Es gibt bereits Zahlungen – Beträge, Umsatzsteuer, Rücklass, Rechnungsdatum und Skonto sind gesperrt; eine Rechnung wird nicht mehr zur Gutschrift (und umgekehrt).')}</div>` : ''}
+    <label class="field"><span class="field-label">Art</span><select class="input lg" name="typ">${Object.entries(R_TYP).map(([k, t]) => `<option value="${k}" ${(r ? r.typ : 'abschlag') === k ? 'selected' : ''} ${gesperrt && (k === 'gutschrift') !== (r.typ === 'gutschrift') ? 'disabled' : ''}>${t}</option>`).join('')}</select></label>
     <label class="field"><span class="field-label">Rechnungs-Nr. (wie in BMD)</span><input class="input lg" name="nr" required maxlength="40" value="${esc((r && r.nr) || '')}"></label>
-    <label class="field"><span class="field-label">Rechnungsdatum</span><input class="input lg" type="date" name="datum" required value="${esc((r && r.datum) || heute)}"></label>
+    <label class="field"><span class="field-label">Rechnungsdatum</span><input class="input lg" type="date" name="datum" required value="${esc((r && r.datum) || heute)}" ${gesperrt ? 'disabled' : ''}></label>
     <label class="field"><span class="field-label">Netto in Euro</span><input class="input lg num" name="netto" data-geld inputmode="decimal" autocomplete="off" required value="${r ? fmt.betrag(r.netto) : ''}" placeholder="0,00" ${gesperrt ? 'disabled' : ''}></label>
     <label class="field"><span class="field-label">Leistungszeitraum von</span><input class="input lg" type="date" name="leistungVon" value="${esc((r && r.leistungVon) || '')}"></label>
     <label class="field"><span class="field-label">bis</span><input class="input lg" type="date" name="leistungBis" value="${esc((r && r.leistungBis) || '')}"></label>
@@ -32,8 +32,8 @@ export function rechnungDialog(ctx, b, r, fertig) {
       <small class="muted" id="rc-hinweis" hidden>Übergang der Steuerschuld bei Bauleistungen (§ 19 Abs. 1a UStG): Die Rechnung weist keine USt aus – bitte mit der Steuerberatung prüfen.</small></fieldset>
     <label class="field"><span class="field-label">Zahlungsziel (Tage)</span><input class="input lg num" name="zahlungszielTage" inputmode="numeric" value="${r ? r.zahlungszielTage ?? '' : 30}"></label>
     <div class="field"><span class="field-label">Fällig am</span><output class="input lg ro" id="re-faellig"></output></div>
-    <label class="field"><span class="field-label">Skonto %</span><input class="input lg num" name="skontoProzent" inputmode="decimal" value="${r && r.skontoProzent != null ? String(r.skontoProzent).replace('.', ',') : ''}" placeholder="z. B. 3"></label>
-    <label class="field"><span class="field-label">Skonto bis (Tage)</span><input class="input lg num" name="skontoTage" inputmode="numeric" value="${r && r.skontoTage != null ? r.skontoTage : ''}" placeholder="z. B. 14"></label>
+    <label class="field"><span class="field-label">Skonto %</span><input class="input lg num" name="skontoProzent" inputmode="decimal" value="${r && r.skontoProzent != null ? String(r.skontoProzent).replace('.', ',') : ''}" placeholder="z. B. 3" ${gesperrt ? 'disabled' : ''}></label>
+    <label class="field"><span class="field-label">Skonto bis (Tage)</span><input class="input lg num" name="skontoTage" inputmode="numeric" value="${r && r.skontoTage != null ? r.skontoTage : ''}" placeholder="z. B. 14" ${gesperrt ? 'disabled' : ''}></label>
     <label class="field"><span class="field-label">Rücklass</span><select class="input lg" name="ruecklassArt" ${gesperrt ? 'disabled' : ''}><option value="">kein Rücklass</option><option value="haft" ${r && r.ruecklassArt === 'haft' ? 'selected' : ''}>Haftrücklass</option><option value="deckung" ${r && r.ruecklassArt === 'deckung' ? 'selected' : ''}>Deckungsrücklass</option></select></label>
     <label class="field"><span class="field-label">Rücklass in % vom Brutto</span><input class="input lg num" name="ruecklassProzent" inputmode="decimal" value="${r && r.ruecklassProzent != null ? String(r.ruecklassProzent).replace('.', ',') : ''}" ${gesperrt ? 'disabled' : ''}></label>
     <div class="full re-vorschau" id="re-vorschau" aria-live="polite"></div>
@@ -47,8 +47,13 @@ export function rechnungDialog(ctx, b, r, fertig) {
     const f = new FormData(form);
     const rc = (f.get('ustModus') || (r && r.ustModus)) === 'reverse_charge';
     $('#rc-hinweis', dlg.el).hidden = !rc;
+    // Gutschrift: kein Rücklass (N-019)
+    const gs = f.get('typ') === 'gutschrift';
+    if (gs && form.elements.ruecklassArt.value) form.elements.ruecklassArt.value = '';
+    form.elements.ruecklassArt.disabled = gesperrt || gs; form.elements.ruecklassProzent.disabled = gesperrt || gs;
     const ziel = Number(f.get('zahlungszielTage'));
-    $('#re-faellig', dlg.el).textContent = f.get('datum') && Number.isFinite(ziel) && f.get('zahlungszielTage') !== '' ? fmt.datum(fmt.addTage(f.get('datum'), ziel)) : '–';
+    const rd = gesperrt ? r.datum : f.get('datum');
+    $('#re-faellig', dlg.el).textContent = rd && Number.isFinite(ziel) && f.get('zahlungszielTage') !== '' ? fmt.datum(fmt.addTage(rd, ziel)) : '–';
     const netto = gesperrt ? r.netto : geldWert(form.elements.netto);
     const box = $('#re-vorschau', dlg.el);
     if (!Number.isFinite(netto) || netto == null) { box.innerHTML = ''; return; }
@@ -61,12 +66,12 @@ export function rechnungDialog(ctx, b, r, fertig) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); const f = new FormData(form); const err = $('.form-err', dlg.el);
     const zeig = (t) => { err.hidden = false; err.textContent = t; };
-    const body = { typ: f.get('typ'), nr: String(f.get('nr') || '').trim(), datum: f.get('datum'), leistungVon: f.get('leistungVon') || null, leistungBis: f.get('leistungBis') || null, notiz: String(f.get('notiz') || '').trim() };
+    const body = { typ: f.get('typ'), nr: String(f.get('nr') || '').trim(), datum: gesperrt ? r.datum : f.get('datum'), leistungVon: f.get('leistungVon') || null, leistungBis: f.get('leistungBis') || null, notiz: String(f.get('notiz') || '').trim() };
     if (!body.nr || !body.datum) return zeig('Bitte Rechnungs-Nr. und Datum eintragen.');
     const zt = f.get('zahlungszielTage'); body.zahlungszielTage = zt === '' ? 0 : Number(zt);
     const sp = prozent(f.get('skontoProzent')), st = f.get('skontoTage');
     if (!Number.isInteger(body.zahlungszielTage) || body.zahlungszielTage < 0 || (sp != null && !(sp >= 0 && sp <= 20))) return zeig('Zahlungsziel in ganzen Tagen und Skonto in Prozent (0–20) eintragen.');
-    body.skontoProzent = sp; body.skontoTage = st === '' ? null : Number(st);
+    if (!gesperrt) { body.skontoProzent = sp; body.skontoTage = st === '' || st == null ? null : Number(st); }
     if (!gesperrt) {
       const netto = geldWert(form.elements.netto);
       if (!Number.isFinite(netto) || netto == null || netto <= 0) return zeig('Netto-Betrag unklar – bitte so schreiben: 12.500,00 (bei Gutschriften ebenfalls positiv).');
@@ -128,7 +133,7 @@ export async function rechnungOeffnen(ctx, id, fertig) {
     <h4 class="sub-h">Mahnwesen</h4>
     ${(r.mahnungen || []).length ? `<ul class="plain rows" id="re-mahnungen">${r.mahnungen.map((m) => `<li><span class="grow"><b>${esc(m.name || MAHN[m.stufe] || 'Stufe ' + m.stufe)}</b><small>${esc(fmt.datum(m.datum))}${m.erfasstVon ? ' · ' + esc(m.erfasstVon.name || m.erfasstVon) : ''}</small></span></li>`).join('')}</ul>` : '<p class="muted sm">Keine Mahnstufe vermerkt.</p>'}
     <p class="muted sm">Mahnungen werden in BMD geschrieben – hier wird nur vermerkt, welche Stufe wann gesetzt wurde.</p></div>`,
-    fuss: darf ? `<button class="btn danger" type="button" id="re-storno">Stornieren</button><span class="grow"></span>${r.offen > 0 && naechste <= 3 ? `<button class="btn ghost" type="button" id="re-mahnung" data-stufe="${naechste}">${esc(MAHN[naechste])} vermerken</button>` : ''}<button class="btn ghost" type="button" id="re-edit">${ic('edit')}Bearbeiten</button>${r.offen > 0 || r.ruecklassOffen > 0 ? `<button class="btn primary" type="button" id="re-zahlung">${ic('plus')}Zahlung</button>` : ''}` : '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
+    fuss: darf ? `<button class="btn danger" type="button" id="re-storno">Stornieren</button><span class="grow"></span>${r.offen > 0 && naechste <= 3 && r.typ !== 'gutschrift' ? `<button class="btn ghost" type="button" id="re-mahnung" data-stufe="${naechste}">${esc(MAHN[naechste])} vermerken</button>` : ''}<button class="btn ghost" type="button" id="re-edit">${ic('edit')}Bearbeiten</button>${r.offen > 0 || r.ruecklassOffen > 0 ? `<button class="btn primary" type="button" id="re-zahlung">${ic('plus')}Zahlung</button>` : ''}` : '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
   if (!darf) return;
   const wieder = () => { dlg.zu(); fertig(); rechnungOeffnen(ctx, id, fertig); };
   dlg.el.addEventListener('click', async (e) => {

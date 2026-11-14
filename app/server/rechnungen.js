@@ -7,18 +7,44 @@ const { wienDatum, plusTage } = require('./datum');
 const { parseJson } = require('./daten');
 const { benachrichtige } = require('./budget');
 
-const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
+/**
+ * Kaufmännisch auf Cent runden (½ Cent weg von 0). Der relative Zuschlag gleicht die Darstellungsfehler
+ * von Gleitkommazahlen aus (z. B. 2400,055 als 2400,0549999…, N-018); echte Werte liegen nie so nah an ½ Cent.
+ */
+const r2 = (x) => {
+  const n = Number(x);
+  if (!Number.isFinite(n) || n === 0) return n === 0 ? 0 : n;
+  const a = Math.abs(n) * 100;
+  return Math.sign(n) * Math.round(a + a * 1e-13 + 1e-9) / 100;
+};
+/** Prozent eines Cent-Betrags, exakt in ganzen Cent (BigInt) kaufmännisch gerundet – USt, Rücklass, Skonto (N-018) */
+function prozentVon(betrag, prozent) {
+  if (!betrag || !prozent) return 0;
+  const c = BigInt(Math.round(Math.abs(betrag) * 100));
+  const p = BigInt(Math.round(Math.abs(prozent) * 1e6)); // Prozent in Millionstel
+  const nenner = 100n * 1000000n;
+  const q = (2n * c * p + nenner) / (2n * nenner);
+  return (Math.sign(betrag) * Math.sign(prozent) * Number(q)) / 100;
+}
 const MAHN = { 1: 'Zahlungserinnerung', 2: '1. Mahnung', 3: '2. Mahnung' };
 const TYPEN = { abschlag: 'Abschlagsrechnung', teil: 'Teilrechnung', schluss: 'Schlussrechnung', regie: 'Regierechnung', gutschrift: 'Gutschrift' };
 const tageZwischen = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5);
 const nrNorm = (nr) => String(nr).toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/** Beträge einer Rechnung aus den Kopfdaten (je Schritt auf Cent, 12.17) – auch für die Prüfung vor dem Speichern */
+function betraege(r) {
+  const netto = r2(r.netto || 0);
+  const ust = r.ust_modus === 'reverse_charge' ? 0 : prozentVon(netto, r.ust_satz == null ? 20 : r.ust_satz);
+  const brutto = r2(netto + ust);
+  const ruecklass = r.ruecklass_art ? (r.ruecklass_betrag != null ? r2(r.ruecklass_betrag) : prozentVon(brutto, r.ruecklass_prozent || 0)) : 0;
+  const zahlbetrag = r2(brutto - ruecklass);
+  const skontoMax = r.skonto_prozent ? prozentVon(zahlbetrag, r.skonto_prozent) : 0;
+  return { ust, brutto, ruecklass, zahlbetrag, skontoMax };
+}
+
 /** Kennzahlen einer Rechnung (Beträge positiv; Gutschriften zählen in Summen negativ → vorzeichen) */
 function rechnungStand(db, r, heute = wienDatum(db.uhr ? db.uhr() : new Date())) {
-  const ust = r.ust_modus === 'reverse_charge' ? 0 : r2(r.netto * r.ust_satz / 100);
-  const brutto = r2(r.netto + ust);
-  const ruecklass = r.ruecklass_art ? (r.ruecklass_betrag != null ? r2(r.ruecklass_betrag) : r2(brutto * (r.ruecklass_prozent || 0) / 100)) : 0;
-  const zahlbetrag = r2(brutto - ruecklass);
+  const { ust, brutto, ruecklass, zahlbetrag, skontoMax } = betraege(r);
   const faellig = plusTage(r.datum, r.zahlungsziel_tage || 0);
   const skontoBis = r.skonto_tage ? plusTage(r.datum, r.skonto_tage) : null;
   const z = db.alle('SELECT * FROM rechnung_zahlung WHERE rechnung_id = ? ORDER BY datum, id', r.id);
@@ -26,12 +52,13 @@ function rechnungStand(db, r, heute = wienDatum(db.uhr ? db.uhr() : new Date()))
   const bezahlt = r2(normal.reduce((a, x) => a + x.betrag, 0));
   const skontoGenommen = r2(normal.reduce((a, x) => a + x.skonto, 0));
   const offen = Math.max(0, r2(zahlbetrag - bezahlt - skontoGenommen));
-  const ruecklassOffen = Math.max(0, r2(ruecklass - z.filter((x) => x.ruecklass).reduce((a, x) => a + x.betrag, 0)));
+  const ruecklassBezahlt = r2(z.filter((x) => x.ruecklass).reduce((a, x) => a + x.betrag, 0));
+  const ruecklassOffen = Math.max(0, r2(ruecklass - ruecklassBezahlt));
   const m = db.alle('SELECT * FROM rechnung_mahnung WHERE rechnung_id = ? ORDER BY stufe', r.id);
   let status;
   if (r.storniert) status = 'storniert';
   else if (offen <= 0.004) status = 'bezahlt';
-  else if (heute > faellig) status = 'ueberfaellig';
+  else if (heute > faellig && r.typ !== 'gutschrift') status = 'ueberfaellig'; // Gutschrift: wir schulden – nie überfällig/gemahnt (N-106)
   else if (normal.length) status = 'teilbezahlt';
   else status = 'offen';
   let bezahltAm = null;
@@ -39,7 +66,7 @@ function rechnungStand(db, r, heute = wienDatum(db.uhr ? db.uhr() : new Date()))
   const bs = db.eins('SELECT haftruecklass FROM baustelle WHERE id = ?', r.baustelle_id);
   const hr = bs ? parseJson(bs.haftruecklass, null) : null;
   return {
-    ust, brutto, ruecklass, zahlbetrag, faellig, skontoBis, bezahlt, skontoGenommen, offen, status, bezahltAm,
+    ust, brutto, ruecklass, zahlbetrag, skontoMax, faellig, skontoBis, bezahlt, skontoGenommen, offen, status, bezahltAm, ruecklassBezahlt,
     ueberfaelligTage: status === 'ueberfaellig' ? tageZwischen(faellig, heute) : 0,
     ruecklassOffen, ruecklassFaellig: r.ruecklass_art === 'haft' && hr && hr.freigabeAm ? hr.freigabeAm : null,
     zahlungen: z, mahnungen: m, mahnstufe: m.length ? m[m.length - 1].stufe : 0,
@@ -66,17 +93,22 @@ function rechnungJson(db, r, namen) {
   };
 }
 
-/** Summen je Baustelle für die Nachkalkulation */
+/**
+ * Summen je Baustelle für die Nachkalkulation – alle Werte gezeichnet (Gutschrift negativ, N-019).
+ * bezahlt = Σ betrag ohne Skonto und ohne Rücklass-Zahlungen (12.17, N-054); Skonto und Rücklass-Zahlungen getrennt.
+ */
 function summenBaustelle(db, baustelleId) {
-  let verrechnetNetto = 0, bezahlt = 0, offen = 0, ruecklassOffen = 0;
+  let verrechnetNetto = 0, bezahlt = 0, skontoGenommen = 0, offen = 0, ruecklassOffen = 0, ruecklassBezahlt = 0;
   for (const r of db.alle('SELECT * FROM rechnung WHERE baustelle_id = ? AND storniert IS NULL', baustelleId)) {
     const s = rechnungStand(db, r);
     verrechnetNetto += s.vorzeichen * r.netto;
-    bezahlt += s.vorzeichen * (s.bezahlt + s.skontoGenommen);
+    bezahlt += s.vorzeichen * s.bezahlt;
+    skontoGenommen += s.vorzeichen * s.skontoGenommen;
     offen += s.vorzeichen * s.offen;
-    ruecklassOffen += s.ruecklassOffen;
+    ruecklassOffen += s.vorzeichen * s.ruecklassOffen;
+    ruecklassBezahlt += s.vorzeichen * s.ruecklassBezahlt;
   }
-  return { verrechnetNetto: r2(verrechnetNetto), bezahlt: r2(bezahlt), offen: r2(offen), ruecklassOffen: r2(ruecklassOffen) };
+  return { verrechnetNetto: r2(verrechnetNetto), bezahlt: r2(bezahlt), skontoGenommen: r2(skontoGenommen), offen: r2(offen), ruecklassOffen: r2(ruecklassOffen), ruecklassBezahlt: r2(ruecklassBezahlt) };
 }
 
 /** Stündliche Erinnerungen (je Rechnung und Stufe einmal; Texte ohne €) */
@@ -99,4 +131,4 @@ function pruefeRechnungen(bt) {
   }
 }
 
-module.exports = { r2, MAHN, TYPEN, nrNorm, tageZwischen, rechnungStand, rechnungJson, summenBaustelle, pruefeRechnungen };
+module.exports = { r2, prozentVon, betraege, MAHN, TYPEN, nrNorm, tageZwischen, rechnungStand, rechnungJson, summenBaustelle, pruefeRechnungen };
