@@ -184,10 +184,19 @@ function createApp(opt = {}) {
   const jsonImport = express.json({ limit: '7mb', strict: true });
   const jsonFotos = express.json({ limit: '12mb', strict: true });
   const jsonDokumente = express.json({ limit: '35mb', strict: true });
-  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/; // inkl. Lieferschein/Papier (12.11/12.12)
-  api.use((req, res, next) => (req.path === '/positionen/katalog/import' ? jsonImport
-    : /^\/baustellen\/\d+\/(dokumente|lv-import)|^\/import\/|^\/stammdaten\/[a-z]+\/import$/.test(req.path) ? jsonDokumente
-      : fotoPfad.test(req.path) ? jsonFotos : jsonKlein)(req, res, next));
+  const fotoPfad = /^\/(fuhrpark\/schaeden|berichte\/(\d+\/(fotos|lieferschein|papier)|papier)|plan\/fuhren\/\d+\/foto|fern\/)/i; // inkl. Lieferschein/Papier (12.11/12.12)
+  // N-032: große Grenzen nur für die tatsächlichen Upload-Routen (POST) und nur mit gültiger Sitzung – die Sitzung wird
+  // deshalb VOR dem Lesen des Bodys geprüft; Unangemeldete erhalten 413 statt 35 MB geparst zu bekommen. Ausnahme: die
+  // öffentliche Fernunterschrift (12.9, ohne Anmeldung, Unterschriftsbild ≤ 12 MB).
+  const dokumentPfad = /^\/(baustellen\/\d+\/(dokumente(\/\d+\/versionen)?|lv-import)|import\/bmd-op|stammdaten\/[a-z]+\/import)\/?$/i;
+  api.use(sitzungMiddleware(bt));
+  api.use((req, res, next) => {
+    const gross = req.method === 'POST' && Boolean(req.ctx);
+    const parser = gross && /^\/positionen\/katalog\/import\/?$/i.test(req.path) ? jsonImport
+      : gross && dokumentPfad.test(req.path) ? jsonDokumente
+        : fotoPfad.test(req.path) && (req.ctx || /^\/fern\//i.test(req.path)) ? jsonFotos : jsonKlein;
+    parser(req, res, next);
+  });
   api.use((req, res, next) => {
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (req.body === undefined || req.body === null)) req.body = {};
     if (['POST', 'PUT', 'PATCH'].includes(req.method) && (typeof req.body !== 'object' || Array.isArray(req.body))) {
@@ -195,7 +204,6 @@ function createApp(opt = {}) {
     }
     next();
   });
-  api.use(sitzungMiddleware(bt));
   // Neue Benachrichtigungen nach jeder Anfrage per Push verteilen (API.md 12.3)
   api.use((req, res, next) => { res.on('finish', () => require('./push').anstossen(bt)); next(); });
   if (bt.test) require('./routes/test')(api, bt); // API.md 12.18 – nur Testbetrieb

@@ -195,3 +195,27 @@ test('N-028: Push-Adressen, die WHATWG-URL und url.parse verschieden lesen, werd
   for (const endpoint of umgehungen.slice(0, 2)) assert.equal((await ma.post('/push/abo', { endpoint, keys: { p256dh: 'BPx1-abc_DEF', auth: 'aBc-12_x' } })).status, 400, endpoint);
   assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM push_abo').n, 0);
 });
+
+test('N-032: große Body-Grenzen nur mit Sitzung und nur für echte Upload-Routen', async (t) => {
+  const s = await starte();
+  t.after(() => s.stop());
+  const gross = JSON.stringify({ dateiBase64: 'A'.repeat(3 * 1024 * 1024) }); // 3 MB > 2 MB Standard
+  const anon = s.client();
+  const JSONKOPF = { 'content-type': 'application/json' };
+  // ohne Sitzung: 413 schon beim Lesen (vorher 35 MB geparst, dann 401)
+  for (const p of ['/import/egal', '/import/bmd-op', '/baustellen/1/dokumente', '/stammdaten/geraete/import', '/positionen/katalog/import', '/fuhrpark/schaeden', '/berichte/1/fotos']) {
+    assert.equal((await anon.post(p, gross, JSONKOPF)).status, 413, p);
+  }
+  const gf = await s.login(U.gf);
+  // angemeldet, aber keine Upload-Route bzw. falsche Methode → 413
+  for (const [m, p] of [['POST', '/import/egal'], ['POST', '/import/bmd-op/zuordnung'], ['PUT', '/baustellen/1/dokumente/1'], ['POST', '/baustellen/1/dokumente/1/wiederherstellen']]) {
+    assert.equal((await gf.anfrage(m, p, gross, { 'content-type': 'application/json' })).status, 413, `${m} ${p}`);
+  }
+  // echte Upload-Routen mit Sitzung: Body wird gelesen (Prüfung der Datei danach → 400, nicht 413)
+  for (const p of ['/baustellen/1/dokumente', '/import/bmd-op', '/Baustellen/1/Dokumente']) {
+    const r = await gf.post(p, gross, JSONKOPF);
+    assert.notEqual(r.status, 413, p);
+  }
+  // öffentliche Fernunterschrift bleibt bei 12 MB (ohne Anmeldung)
+  assert.notEqual((await anon.post('/fern/ungueltig', gross, JSONKOPF)).status, 413);
+});
