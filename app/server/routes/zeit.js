@@ -9,6 +9,7 @@ const { ladeBaustelle, aktuellerStatus, buchungenSeit, letzteBuchungen } = requi
 const { benachrichtige } = require('../budget');
 const { woche } = require('../auswertung');
 const { brauche } = require('./hilfe');
+const DS = require('../datenschutz');
 
 const MAX_RUECK_MS = 24 * 60 * 60 * 1000;
 const MAX_VOR_MS = 2 * 60 * 1000;
@@ -86,14 +87,11 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
     if (letzte && zeitpunkt.getTime() < new Date(letzte.zeit).getTime()) {
       throw konflikt(`Der Zeitpunkt liegt vor der letzten Buchung (${wienZeit(new Date(letzte.zeit))}).`);
     }
-    if (typ === 'kommen') {
+    if (typ === 'kommen' && erfasstVon === benutzerId) {
+      // Eigene Stempelung (auch der Polier selbst in der Kolonne): gesperrt bei genehmigtem K/U, Grund nur für die Person selbst.
+      // Über die Kolonne für ANDERE gibt es keine Sperre (Inhaber, API.md 15.2) – dort wird angenommen und das Büro informiert.
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U')", benutzerId, wienDatum(zeitpunkt));
-      // R-01: Grund nur für die Person selbst; Kolonne/Polier erfahren nur „Abwesenheit“
-      if (abw) {
-        // Inhaber 13.11.2026: über die Kolonne nie ein Grund (auch nicht „abwesend“) – nur die Person selbst erfährt ihn
-        if (erfasstVon !== benutzerId) throw konflikt(require('../datenschutz').KOLONNE_NEUTRAL);
-        throw konflikt(`Für diesen Tag ist ${abw.code === 'K' ? 'Krankenstand' : 'Urlaub'} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
-      }
+      if (abw) throw konflikt(`Für diesen Tag ist ${abw.code === 'K' ? 'Krankenstand' : 'Urlaub'} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
     }
     const p = pruefeBuchung(akt, typ, bsId);
     if (!p.ok) {
@@ -123,6 +121,37 @@ function azgNachGehen(bt, benutzerId, jetzt) {
     for (const e of [{ id: b.id }, ...buero]) {
       benachrichtige(db, { benutzerId: e.id, typ: 'azg', titel, text: x.text, zeit: jetzt.toISOString(), schluessel: `azg:${benutzerId}:${x.datum}:${x.typ}` });
     }
+  }
+}
+
+/** Genehmigte persönliche Abwesenheit (K, U – auch Betriebsurlaub –, ZA) an diesem Tag? SW ist Wetter, keine persönliche Abwesenheit. */
+function eingetrageneAbwesenheit(db, benutzerId, datum) {
+  return db.eins("SELECT code, betriebsurlaub FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U','ZA')", benutzerId, datum) || null;
+}
+
+/** Wer erfährt von einer Stempelung trotz Abwesenheit: Büro/GF und alle mit stammdaten oder lohn – nie Polier/Mitarbeiter. */
+function klaerungsEmpfaenger(db) {
+  const { ladeRechteFuer } = require('../rechte');
+  return db.alle('SELECT * FROM benutzer WHERE aktiv = 1 ORDER BY id').filter((b) => {
+    if (['polier', 'mitarbeiter'].includes(b.rolle)) return false;
+    if (['buero', 'gf'].includes(b.rolle)) return true;
+    const r = ladeRechteFuer(db, b);
+    return r.has('stammdaten') || r.has('lohn');
+  });
+}
+
+/** API.md 15.2: Kolonne hat jemanden trotz eingetragener Abwesenheit gestempelt → Hinweis an das Büro (einmal je Person und Tag). */
+function meldeStempelungTrotzAbwesenheit(bt, liste) {
+  try {
+    const { db } = bt;
+    const zeit = bt.uhr().toISOString();
+    const empf = klaerungsEmpfaenger(db);
+    for (const k of liste) {
+      const text = `Stempelung trotz eingetragener Abwesenheit: ${k.name}, ${deDatum(k.datum)} – bitte klären`;
+      for (const e of empf) benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: 'Stempelung trotz eingetragener Abwesenheit', text, zeit, baustelleId: k.baustelleId, schluessel: `abw-stempel:${k.benutzerId}:${k.datum}` });
+    }
+  } catch (e) {
+    console.error('Hinweis „Stempelung trotz Abwesenheit“ nicht gespeichert:', e && e.message); // eslint-disable-line no-console
   }
 }
 
@@ -180,9 +209,12 @@ module.exports = function zeitRouten(api, bt) {
       const st = aktuellerStatus(db, b.id);
       const partie = b.baustelle_id === bs.id || bs.polier_id === b.id;
       if (!partie && st.baustelleId !== bs.id && !(mitPlan && geplant.has(b.id))) continue;
-      const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt));
-      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw && require('../datenschutz').siehtAbwesenheit(req.ctx, b.id) ? require('../datenschutz').code(req.ctx, b.id, abw.code) : null,
-        kolonneMoeglich: !(abw && ['K', 'U'].includes(abw.code)), ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
+      // API.md 15.2: kein Feld, keine Reihenfolge und keine Vorauswahl hängt für Polier/Mitarbeiter von fremden Abwesenheiten ab.
+      // `seit` nur bei laufender Schicht – das letzte „gehen“ früherer Tage verriete Fehltage.
+      // `code` nur, wer Abwesenheiten dieser Person sehen darf (Büro/Lohn/Bauleiter/GF bzw. die Person selbst) – sonst immer null.
+      const abw = DS.siehtAbwesenheit(req.ctx, b.id) ? db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt)) : null;
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.status === 'aus' ? null : st.seit, baustelleId: st.baustelleId, code: abw ? DS.code(req.ctx, b.id, abw.code) : null,
+        ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
     }
     res.json(out);
   });
@@ -202,6 +234,8 @@ module.exports = function zeitRouten(api, bt) {
     if (new Set(ids).size !== ids.length) throw ungueltig('benutzerIds: doppelte Einträge.');
     if (body.zeit !== undefined && body.zeit !== null) zeitMitZone(body.zeit);
     const m = bsMap();
+    const klaeren = []; // Stempelung trotz eingetragener Abwesenheit → Büro/GF (nach der Antwort, API.md 15.2)
+    const tag = wienDatum(body.zeit !== undefined && body.zeit !== null ? zeitMitZone(body.zeit) : bt.uhr());
     const ergebnisse = ids.map((id) => {
       const b = db.eins('SELECT id, name, rolle, baustelle_id, aktiv FROM benutzer WHERE id = ?', id);
       if (!b || !b.aktiv) return { benutzerId: id, ok: false, fehler: 'Mitarbeiter nicht gefunden oder inaktiv.' };
@@ -217,6 +251,8 @@ module.exports = function zeitRouten(api, bt) {
       }
       try {
         const status = stempeln(bt, { benutzerId: id, typ, baustelleId: bsId, zeit: body.zeit, quelle: 'kolonne', erfasstVon: ctx.benutzer.id });
+        // Für jede gebuchte fremde Person dieselbe Abfrage; das Ergebnis wirkt nur beim Büro, nie in der Antwort
+        if (id !== ctx.benutzer.id && eingetrageneAbwesenheit(db, id, tag)) klaeren.push({ benutzerId: id, name: b.name, datum: tag, baustelleId: bsId });
         if (typ === 'kommen' && !inPartie) {
           db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ctx.benutzer.id, art: 'zeit', objekt: `benutzer:${id}`, text: `${b.name} als Gast auf ${bs.kst} eingestempelt (Kolonne)` });
         }
@@ -228,6 +264,8 @@ module.exports = function zeitRouten(api, bt) {
       }
     });
     res.json({ ergebnisse });
+    // Erst nach der Antwort: Laufzeit und Antwort sind für Anwesende und Abwesende gleich
+    if (klaeren.length) setImmediate(() => meldeStempelungTrotzAbwesenheit(bt, klaeren));
   });
 
   api.get('/zeit/woche', brauche('zeit_eigen'), (req, res) => {

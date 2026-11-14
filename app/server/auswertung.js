@@ -252,6 +252,7 @@ function monat(db, monatStr, jetzt) {
   const mitarbeiter = benutzer.map((b) => {
     const roh = ladeSchichten(db, b.id, erster, letzter, jetzt);
     const sch = plausibilisieren(roh, jetzt);
+    const gestempeltAm = new Set(roh.map((x) => x.datum)); // Tage mit eigener Stempelung (auch offene/unplausible Schichten)
     // D-04: für Bauleiter/Büro/GF zählen immer die Stempelzeiten
     const feld = FELD.includes(b.rolle);
     const zeilenFuer = (d) => (feld ? ber.zeilen.get(`${b.id}|${d}`) : null);
@@ -275,9 +276,12 @@ function monat(db, monatStr, jetzt) {
         offeneSchichten.push({ benutzerId: b.id, name: b.name, datum: t.datum, beginn: t.von, text: 'Schicht über 16 Std. bzw. nicht ausgestempelt – zählt mit 0 Std., bitte korrigieren.' });
       }
       tageObj[t.datum] = e;
-      if (genehmigt && ['K', 'U', 'ZA'].includes(a.code) && t.stunden > 0) {
-        // D-08: Abwesenheit und Arbeitsstunden am selben Tag
-        warnungen.push({ benutzerId: b.id, name: b.name, datum: t.datum, typ: 'abwesenheit_mit_stunden', stufe: 'hinweis', text: `Genehmigte Abwesenheit „${a.code}“ und ${t.stunden.toLocaleString('de-AT')} Arbeitsstunden am selben Tag – bitte prüfen.` });
+      const gestempelt = gestempeltAm.has(t.datum);
+      if (genehmigt && ['K', 'U', 'ZA'].includes(a.code) && (t.stunden > 0 || gestempelt)) {
+        // D-08: Abwesenheit und Arbeitsstunden am selben Tag; API.md 15.2: auch jede Stempelung trotz Abwesenheit (z. B. über die Kolonne)
+        const zusatz = gestempelt ? ' Stempelung trotz eingetragener Abwesenheit – bitte klären.' : '';
+        warnungen.push({ benutzerId: b.id, name: b.name, datum: t.datum, typ: 'abwesenheit_mit_stunden', stufe: 'hinweis', ...(gestempelt ? { gestempelt: true } : {}),
+          text: t.stunden > 0 ? `Genehmigte Abwesenheit „${a.code}“ und ${t.stunden.toLocaleString('de-AT')} Arbeitsstunden am selben Tag – bitte prüfen.${zusatz}` : `Genehmigte Abwesenheit „${a.code}“ und Stempelung am selben Tag (0 Std. gezählt) – bitte klären.` });
       }
       if (genehmigt) {
         if (a.code === 'SW') { sw++; swStunden += Math.max(0, (feiertag(t.datum) ? 0 : cfg.tagNormal[wochentag(t.datum)]) - t.stunden); }

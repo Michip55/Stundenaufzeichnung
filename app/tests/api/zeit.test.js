@@ -100,10 +100,11 @@ test('Zeiterfassung', async (t) => {
     assert.equal(st[4], 'arbeit');
     assert.equal(st[2], 'aus');
     assert.deepEqual(euroFelder(k.daten), []);
-    // heute Urlaub – Owner-Regel: Polier erfährt den Grund nicht, nur „nicht über die Kolonne“
+    // heute Urlaub – Inhaberregel 3 (API.md 15.2): der Polier erfährt nichts, auch kein „nicht über die Kolonne“
     const urlauber = k.daten.find((x) => x.benutzerId === 3);
     assert.equal(urlauber.code, null);
-    assert.equal(urlauber.kolonneMoeglich, false);
+    assert.ok(!('kolonneMoeglich' in urlauber));
+    assert.deepEqual(Object.keys(urlauber), Object.keys(k.daten.find((x) => x.benutzerId === 2)));
     assert.equal((await buero.get(`/abwesenheiten?benutzerId=3&von=2026-11-12&bis=2026-11-12`)).daten[0].code, 'U');
     // Eingabefehler
     assert.equal((await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [], typ: 'kommen' })).status, 400);
