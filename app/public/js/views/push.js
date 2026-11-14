@@ -10,6 +10,14 @@ const TYP = {
 };
 const b64url = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
 export const pushMoeglich = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+/** 15.5 (F-014): Push-Abo dieses Geräts (oder null) – ohne auf einen Service Worker zu warten, der nie kommt */
+export async function geraetPushAbo() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    const reg = await Promise.race([navigator.serviceWorker.getRegistration(), new Promise((ok) => setTimeout(() => ok(null), 1500))]);
+    return reg && reg.pushManager ? (await reg.pushManager.getSubscription()) || null : null;
+  } catch (e) { return null; }
+}
 const geraetName = () => { const ua = navigator.userAgent; return `${/iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android-Gerät' : /Windows/.test(ua) ? 'Windows-PC' : /Mac/.test(ua) ? 'Mac' : 'Gerät'} · ${/Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser'}`; };
 
 export default async function push(el, ctx) {

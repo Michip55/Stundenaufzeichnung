@@ -1,8 +1,8 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post } from './api.js';
+import { get, post, abmeldenVormerken, bindungLoeschen } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, wieBuero, dialog, speicher, toast, $, $$ } from './ui.js';
-import { syncStatus, setzBenutzer, setzOnline, nachsenden } from './offline.js';
+import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
@@ -21,7 +21,7 @@ import monat from './views/monat.js';
 import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import hilfe from './views/hilfe.js';
-import push from './views/push.js';
+import push, { geraetPushAbo } from './views/push.js';
 import zweifaktor, { zweiFaktorErzwungen } from './views/zweifaktor.js';
 import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
@@ -30,8 +30,9 @@ import korrektur from './views/korrektur.js';
 import positionen from './views/positionen.js';
 import { fuhrpark } from './views/fuhrpark.js';
 import { anlage } from './views/anlage.js';
-import { schadenNachsenden, schadenUngesendet } from './schaden-offline.js';
-import { stammVergessen } from './views/fuhren.js';
+import { schadenNachsenden, schadenUngesendet, schadenNachsendenFertig } from './schaden-offline.js';
+import { stammVergessen, fuhrenNachsendenFertig } from './views/fuhren.js';
+import { versiegeln, entsiegeln, schluesselHolen } from './tresor.js';
 
 const root = document.getElementById('root');
 
@@ -283,6 +284,8 @@ async function zeige() {
   if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
   $$('dialog[open]').forEach((d) => d.close());
   if (!ich) {
+    await geraetAufgeraeumt; // 15.5: erst wenn die Daten der vorigen Person versiegelt/gelöscht sind, erscheint die Anmeldung
+    if (nr !== lauf || ich) return;
     document.title = 'BauTag · Anmelden';
     aufraeumen = await login(root, { angemeldet: nachLogin });
     return;
@@ -342,27 +345,54 @@ async function zeige() {
 window.addEventListener('hashchange', zeige);
 
 /* ---------- An-/Abmelden ---------- */
+// 15.5 (F-029/F-046): Aufräumen nach dem Abmelden (laufendes Nachsenden abwarten, versiegeln, löschen) – die nächste Anmeldung wartet darauf
+let geraetAufgeraeumt = Promise.resolve();
+function geraetAufraeumen() {
+  geraetAufgeraeumt = geraetAufgeraeumt.then(async () => {
+    await Promise.all([nachsendenFertig(), schadenNachsendenFertig(), fuhrenNachsendenFertig()]).catch(() => {});
+    await versiegeln().catch(() => {});
+    speicher.raeumeBenutzer(); stammVergessen(); // R-08: Einsatzplan, Auswahl, Entwürfe … des Benutzers vom Gerät entfernen
+  });
+  return geraetAufgeraeumt;
+}
+// 15.5 (F-014): Push-Abo dieses Geräts der vorigen Person beenden
+async function pushAbmelden(sub) { if (sub) { try { await sub.unsubscribe(); } catch (e) { /* ohne Netz: der Server löscht das Abo beim Nachholen */ } } }
+
 async function nachLogin() {
-  await ladeIch();
+  await ladeIch(false, { frisch: true });
   if (location.hash && location.hash !== '#/login' && location.hash !== '#/') zeige(); else location.hash = '#' + start();
 }
-async function ladeIch(nurMitHinweis = false) {
+async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
+  await geraetAufgeraeumt;
   // Beim Start ohne gemerkte Anmeldung gleich zur Anmeldeseite (spart eine sichere 401-Antwort)
-  if (nurMitHinweis && !speicher.lies('bt_ich')) { ich = null; setzBenutzer(null); return; }
+  if (nurMitHinweis && !speicher.lies('bt_ich')) { ich = null; setzBenutzer(null); await versiegeln().catch(() => {}); return; }
   try {
     ich = await get('/auth/ich');
     ich.rechte = ich.rechte || [];
     // R-08: Meldet sich an diesem Gerät jemand anderer an, bleibt nichts vom Vorbenutzer zurück
     const vorher = speicher.lies('bt_geraet_benutzer');
-    if (vorher != null && vorher !== ich.benutzer.id) { speicher.raeumeBenutzer(); stammVergessen(); }
+    if (vorher != null && vorher !== ich.benutzer.id) {
+      await versiegeln().catch(() => {}); // 15.5 (F-046): wartende Einträge der vorigen Person versiegeln
+      speicher.raeumeBenutzer(); stammVergessen();
+      await pushAbmelden(await geraetPushAbo()); // 15.5 (F-014): ihr Push-Abo an diesem Gerät endet
+    }
     speicher.setz('bt_geraet_benutzer', ich.benutzer.id);
+    if (frisch) { aktivMem = Date.now(); aktivGeschrieben = aktivMem; speicher.setz(AKTIV, aktivMem); } // Untätigkeit zählt ab der Anmeldung
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
     speicher.setz('bt_ich', ich);
     setzOnline(true);
+    // 15.5 (F-046): eigene versiegelte Einträge öffnen (Schlüssel nur mit Anmeldung)
+    await schluesselHolen(ich.benutzer.id);
+    await entsiegeln(ich.benutzer.id, { frisch }).catch(() => {});
   } catch (e) {
     if (e.netz) { ich = speicher.lies('bt_ich'); setzOnline(false); }
-    else { ich = null; speicher.weg('bt_ich'); }
+    else {
+      // Sitzung am Server beendet (abgelaufen, abgemeldet): wie Abmelden – Einträge versiegeln, Benutzerdaten löschen
+      ich = null; speicher.weg('bt_ich'); bindungLoeschen();
+      await geraetAufraeumen();
+    }
   }
+  if (ich && untaetig()) { setzBenutzer(ich.benutzer.id); await abmelden({ grund: 'untaetig' }); return; }
   setzBenutzer(ich ? ich.benutzer.id : null);
   clearInterval(pollTimer);
   if (ich) {
@@ -375,18 +405,63 @@ async function ladeIch(nurMitHinweis = false) {
     pollTimer = setInterval(holeMeldungen, 45000);
   }
 }
-async function abmelden() {
-  try { await post('/auth/logout'); } catch (e) { /* offline: lokal abmelden */ }
-  lokalAbmelden();
+/**
+ * Abmelden (15.5): Push-Abo dieses Geräts am Server und im Browser beenden (F-014); ohne Netz das Abmelden am Server
+ * vormerken – es wird vor jeder anderen Anfrage nachgeholt (F-029). Lokal gilt man sofort als abgemeldet: das Bindungs-Cookie
+ * ist gelöscht, damit gilt das alte Sitzungs-Cookie auch ohne Netz nicht mehr.
+ */
+async function abmelden(opt = {}) {
+  const sub = await geraetPushAbo();
+  const endpoint = sub ? sub.endpoint : null;
+  try { await post('/auth/logout', endpoint ? { endpoint } : {}); }
+  catch (e) {
+    if (e.netz || !e.status || e.status >= 500) {
+      abmeldenVormerken(endpoint);
+      toast('Ohne Verbindung abgemeldet. Am Server wird das Abmelden bei der nächsten Verbindung nachgeholt.', 'warn');
+    }
+  }
+  await pushAbmelden(sub);
+  if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn');
+  return lokalAbmelden();
 }
 function lokalAbmelden() {
   ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0;
-  speicher.raeumeBenutzer(); stammVergessen(); // R-08: Einsatzplan, Auswahl, Entwürfe … des Benutzers vom Gerät entfernen
   setzBenutzer(null); clearInterval(pollTimer);
+  bindungLoeschen();
+  speicher.weg('bt_ich'); // ein Neuladen startet nie mehr als diese Person
+  const fertig = geraetAufraeumen();
   root.innerHTML = '';
   if (location.hash !== '#/login') location.hash = '#/login'; else zeige();
+  return fertig;
 }
+
+/* ---------- 15.5 (F-029): Sperre nach Untätigkeit am Gerät ---------- */
+// Nach ich.sperreMinuten ohne Bedienung (Feldrollen 30 min, Büro wie die Sitzung) meldet die App ab – auch ohne Netz.
+// Die letzte Bedienung wird am Gerät gemerkt, damit auch ein Neustart der App nach langer Pause abmeldet.
+const AKTIV = 'bt_aktiv';
+let aktivMem = Date.now(), aktivGeschrieben = 0;
+const letzteBedienung = () => { const g = Number(speicher.lies(AKTIV, 0)) || 0; return g || aktivMem; };
+function untaetig() { return !!ich && Number(ich.sperreMinuten) > 0 && Date.now() - letzteBedienung() > ich.sperreMinuten * 60000; }
+let sperrt = false;
+function sperrePruefen() {
+  if (sperrt || !untaetig()) return false;
+  sperrt = true;
+  abmelden({ grund: 'untaetig' }).finally(() => { sperrt = false; });
+  return true;
+}
+function bedient(e) {
+  if (!ich) return;
+  if (sperrePruefen()) { if (e && e.cancelable) { e.preventDefault(); e.stopPropagation(); } return; }
+  aktivMem = Date.now();
+  if (aktivMem - aktivGeschrieben > 5000) { aktivGeschrieben = aktivMem; speicher.setz(AKTIV, aktivMem); }
+}
+for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel']) window.addEventListener(ev, bedient, { capture: true, passive: false });
+window.addEventListener('hashchange', () => bedient());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sperrePruefen(); });
+setInterval(sperrePruefen, 30000);
 window.addEventListener('bt:abgemeldet', () => { if (ich) { toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); lokalAbmelden(); } });
+// 15.5 (F-029): wieder online → ein vorgemerktes Abmelden sofort nachholen (api.js holt es vor jeder Anfrage nach)
+window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').catch(() => {}); });
 window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });

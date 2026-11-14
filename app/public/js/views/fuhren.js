@@ -3,6 +3,7 @@
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, banner, dialog, bestaetigen, toast, speicher, $ } from '../ui.js';
 import { bildVerkleinern } from '../schaden-offline.js';
+import { angemeldeterBenutzer } from '../offline.js';
 import { feiertage } from '../arbeitstag.js';
 import { fuhreVorlaeufig, fuhreAnmeldungNoetig, letzteMeldung, istLkw, lkwText, kopieTage } from '../plan-regeln.js';
 
@@ -129,18 +130,33 @@ const wartend = () => speicher.lies(KEY, []);
 const merke = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); return true; } catch (e) { return false; } };
 const abgelehntAlle = () => speicher.lies(KEY_AB, []);
 const merkeAbgelehnt = (l) => { try { localStorage.setItem(KEY_AB, JSON.stringify(l)); } catch (e) { speicher.setz(KEY_AB, l.map((x) => ({ ...x, foto: null, fotoWeg: !!x.foto }))); } };
-export const fuhrenWartend = (benutzerId) => wartend().filter((w) => w.benutzerId === benutzerId);
-export const fuhrenAbgelehnt = (benutzerId) => abgelehntAlle().filter((w) => w.benutzerId === benutzerId);
+// 15.5 (F-030/F-046): versiegelte Einträge (nach dem Abmelden) gehören zu niemandem in der Anzeige
+export const fuhrenWartend = (benutzerId) => wartend().filter((w) => !w.versiegelt && w.benutzerId === benutzerId);
+export const fuhrenAbgelehnt = (benutzerId) => abgelehntAlle().filter((w) => !w.versiegelt && w.benutzerId === benutzerId);
 const vorlaeufig = fuhreVorlaeufig; // N-017: auch 401/403 bleiben gemerkt (wie die Stempel-Warteschlange)
+// 15.5 (F-030): jeder Schritt nur, solange die Person angemeldet ist, die die Meldung erfasst hat (Server prüft den Kopf zusätzlich)
+const andere = () => Object.assign(new Error('Andere Person angemeldet – die Meldung bleibt am Gerät.'), { status: 409, code: 'ERSTELLER_ANDERS' });
 async function sende(w) {
-  if (!w.statusFertig) { await post(`/plan/fuhren/${w.fuhreId}/status`, w.body); w.statusFertig = true; }
-  if (w.foto) { await post(`/plan/fuhren/${w.fuhreId}/foto`, w.foto); w.foto = null; }
+  const als = { ersteller: w.benutzerId };
+  if (!w.statusFertig) { if (angemeldeterBenutzer() !== w.benutzerId) throw andere(); await post(`/plan/fuhren/${w.fuhreId}/status`, w.body, als); w.statusFertig = true; }
+  if (w.foto) { if (angemeldeterBenutzer() !== w.benutzerId) throw andere(); await post(`/plan/fuhren/${w.fuhreId}/foto`, w.foto, als); w.foto = null; }
 }
 let sendet = false;
-export async function fuhrenNachsenden(benutzerId) {
-  if (sendet) return 0; sendet = true; let ok = 0;
+let lauf = Promise.resolve(0);
+/** 15.5: wartet, bis ein laufendes Nachsenden fertig ist (vor dem Versiegeln beim Abmelden) */
+export const fuhrenNachsendenFertig = () => lauf;
+export function fuhrenNachsenden(benutzerId) {
+  if (sendet) return Promise.resolve(0);
+  sendet = true;
+  const p = fuhrenLauf(benutzerId);
+  lauf = p.catch(() => 0);
+  return p;
+}
+async function fuhrenLauf(benutzerId) {
+  let ok = 0;
   try {
     for (const w of fuhrenWartend(benutzerId)) {
+      if (angemeldeterBenutzer() !== benutzerId) break; // Benutzerwechsel → aufhören
       try { await sende(w); ok += 1; merke(wartend().filter((x) => x.nr !== w.nr)); }
       catch (x) {
         if (vorlaeufig(x)) { merke(wartend().map((y) => (y.nr === w.nr ? w : y))); if (fuhreAnmeldungNoetig(x)) toast('Fuhren-Meldung gespeichert – nach dem Anmelden wird sie gesendet.', 'warn'); break; }

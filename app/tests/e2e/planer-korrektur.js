@@ -108,7 +108,8 @@ async function planerKorrektur(h) {
     await page.evaluate(([idF, idB]) => localStorage.setItem('bt_fuhren_warten', JSON.stringify([{ nr: 'k-401', benutzerId: idB, fuhreId: idF, body: { status: 'unterwegs' }, foto: null, zeit: new Date().toISOString() }])), [fOk.id, LUKAS]);
     await ctx.clearCookies();
     await h.absichtlich(() => nachsenden(LUKAS)); // 401 ist hier gewollt
-    pruef((await warteschlange()).some((w) => w.nr === 'k-401'), P('N-017: Meldung bei abgelaufener Sitzung verworfen'));
+    // 15.5: nach dem Ablauf der Sitzung wird die Meldung versiegelt (nicht verworfen) und nach der Anmeldung gesendet
+    pruef((await warteschlange()).some((w) => w.nr === 'k-401' || w.versiegelt), P('N-017: Meldung bei abgelaufener Sitzung verworfen'));
     await login('Lukas Brandstätter');
     await page.evaluate(([idF, idB]) => { if (!localStorage.getItem('bt_fuhren_warten')) localStorage.setItem('bt_fuhren_warten', JSON.stringify([{ nr: 'k-401', benutzerId: idB, fuhreId: idF, body: { status: 'unterwegs' }, foto: null, zeit: new Date().toISOString() }])); }, [fOk.id, LUKAS]);
     await nachsenden(LUKAS);

@@ -11,7 +11,8 @@ const istWochenende = (iso) => [0, 6].includes(dt(iso).getDay());
  * Fuhren-Warteschlange (N-017): vorläufig = später erneut senden. Wie die Stempel-Warteschlange (M-04) bleiben
  * auch 401/403 (Sitzung abgelaufen, PIN ändern) gemerkt – nach der Anmeldung wird nachgesendet.
  */
-export const fuhreVorlaeufig = (x) => !!x && (x.netz || x.status >= 500 || x.status === 429 || x.status === 408 || x.status === 401 || x.status === 403);
+// 15.5 (F-030): 409 ERSTELLER_ANDERS = inzwischen ist eine andere Person angemeldet → Meldung bleibt gemerkt
+export const fuhreVorlaeufig = (x) => !!x && (x.netz || x.status >= 500 || x.status === 429 || x.status === 408 || x.status === 401 || x.status === 403 || x.code === 'ERSTELLER_ANDERS');
 /** Anmeldung nötig → Nachsenden abbrechen (nicht weiter probieren) */
 export const fuhreAnmeldungNoetig = (x) => !!x && (x.status === 401 || x.status === 403);
 
