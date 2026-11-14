@@ -114,12 +114,16 @@ test('C-04, C-02, C-06, C-08, C-11', async (t) => {
     const r = await (await s.login(6)).post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
     assert.equal(r.status, 409);
     assert.match(r.daten.fehler, /Krankenstand/);
+    // Inhaberregel 3 (API.md 15.2): über die Kolonne wird angenommen – kein Text, der nur bei Abwesenheit kommt;
+    // das Büro erhält „Stempelung trotz eingetragener Abwesenheit … – bitte klären“
     const k = await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [6, 3], typ: 'kommen' });
-    assert.ok(k.daten.ergebnisse.every((x) => !x.ok));
-    // Owner-Regel: neutraler Text, kein Grund für den Polier
-    for (const x of k.daten.ergebnisse) assert.equal(x.fehler, 'Diese Person kann heute nicht über die Kolonne gestempelt werden – bitte Büro kontaktieren.');
+    assert.deepEqual(k.daten.ergebnisse, [{ benutzerId: 6, ok: true, status: 'arbeit' }, { benutzerId: 3, ok: true, status: 'arbeit' }]);
     const g = await pol.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [6], typ: 'kommen', gast: true });
     assert.equal(g.daten.ergebnisse[0].ok, false);
+    assert.match(g.daten.ergebnisse[0].fehler, /^Bereits eingestempelt/);
+    let n = 0;
+    for (let i = 0; i < 200 && n < 2; i++) { n = s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ? AND schluessel IN ('abw-stempel:6:2026-11-12', 'abw-stempel:3:2026-11-12')", U.buero).n; if (n < 2) await new Promise((x) => setTimeout(x, 10)); }
+    assert.equal(n, 2);
   });
 });
 

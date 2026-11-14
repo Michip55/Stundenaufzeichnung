@@ -110,19 +110,32 @@ test('Polier/Mitarbeiter: keine fremden Abwesenheiten; Bauleiter wie Büro; Kran
     nichtsUeberAndere((await c.polier.get('/benachrichtigungen')).daten, U.polier, 'Benachrichtigungen Polier');
   });
 
-  await t.test('Kolonne/Stempeluhr: keine Vorauswahl, neutraler Fehler', async () => {
+  await t.test('Kolonne/Stempeluhr: nichts verrät den Krankenstand, das Büro klärt (API.md 15.2)', async () => {
     s.uhr.setze(`${TAG}T06:00:00.000Z`);
-    const l = (await c.polier.get(`/zeit/kolonne?baustelleId=${BS.pitten}`)).daten;
-    const d = l.find((x) => x.benutzerId === DANIEL);
-    assert.deepEqual([d.code, d.kolonneMoeglich], [null, false]);
-    nichtsUeberAndere(l, U.polier, 'Kolonne');
-    const r = await c.polier.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [DANIEL], typ: 'kommen' });
-    const e = r.daten.ergebnisse.find((x) => x.benutzerId === DANIEL);
-    assert.deepEqual([e.ok, e.fehler], [false, 'Diese Person kann heute nicht über die Kolonne gestempelt werden – bitte Büro kontaktieren.']);
-    // die Person selbst erfährt den Grund
+    // die Person selbst erfährt den Grund (eigene Stempelung bleibt gesperrt)
     const selbst = await c.daniel.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
     assert.equal(selbst.status, 409);
     assert.match(selbst.daten.fehler, /Krankenstand/);
+    const l = (await c.polier.get(`/zeit/kolonne?baustelleId=${BS.pitten}`)).daten;
+    const d = l.find((x) => x.benutzerId === DANIEL);
+    assert.equal(d.code, null);
+    assert.ok(l.every((x) => !('kolonneMoeglich' in x)));
+    nichtsUeberAndere(l, U.polier, 'Kolonne');
+    // Kolonne nimmt an – gleiche Antwort wie für jede anwesende Person
+    const r = await c.polier.post('/zeit/kolonne', { baustelleId: BS.pitten, benutzerIds: [DANIEL], typ: 'kommen' });
+    assert.deepEqual(r.daten.ergebnisse, [{ benutzerId: DANIEL, ok: true, status: 'arbeit' }]);
+    nichtsUeberAndere(r.daten, U.polier, 'Kolonne POST');
+    assert.doesNotMatch(JSON.stringify(r.daten), /kann heute nicht|Abwesenheit|Krank/);
+    // das Büro erhält den Klärungshinweis ohne Grund, der Polier nicht
+    let hinweis = [];
+    for (let i = 0; i < 200 && !hinweis.length; i++) { hinweis = s.db.alle("SELECT * FROM benachrichtigung WHERE benutzer_id = ? AND schluessel = ?", U.buero, `abw-stempel:${DANIEL}:${TAG}`); if (!hinweis.length) await new Promise((x) => setTimeout(x, 10)); }
+    assert.equal(hinweis.length, 1);
+    assert.equal(hinweis[0].text, `Stempelung trotz eingetragener Abwesenheit: ${s.db.eins('SELECT name FROM benutzer WHERE id = ?', DANIEL).name}, ${TAG.split('-').reverse().join('.')} – bitte klären`);
+    nichtsUeberAndere((await c.polier.get('/benachrichtigungen')).daten, U.polier, 'Benachrichtigungen Polier nach Kolonne');
+    assert.doesNotMatch(JSON.stringify((await c.polier.get('/benachrichtigungen')).daten), /trotz eingetragener Abwesenheit/);
+    // Stempelung zurücknehmen (Büro-Korrektur), damit die folgenden Prüfungen vom unveränderten Tag ausgehen
+    const b = s.db.eins("SELECT id FROM buchung WHERE benutzer_id = ? AND quelle = 'kolonne' ORDER BY id DESC", DANIEL);
+    s.db.lauf('DELETE FROM buchung WHERE id = ?', b.id);
   });
 
   await t.test('Bericht: Polier sieht Abwesende nicht, Speichern behält den K-Eintrag des Büros; PDFs nie K', async () => {
