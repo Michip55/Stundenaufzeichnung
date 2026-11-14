@@ -54,6 +54,8 @@ module.exports = function assistentRouten(api, bt) {
     return b;
   }
   const kiFehler = (e) => (e instanceof KI.KiFehler ? e.message : 'KI-Fehler');
+  /** N-061: wurde das Foto (vermutlich) an die KI übermittelt, steht der Hinweis auch im Rückfall auf die Texterkennung */
+  const kiGesendet = (e) => (e && e.nichtGesendet ? {} : { kiHinweis: KI.FOTO_HINWEIS });
 
   /** KI-Namen → Stammdaten (mit der Diktat-Zuordnung) */
   function kiZuordnen(k, s, personen) {
@@ -106,46 +108,52 @@ module.exports = function assistentRouten(api, bt) {
     const berichtVersion = Foto.berichtVersion(db, b.id);
     const daten = r.bild ? r.bild.daten : require('node:fs').readFileSync(require('node:path').join(Foto.ordner(bt), r.foto.datei));
     const s = stamm();
+    let kiH = {}, kiText = null;
     if (KI.aktiv(bt)) {
       try {
         const k = await KI.anfrage(bt, { zweck: 'lieferschein', benutzerId: req.ctx.benutzer.id, system: KI.SYSTEM.lieferschein, inhalt: [KI.bildBlock(r.foto.mime, daten), { type: 'text', text: 'Bitte diesen Lieferschein auslesen.' }], schema: KI.SCHEMA.lieferschein });
         const z = kiZuordnen({ material: k.daten.positionen.map((p) => ({ name: p.material, menge: p.menge, einheit: p.einheit })) }, s, []);
         return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, kiHinweis: KI.FOTO_HINWEIS, text: null, vorschlag: { lieferant: k.daten.lieferant, lieferscheinNr: k.daten.lieferscheinNr, datum: k.daten.datum, material: z.vorschlag.material }, unklar: z.unklar, quelle: 'ki' });
       } catch (e) {
-        if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: `${kiFehler(e)}; Texterkennung nicht verfügbar – Foto gespeichert.` });
+        kiH = kiGesendet(e); kiText = kiFehler(e);
+        if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, ...kiH, text: null, vorschlag: null, unklar: [], hinweis: `${kiText}; Texterkennung nicht verfügbar – Foto gespeichert.` });
       }
     }
     if (!OCR.verfuegbar(bt)) return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: 'Texterkennung nicht verfügbar (Sprachdaten fehlen) – Foto gespeichert.' });
     let text;
     try { text = await OCR.erkennen(bt, daten); } catch (e) {
-      return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text: null, vorschlag: null, unklar: [], hinweis: `Texterkennung fehlgeschlagen: ${e.message}` });
+      return res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, ...kiH, text: null, vorschlag: null, unklar: [], hinweis: `${kiText ? `${kiText}; ` : ''}Texterkennung fehlgeschlagen: ${e.message}` });
     }
-    db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', text.slice(0, 20000), r.foto.id);
+    if (r.neu) db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', text.slice(0, 20000), r.foto.id); // N-116: nur beim neu angelegten Foto
     const a = lieferscheinAuswerten(text, s);
-    res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, text, vorschlag: a.vorschlag, unklar: a.unklar, quelle: 'ocr' });
+    res.status(r.neu ? 201 : 200).json({ foto, berichtVersion, ...kiH, text, vorschlag: a.vorschlag, unklar: a.unklar, quelle: 'ocr', ...(kiText ? { hinweis: `${kiText} – Vorschlag per Texterkennung.` } : {}) });
   });
 
   /* ---------- Papierbericht (12.12) ---------- */
   async function papierErkennen(req, mime, daten) {
+    let kiH = {}, kiText = null;
     if (KI.aktiv(bt)) {
       try {
         const k = await KI.anfrage(bt, { zweck: 'papier', benutzerId: req.ctx.benutzer.id, system: KI.SYSTEM.papier, inhalt: [KI.bildBlock(mime, daten), { type: 'text', text: 'Bitte Datum, Kostenstelle und Text lesen.' }], schema: KI.SCHEMA.papier });
         const bs = k.daten.kst ? db.eins('SELECT id FROM baustelle WHERE kst = ?', k.daten.kst) : null;
         return { text: k.daten.text, vorschlag: { datum: k.daten.datum, kst: k.daten.kst, baustelleId: bs ? bs.id : null }, quelle: 'ki', kiHinweis: KI.FOTO_HINWEIS };
-      } catch (e) { if (!OCR.verfuegbar(bt)) return { text: null, vorschlag: null, hinweis: kiFehler(e) }; }
+      } catch (e) {
+        kiH = kiGesendet(e); kiText = kiFehler(e);
+        if (!OCR.verfuegbar(bt)) return { text: null, vorschlag: null, ...kiH, hinweis: kiText };
+      }
     }
     if (!OCR.verfuegbar(bt)) return { text: null, vorschlag: null, hinweis: 'Texterkennung nicht verfügbar – nur als Archivfoto gespeichert.' };
     try {
       const text = await OCR.erkennen(bt, daten);
-      return { text, vorschlag: papierAuswerten(db, text), quelle: 'ocr', hinweis: 'Handschrift wird nur mit KI erkannt.' };
-    } catch (e) { return { text: null, vorschlag: null, hinweis: `Texterkennung fehlgeschlagen: ${e.message}` }; }
+      return { text, vorschlag: papierAuswerten(db, text), quelle: 'ocr', ...kiH, hinweis: kiText ? `${kiText} – nur gedruckte Felder per Texterkennung gelesen.` : 'Handschrift wird nur mit KI erkannt.' };
+    } catch (e) { return { text: null, vorschlag: null, ...kiH, hinweis: `${kiText ? `${kiText}; ` : ''}Texterkennung fehlgeschlagen: ${e.message}` }; }
   }
   api.post('/berichte/:id/papier', async (req, res) => {
     const b = bericht(req, { offen: false }); // Archivanhang auch nach Unterschrift/Freigabe
     const r = db.transaktion(() => Foto.fotoSpeichern(bt, req, b, v.objekt(req.body), 'papier'));
     const daten = r.bild ? r.bild.daten : require('node:fs').readFileSync(require('node:path').join(Foto.ordner(bt), r.foto.datei));
     const e = await papierErkennen(req, r.foto.mime, daten);
-    if (e.text) db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', e.text.slice(0, 20000), r.foto.id);
+    if (e.text && r.neu) db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', e.text.slice(0, 20000), r.foto.id); // N-116: nur beim neu angelegten Foto
     if (e.vorschlag) e.vorschlag.passt = e.vorschlag.datum === b.datum && (!e.vorschlag.kst || e.vorschlag.kst === b.baustelle.kst);
     res.status(r.neu ? 201 : 200).json({ foto: Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]))), ...e, berichtVersion: Foto.berichtVersion(db, b.id) });
   });
@@ -170,7 +178,7 @@ module.exports = function assistentRouten(api, bt) {
     return {
       aktiv: KI.aktiv(bt), schluesselGesetzt: Boolean(e.apiKey), datenschutzBestaetigt: Boolean(e.datenschutzBestaetigt), ...(von ? { bestaetigtVon: von, bestaetigtAm: e.bestaetigtAm } : {}),
       tagesLimit: e.tagesLimit || 200, heute: { aufrufe: n.aufrufe, eingabeTokens: n.ein, ausgabeTokens: n.aus }, modell: KI.MODELL,
-      hinweis: 'Übermittelt wird an Anthropic: der Diktat-Text und bei Lieferschein/Papierbericht das Foto – das Foto wird an die KI übermittelt (ohne EXIF/GPS) und kann Preise enthalten. Aus der Datenbank werden keine €-Daten gesendet. Ergebnisse sind nur Vorschläge. AVV mit Anthropic abschließen.'
+      hinweis: 'Übermittelt wird an Anthropic: der Diktat-Text und bei Lieferschein/Papierbericht das Foto – das Foto wird vollständig übermittelt (ohne EXIF/GPS) und kann Preise zeigen. Aus der Datenbank werden keine Preise, Löhne oder Kalkulationsdaten gesendet. Ergebnisse sind nur Vorschläge. AVV mit Anthropic abschließen.'
     };
   }
   api.get('/einstellungen/ki', (req, res) => { if (!req.ctx.hat('benutzer')) throw keinZugriff(); res.json(kiJson()); });

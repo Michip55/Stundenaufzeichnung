@@ -60,21 +60,29 @@ const SYNONYME = {
 const norm = (s) => String(s || '').toLowerCase().normalize('NFC').replace(/ß/g, 'ss');
 const woerter = (s) => norm(s).split(/[^a-zäöü0-9³²]+/).filter(Boolean);
 
-/** Zahlwörter im Text durch Ziffern ersetzen; „vier komma fünf“ → 4.5 */
-function zahlenNormalisieren(text) {
-  const t = String(text).replace(/(\d),(\d)/g, '$1.$2');
+/**
+ * Zahlwörter im Text durch Ziffern ersetzen; „vier komma fünf“ → 4.5.
+ * `dezimal`: Zeichen für das Dezimaltrennzeichen (Standard '.' für die Zahlerkennung). N-115: auswerten() bildet
+ * mit einem Platzhalter eine gleich lange Anzeige-Fassung, damit Freitext das Dezimalkomma behält.
+ */
+function zahlenNormalisieren(text, dezimal = '.') {
+  const d = dezimal;
+  const dz = (x) => String(x).replace('.', d);
+  const t = String(text).replace(/(\d),(\d)/g, `$1${d}$2`);
   const ws = t.split(/(\s+)/);
   const out = [];
   for (let i = 0; i < ws.length; i++) {
     const w = ws[i];
     const z = /^\s+$/.test(w) ? null : zahlwort(w.replace(/[.,;:!?]$/, ''));
     if (z !== null && !/^(ein|eine|einen|einem|einer)$/i.test(w.replace(/[.,;:!?]$/, '').trim())) {
-      out.push(String(z) + (/[.,;:!?]$/.test(w) ? w.slice(-1) : ''));
+      out.push(dz(z) + (/[.,;:!?]$/.test(w) ? w.slice(-1) : ''));
     } else if (/^(ein|eine|einen|einem|einer)$/i.test(w) && ws[i + 2] && (einheit(ws[i + 2]) || /^(halb|einhalb)$/i.test(ws[i + 2]))) {
       out.push('1');
     } else out.push(w);
   }
-  return out.join('').replace(/(\d+(?:\.\d+)?)\s+komma\s+(\d+)/gi, '$1.$2').replace(/(\d+)\s+(und\s+)?(ein)?halb\b/gi, (m, a) => String(Number(a) + 0.5)).replace(/(\d+)\s+und\s+0\.5\b/g, (m, a) => String(Number(a) + 0.5));
+  const e = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return out.join('').replace(new RegExp(`(\\d+(?:${e}\\d+)?)\\s+komma\\s+(\\d+)`, 'gi'), `$1${d}$2`).replace(/(\d+)\s+(und\s+)?(ein)?halb\b/gi, (m, a) => dz(Number(a) + 0.5))
+    .replace(new RegExp(`(\\d+)\\s+und\\s+0${e}5\\b`, 'g'), (m, a) => dz(Number(a) + 0.5));
 }
 
 function kandidaten(liste, art) {
@@ -107,9 +115,21 @@ function treffer(segment, kand) {
  * @param {string} text
  * @param {{geraete:Array<{id,code,name,gruppe}>, materialien:Array<{id,code,name,einheit}>, personen:Array<{id,name}>}} stamm
  */
+const DEZ = '\uE000'; // Platzhalter für das Dezimalkomma in der Anzeige-Fassung (N-115)
 function auswerten(text, stamm) {
-  const t = zahlenNormalisieren(String(text || '').slice(0, 5000));
-  const segmente = t.split(/[\n;!?]+|\.(?!\d)|,\s*(?=[a-zäöüA-ZÄÖÜ\d])|\s+und\s+(?=(?:der|die|das|dann|danach|außerdem|ausserdem|zusätzlich)\b|\d)/).map((x) => x.trim()).filter(Boolean);
+  const roh = String(text || '').slice(0, 5000).replace(/\uE000/g, ' ');
+  const t = zahlenNormalisieren(roh);
+  // N-115: Freitext (Arbeitsleistung, Vorkommnisse, Regie) aus der Anzeige-Fassung – gleiche Länge und Trennstellen wie t,
+  // aber das Dezimalkomma bleibt („28,5 lfm“, „1.234,00 EUR“); erkannt wird weiter mit t
+  const anzeigeRoh = zahlenNormalisieren(roh, DEZ);
+  const trenner = /[\n;!?]+|\.(?!\d)|,\s*(?=[a-zäöüA-ZÄÖÜ\d])|\s+und\s+(?=(?:der|die|das|dann|danach|außerdem|ausserdem|zusätzlich)\b|\d)/g;
+  const segmente = [];
+  {
+    let von = 0, m;
+    const stueck = (a, b) => { const x = t.slice(a, b).trim(); if (x) segmente.push([x, anzeigeRoh.slice(a, b).trim().replace(/\uE000/g, ',')]); };
+    while ((m = trenner.exec(t))) { stueck(von, m.index); von = m.index + m[0].length; if (!m[0].length) trenner.lastIndex += 1; }
+    stueck(von, t.length);
+  }
   const kg = kandidaten(stamm.geraete || [], 'geraet');
   const km = kandidaten(stamm.materialien || [], 'material');
   const vorschlag = { geraete: [], material: [], personal: [], arbeitsleistung: '', vorkommnisse: '', regie: [] };
@@ -118,13 +138,13 @@ function auswerten(text, stamm) {
     const vorhanden = liste.find((x) => x[schl] === eintrag[schl] && (!eintrag.einheit || x.einheit === eintrag.einheit));
     if (vorhanden) vorhanden[summe] = Math.round((vorhanden[summe] + eintrag[summe]) * 1000) / 1000; else liste.push(eintrag);
   };
-  for (const seg of segmente) {
+  for (const [seg, anzeige] of segmente) {
     const s = norm(seg);
     let verwendet = false;
     // Regie
     if (/\bregie\b/.test(s)) {
       const h = /(\d+(?:\.\d+)?)\s*(stunden?|std|h)\b/.exec(s);
-      if (h) { vorschlag.regie.push({ text: seg.replace(/\s+/g, ' ').slice(0, 200), stunden: Number(h[1]) }); erkannt.push({ text: seg, art: 'regie', zuordnung: `${h[1]} Std.` }); continue; }
+      if (h) { vorschlag.regie.push({ text: anzeige.replace(/\s+/g, ' ').slice(0, 200), stunden: Number(h[1]) }); erkannt.push({ text: anzeige, art: 'regie', zuordnung: `${h[1]} Std.` }); continue; }
     }
     // Personen
     const personen = (stamm.personen || []).filter((p) => {
@@ -173,8 +193,8 @@ function auswerten(text, stamm) {
       unklar.push(`${seg} – Menge ${mengeMat.menge} ${mengeMat.einheit} ohne erkanntes Material`);
     }
     if (!verwendet) {
-      if (/^(vorkommnis|problem|unfall|behinderung|störung|stoerung|achtung|hinweis)/.test(s)) vork.push(seg.replace(/^(vorkommnis(se)?|hinweis)\s*:?\s*/i, ''));
-      else if (!/^\s*(und|dann|ok|okay)\s*$/.test(s)) arbeit.push(seg);
+      if (/^(vorkommnis|problem|unfall|behinderung|störung|stoerung|achtung|hinweis)/.test(s)) vork.push(anzeige.replace(/^(vorkommnis(se)?|hinweis)\s*:?\s*/i, ''));
+      else if (!/^\s*(und|dann|ok|okay)\s*$/.test(s)) arbeit.push(anzeige);
     }
   }
   const satz = (x) => x.map((y) => y.charAt(0).toUpperCase() + y.slice(1)).join('. ').replace(/\s+/g, ' ').trim();

@@ -140,11 +140,11 @@ export const lieferscheinKnopf = (integ) => {
 export async function lieferscheinVorschlag(id, datei) {
   const bild = await bildVerkleinern(datei, 2000, 0.88);
   const r = await post(`/berichte/${id}/lieferschein`, { bildBase64: bild.daten, dateiname: bild.dateiname });
-  if (!r.vorschlag) { toast(r.hinweis || 'Foto angehängt – Texterkennung ist nicht eingerichtet, bitte die Mengen händisch eintragen.', 'warn'); return { foto: r.foto, wahl: null }; }
+  if (!r.vorschlag) { toast([r.hinweis || 'Foto angehängt – Texterkennung ist nicht eingerichtet, bitte die Mengen händisch eintragen.', r.kiHinweis].filter(Boolean).join(' '), 'warn'); return { foto: r.foto, wahl: null }; }
   const v = r.vorschlag;
   const kopf = [v.lieferant, v.lieferscheinNr ? `Lieferschein ${v.lieferscheinNr}` : '', v.datum ? fmt.datum(v.datum) : ''].filter(Boolean).join(' · ');
   const wahl = await vorschlagDialog({
-    titel: 'Vorschlag aus dem Lieferschein', quelle: r.quelle, hinweis: r.hinweis || '', unklar: r.unklar || [], text: r.text || '',
+    titel: 'Vorschlag aus dem Lieferschein', quelle: r.quelle, hinweis: [r.hinweis, r.kiHinweis].filter(Boolean).join(' '), unklar: r.unklar || [], text: r.text || '',
     abschnitte: [
       { schluessel: 'material', titel: 'Material (Menge wird dazugezählt)', zeilen: (v.material || []).map((m) => ({ id: m.materialId, text: m.name, wert: m.menge, einheit: m.einheit, zahl: true })) },
       { schluessel: 'beistellung', titel: 'Vermerk bei „Fremdmaterial“', zeilen: kopf ? [{ id: 'k', text: kopf, wert: kopf }] : [] },
@@ -168,7 +168,7 @@ export async function papierAnhaengen(id, datei) {
     ${banner('ok', 'Das Foto ist als Anhang beim Bericht gespeichert.')}
     ${v.datum || v.kst ? `<dl class="def-list tight">${v.datum ? `<div><dt>Erkanntes Datum</dt><dd>${esc(fmt.datum(v.datum))}</dd></div>` : ''}${v.kst ? `<div><dt>Erkannte Kostenstelle</dt><dd>${esc(v.kst)}</dd></div>` : ''}</dl>` : ''}
     ${v.passt === false ? banner('warn', '<b>Achtung:</b> Datum oder Kostenstelle am Papier passen nicht zu diesem Bericht – bitte prüfen, ob das Foto beim richtigen Bericht liegt.') : v.passt ? banner('info', 'Datum und Kostenstelle am Papier passen zu diesem Bericht.') : ''}
-    ${banner('info', esc(r.hinweis || 'Erkannt werden nur gedruckte Felder. Handschrift kann mit der optionalen KI-Unterstützung gelesen werden.'))}</div>`, fuss: '<button class="btn primary" type="button" data-zu>Schließen</button>' });
+    ${banner('info', esc(r.hinweis || 'Erkannt werden nur gedruckte Felder. Handschrift kann mit der optionalen KI-Unterstützung gelesen werden.'))}${r.kiHinweis ? `<p class="muted sm" id="papier-ki-hinweis">${esc(r.kiHinweis)}</p>` : ''}</div>`, fuss: '<button class="btn primary" type="button" data-zu>Schließen</button>' });
   return r.foto;
 }
 // Liste: Papierbericht nur erkennen (ohne Speichern), um den passenden Bericht anzulegen
