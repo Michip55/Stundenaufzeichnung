@@ -178,7 +178,7 @@ module.exports = function assistentRouten(api, bt) {
     return {
       aktiv: KI.aktiv(bt), schluesselGesetzt: Boolean(e.apiKey), datenschutzBestaetigt: Boolean(e.datenschutzBestaetigt), ...(von ? { bestaetigtVon: von, bestaetigtAm: e.bestaetigtAm } : {}),
       tagesLimit: e.tagesLimit || 200, heute: { aufrufe: n.aufrufe, eingabeTokens: n.ein, ausgabeTokens: n.aus }, modell: KI.MODELL,
-      hinweis: 'Übermittelt wird an Anthropic: der Diktat-Text und bei Lieferschein/Papierbericht das Foto – das Foto wird vollständig übermittelt (ohne EXIF/GPS) und kann Preise zeigen. Aus der Datenbank werden keine Preise, Löhne oder Kalkulationsdaten gesendet. Ergebnisse sind nur Vorschläge. AVV mit Anthropic abschließen.'
+      hinweis: 'Übermittelt wird an Anthropic: der Diktat-Text und bei Lieferschein/Papierbericht das Foto – das Foto wird an die KI übermittelt (vollständig, ohne EXIF/GPS) und kann Preise zeigen. Aus der Datenbank werden keine Preise, Löhne oder Kalkulationsdaten gesendet. Ergebnisse sind nur Vorschläge. AVV mit Anthropic abschließen.'
     };
   }
   api.get('/einstellungen/ki', (req, res) => { if (!req.ctx.hat('benutzer')) throw keinZugriff(); res.json(kiJson()); });
