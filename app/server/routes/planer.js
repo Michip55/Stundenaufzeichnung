@@ -217,7 +217,7 @@ module.exports = function planerRouten(api, bt) {
   function textFeld(body, k, max) { return body[k] === undefined ? undefined : body[k] === null ? null : v.text(body[k], k, { max, pflicht: false }) || null; }
   function kopfFelder(body) {
     const f = {};
-    if (body.beginn !== undefined) { if (body.beginn !== null && !istZeit(body.beginn)) throw ungueltig('beginn: HH:MM.'); f.beginn = body.beginn; }
+    if (body.beginn !== undefined) { if (body.beginn !== null && !istZeit(body.beginn)) throw ungueltig('Beginn: Uhrzeit im Format HH:MM.'); f.beginn = body.beginn; }
     for (const [k, max] of [['treffpunkt', 200], ['arbeit', 200], ['notiz', 500], ['benoetigt', 500], ['fahrzeugText', 200]]) {
       const x = textFeld(body, k, max);
       if (x !== undefined) f[k === 'fahrzeugText' ? 'fahrzeug_text' : k] = x;
@@ -692,19 +692,19 @@ module.exports = function planerRouten(api, bt) {
     if (!alt || body.datum !== undefined) f.datum = datumPruefen(body.datum);
     if (!alt || body.anlageId !== undefined) {
       const a = db.eins('SELECT * FROM anlage WHERE id = ?', v.id(body.anlageId, 'anlageId'));
-      if (!a || a.ausgeschieden) throw ungueltig('anlageId: Anlage nicht gefunden oder ausgeschieden.');
-      if (!fahrzeug(a)) throw ungueltig('anlageId: Fuhren nur mit Fahrzeugen (LKW).');
+      if (!a || a.ausgeschieden) throw ungueltig('Fahrzeug nicht gefunden oder ausgeschieden.');
+      if (!fahrzeug(a)) throw ungueltig('Fuhren nur mit Fahrzeugen (LKW).');
       f.anlage_id = a.id;
     }
     if (body.fahrerId !== undefined) f.fahrer_id = body.fahrerId === null ? null : personenPruefen([body.fahrerId], 'fahrerId')[0];
     if (body.reihenfolge !== undefined) f.reihenfolge = v.zahl(body.reihenfolge, 'reihenfolge', { min: 0, max: 1000, ganz: true });
-    if (body.beginn !== undefined) { if (body.beginn !== null && !istZeit(body.beginn)) throw ungueltig('beginn: HH:MM.'); f.beginn = body.beginn; }
+    if (body.beginn !== undefined) { if (body.beginn !== null && !istZeit(body.beginn)) throw ungueltig('Beginn: Uhrzeit im Format HH:MM.'); f.beginn = body.beginn; }
     if (body.materialId !== undefined) {
       if (body.materialId === null) f.material_id = null;
-      else { const m = db.eins('SELECT id, aktiv FROM material WHERE id = ?', v.id(body.materialId, 'materialId')); if (!m || !m.aktiv) throw ungueltig('materialId: Material nicht gefunden oder inaktiv.'); f.material_id = m.id; }
+      else { const m = db.eins('SELECT id, aktiv FROM material WHERE id = ?', v.id(body.materialId, 'materialId')); if (!m || !m.aktiv) throw ungueltig('Material nicht gefunden oder inaktiv.'); f.material_id = m.id; }
     }
     if (body.materialText !== undefined) f.material_text = body.materialText == null ? null : v.text(body.materialText, 'materialText', { max: 120, pflicht: false }) || null;
-    if (!alt && f.material_id == null && !f.material_text) throw ungueltig('materialId oder materialText angeben.');
+    if (!alt && f.material_id == null && !f.material_text) throw ungueltig('Material auswählen oder als Freitext angeben.');
     if (!alt || body.menge !== undefined) { f.menge = v.zahl(body.menge, 'menge', { min: 0.001, max: 100000 }); f.menge = Math.round(f.menge * 1000) / 1000; }
     if (!alt || body.einheit !== undefined) f.einheit = v.auswahl(body.einheit, 'einheit', ['t', 'm3', 'fuhren']);
     if (body.anzahlFuhren !== undefined) f.anzahl_fuhren = body.anzahlFuhren === null ? null : v.zahl(body.anzahlFuhren, 'anzahlFuhren', { min: 1, max: 200, ganz: true });

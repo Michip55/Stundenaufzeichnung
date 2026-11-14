@@ -90,7 +90,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
   /** Nicht-€-Felder prüfen → Spalten */
   function felder(a, d, body, teil) {
     const f = {};
-    const t = (k, max, { pflicht = !teil, min = 1 } = {}) => { if (!teil || body[k] !== undefined) { const x = body[k] == null ? '' : v.text(body[k], k, { max, pflicht }); if (pflicht && x.length < min) throw ungueltig(`${k} fehlt.`); f[SPALTEN[k] || k] = x || null; } };
+    const t = (k, max, { pflicht = !teil, min = 1 } = {}) => { if (!teil || body[k] !== undefined) { const x = body[k] == null ? '' : v.text(body[k], k, { max, pflicht }); if (pflicht && x.length < min) throw ungueltig(`${v.feldname(k)} fehlt.`); f[SPALTEN[k] || k] = x || null; } };
     if (d.schluessel === 'code' && (!teil || body.code !== undefined)) {
       const c = String(body.code || '').trim().toLowerCase();
       if (!CODE.test(c)) throw ungueltig('code: 1–20 Zeichen a–z, 0–9, _ oder -.');
@@ -100,7 +100,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     if (a !== 'lohngruppen') {
       if (!teil || body.einheit !== undefined) {
         const e = body.einheit == null ? (a === 'geraete' ? 'Std.' : '') : v.text(body.einheit, 'einheit', { max: 20 });
-        if (!e || e.length > 20) throw ungueltig('einheit: 1–20 Zeichen.');
+        if (!e || e.length > 20) throw ungueltig('Einheit: 1–20 Zeichen.');
         f.einheit = e;
       }
     }
@@ -108,7 +108,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
       if (body.gruppe !== undefined) f.gruppe = body.gruppe == null ? null : v.text(body.gruppe, 'gruppe', { max: 60, pflicht: false }) || null;
       if (body.anlageId !== undefined) {
         f.anlage_id = body.anlageId === null ? null : v.id(body.anlageId, 'anlageId');
-        if (f.anlage_id && !db.eins('SELECT id FROM anlage WHERE id = ?', f.anlage_id)) throw ungueltig('anlageId: Anlage nicht gefunden.');
+        if (f.anlage_id && !db.eins('SELECT id FROM anlage WHERE id = ?', f.anlage_id)) throw ungueltig('Anlage nicht gefunden.');
       }
     }
     if (a === 'materialien') {

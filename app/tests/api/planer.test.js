@@ -255,6 +255,14 @@ test('Baustellenplaner', async (t) => {
     assert.equal((await c.polier.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } })).status, 403); // Bauleiter wie Büro (13.11.2026)
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: 27, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } })).status, 400); // Walze ist kein Fahrzeug
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'adresse', text: 'X', link: 'https://maps.google.com/@95.1,16' } })).status, 400);
+    // N-096: Fehlermeldungen ohne technische Feldnamen (materialId, anlageId) und mit deutschem Zahlenformat
+    const fm = async (b) => (await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten }, ...b })).daten.fehler;
+    assert.equal(await fm({ materialId: 99999 }), 'Material nicht gefunden oder inaktiv.');
+    assert.equal(await fm({ anlageId: 27 }), 'Fuhren nur mit Fahrzeugen (LKW).');
+    assert.equal(await fm({ anlageId: 99999 }), 'Fahrzeug nicht gefunden oder ausgeschieden.');
+    assert.equal(await fm({ menge: 200000 }), 'Menge muss zwischen 0,001 und 100.000 liegen.');
+    assert.equal(await fm({ beginn: '25:00' }), 'Beginn: Uhrzeit im Format HH:MM.');
+    assert.equal(await fm({ materialId: undefined }), 'Material auswählen oder als Freitext angeben.');
     // Bericht (Entwurf) für heute auf Pitten
     s.db.lauf('DELETE FROM bericht WHERE baustelle_id = ? AND datum = ?', BS.pitten, HEUTE);
     const b = (await c.polier.post('/berichte', { baustelleId: BS.pitten, datum: HEUTE })).daten;

@@ -30,6 +30,15 @@ test('Stammdaten verwalten', async (t) => {
   await t.test('Anlegen, Prüfung, Code eindeutig, Preis über gültig-ab', async () => {
     let r = await c.buero.post('/stammdaten/geraete', { code: 'Rüttel!', name: 'X' });
     assert.equal(r.status, 400);
+    // N-096: deutsche Feldnamen und deutsches Zahlenformat in Fehlermeldungen (Code-Prüfung: siehe API.md 14.7, Zusammenführung mit pruefeCode)
+    r = await c.buero.post('/stammdaten/materialien', { code: 'dicht9', name: 'Zu dicht', einheit: 't', dichte: 9 });
+    assert.deepEqual([r.status, r.daten.fehler], [400, 'Dichte muss zwischen 0,1 und 5 liegen.']);
+    r = await c.buero.post('/stammdaten/materialien', { code: 'teuer9', name: 'Zu teuer', einheit: 't', ek: 2000000 });
+    assert.deepEqual([r.status, r.daten.fehler], [400, 'Einkaufspreis muss zwischen 0 und 1.000.000 liegen.']);
+    r = await c.buero.post('/stammdaten/materialien', { code: 'teuer9', name: 'Zu teuer', einheit: 't', vk: -1 });
+    assert.deepEqual([r.status, r.daten.fehler], [400, 'Verkaufspreis muss zwischen 0 und 1.000.000 liegen.']);
+    r = await c.buero.post('/stammdaten/materialien', { code: 'ohne9', name: 'Ohne Einheit', einheit: '' });
+    assert.deepEqual([r.status, r.daten.fehler], [400, 'Einheit darf nicht leer sein.']);
     r = await c.buero.post('/stammdaten/geraete', { code: 'ruettel2', name: 'Rüttelplatte 2', gruppe: 'Verdichtung', kostensatz: 12.345 });
     assert.equal(r.status, 201);
     gid = r.daten.id;
@@ -112,6 +121,8 @@ test('Stammdaten verwalten', async (t) => {
     assert.equal(r.status, 200);
     assert.equal(r.daten.uebernommen, false);
     assert.equal(r.daten.fehler.length, 1);
+    assert.match(JSON.stringify(r.daten.fehler[0]), /Einkaufspreis muss zwischen 0 und 1\.000\.000 liegen/); // N-096
+    assert.doesNotMatch(JSON.stringify(r.daten.fehler[0]), /\bek\b|1000000/);
     assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM material WHERE code = 'neu1'").n, 0);
     ws.spliceRows(n + 2, 1);
     ws.spliceRows(3, 1); // eine Zeile fehlt → nur gemeldet
