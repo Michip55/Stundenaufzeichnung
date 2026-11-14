@@ -11,7 +11,8 @@
  *
  * Je Matrix-Zustand (Standard; ohne stammdaten | lohn | stammdaten+lohn | preise_bearbeiten | kalk_sehen | preise_sehen |
  * alle fünf – jeweils für Büro UND Bauleiter über PUT /rechte/matrix; danach alles wieder erteilt):
- *  - Lesen: jede GET-Route der Matrix × Variante – Status und Inhalt (JSON, CSV, PDF-Text, XLSX) identisch, nachdem die
+ *  - Lesen: jede GET-Route der Matrix × Variante × Query-/Pfad-Variante (G2-012: `varianten` wie in rechte-matrix.test.js)
+ *    – Status, Kopfzeilen (G2-012: Content-Disposition, Content-Type, Location, X-…) und Inhalt (JSON, CSV, PDF-Text, XLSX) identisch, nachdem die
  *    eigene ID, der eigene Name und die eigene Rolle neutralisiert wurden. Büro und Bauleiter laufen auf je einer eigenen,
  *    identischen DB-Kopie mit derselben Anfragefolge.
  *  - Schreiben: jede schreibende Route der Matrix × Variante nacheinander auf je einer frischen Kopie – Status und
@@ -25,7 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const H = require('./rechte-matrix-hilfe');
-const { erwartung, brauchtVarianten, anfrage } = require('./rechte-matrix-proben');
+const { erwartung, brauchtVarianten, anfrage, leseProben } = require('./rechte-matrix-proben');
 const { starte, BS } = require('./hilfe');
 
 const MATRIX = JSON.parse(fs.readFileSync(path.join(__dirname, 'rechte-matrix.json'), 'utf8')).routen;
@@ -103,8 +104,10 @@ async function neutral(r) {
     if (typeof w === 'string') return text(w);
     return w;
   };
-  if (Buffer.isBuffer(r.daten)) return { status: r.status, text: text(await H.antwortText(r, { ohneKopf: true })) };
-  return { status: r.status, daten: lauf(r.daten) };
+  // G2-012: Kopfzeilen gehören zur Antwort (Dateiname, Typ, Weiterleitung, X-…) – ohne reine Protokollköpfe (H.kopfText)
+  const kopf = text(H.kopfText(r.headers)).split('\n').filter((z) => !/^(x-response-time|last-modified|age|vary|keep-alive):/i.test(z)).sort().join('\n');
+  if (Buffer.isBuffer(r.daten)) return { status: r.status, kopf, text: text(await H.antwortText(r, { ohneKopf: true })) };
+  return { status: r.status, kopf, daten: lauf(r.daten) };
 }
 
 /** Matrix-Zustand auf einem Server setzen (als GF über die offizielle API), beide Zeilen identisch */
@@ -146,8 +149,8 @@ test('15.4 Parität: Büro und Bauleiter (auch als bauleiterId) erhalten bei jed
     t.diagnostic(`${art}: ${Object.entries(st).map(([n, x]) => `${n} ${x.ok} erlaubt/${x.nein} abgelehnt`).join('; ')}`);
     if (st['wieder erteilt']) assert.deepEqual(st['wieder erteilt'], st.Standard, `${art}: nach dem Wiedererteilen nicht wie Standard`);
   };
-  const probe = async (seite, rolle, k, e, variante) => {
-    const a = anfrage(k, e, F, 'buero', variante, ueberFuer(zb[rolle]));
+  const probe = async (seite, rolle, k, e, variante, a0) => {
+    const a = a0 || anfrage(k, e, F, 'buero', variante, ueberFuer(zb[rolle]));
     let r = await seite.ich.anfrage(a.methode, a.pfad, a.methode === 'GET' ? undefined : (a.body === undefined ? {} : a.body));
     if (r.status === 401) { seite.ich = await seite.s.login(Z); r = await seite.ich.anfrage(a.methode, a.pfad, a.methode === 'GET' ? undefined : (a.body === undefined ? {} : a.body)); }
     return { a, n: await neutral(r) };
@@ -165,11 +168,16 @@ test('15.4 Parität: Büro und Bauleiter (auch als bauleiterId) erhalten bei jed
         assert.deepEqual(ich[1], ich[0], `${z.name}: effektive Rechte verschieden`);
         for (const [k, e] of lesen) {
           for (const variante of brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne']) {
-            const b = await probe(p.buero, 'buero', k, e, variante);
-            const bl = await probe(p.bauleiter, 'bauleiter', k, e, variante);
-            zaehle(st, z.name, b.n.status);
-            try { assert.deepEqual(bl.n, b.n); } catch (_) {
-              v.push(`[${z.name}] ${k} [${variante}] ${b.a.pfad}: Bauleiter ${bl.n.status} ${kurz(bl.n.daten ?? bl.n.text)}\n      ≠ Büro ${b.n.status} ${kurz(b.n.daten ?? b.n.text)}`);
+            // G2-012: Hauptprobe UND jede Query-/Pfad-Variante der Matrix (gleiche Anfrage für beide Seiten)
+            const pb = leseProben(k, e, F, 'buero', variante, ueberFuer(zb.buero)).map((x) => x.a);
+            const pbl = leseProben(k, e, F, 'buero', variante, ueberFuer(zb.bauleiter)).map((x) => x.a);
+            for (let i = 0; i < pb.length; i++) {
+              const b = await probe(p.buero, 'buero', k, e, variante, pb[i]);
+              const bl = await probe(p.bauleiter, 'bauleiter', k, e, variante, pbl[i]);
+              if (i === 0) zaehle(st, z.name, b.n.status);
+              try { assert.deepEqual(bl.n, b.n); } catch (_) {
+                v.push(`[${z.name}] ${k} [${variante}${i ? `, Variante ${i}` : ''}] ${b.a.pfad}: Bauleiter ${bl.n.status} ${bl.n.kopf === b.n.kopf ? '' : `[Kopf ${kurz(bl.n.kopf)}] `}${kurz(bl.n.daten ?? bl.n.text)}\n      ≠ Büro ${b.n.status} ${bl.n.kopf === b.n.kopf ? '' : `[Kopf ${kurz(b.n.kopf)}] `}${kurz(b.n.daten ?? b.n.text)}`);
+              }
             }
           }
         }

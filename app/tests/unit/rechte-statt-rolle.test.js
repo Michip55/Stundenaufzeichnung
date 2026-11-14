@@ -12,6 +12,17 @@
  *  2. Vergleich mit `bauleiter_id`/`bauleiterId` (JS `===`/`!==` oder SQL `bauleiter_id = ?`)
  *  3. Rollenlisten, die Büro und Bauleiter verschieden behandeln (`['buero','gf'].includes(…)`, `rolle IN ('buero','gf')`)
  *  4. Rollengruppen statt Rechten (`wieBuero(…)`, `BUERO_ROLLEN.includes(…)`)
+ * G2-012 (API.md 15.13) – auch die naheliegenden Umgehungen:
+ *  5. Vergleich JEDES Ausdrucks mit dem Text 'buero'/'bauleiter' (`r === 'buero'`, `'bauleiter' == x`), auch wenn der
+ *     Text zusammengesetzt ist ('bau' + 'leiter', `bau${'leiter'}`, `buero`)
+ *  6. Rollenlisten mit indexOf/lastIndexOf/some/find/findIndex/Set.has; benannte Listen (`const X = ['buero', 'gf']`),
+ *     die Büro und Bauleiter verschieden enthalten
+ *  7. switch über den Rollennamen mit nur einem der beiden Fälle oder mit verschiedenen Zweigen für beide
+ *  8. Rollen als Schlüssel einer Zuordnung, die mit dem Rollennamen gelesen wird (`{ bauleiter: x }[ctx.benutzer.rolle]`,
+ *     `const M = { buero: true, gf: true }; … M[rolle]`) – nur einer der beiden Schlüssel oder verschiedene Werte
+ *     (außer reinen Anzeigetexten)
+ *  9. bauleiter_id in Rechenausdrücken/Hilfsfunktionen (`bauleiter_id - ich.id`, `Object.is(…bauleiter_id…)`,
+ *     `[…].includes(bs.bauleiter_id)`, SQL `bauleiter_id IN (…)`, `bauleiter_id <> ?`, `bauleiter_id = ${…}`)
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,7 +47,69 @@ function dateien(ordner) {
 
 const ROLLE_VERGLEICH = /\brolle\s*[!=]==?\s*['"](bauleiter|buero)['"]|['"](bauleiter|buero)['"]\s*[!=]==?\s*[\w.]*rolle\b/;
 const BAULEITER_ID_VERGLEICH = /\bbauleiter_?[iI]d\s*(?:(?:[!=]==|[!=]=(?!=))(?!\s*(?:undefined|null)\b)|=\s*\?)|[!=]==?\s*[\w.]*\bbauleiter_?[iI]d\b/;
-const ROLLEN_LISTE = /\[([^\][]*)\]\s*\.includes\(|\brolle\s+(?:NOT\s+)?IN\s*\(([^)]*)\)/gi;
+const ROLLEN_LISTE = /\[([^\][]*)\]\s*\.(?:includes|indexOf|lastIndexOf|some|find|findIndex|every|filter)\(|\brolle\s+(?:NOT\s+)?IN\s*\(([^)]*)\)|new\s+Set\(\s*\[([^\][]*)\]\s*\)\s*\.has\(/gi;
+// G2-012: Vergleich eines beliebigen Ausdrucks mit dem Rollentext (nach dem Zusammensetzen von Text-Stücken)
+const TEXT_VERGLEICH = /[!=]==?\s*['"`](bauleiter|buero)['"`]|['"`](bauleiter|buero)['"`]\s*[!=]==?/;
+// G2-012: benannte Rollenliste (Definition) – enthält Rollennamen, aber nur einen von Büro/Bauleiter
+const BENANNTE_LISTE = /\b(?:const|let|var)\s+\w+\s*=\s*(?:new\s+Set\(\s*)?\[([^\][]*)\]/g;
+const BAULEITER_ID_SONST = /\bbauleiter_?[iI]d\s*(?:[-+^]|<>|!=(?!=)|\s+IN\s*\(|\s+IS\s+(?!NULL|NOT\s+NULL)|=\s*\$\{|=\s*:\w|=\s*\d)|[-^]\s*[\w.]*\bbauleiter_?[iI]d\b|Object\.is\([^)]*bauleiter_?[iI]d|\.(?:includes|indexOf|has)\(\s*[\w.]*bauleiter_?[iI]d|\[[^\]]*\bbauleiter_?[iI]d\b[^\]]*\]\s*\.(?:includes|indexOf|some|find)\(/;
+const ROLLEN_NAMEN = /['"`](mitarbeiter|polier|bauleiter|buero|gf)['"`]/;
+
+/** Text-Stücke zusammensetzen: 'bau' + 'leiter' → 'bauleiter', `bu${'ero'}` → 'buero', `buero` → 'buero' */
+function zusammensetzen(code) {
+  let alt;
+  let c = code.replace(/`([^`$\\]*)\$\{\s*(['"])([^'"\\]*)\2\s*\}([^`$\\]*)`/g, (m, a, q, b, z) => `'${a}${b}${z}'`).replace(/`([^`$\\]*)`/g, "'$1'");
+  do { alt = c; c = c.replace(/(['"])([^'"\\\n]*)\1\s*\+\s*(['"])([^'"\\\n]*)\3/g, (m, q1, a, q2, b) => `'${a}${b}'`); } while (c !== alt);
+  return c;
+}
+
+/** Kommentare entfernen (Zeilen bleiben erhalten), Texte bleiben */
+function ohneKommentare(text) {
+  let out = '';
+  let i = 0, str = null;
+  while (i < text.length) {
+    const c = text[i], n = text[i + 1];
+    if (str) { out += c; if (c === '\\') { out += n || ''; i += 2; continue; } if (c === str) str = null; i++; continue; }
+    if (c === '/' && n === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (c === '/' && n === '*') { const e = text.indexOf('*/', i + 2); const stueck = text.slice(i, e < 0 ? text.length : e + 2); out += stueck.replace(/[^\n]/g, ' '); i += stueck.length; continue; }
+    if (c === "'" || c === '"' || c === '`') str = c;
+    out += c; i++;
+  }
+  return out;
+}
+
+/** G2-012: Strukturen über mehrere Zeilen – switch über die Rolle, Rollen-Zuordnungen */
+function strukturVerstoesse(text, datei) {
+  const code = zusammensetzen(ohneKommentare(text));
+  const zeilen = text.split('\n');
+  const zeileVon = (pos) => code.slice(0, pos).split('\n').length;
+  const ok = (z) => /rolle-ok:/.test(zeilen[z - 1] || '') || /rolle-ok:/.test(zeilen[z - 2] || '');
+  const out = [];
+  const melde = (pos, grund) => { const z = zeileVon(pos); if (!ok(z)) out.push(`${datei}:${z}: ${grund} → ${(zeilen[z - 1] || '').trim().slice(0, 160)}`); };
+  // switch (…) { case 'buero': … }
+  for (const m of code.matchAll(/\bswitch\s*\(([^)]*)\)\s*\{/g)) {
+    let tiefe = 1, i = m.index + m[0].length;
+    while (i < code.length && tiefe) { if (code[i] === '{') tiefe++; else if (code[i] === '}') tiefe--; i++; }
+    const block = code.slice(m.index + m[0].length, i - 1);
+    const faelle = [...block.matchAll(/\bcase\s+['"](\w+)['"]\s*:/g)].map((x) => x[1]);
+    const b = faelle.includes('buero'), bl = faelle.includes('bauleiter');
+    if (!b && !bl) continue;
+    if (b !== bl) { melde(m.index, `switch über die Rolle mit nur einem Fall für ${b ? 'buero' : 'bauleiter'}`); continue; }
+    if (!/\bcase\s+['"](buero|bauleiter)['"]\s*:\s*case\s+['"](buero|bauleiter)['"]\s*:/.test(block)) melde(m.index, 'switch über die Rolle mit verschiedenen Zweigen für buero und bauleiter');
+  }
+  // Zuordnungen mit Rollen als Schlüssel, die mit einem Rollennamen gelesen werden
+  const wert = (obj, k) => { const x = new RegExp(`(?:^|[{,\\s])['"]?${k}['"]?\\s*:\\s*([^,}]*)`).exec(obj); return x ? x[1].trim() : null; };
+  for (const m of code.matchAll(/(?:\b(?:const|let|var)\s+(\w+)\s*=\s*)?\{([^{}]*)\}(\s*\[[^\]]*\])?/g)) {
+    const obj = m[2];
+    if (!/(?:^|[{,\s])['"]?(buero|bauleiter)['"]?\s*:/.test(obj)) continue;
+    const gelesen = (m[3] && /rolle/i.test(m[3])) || (m[1] && new RegExp(`\\b${m[1]}\\s*(?:\\?\\.)?\\[[^\\]]*rolle`, 'i').test(code));
+    if (!gelesen) continue;
+    const wb = wert(obj, 'buero'), wbl = wert(obj, 'bauleiter');
+    if ((wb === null) !== (wbl === null)) melde(m.index, `Zuordnung je Rolle mit nur dem Schlüssel ${wb === null ? 'bauleiter' : 'buero'}`);
+    else if (wb !== wbl && !(/^(['"]).*\1$/.test(wb) && /^(['"]).*\1$/.test(wbl))) melde(m.index, `Zuordnung je Rolle mit verschiedenen Werten für buero (${wb}) und bauleiter (${wbl})`);
+  }
+  return out;
+}
 const ROLLEN_GRUPPE = /\bwieBuero\(\s*[^)]|\bBUERO_ROLLEN\.includes\(/;
 
 /** Liefert die Verstöße einer Quelldatei (für den Selbsttest der Regel exportierbar) */
@@ -44,21 +117,27 @@ function verstoesse(text, datei) {
   const zeilen = text.split('\n');
   const out = [];
   zeilen.forEach((z, i) => {
-    const code = z.replace(/\/\/.*$/, '').trim();
+    const code = zusammensetzen(z.replace(/\/\/.*$/, '').trim());
     if (!code || code.startsWith('*') || code.startsWith('/*')) return; // Kommentarzeilen
     if (/rolle-ok:/.test(z) || (i > 0 && /rolle-ok:/.test(zeilen[i - 1]))) return;
     const gruende = [];
-    if (ROLLE_VERGLEICH.test(code)) gruende.push('Rollenname Büro/Bauleiter verglichen');
-    if (BAULEITER_ID_VERGLEICH.test(code)) gruende.push('bauleiter_id verglichen');
+    if (ROLLE_VERGLEICH.test(code) || TEXT_VERGLEICH.test(code)) gruende.push('Rollenname Büro/Bauleiter verglichen');
+    if (BAULEITER_ID_VERGLEICH.test(code) || BAULEITER_ID_SONST.test(code)) gruende.push('bauleiter_id verglichen');
+    for (const m of code.matchAll(BENANNTE_LISTE)) {
+      const inhalt = m[1];
+      if (!ROLLEN_NAMEN.test(inhalt)) continue;
+      const b = /['"]buero['"]/.test(inhalt), bl = /['"]bauleiter['"]/.test(inhalt);
+      if (b !== bl) gruende.push(`benannte Rollenliste behandelt Büro und Bauleiter verschieden: [${inhalt.trim()}]`);
+    }
     for (const m of code.matchAll(ROLLEN_LISTE)) {
-      const inhalt = m[1] !== undefined ? m[1] : m[2];
+      const inhalt = m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3];
       const b = /['"]buero['"]/.test(inhalt), bl = /['"]bauleiter['"]/.test(inhalt);
       if (b !== bl) gruende.push(`Rollenliste behandelt Büro und Bauleiter verschieden: [${inhalt.trim()}]`);
     }
     if (ROLLEN_GRUPPE.test(code)) gruende.push('Rollengruppe statt Recht');
-    if (gruende.length) out.push(`${datei}:${i + 1}: ${gruende.join('; ')} → ${z.trim().slice(0, 160)}`);
+    if (gruende.length) out.push(`${datei}:${i + 1}: ${[...new Set(gruende)].join('; ')} → ${z.trim().slice(0, 160)}`);
   });
-  return out;
+  return out.concat(strukturVerstoesse(text, datei));
 }
 
 test('15.4: keine Zugriffsentscheidung über Rollenname Büro/Bauleiter oder bauleiter_id (Server und Oberfläche)', () => {
@@ -99,6 +178,40 @@ test('15.4: die Regel erkennt die früheren Sonderwege (Selbsttest gegen leere P
     "    if (ich.rolle === 'polier' && baustelleImBereich(ich, bs)) return;",
     "// const x = rolle === 'bauleiter'",
     "  const alle = db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle');"
+  ];
+  for (const z of ok) assert.deepEqual(verstoesse(z, 'ok.js'), [], `fälschlich gemeldet: ${z}`);
+});
+
+test('G2-012: die Regel erkennt auch naheliegende Umgehungen (Zusammensetzen, indexOf/Set, benannte Listen, switch, Zuordnungen, bauleiter_id-Rechnung)', () => {
+  const umgehung = [
+    // Abschlussprüfung G2-012, Injektion L11 (server/routes/berichte.js)
+    '    const nurEigene = { bauleiter: q.baustelleId !== undefined }[ctx.benutzer.rolle];',
+    '    if (nurEigene) sichtbar.splice(0, sichtbar.length, ...sichtbar.filter((z) => !(z.bauleiter_id - ctx.benutzer.id)));',
+    "  if (r === 'bu' + 'ero') return 1;",
+    "  if (x.rolle === `bau${'leiter'}`) return 1;",
+    '  if (x.rolle === `buero`) return 1;',
+    "  if ('buero' == typ) return 1;",
+    "  if (['buero', 'gf'].indexOf(ctx.benutzer.rolle) >= 0) return 1;",
+    "  if (new Set(['buero', 'gf']).has(rolle)) x();",
+    "  const VERWALTUNG = ['buero', 'gf'];",
+    "  switch (ctx.benutzer.rolle) {\n    case 'buero': return true;\n    default: return false;\n  }",
+    "  switch (ctx.benutzer.rolle) {\n    case 'buero': return true;\n    case 'bauleiter': return false;\n  }",
+    '  const M = { buero: true, gf: true };\n  if (M[ctx.benutzer.rolle]) x();',
+    '  const M = { buero: true, bauleiter: false, gf: true };\n  if (M[ctx.benutzer.rolle]) x();',
+    '  if (Object.is(bs.bauleiter_id, ich.id)) x();',
+    '  if ([bs.bauleiter_id].includes(ich.id)) x();',
+    "  db.alle('SELECT * FROM baustelle WHERE bauleiter_id IN (?)', id);",
+    '  db.alle(`SELECT * FROM baustelle WHERE bauleiter_id = ${id}`);',
+    "  db.alle('SELECT * FROM baustelle WHERE bauleiter_id <> ?', id);"
+  ];
+  for (const z of umgehung) assert.ok(verstoesse(z, 'umgehung.js').length >= 1, `nicht erkannt: ${z}`);
+  const ok = [
+    "  const ROLLE_KURZ = { mitarbeiter: 'Mitarbeiter', polier: 'Polier', bauleiter: 'Bauleiter', buero: 'Büro', gf: 'GF' };\n  x = ROLLE_KURZ[b.rolle];",
+    "  switch (ctx.benutzer.rolle) {\n    case 'buero': case 'bauleiter': return true;\n    default: return false;\n  }",
+    '  const emp = parseJson(bs.empfaenger, { bauleiter: true, buero: true, gf: true });',
+    "  const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];",
+    "  const alle = db.alle('SELECT id FROM baustelle WHERE bauleiter_id IS NULL');",
+    "  const url = 'https://x.example/buero'; // Kommentar mit rolle === 'buero'"
   ];
   for (const z of ok) assert.deepEqual(verstoesse(z, 'ok.js'), [], `fälschlich gemeldet: ${z}`);
 });

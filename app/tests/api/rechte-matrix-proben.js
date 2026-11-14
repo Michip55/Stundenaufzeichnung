@@ -25,7 +25,7 @@ function erwartung(eintrag, rolle) {
 }
 
 /** Platzhalter je Rolle und Variante (eigen = Objekt im eigenen Bereich, fremd = außerhalb) */
-const BEREICHS_PLATZHALTER = new Set(['bs', 'bericht', 'berichtAlt', 'berichtFoto', 'berichtLink', 'rechnung', 'zahlung', 'pos', 'posStand', 'posMenge', 'leistung', 'nachtrag', 'fremd', 'lv',
+const BEREICHS_PLATZHALTER = new Set(['bs', 'bericht', 'berichtAlt', 'berichtFoto', 'berichtLieferschein', 'berichtLink', 'rechnung', 'zahlung', 'pos', 'posStand', 'posMenge', 'leistung', 'nachtrag', 'fremd', 'lv',
   'dok', 'einsatz', 'einsatzPerson', 'einsatzAnlage', 'fuhre', 'fuhreFoto', 'abschnitt', 'anfrage', 'schaden', 'schadenFoto', 'ichOderAnderer', 'person', 'abwEigen', 'antragEigen', 'abwAnderer', 'antragAnderer',
   'benachrichtigung', 'pushAbo', 'bsVersion']);
 function platzhalter(F, rolle, variante, ueber = {}) {
@@ -36,6 +36,8 @@ function platzhalter(F, rolle, variante, ueber = {}) {
     bericht: e ? F.bericht.bs1 : F.bericht.bs3,
     berichtAlt: e ? F.bericht.bs1Alt : F.bericht.bs3Alt,
     berichtFoto: e ? F.bericht.bs1Foto : F.bericht.bs3Foto,
+    // G2-009: Lieferschein der GF im Bericht (Polier/Mitarbeiter sehen ihn nie, N-112)
+    berichtLieferschein: e ? F.bericht.bs1Lieferschein : F.bericht.bs3Lieferschein,
     berichtLink: e ? F.bericht.bs1Link : F.bericht.bs3Link,
     rechnung: e ? F.rechnung.bs1 : F.rechnung.bs3,
     zahlung: e ? F.rechnung.bs1Zahlung : F.rechnung.bs3Zahlung,
@@ -106,11 +108,11 @@ function anfrage(schluessel, eintrag, F, rolle, variante, ueber) {
  * (Variante.r, sonst die der Route).
  * @returns {{a:{methode,pfad,body}, eintrag:object, name:string}[]}
  */
-function leseProben(schluessel, eintrag, F, rolle, variante) {
-  const out = [{ a: anfrage(schluessel, eintrag, F, rolle, variante), eintrag, name: 'Probe' }];
+function leseProben(schluessel, eintrag, F, rolle, variante, ueber) {
+  const out = [{ a: anfrage(schluessel, eintrag, F, rolle, variante, ueber), eintrag, name: 'Probe' }];
   for (const [i, x] of (eintrag.varianten || []).entries()) {
     const e2 = { ...eintrag, r: x.r || eintrag.r, pfad: x.pfad || eintrag.pfad, query: x.query !== undefined ? x.query : (x.pfad ? '' : eintrag.query) };
-    out.push({ a: anfrage(schluessel, e2, F, rolle, variante), eintrag: e2, name: `Variante ${i + 1}` });
+    out.push({ a: anfrage(schluessel, e2, F, rolle, variante, ueber), eintrag: e2, name: `Variante ${i + 1}` });
   }
   return out;
 }

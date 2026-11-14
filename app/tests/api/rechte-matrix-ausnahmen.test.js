@@ -4,7 +4,8 @@
  * jedes vergebbare Recht als Ausnahme.
  *  - Gesperrte Rechte lassen sich weder als Ausnahme noch über die Rollen-Matrix vergeben.
  *  - Lesen: jede GET-Route × Variante × Query-Variante bleibt für Polier/Mitarbeiter frei von Beträgen, Kanarien und
- *    fremden Abwesenheiten (wie rechte-matrix.test.js); Bericht-JSON/PDF beider Fassungen gegen die DB.
+ *    fremden Abwesenheiten (wie rechte-matrix.test.js); Bericht-JSON/PDF beider Fassungen gegen die DB, bei Berichten mit
+ *    Fotos auch mit Fotoanhang (G2-009: fremde Lieferschein-Bilder).
  *  - Schreiben (F-026): jede schreibende Route × Variante für Polier/Mitarbeiter MIT allen Ausnahmen, je Route auf einer
  *    frischen Kopie: Antwort (Inhalt + Kopfzeilen) und ausgelöste Benachrichtigungen/Push/Mails ohne Leck; die
  *    Kern-Schreibwege, die erst durch die Ausnahmen möglich werden, müssen gelingen (2xx).
@@ -105,7 +106,9 @@ test('Rechte-Matrix Ausnahmen: gesperrte Rechte nicht vergebbar; mit allen übri
           const d = await cl.get(`/berichte/${z.id}`);
           if (z.personalAnzahl !== d.daten.personal.length) v.push(`${rolle} (alle Ausnahmen) GET /berichte: personalAnzahl ${z.personalAnzahl} ≠ Detail ${d.daten.personal.length} bei Bericht ${z.id}`);
           v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, d.daten, `${rolle} (alle Ausnahmen) GET /berichte/${z.id}`));
-          for (const fassung of ['intern', 'ag']) {
+          // G2-009: Berichte mit Fotos/Lieferscheinen auch mit Fotoanhang (fremde Lieferschein-Bilder: Bild-Kanarien)
+          const mitFotos = Boolean(k.db.eins("SELECT 1 AS x FROM bericht_foto WHERE bericht_id = ? AND art <> 'papier'", z.id));
+          for (const fassung of ['intern', 'ag', ...(mitFotos ? ['intern&fotos=1', 'ag&fotos=1'] : [])]) {
             const url = `/berichte/${z.id}/pdf?fassung=${fassung}`;
             const r = await cl.get(url);
             if (r.status !== 200) { v.push(`${rolle} (alle Ausnahmen) GET ${url} → ${r.status}`); continue; }
