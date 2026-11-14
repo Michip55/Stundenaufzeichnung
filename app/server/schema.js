@@ -1223,6 +1223,16 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
   SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
   FROM baustelle WHERE kst = '9100' AND intern = 1;
 `
+  },
+  {
+    version: 30,
+    name: 'Korrektur Nachprüfung Planer: gemerkte Abwesende je gespeichertem Tag, Art der letzten Planmeldung',
+    sql: `
+-- Beim Übernehmen eines Vorschau-Tags wegen Abwesenheit ausgelassene Personen (JSON), damit die Folgetage sie wieder vorschlagen
+ALTER TABLE plan_tag ADD COLUMN uebersprungen TEXT;
+-- Art der zuletzt gesendeten Meldung je Person und Tag ('neu' | 'geaendert' | 'entfaellt') für „Mein Einsatz“ (geaendert)
+ALTER TABLE plan_mitteilung ADD COLUMN art TEXT;
+`
   }
 ];
 
