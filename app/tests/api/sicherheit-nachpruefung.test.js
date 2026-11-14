@@ -172,3 +172,26 @@ test('N-119: Einrichten der 2FA beendet andere, nur mit PIN eröffnete Sitzungen
   assert.equal((await gf.get('/auth/ich')).status, 200);
   assert.ok(s.db.eins("SELECT 1 AS x FROM protokoll WHERE text LIKE '%hat die Zwei-Faktor-Anmeldung eingerichtet (1 andere Sitzung(en) beendet)%'"));
 });
+
+test('N-028: Push-Adressen, die WHATWG-URL und url.parse verschieden lesen, werden abgelehnt', async (t) => {
+  const { endpointErlaubt } = require('../../server/push');
+  const url = require('node:url');
+  const umgehungen = ['https://127.0.0.1;.push.apple.com/x', 'https://169.254.169.254;.notify.windows.com/latest/meta-data',
+    'https://127.0.0.1".push.apple.com/x', 'https://127.0.0.1`.push.apple.com/x', 'https://127.0.0.1{.push.apple.com/x', 'https://127.0.0.1}.push.apple.com/x',
+    'https://127.0.0.1%3B.push.apple.com/x', "https://127.0.0.1'.push.apple.com/x", 'https://127.0.0.1 .push.apple.com/x', 'https://a\\b.push.apple.com/x',
+    'https://x.push.apple.com\\@127.0.0.1/x', 'https://x.push.apple.com#@127.0.0.1/', 'https://x.push.apple.com:443:1/x', 'https://x.push.apple.com\t/x'];
+  for (const e of umgehungen) {
+    assert.ok(!endpointErlaubt(e), e);
+    assert.ok(!endpointErlaubt(e, { test: true }), e);
+  }
+  // Gegenprobe: erlaubte Adressen lesen beide Parser gleich
+  for (const e of ['https://fcm.googleapis.com/fcm/send/abc:APA91b-x_y', 'https://web.push.apple.com/QGx', 'https://wns2-db5p.notify.windows.com/w/?token=BQY%2bAA', 'https://fcm.googleapis.com:443/x']) {
+    assert.ok(endpointErlaubt(e), e);
+    assert.equal(url.parse(e).hostname, new URL(e).hostname, e);
+  }
+  const s = await starte(); // ohne Testbetrieb: echte Regeln
+  t.after(() => s.stop());
+  const ma = await s.login(U.mitarbeiter);
+  for (const endpoint of umgehungen.slice(0, 2)) assert.equal((await ma.post('/push/abo', { endpoint, keys: { p256dh: 'BPx1-abc_DEF', auth: 'aBc-12_x' } })).status, 400, endpoint);
+  assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM push_abo').n, 0);
+});
