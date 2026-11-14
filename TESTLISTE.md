@@ -6,7 +6,7 @@ So probieren Sie die Testversion aus. Alle Namen, Baustellen und Zahlen sind **e
 
 1. Einmalig Node.js „LTS“ von https://nodejs.org installieren (immer „Weiter“).
 2. Im Ordner **`BauTag-starten-Windows.bat`** doppelklicken (Mac: `BauTag-starten-Mac.command`). Der Browser öffnet sich mit http://localhost:3000.
-3. Anmelden: Namen antippen, **PIN 1234**.
+3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm wählen Sie einmal **„Eigenes Handy“** (bleibt angemeldet) oder **„Geteiltes Gerät“** (Abmeldung nach 30 Minuten ohne Bedienung; Standard).
 4. **Handy im selben WLAN:** Das Startfenster zeigt zusätzlich eine Adresse wie `192.168.0.23:3000` – diese am Handy mit `http://` davor öffnen. Fragt Windows nach der Firewall, „Zugriff zulassen“ (privates Netzwerk) wählen. Installieren am Startbildschirm, Push-Nachrichten und Offline-Betrieb gehen erst mit dem Server mit HTTPS.
 5. Zum Neuanfang: BauTag-Fenster schließen, **`BauTag-Testdaten-zuruecksetzen-Windows.bat`** doppelklicken, `JA` eingeben.
 
@@ -16,7 +16,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 | Rolle | Name zum Anmelden | Wofür |
 |---|---|---|
-| Geschäftsführung | Michael Pichler | alles, inkl. Rechte und Büro-Konten |
+| Geschäftsführung | Michael Pichler | alles, inkl. Rechte sowie Büro- und Bauleiter-Konten |
 | Büro | Martina Koller | Preise, Lohn, Rechnungen, Planung, Urlaub genehmigen |
 | Bauleiter | Stefan Aigner | wie Büro (Entscheidung 13.11.2026), stempelt im Büro |
 | Polier | Josef Haidbauer (WHA Pitten) | Partie, Bautagesbericht, Schlechtwetter melden |
@@ -46,12 +46,15 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Dokument** zu einer Baustelle hochladen (z. B. Angebot als PDF).
 
 **Urlaub**
-- [ ] Offene Anträge → einen **ganzen Antrag** mit einem Klick genehmigen (keine Einzeltage).
+- [ ] Offene Anträge → einen **ganzen Antrag** mit einem Klick genehmigen (keine Einzeltage). Den **eigenen** Antrag und das **eigene** Urlaubskonto kann niemand selbst entscheiden oder ändern (Vier-Augen-Prinzip).
 - [ ] Einen genehmigten Antrag **korrigieren** (einen Tag herausnehmen) → Urlaubskonto rechnet neu.
 - [ ] Urlaubskalender: Krankenstand „K“, Urlaub, Betriebsurlaub in eigener Farbe.
 
 **Stempeln im Büro**
 - [ ] Stempeluhr: Kostenstelle **„Büro“** ist vorgewählt.
+
+**Benutzer**
+- [ ] Büro/Bauleiter verwalten nur Mitarbeiter und Poliere. Büro- und Bauleiter-Konten verwaltet nur die Geschäftsführung; beim eigenen Konto steht statt „Bearbeiten“ ein Hinweis.
 
 **Monat & Lohn**
 - [ ] Monatsauswertung → Lohn-CSV, Vorlage „BMD NTCS“ (Lohnarten sind Platzhalter, bitte mit der Lohnverrechnung abstimmen).
@@ -59,10 +62,11 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 ## 2. Polier (Josef Haidbauer)
 
 - [ ] **Meine Partie morgen**: wer eingeteilt ist, wer gelesen/bestätigt hat, Geräte mit Service-Hinweis, Fuhren mit Status.
-- [ ] **Alle einstempeln** für die Partie.
+- [ ] **Alle einstempeln** für die Partie. Jede Person wird angenommen – ob jemand laut Büro abwesend ist, erfährt nur das Büro.
 - [ ] **Bautagesbericht** ausfüllen, Fuhren-Mengen „aus Fuhre“ übernehmen, Foto anhängen, **Unterschrift per Link** an den Auftraggeber schicken.
 - [ ] **Schlechtwetter melden** → Antwort „Schlechtwetter gemeldet – das Büro bestätigt.“
-- [ ] **Darf NICHT sehen** (bitte gezielt suchen): keine Preise, keine €-Beträge, keine Nachkalkulation, keine Rechnungen, **keine Abwesenheiten anderer** (weder Urlaub noch Krank), keine Lohngruppen.
+- [ ] **Lieferschein fotografieren**: Den eigenen sieht er wieder (auch mit Preisen), Lieferscheine anderer nicht.
+- [ ] **Darf NICHT sehen** (bitte gezielt suchen): keine Preise, keine €-Beträge, keine Nachkalkulation, keine Rechnungen, **keine Abwesenheiten anderer** (weder Urlaub noch Krank, auch nicht als Zahl), keine Lohngruppen (auch nicht die eigene), keine Lieferscheine anderer. Gesperrte Funktionen erscheinen gar nicht erst im Menü.
 
 ## 3. Mitarbeiter (Lukas Brandstätter)
 
@@ -70,7 +74,8 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Stempeln** (auch im Flugmodus testen: Stempelung wird nachgereicht).
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.
-- [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter.
+- [ ] **Geteiltes Tablet:** als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
+- [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter, Lohngruppe.
 
 ## 4. LKW-Fahrer (Karl Ungersböck)
 
@@ -79,7 +84,8 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 ## 5. Geschäftsführung (Michael Pichler)
 
-- [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App).
+- [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro- und Bauleiter-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App).
+- [ ] Hinweis: Das Geschäftsführungs-Konto kann niemand über die App entsperren oder zurücksetzen – nur direkt am Server (`node server/entsperren.js`). Empfehlung: zwei GF-Konten.
 
 ## Bekannte Punkte, die erst im Echtbetrieb gehen
 
