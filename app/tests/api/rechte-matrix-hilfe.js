@@ -274,6 +274,8 @@ async function scanne(rolle, r, k) {
         if (Array.isArray(x)) return x.forEach((e, i) => aLauf(e, `${pfad}[${i}]`));
         if (x && typeof x === 'object') {
           if (['partie_viele', 'plan_konflikt'].includes(x.typ)) v.push(`${wo}: Abwesenheits-Warnung ${x.typ} bei ${pfad}`);
+          // API.md 15.1: Konflikte Bericht ↔ Abwesenheit sieht nur das Büro
+          if ('abwesenheitHinweise' in x) v.push(`${wo}: abwesenheitHinweise (nur Büro/Lohn/GF/Bauleiter) bei ${pfad}`);
           for (const [key, wert] of Object.entries(x)) aLauf(wert, `${pfad}.${key}`);
         }
       };
@@ -291,6 +293,15 @@ async function scanne(rolle, r, k) {
     if (m) v.push(`${wo}: €-Betrag im Text „${text.slice(Math.max(0, m.index - 40), m.index + 40).replace(/\s+/g, ' ')}“`);
   }
   if (['mitarbeiter', 'polier'].includes(rolle) && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /Rechnungs?-?nr|Rechnungsnummer/i.test(text)) v.push(`${wo}: Rechnungsnummer (Spalte/Text) im Fuhrpark ohne preise_sehen`);
+  // API.md 15.1: Bericht-PDFs (jede Fassung) für Polier/Mitarbeiter ohne Abwesenheits-Legende und ohne Abwesenheits-Kürzel.
+  // Voraussetzung: der Aufrufer selbst ist am Berichtstag nicht abwesend (so in der Matrix-Basis); die genaue Prüfung
+  // gegen die Datenbank (eigene Zeile erlaubt, verborgene Namen) macht berichtPdfAbwesenheitVerstoesse.
+  if (['mitarbeiter', 'polier'].includes(rolle) && /\/berichte\/\d+\/pdf/.test(k.url || '') && Buffer.isBuffer(r.daten)) {
+    const lg = /abw\. = abwesend|U = Urlaub|ZA = Zeitausgleich/.exec(text);
+    if (lg) v.push(`${wo}: Abwesenheits-Legende „${lg[0]}“ im Bericht-PDF`);
+    const kz = text.split('\n').map((x) => x.trim()).find((x) => /^(\d+(,\d+)?\s+)?(abw\.|U|ZA|K|abwesend)$/.test(x));
+    if (kz) v.push(`${wo}: Abwesenheits-Kürzel „${kz}“ im Bericht-PDF`);
+  }
   if (['mitarbeiter', 'polier'].includes(rolle)) { // Bauleiter wie Büro (Inhaber 13.11.2026): sieht den Grund
     const m = /\bKrank(enstand|meldung)?\b/.exec(text);
     if (m) v.push(`${wo}: Wort „${m[0]}“ (Gesundheitsdaten) im Text „…${text.slice(Math.max(0, m.index - 60), m.index + 40).replace(/\s+/g, ' ')}…“`);
@@ -301,6 +312,55 @@ async function scanne(rolle, r, k) {
       if (i >= 0) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden („…${text.slice(Math.max(0, i - 60), i + f.length + 20).replace(/\s+/g, ' ')}…“)`); break; }
     }
   }
+  return v;
+}
+
+/* ------------------------------------------------------------------ Bericht und fremde Abwesenheiten (API.md 15.1) */
+
+const ABW_CODES = ['K', 'U', 'ZA', 'abwesend'];
+/** Name so, wie er im PDF steht (WinAnsi der Standardschriften) */
+const pdfName = (n) => require('../../server/pdf').winAnsi(n);
+/**
+ * Bericht-PDF (Text) für Polier/Mitarbeiter gegen die Datenbank prüfen (Inhaber 13.11.2026, Regel 3): keine Namen
+ * verborgener Abwesender (fremd, K/U/ZA ohne Stunden), keine Abwesenheits-Kürzel außer in der eigenen Zeile, keine
+ * Abwesenheits-Legende außer für eigene Kürzel. Gilt für jede Fassung (intern, AG) und jede Ausnahme.
+ * @returns {string[]} Verstöße
+ */
+function berichtPdfAbwesenheitVerstoesse(db, berichtId, ichId, text, wo) {
+  const zeilen = db.alle('SELECT bp.benutzer_id, bp.code, bp.stunden, bp.von1, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id WHERE bp.bericht_id = ?', berichtId);
+  const v = [];
+  for (const z of zeilen) {
+    if (z.benutzer_id === ichId || !ABW_CODES.includes(z.code) || z.stunden || z.von1) continue;
+    if (text.includes(pdfName(z.name))) v.push(`${wo}: verborgene abwesende Person ${z.name} (${z.code}) im PDF`);
+  }
+  const eigene = zeilen.filter((z) => z.benutzer_id === ichId && ABW_CODES.includes(z.code));
+  const kuerzel = text.split('\n').map((x) => x.trim()).filter((x) => /^(\d+(,\d+)?\s+)?(abw\.|U|ZA|K|abwesend)$/.test(x));
+  if (kuerzel.length > eigene.length) v.push(`${wo}: ${kuerzel.length} Abwesenheits-Kürzel im PDF (${kuerzel.join(' | ')}), eigene Zeilen mit Code: ${eigene.length}`);
+  for (const [lg, codes] of [['abw. = abwesend', ['K', 'abwesend']], ['U = Urlaub', ['U']], ['ZA = Zeitausgleich', ['ZA']]]) {
+    if (text.includes(lg) && !eigene.some((z) => codes.includes(z.code))) v.push(`${wo}: Legende „${lg}“ im PDF ohne eigene Zeile mit diesem Kürzel`);
+  }
+  return v;
+}
+
+/**
+ * JSON-Antwort mit Bericht-Personal für Polier/Mitarbeiter: keine verborgenen Abwesenden (auch nicht ohne Code),
+ * keine Abwesenheits-Hinweise des Büros, personalAnzahl in Listen = sichtbare Zeilen.
+ */
+function berichtJsonAbwesenheitVerstoesse(db, ichId, daten, wo) {
+  const v = [];
+  const lauf = (x, pfad) => {
+    if (Array.isArray(x)) return x.forEach((e, i) => lauf(e, `${pfad}[${i}]`));
+    if (!x || typeof x !== 'object') return;
+    if ('abwesenheitHinweise' in x) v.push(`${wo}: abwesenheitHinweise (nur Büro) bei ${pfad}`);
+    if (Number.isInteger(x.id) && Array.isArray(x.personal) && x.datum) {
+      for (const z of db.alle('SELECT benutzer_id, code, stunden, von1 FROM bericht_personal WHERE bericht_id = ?', x.id)) {
+        if (z.benutzer_id === ichId || !ABW_CODES.includes(z.code) || z.stunden || z.von1) continue;
+        if (x.personal.some((p) => p.benutzerId === z.benutzer_id)) v.push(`${wo}: verborgene abwesende Person ${z.benutzer_id} in ${pfad}.personal`);
+      }
+    }
+    for (const [k, w] of Object.entries(x)) lauf(w, `${pfad}.${k}`);
+  };
+  lauf(daten, '$');
   return v;
 }
 
@@ -552,5 +612,5 @@ async function starteKopie(basis, opt = {}) {
 
 module.exports = {
   ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
-  routenAusApp, hatRecht, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
+  routenAusApp, hatRecht, berichtPdfAbwesenheitVerstoesse, berichtJsonAbwesenheitVerstoesse, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
 };

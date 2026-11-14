@@ -496,6 +496,59 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
+  await t.test('Indirekte Lecks: Abwesenheits-Orakel im Bautagesbericht – Antworten für abwesende und anwesende Person identisch (API.md 15.1)', async () => {
+    // Eigene Kopie: die Proben speichern den Entwurf (machen u. a. Fern-Links ungültig)
+    const k = await H.starteKopie(basis);
+    const v = [];
+    try {
+      const gf = await k.login(U.gf);
+      for (const recht of ['bericht_erstellen', 'bericht_freigeben']) await gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht, wert: true });
+      const wer = { polier: [await k.login(U.polier), U.polier], mitarbeiter: [await k.login(U.mitarbeiter), U.mitarbeiter] };
+      const BID = F.bericht.bs1; // Pitten 12.11.: Daniel Schwarz (3) genehmigter Urlaub, Zeile für Polier/Mitarbeiter verborgen
+      const name = (id) => k.db.eins('SELECT name FROM benutzer WHERE id = ?', id).name;
+      const ZUSTAND = k.db.alle('SELECT * FROM bericht_personal WHERE bericht_id = ?', BID);
+      const VERSION = k.db.eins('SELECT version, geaendert FROM bericht WHERE id = ?', BID);
+      const zurueck = () => {
+        k.db.lauf('DELETE FROM bericht_personal WHERE bericht_id = ?', BID);
+        for (const z of ZUSTAND) { const ks = Object.keys(z).filter((x) => x !== 'id'); k.db.lauf(`INSERT INTO bericht_personal (${ks.join(', ')}) VALUES (${ks.map(() => '?').join(', ')})`, ...ks.map((x) => z[x])); }
+        k.db.lauf('UPDATE bericht SET version = ?, geaendert = ? WHERE id = ?', VERSION.version, VERSION.geaendert, BID);
+      };
+      // Paare (abwesend, anwesend) in gleicher Stellung: Partie Pitten (Daniel U / Karl), Gäste von BS 7 (Erwin U / Johann) und BS 6/4 (Elias K / Patrick, beide heute nicht gestempelt)
+      const paare = [[ANDERER_MA, 7], [28, 29], [24, 16]];
+      for (const [abw] of paare) if (!k.db.eins("SELECT 1 AS x FROM abwesenheit WHERE benutzer_id = ? AND datum = '2026-11-12' AND status = 'genehmigt'", abw)) v.push(`Vorbereitung: ${abw} ohne Abwesenheit am 12.11. – Orakel-Probe wirkungslos`);
+      if (!ZUSTAND.some((z) => z.benutzer_id === ANDERER_MA && z.code === 'U')) v.push('Vorbereitung: verborgene U-Zeile fehlt im Entwurf');
+      const winAnsi = require('../../server/pdf').winAnsi;
+      const normal = (o, id) => JSON.stringify(o).split(name(id)).join('NAME').split(`"benutzerId":${id},`).join('"benutzerId":"X",').split(`"benutzerId":${id}}`).join('"benutzerId":"X"}');
+      for (const [rolle, [cl, ich]] of Object.entries(wer)) {
+        for (const [abw, anw] of paare) {
+          for (const code of ['abwesend', 'K', 'U', 'ZA', 'SW', null, '–', 'X']) {
+            for (const zeiten of [{}, { von1: '07:00', bis1: '12:00' }]) {
+              const erg = {};
+              for (const id of [abw, anw]) {
+                zurueck();
+                const b = (await cl.get(`/berichte/${BID}`)).daten;
+                const personal = [...b.personal.filter((p) => p.benutzerId !== id).map((p) => ({ benutzerId: p.benutzerId, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pauseMin, code: p.code, segStunden: p.segStunden, ...(p.gast ? { gast: true } : {}) })), { benutzerId: id, code, gast: true, ...zeiten }];
+                const r = await cl.put(`/berichte/${BID}`, { version: b.version, personal });
+                const liste = (await cl.get(`/berichte?baustelleId=${BS.pitten}`)).daten.find((z) => z.id === BID);
+                const d = (await cl.get(`/berichte/${BID}`)).daten;
+                const pdf = await cl.get(`/berichte/${BID}/pdf?fassung=intern`);
+                erg[id] = { status: r.status, antwort: normal({ ...r.daten, geaendert: null }, id), liste: normal(liste, id), detail: normal({ ...d, geaendert: null }, id), pdf: pdf.status === 200 ? H.pdfText(pdf.daten).split(winAnsi(name(id))).join('NAME') : pdf.status };
+                const wo = `${rolle} PUT /berichte/${BID} (Orakel ${id}, code ${JSON.stringify(code)})`;
+                v.push(...await H.scanne(rolle, r, { route: 'PUT /api/berichte/:id', url: wo, mitAusnahmen: true }));
+                v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, [r.daten, d], wo));
+                if (pdf.status === 200) v.push(...H.berichtPdfAbwesenheitVerstoesse(k.db, BID, ich, winAnsi(H.pdfText(pdf.daten)), `${wo} PDF`));
+              }
+              for (const teil of ['status', 'antwort', 'liste', 'detail', 'pdf']) {
+                if (erg[abw][teil] !== erg[anw][teil]) v.push(`${rolle}: Orakel – ${teil} für abwesende ${abw} ≠ anwesende ${anw} (code ${JSON.stringify(code)}, Zeiten ${JSON.stringify(zeiten)}): ${String(erg[abw][teil]).slice(0, 200)} ≠ ${String(erg[anw][teil]).slice(0, 200)}`);
+              }
+            }
+          }
+        }
+      }
+    } finally { await k.stop(); }
+    assert.deepEqual(v, [], `\n${v.join('\n')}`);
+  });
+
   await t.test('Indirekte Lecks: Zahlungsstand der Ausgangsrechnungen über phaseVorschlag der Baustelle', async () => {
     const v = [];
     const k = await H.starteKopie(basis);

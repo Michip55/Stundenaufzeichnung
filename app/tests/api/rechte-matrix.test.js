@@ -321,6 +321,41 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
           }
         }
       }
+      // API.md 15.1 (Regel 3, „auch mit jeder vergebbaren Ausnahme“): jeder Bericht, den Polier/Mitarbeiter mit allen Ausnahmen
+      // sehen – Liste = Detail (personalAnzahl), JSON ohne verborgene Abwesende, interne UND AG-Fassung ohne fremde Abwesenheiten
+      for (const rolle of ['mitarbeiter', 'polier']) {
+        const ich = ID[rolle];
+        const liste = await kc[rolle].get('/berichte');
+        if (liste.status !== 200 || !liste.daten.length) { v.push(`${rolle} (alle Ausnahmen) GET /berichte → ${liste.status}, ${Array.isArray(liste.daten) ? liste.daten.length : '?'} Berichte – Prüfung wirkungslos`); continue; }
+        let pdfs = 0;
+        for (const z of liste.daten) {
+          const d = await kc[rolle].get(`/berichte/${z.id}`);
+          if (z.personalAnzahl !== d.daten.personal.length) v.push(`${rolle} (alle Ausnahmen) GET /berichte: personalAnzahl ${z.personalAnzahl} ≠ Detail ${d.daten.personal.length} bei Bericht ${z.id} (verborgene Abwesende gezählt)`);
+          v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, d.daten, `${rolle} (alle Ausnahmen) GET /berichte/${z.id}`));
+          for (const fassung of ['intern', 'ag']) {
+            const url = `/berichte/${z.id}/pdf?fassung=${fassung}`;
+            const r = await kc[rolle].get(url);
+            if (r.status !== 200) { v.push(`${rolle} (alle Ausnahmen) GET ${url} → ${r.status}`); continue; }
+            pdfs++;
+            v.push(...H.berichtPdfAbwesenheitVerstoesse(k.db, z.id, ich, await H.antwortText(r), `${rolle} (alle Ausnahmen) GET ${url}`));
+          }
+        }
+        if (!pdfs) v.push(`${rolle} (alle Ausnahmen): kein Bericht-PDF geprüft`);
+        // Schreibantworten: Entwurf so speichern, wie er ankommt → 200, Antwort ohne Leck, verborgene Zeilen unverändert
+        const bid = F.bericht.bs1;
+        const verborgen = () => JSON.stringify(k.db.alle(`SELECT benutzer_id, code, stunden, gast FROM bericht_personal WHERE bericht_id = ? AND benutzer_id <> ? AND code IN ('K','U','ZA') ORDER BY benutzer_id`, bid, ich));
+        const vorher = verborgen();
+        if (vorher === '[]') v.push('Vorbereitung: Entwurf ohne verborgene Abwesenheits-Zeile – Schreibprobe wirkungslos');
+        const b = (await kc[rolle].get(`/berichte/${bid}`)).daten;
+        const w = await kc[rolle].put(`/berichte/${bid}`, { version: b.version, personal: b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pauseMin, code: p.code, segStunden: p.segStunden, ...(p.gast ? { gast: true } : {}) })), arbeitsleistung: 'Ausnahmen-Probe' });
+        if (w.status !== 200) v.push(`${rolle} (alle Ausnahmen) PUT /berichte/${bid} wie erhalten → ${w.status} ${JSON.stringify(w.daten).slice(0, 200)}`);
+        if (verborgen() !== vorher) v.push(`${rolle} (alle Ausnahmen) PUT /berichte/${bid}: verborgene Abwesenheits-Zeilen verändert`);
+        v.push(...await H.scanne(rolle, w, { route: 'PUT /api/berichte/:id', url: `/berichte/${bid} (PUT mit allen Ausnahmen)`, mitAusnahmen: true, erlaubteKanarien: ['Text schadenFremd'] }));
+        v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, w.daten, `${rolle} (alle Ausnahmen) PUT /berichte/${bid}`));
+        const pa = await kc[rolle].post(`/berichte/${bid}/personal-aktualisieren`, { version: w.daten.version });
+        v.push(...await H.scanne(rolle, pa, { route: 'POST /api/berichte/:id/personal-aktualisieren', url: `/berichte/${bid}/personal-aktualisieren (mit allen Ausnahmen)`, mitAusnahmen: true, erlaubteKanarien: ['Text schadenFremd'] }));
+        v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, pa.daten, `${rolle} (alle Ausnahmen) POST personal-aktualisieren`));
+      }
       // Bauleiter (= Büro, Owner-Entscheidung 13.11.2026): GF-Vorbehalte bleiben aus, auch mit allen Ausnahmen
       for (const [m, p, b] of [['GET', '/rechte', undefined], ['PUT', '/rechte/matrix', { rolle: 'polier', recht: 'kolonne', wert: true }], ['PUT', '/rechte/ausnahme', { benutzerId: ID.mitarbeiter, recht: 'kolonne', wert: true }], ['PUT', `/benutzer/${ID.gf}`, { name: 'X' }], ['PUT', `/benutzer/${ID.buero}`, { name: 'X' }]]) {
         const r = await kc.bauleiter.anfrage(m, p, b);
