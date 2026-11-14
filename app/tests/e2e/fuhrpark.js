@@ -206,11 +206,17 @@ async function mitarbeiter(h, z) {
   pruef(await page.evaluate(() => [...document.querySelectorAll('.nav-badge')].some((b) => b.dataset.schWartet === '1' && !b.hidden)), 'Offline-Schaden: Zahl am Menüpunkt fehlt');
   await h.ueberlauf('schäden offline'); await shot('schaeden-offline'); await h.toastWeg();
   // Antwort des Servers geht verloren (Meldung ist am Server, das Gerät weiß es nicht) → erneutes Senden darf nichts verdoppeln
-  let verloren = 0;
-  await page.route('**/api/fuhrpark/schaeden', async (r) => { if (r.request().method() !== 'POST') return r.continue(); verloren++; try { await r.fetch(); } catch (e) { /* egal */ } return r.abort('connectionreset'); });
+  let verloren = 0, verlorenFertig = 0;
+  await page.route('**/api/fuhrpark/schaeden', async (r) => { if (r.request().method() !== 'POST') return r.continue(); verloren++; try { await r.fetch(); } catch (e) { /* egal */ } try { await r.abort('connectionreset'); } finally { verlorenFertig++; } });
   // Erst die Störung einrichten, dann wieder online gehen – sonst sendet die App beim „online“-Ereignis schneller als der Test (Wettlauf)
   await context.setOffline(false);
-  await h.absichtlich(async () => { await sleep(600); if (!verloren) await page.click('[data-sch-senden]'); await sleep(1200); });
+  await h.absichtlich(async () => {
+    // festes Signal statt fester Wartezeit: der erste Sendeversuch ist beim Server angekommen UND seine Antwort ging verloren
+    for (let i = 0; i < 60 && !verlorenFertig; i++) { await sleep(250); if (i % 8 === 3 && !verloren) await page.click('[data-sch-senden]').catch(() => {}); }
+    // die App hat den Fehlschlag verarbeitet: die Meldung steht wieder sendebereit in der Warteschlange
+    await page.waitForSelector('#sch-warten [data-wartet]', { timeout: 15000 });
+    await page.waitForFunction(() => { const k = document.querySelector('[data-sch-senden]'); return k && !k.disabled; }, null, { timeout: 15000 }).catch(() => {});
+  });
   await page.unroute('**/api/fuhrpark/schaeden');
   pruef(verloren >= 1, 'Offline-Schaden: Test-Vorbedingung – Senden wurde nicht versucht');
   pruef(await page.locator('#sch-warten [data-wartet]').count() === 1, 'Offline-Schaden: Meldung nach verlorener Antwort nicht mehr in der Warteschlange');
@@ -316,6 +322,8 @@ async function pruefbericht5(h, z) {
       if (await knopf.count()) await knopf.click().catch(() => {});
       await sleep(900);
       if (i === 0) {
+        // festes Signal: Meldung B ist am Server angekommen (unter Last dauert der erste Durchgang länger als 900 ms)
+        for (let k = 0; k < 40 && (await meine()).filter((x) => x.ursache === UB).length < 1; k++) await sleep(250);
         l = await meine();
         pruef(l.filter((x) => x.ursache === UB).length === 1, 'F-06: Meldung hinter einem fehlschlagenden Eintrag wurde nicht gesendet (Kopf blockiert)');
         const a = (await warteschlange()).find((x) => x.text.includes(UA));

@@ -8,7 +8,7 @@ import { wienHeute, wienLokal } from '../zahl.js';
 import { ziehbar } from '../ziehen.js';
 import { feiertage, naechsterArbeitstag, tagName } from '../arbeitstag.js';
 import { zeitplanHtml, zeitplanLaden, zeitplanBinden } from './zeitplan.js';
-import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, partieFuhrenHtml } from './fuhren.js';
+import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, fuhrenWartend, partieFuhrenHtml } from './fuhren.js';
 
 export const montag = (iso) => { const w = fmt.dt(iso).getDay(); return fmt.addTage(iso, w === 0 ? -6 : 1 - w); };
 export const kw = (iso) => { const d = fmt.dt(iso); const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const n = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - n); const j = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - j) / 86400000 + 1) / 7); };
@@ -579,13 +579,22 @@ export async function einsatz(el, ctx) {
   zeichne();
   // gesendet → frisch vom Server; nur gemerkt (kein Netz) → Anzeige aus dem Gerät neu zeichnen
   meineFuhrenBinden(el, tage, uid, (art) => (art === 'gesendet' ? ctx.neuLaden() : zeichne()));
-  const online = () => fuhrenNachsenden(uid).then((n) => { if (n && ctx.aktuell()) ctx.neuLaden(); });
+  // Nachsenden beim Wiederkommen des Netzes; schlägt es noch fehl (Verbindung steht noch nicht), wird es alle paar Sekunden
+  // erneut versucht, solange Meldungen warten und diese Ansicht offen ist
+  let wieder = null;
+  const online = () => fuhrenNachsenden(uid).then((n) => {
+    clearTimeout(wieder);
+    if (!ctx.aktuell()) return;
+    if (n) return ctx.neuLaden();
+    if (fuhrenWartend(uid).length && navigator.onLine !== false) wieder = setTimeout(online, 3000);
+  });
   window.addEventListener('online', online);
+  if (fuhrenWartend(uid).length) wieder = setTimeout(online, 3000);
   el.addEventListener('click', async (e) => {
     const ok = e.target.closest('#me-ok'); if (!ok) return;
     try { await post('/plan/ich/bestaetigen', { datum: ok.dataset.datum }); toast('Bestätigt.'); ctx.neuLaden(); } catch (x) { toast(x.message, 'warn'); }
   });
-  return () => window.removeEventListener('online', online);
+  return () => { clearTimeout(wieder); window.removeEventListener('online', online); };
 }
 
 /* ================= Polier: „Meine Partie morgen“ ================= */

@@ -158,7 +158,13 @@ async function laufe(browser, g) {
     pruef(q.length === 1 && q[0].typ === 'kommen' && !!q[0].zeit, 'Offline: Buchung liegt nicht mit Zeitstempel in der Warteschlange');
     await shot('stempeln-offline');
     // … und nach Rückkehr des Netzes nachgesendet
-    await context.setOffline(false);
+    await absichtlich(async () => {
+      await context.setOffline(false);
+      // erst wenn der Server wieder antwortet, das Nachsenden anstoßen – sonst scheitert der erste Versuch unter Last und der nächste kommt erst nach 15 s
+      await page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length === 0, null, { timeout: 30000, polling: 200 });
+    });
     await page.waitForSelector('#sync[data-ausstehend="0"]', { timeout: 20000 });
     st = await status();
     pruef(st.status === 'arbeit', `Offline-Nachsendung: Serverstatus ist ${st.status} statt arbeit`);

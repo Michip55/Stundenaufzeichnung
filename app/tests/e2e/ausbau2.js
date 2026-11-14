@@ -608,9 +608,20 @@ async function planer(h, z) {
   await context.setOffline(true);
   await h.absichtlich(async () => { await page.locator(`#meine-fuhren li[data-fuhre="${fuhre2.id}"] [data-fuhr-los]`).click(); await page.waitForSelector('#fuhren-warten'); });
   pruef(await page.locator(`#meine-fuhren li[data-fuhre="${fuhre2.id}"][data-status="unterwegs"]`).count() === 1, 'A2-Fuhre: gemerkte Meldung wird nicht angezeigt');
-  await context.setOffline(false);
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await page.waitForFunction(() => !document.querySelector('#fuhren-warten'), null, { timeout: 8000 });
+  // die Meldung liegt jetzt nachweislich in der Warteschlange des Geräts
+  pruef(await page.evaluate((id) => JSON.parse(localStorage.getItem('bt_fuhren_warten') || '[]').filter((w) => w.fuhreId === id).length, fuhre2.id) === 1, 'A2-Fuhre: Meldung ohne Netz liegt nicht in der Warteschlange');
+  // ein Nachsende-Versuch im Augenblick des Umschaltens darf noch scheitern (die App versucht es erneut) – kein Konsolenfehler des Tests
+  await h.absichtlich(async () => {
+    await context.setOffline(false);
+    // erst wenn der Server wieder erreichbar ist, das Netz-Ereignis auslösen (sonst scheitert das Nachsenden unter Last noch einmal)
+    await page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    // Signal: Warteschlange leer UND der Server kennt den Status – erst dann verschwindet der Hinweis
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_fuhren_warten') || '[]').length === 0, null, { timeout: 20000, polling: 200 });
+  });
+  await page.waitForSelector(`#meine-fuhren li[data-fuhre="${fuhre2.id}"][data-status="unterwegs"]`);
+  await page.waitForFunction(() => !document.querySelector('#fuhren-warten'));
+  pruef((((await api('GET', `/plan/ich?von=${heute}&bis=${heute}`)).json || {}).tage || []).flatMap((t) => t.fuhren || []).some((f) => f.id === fuhre2.id && f.status === 'unterwegs'), 'A2-Fuhre: nachgesendete Meldung ist nicht am Server');
   await keinEuro('meine fuhren'); await ueberlauf('meine fuhren'); await shot('meine-fuhren');
   // Stempeluhr schlägt die geplante Baustelle vor
   await geh('/stempeln');
