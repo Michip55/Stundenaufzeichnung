@@ -43,8 +43,9 @@ test('G-17: Fernunterschrift-Token werden im Caddy-Zugriffsprotokoll maskiert', 
   assert.match(c, /format filter \{\s*wrap json/);
   assert.match(c, /request>headers>Referer delete/);
   assert.match(c, /request>headers>Cookie delete/);
-  const re = new RegExp(m[1]);
-  const ersetze = (u) => u.replace(re, m[2]); // Go-Regexp-Ersetzung $1 entspricht hier JavaScript
+  // Go-Regexp → JavaScript: Inline-Flag (?i) als Flag (N-066), Ersetzung $1 entspricht hier JavaScript
+  const re = m[1].startsWith('(?i)') ? new RegExp(m[1].slice(4), 'gi') : new RegExp(m[1]);
+  const ersetze = (u) => u.replace(re, m[2]);
   const tok = 'AbC_dEf-0123456789abcdefghijklmnopqrstuvwxy';
   assert.equal(ersetze(`/api/fern/${tok}`), '/api/fern/***');
   assert.equal(ersetze(`/api/fern/${tok}/pdf`), '/api/fern/***/pdf');

@@ -176,6 +176,8 @@ fi
 cat > /etc/cron.d/bautag <<EOF
 # BauTag: tägliche Sicherung 02:30 (lokal + extern), sonntags mit Wiederherstellungstest
 SHELL=/bin/bash
+# N-067: cron kennt sonst nur /usr/bin:/bin – sendmail (Notfall-Alarm) liegt in /usr/sbin
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 30 2 * * * root $ZIEL/deploy/backup.sh >/dev/null 2>&1
 EOF
 chmod 644 /etc/cron.d/bautag
@@ -190,6 +192,9 @@ cat > /etc/logrotate.d/bautag <<'EOF'
 EOF
 
 schritt "9/9 Container bauen und starten"
+# N-030: gebauten Programmstand im Image vermerken (update.sh vergleicht damit)
+BAUTAG_REVISION="$(git -C "$ZIEL" rev-parse HEAD 2>/dev/null || echo unbekannt)"
+export BAUTAG_REVISION
 docker compose build app
 if [[ "$MODUS" == --wiederherstellen ]]; then
   bash "$ZIEL/deploy/wiederherstellen.sh" --extern
@@ -215,6 +220,11 @@ bash "$ZIEL/deploy/backup.sh" || rot "Erste Sicherung mit Warnungen – siehe /v
 gruen "
 BauTag ist installiert: https://$DOMAIN
 "
+if ! PATH="$PATH:/usr/sbin:/sbin" command -v sendmail >/dev/null 2>&1; then
+  # N-067: ohne Mailprogramm kann backup.sh bei ausgefallener App keinen Notfall-Alarm schicken
+  rot "Hinweis: Auf dem Server ist kein Mailprogramm (sendmail) eingerichtet. Fällt die App aus, kommt der"
+  rot "  Notfall-Alarm der Sicherung nicht per E-Mail an (der Alarm in der App bleibt). Einrichten: ANLEITUNG.md, „Notfall-E-Mail“."
+fi
 cat <<EOF
 WICHTIG – bitte jetzt auf das NOTFALLBLATT (SICHERHEIT.md) schreiben und im Tresor aufbewahren:
   1. Passwort der externen Sicherung:  $(cat "$ETC/restic-passwort")

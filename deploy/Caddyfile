@@ -2,6 +2,19 @@
 # http:// wird automatisch auf https:// umgeleitet.
 {
 	email {$BAUTAG_EMAIL}
+	# N-066: auch das Standard-Protokoll (Fehler, z. B. 502 während eines Updates → docker logs) ohne
+	# Fernunterschrift-Token, Referer und Cookies. Filter wie im Zugriffsprotokoll unten.
+	log default {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp (?i)(/(?:fern|unterschrift)/+)[^/?#]+ $1***
+				request>headers>Referer delete
+				request>headers>Cookie delete
+			}
+		}
+	}
 }
 
 {$BAUTAG_DOMAIN} {
@@ -20,11 +33,12 @@
 			roll_size 10MiB
 			roll_keep 10
 		}
-		# G-17: Fernunterschrift-Token nie im Zugriffsprotokoll (Pfad maskieren, Referer und Cookies weglassen)
+		# G-17/N-066: Fernunterschrift-Token nie im Zugriffsprotokoll (Pfad maskieren, Referer und Cookies weglassen);
+		# ohne Anker und ohne Groß-/Kleinschreibung, damit auch //api/fern/…, /API/fern/… und /api/./fern/… maskiert werden
 		format filter {
 			wrap json
 			fields {
-				request>uri regexp ^(/api/fern/|/unterschrift/)[^/?#]+ $1***
+				request>uri regexp (?i)(/(?:fern|unterschrift)/+)[^/?#]+ $1***
 				request>headers>Referer delete
 				request>headers>Cookie delete
 			}

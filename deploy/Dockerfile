@@ -26,6 +26,10 @@ COPY docs/vorlage /bautag/docs/vorlage
 RUN mkdir -p /daten /sicherung && chown -R node:node /daten /sicherung
 USER node
 
+# N-030: Programmstand, aus dem das Image gebaut wurde (update.sh vergleicht ihn mit dem Repository)
+ARG BAUTAG_REVISION=unbekannt
+LABEL org.opencontainers.image.revision=$BAUTAG_REVISION
+
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/gesundheit').then(r=>r.json()).then(j=>process.exit(j.ok?0:1)).catch(()=>process.exit(1))"
