@@ -13,8 +13,8 @@ const CODE_LEISTUNG = /^[a-z0-9._-]{1,20}$/;
 /** N-013: reservierte Werte der Positions-Quellen (quelle.ref 'alle' = alle Einträge) – nie als Code/ID */
 const RESERVIERT = new Set(['alle']);
 function pruefeCode(a, c, feld = 'code') {
-  if (!(a === 'leistungen' ? CODE_LEISTUNG : CODE).test(c)) throw ungueltig(`${feld}: 1–20 Zeichen a–z, 0–9, _ oder -${a === 'leistungen' ? ' (bei Leistungen auch Punkt, z. B. 01.01)' : ''}.`);
-  if (RESERVIERT.has(c)) throw new ApiFehler(422, 'UNGUELTIG', `${feld}: „${c}“ ist reserviert (steht in der Nachkalkulation für „alle Einträge“) – bitte einen anderen Code wählen.`);
+  if (!(a === 'leistungen' ? CODE_LEISTUNG : CODE).test(c)) throw ungueltig(`${v.feldname(feld)}: 1–20 Zeichen a–z, 0–9, _ oder -${a === 'leistungen' ? ' (bei Leistungen auch Punkt, z. B. 01.01)' : ''}.`);
+  if (RESERVIERT.has(c)) throw new ApiFehler(422, 'UNGUELTIG', `${v.feldname(feld)}: „${c}“ ist reserviert (steht in der Nachkalkulation für „alle Einträge“) – bitte einen anderen Code wählen.`);
   return c;
 }
 const DEF = {

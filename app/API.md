@@ -877,6 +877,8 @@ Ein Antrag fasst mehrere Tage zusammen (`antragId`, Zeichenkette: neue Anträge 
   - `GET /abwesenheiten/sw-meldungen` → `[{id, polierId, benutzerId, name, von, bis, status:"gemeldet"|"bestaetigt", erstellt, bestaetigt?}]` (Polier: eigene Meldungen, nur `gemeldet`/`bestaetigt`; Büro/Lohn/Bauleiter/GF: alle; Mitarbeiter 403).
   - `POST /abwesenheiten/sw-meldungen/:id/bestaetigen` (`stammdaten`/`lohn`, Vier-Augen-Prinzip) → 200; genehmigt die noch beantragten SW-Tage; schon bestätigt → 409. Die Meldung wird auch `bestaetigt`, sobald das Büro alle Tage einzeln entschieden hat. Benachrichtigung an den Polier „Schlechtwetter-Meldung bestätigt“.
 
+## 14. Korrekturen aus der Nachprüfung (verbindlich, ergänzen bzw. ersetzen ältere Stellen; Abschnitt 13 geht vor)
+
 ### 14.1 Korrekturen Nachprüfung – planer
 Ergänzt bzw. präzisiert 12.8–12.8d und 12.23 (Migration **30**: `plan_tag.uebersprungen`, `plan_mitteilung.art`). Keine €-Felder, keine Rechte-Änderung.
 - **Vorschau-Quelle (N-015/N-020):** Quelle eines Vorschau-Tags ist der letzte frühere **Arbeitstag** mit gespeicherten Einsätzen (≤ 60 Tage zurück). Samstags-, Sonntags- und Feiertagsschichten sind nie Quelle.
