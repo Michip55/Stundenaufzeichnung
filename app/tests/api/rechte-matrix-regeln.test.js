@@ -21,14 +21,24 @@ test('Bauleiter = Büro: jede Route hat für Bauleiter dieselbe Erwartung wie f�
   assert.equal(R.bereich({ rolle: 'bauleiter', id: 1 }), 'alle');
 });
 
+/**
+ * Ausdrücklich beschlossene VERSCHÄRFUNGEN gegenüber e6e3de3 (nur strenger: J → E → N), je mit Fundstelle.
+ * Jede andere Änderung der Spalten bleibt ein Fehler.
+ */
+const VERSCHAERFT = {
+  'GET /api/plan/fuhren/:id/foto/:fid': { polier: 'N', grund: 'API.md 15.7, Inhaberentscheidung N-112: Liefer-/Wiegescheine nur für den Hochladenden' }
+};
+const STRENGE = { J: 0, O: 0, E: 1, N: 2 };
+
 test('Polier/Mitarbeiter: Erwartungen gegenüber e6e3de3 unverändert (nichts gelockert)', () => {
   const v = [];
   for (const [k, alt] of Object.entries(ALT.routen)) {
     const neu = M.routen[k];
     if (!neu) { v.push(`${k}: Route fehlt in der Matrix`); continue; }
     const s = spalten(neu.r);
-    if (s.mitarbeiter !== alt.mitarbeiter) v.push(`${k}: mitarbeiter ${alt.mitarbeiter} → ${s.mitarbeiter}`);
-    if (s.polier !== alt.polier) v.push(`${k}: polier ${alt.polier} → ${s.polier}`);
+    const verschaerft = (rolle) => VERSCHAERFT[k] && VERSCHAERFT[k][rolle] === s[rolle] && STRENGE[s[rolle]] > STRENGE[alt[rolle]];
+    if (s.mitarbeiter !== alt.mitarbeiter && !verschaerft('mitarbeiter')) v.push(`${k}: mitarbeiter ${alt.mitarbeiter} → ${s.mitarbeiter}`);
+    if (s.polier !== alt.polier && !verschaerft('polier')) v.push(`${k}: polier ${alt.polier} → ${s.polier}`);
     // auch die Probe selbst (Pfad/Query/Body) ist unverändert, damit die Spalten dasselbe prüfen
     const probe = (x) => JSON.stringify({ pfad: x.pfad, query: x.query, body: x.body });
     if (probe(neu) !== probe(alt.eintrag)) v.push(`${k}: Probe geändert`);

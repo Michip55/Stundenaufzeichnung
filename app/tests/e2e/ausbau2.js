@@ -663,7 +663,12 @@ async function planer(h, z) {
   await page.waitForSelector('[data-partie-einsatz]');
   pruef(await page.locator(`[data-partie-personen] li[data-person="${L}"] [data-lesestand="gelesen"], [data-partie-personen] li[data-person="${L}"] [data-lesestand="bestaetigt"]`).count() === 1, 'A2-Plan: Polier sieht nicht, dass der Mitarbeiter gelesen hat');
   const pt = await h.text();
-  pruef(pt.includes(`NUR-FUER-P2-${k}`) && /Fahrerkarte/.test(pt) && /Vorher tanken/.test(pt) && /Rüttelplatte/.test(pt), 'A2-Plan: Polier sieht nicht alle Notizen');
+  // 15.7 (F-057): dieselbe Notizregel wie das Polier-PDF – Baustellen-/Geräte-Notiz und „Benötigt“ der eigenen Baustelle,
+  // Personen-Notizen nur der eigenen Partie (Stamm-Baustelle des Poliers); Gäste aus fremden Partien (Lukas: Pitten) nicht
+  const stammP2 = ((await api('GET', '/mitarbeiter')).json.find((m) => m.id === P2.benutzerId) || {}).baustelleId;
+  const p2Partie = ichR.baustellenIds.includes(stammP2);
+  pruef(/Vorher tanken/.test(pt) && /Rüttelplatte/.test(pt) && pt.includes(`NUR-FUER-P2-${k}`) === p2Partie, 'A2-Plan: Polier sieht die Notizen seiner Baustelle bzw. Partie nicht');
+  pruef(!/Fahrerkarte/.test(pt), 'A2-Plan/F-057: Polier sieht die Personen-Notiz eines Gasts aus fremder Partie');
   pruef(await page.locator('#partie-druck').count() === 1, 'A2-Druck: „Partie drucken“ fehlt am veröffentlichten Tag');
   const ppdf = await context.request.get(h.srv.url + await page.locator('#partie-druck').getAttribute('href'));
   pruef(ppdf.ok() && /application\/pdf/.test(ppdf.headers()['content-type'] || '') && (await ppdf.body()).length > 800, `A2-Druck: Partie-PDF → ${ppdf.status()}`);
@@ -1840,5 +1845,5 @@ async function intern(h) {
 }
 
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern, planerKorr: (h) => require('./planer-korrektur').planerKorrektur(h) };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern, planerKorr: (h) => require('./planer-korrektur').planerKorrektur(h), restApp: (h) => require('./rest-app').restApp(h) };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

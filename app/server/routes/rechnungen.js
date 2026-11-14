@@ -17,6 +17,9 @@ module.exports = function rechnungRouten(api, bt) {
 
   function sichtbar(ctx, bs) { return bs && ctx.hat('preise_sehen') && darfPreise(ctx, bs); }
   function laden(req, schreiben) {
+    // 15.7 (F-036): Grundrecht vor Existenz – ohne Preisrecht dieselbe 403 für vorhandene und fehlende Rechnungen
+    if (!req.ctx.hat('preise_sehen')) throw keinZugriff('Rechnungen sieht, wer das Recht preise_sehen hat.');
+    if (schreiben && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.');
     const r = db.eins('SELECT * FROM rechnung WHERE id = ?', v.pfadId(req.params.id, 'Rechnungs-ID'));
     if (!r) throw nichtGefunden('Rechnung nicht gefunden.');
     const bs = db.eins('SELECT * FROM baustelle WHERE id = ?', r.baustelle_id);
@@ -84,6 +87,7 @@ module.exports = function rechnungRouten(api, bt) {
   api.get('/rechnungen/:id', (req, res) => res.json(antwort(laden(req, false).id)));
 
   api.post('/baustellen/:id/rechnungen', (req, res) => {
+    if (!req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.'); // 15.7 (F-036)
     const bs = db.eins('SELECT * FROM baustelle WHERE id = ?', v.pfadId(req.params.id, 'Baustellen-ID'));
     if (!bs) throw nichtGefunden('Baustelle nicht gefunden.');
     if (!req.ctx.hat('preise_bearbeiten') || !sichtbar(req.ctx, bs)) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.');
@@ -102,8 +106,10 @@ module.exports = function rechnungRouten(api, bt) {
 
   api.put('/rechnungen/:id', (req, res) => {
     const r = laden(req, true);
-    if (r.storniert) throw konflikt('Die Rechnung ist storniert.');
     const body = v.objekt(req.body);
+    // 15.7 (N-050 Rest): an einer stornierten Rechnung lässt sich nur noch die Verknüpfung des PDF lösen ({version, dokumentId:null}) –
+    // sonst bliebe ihr PDF (zeigt Beträge) für immer in „Ausgangsrechnungen“ gesperrt (rechnungZu zählt auch stornierte)
+    if (r.storniert && !(body.dokumentId === null && Object.keys(body).every((k) => ['version', 'dokumentId'].includes(k)))) throw konflikt('Die Rechnung ist storniert – nur die Verknüpfung des PDF lässt sich noch lösen (dokumentId:null).');
     if (v.zahl(body.version, 'version', { min: 1, ganz: true }) !== r.version) throw konflikt('Die Rechnung wurde inzwischen geändert.', { version: r.version });
     const f = felder(body, true, r.baustelle_id);
     const hatZahlungen = db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE rechnung_id = ? LIMIT 1', r.id);

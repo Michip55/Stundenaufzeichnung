@@ -192,7 +192,8 @@ test('Korrekturen Nachprüfung – geld', async (t) => {
     // ohne erfasste Schlussrechnung: Phasen-Betrag
     s.db.lauf("UPDATE baustelle SET schlussrechnung = '{\"nr\":\"X\",\"betrag\":120}' WHERE id = ?", BS.neustadt);
     s.db.lauf("UPDATE rechnung SET typ = 'teil' WHERE nr = 'G106-S'");
-    assert.equal((await c.buero.get('/baustellen-kennzahlen')).daten.offeneSchlussrechnungen.summe, 1120);
+    // 15.7 (Rest N-057): eine Basis je Feld – summe = offener Zahlbetrag (brutto) der erfassten SR, Phasen-Betrag (netto) getrennt
+    assert.deepEqual((await c.buero.get('/baustellen-kennzahlen')).daten.offeneSchlussrechnungen, { anzahl: 2, summe: 1000, ohneRechnung: { anzahl: 1, netto: 120 } });
   });
 
   await t.test('N-111: Phasen-Notiz nur mit Preisrecht für die Baustelle', async () => {

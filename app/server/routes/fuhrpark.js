@@ -994,7 +994,8 @@ module.exports = function fuhrparkRouten(api, bt) {
 
   function schadenAus(req, idText) {
     const m = db.eins("SELECT * FROM mangel WHERE id = ? AND typ = 'schaden'", v.pfadId(idText, 'Schadens-ID'));
-    if (!m) throw nichtGefunden('Schadensmeldung nicht gefunden.');
+    // 15.7 (F-036): ohne Recht fuhrpark keine Existenzauskunft – fehlend und fremd ergeben dieselbe 403
+    if (!m) throw D.istVerwaltung(req.ctx) ? nichtGefunden('Schadensmeldung nicht gefunden.') : keinZugriff('Diese Schadensmeldung liegt außerhalb Ihres Bereichs.');
     if (!D.schadenSichtbar(db, req.ctx, m)) throw keinZugriff('Diese Schadensmeldung liegt außerhalb Ihres Bereichs.');
     return m;
   }
@@ -1108,8 +1109,8 @@ module.exports = function fuhrparkRouten(api, bt) {
   });
 
   api.put(`${R}/schaeden/:id`, (req, res) => {
+    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeitet, wer das Recht fuhrpark hat.'); // 15.7 (F-036): Rechte vor Existenz
     const m = schadenAus(req, req.params.id);
-    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeitet, wer das Recht fuhrpark hat.');
     const body = v.objekt(req.body);
     pruefeVersion(body, m, 'Die Schadensmeldung');
     const alt = D.SCHADEN_STATUS[m.status];

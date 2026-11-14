@@ -274,8 +274,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/positionen', (req, res) => {
+    schreibenPreise(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenPreise(req);
+    lesen(req, bs);
     const f = pruefeFelder(v.objekt(req.body), false);
     const sort = f.sortierung ?? ((db.eins('SELECT MAX(sortierung) AS m FROM projektposition WHERE baustelle_id = ? AND gruppe = ?', bs.id, f.gruppe).m || 0) + 10);
     const r = db.lauf(`INSERT INTO projektposition (baustelle_id, katalog_id, gruppe, bezeichnung, einheit, ep, sortierung, quelle, zuordnung_pruefen, aktiv, version, erstellt, geaendert, naturmaterial)
@@ -286,8 +287,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.put('/baustellen/:id/positionen/:pid', (req, res) => {
+    schreibenPreise(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenPreise(req);
+    lesen(req, bs);
     const p = position(bs, req.params.pid);
     const body = v.objekt(req.body);
     const version = v.zahl(body.version, 'version', { min: 1, ganz: true });
@@ -308,8 +310,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.delete('/baustellen/:id/positionen/:pid', (req, res) => {
+    schreibenPreise(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenPreise(req);
+    lesen(req, bs);
     const p = position(bs, req.params.pid);
     const k = kalkulationFuer(db, bs);
     const r = projektPositionen(db, bs, k.auftragGesamt);
@@ -324,8 +327,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/positionen/aus-vorlage', (req, res) => {
+    schreibenPreise(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenPreise(req);
+    lesen(req, bs);
     const body = v.objekt(req.body);
     const modus = v.auswahl(body.modus ?? 'fehlende', 'modus', ['fehlende', 'preise']);
     const vorschau = body.vorschau === undefined ? false : v.bool(body.vorschau, 'vorschau');
@@ -354,8 +358,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/positionen/:pid/mengen', (req, res) => {
+    schreibenMengen(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenMengen(req);
+    lesen(req, bs);
     const p = position(bs, req.params.pid);
     const body = v.objekt(req.body);
     const datum = v.datum(body.datum, 'datum');
@@ -374,8 +379,9 @@ module.exports = function positionenRouten(api, bt) {
   });
 
   api.delete('/baustellen/:id/positionen/:pid/mengen/:mid', (req, res) => {
+    schreibenMengen(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenMengen(req);
+    lesen(req, bs);
     const p = position(bs, req.params.pid);
     const mid = v.pfadId(req.params.mid, 'Mengen-ID');
     const m = db.eins('SELECT * FROM projektposition_menge WHERE id = ? AND position_id = ?', mid, p.id);
@@ -413,8 +419,9 @@ module.exports = function positionenRouten(api, bt) {
     res.json(PV.verlaufJson(db, 'projektposition', p.id).map(verlaufKatalog('ep')));
   });
   api.delete('/baustellen/:id/positionen/:pid/verlauf/:vid', (req, res) => {
+    schreibenPreise(req); // 15.7 (F-036): Recht vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenPreise(req);
+    lesen(req, bs);
     const p = position(bs, req.params.pid);
     const s = PV.loescheStand(db, { art: 'projektposition', ref: p.id, id: v.pfadId(req.params.vid, 'Stand-ID') });
     prot(req, `position:${p.id}`, `Nachkalkulation ${bs.kst}: geplanten EP von „${p.bezeichnung}“ ab ${s.gueltig_ab} gelöscht`, { ep: s.wert, gueltigAb: s.gueltig_ab }, null);

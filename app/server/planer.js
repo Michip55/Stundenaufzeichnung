@@ -451,10 +451,16 @@ function veroeffentlichenLauf(bt, o) {
       const leer = !st.personen.length && !st.anlagen.length; // N-084: geleerte Zelle = entfällt
       if (leer && !alt) continue; // nie veröffentlicht und leer → nichts zu melden
       const titel = partieTitel(st, leer);
+      // 15.7 (F-055): keine Personen-/Gerätezahl – auf fortgeschriebenen Tagen fehlen Abwesende still, ein Zählvergleich
+      // zwischen Tagen verriete dem Polier die Abwesenheit. Nur Baustelle und Beginn; die Einteilung steht in „Meine Partie“.
       const text = leer
         ? `Der Einsatz ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name} ${tagLabel(d, heute)} entfällt – niemand mehr eingeteilt.`
-        : `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`;
-      for (const pol of poliere) polierMeldungen.push({ pol, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}:${lauf}`, titel, text });
+        : `${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''} – Einteilung in „Meine Partie“.`;
+      for (const pol of poliere) {
+        // 15.7 (N-084): wie bei der gelöschten Zelle – wer selbst eingeteilt war, bekommt nur seine eigene „Einsatz entfällt“-Meldung
+        if (leer && alt && alt.personen.some((p) => p.benutzerId === pol)) continue;
+        polierMeldungen.push({ pol, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}:${lauf}`, titel, text });
+      }
     }
     // N-059/N-084: gelöschter veröffentlichter Einsatz (nicht neu angelegt) → Partie-Meldung „entfällt“ an Baustellen- und
     // Kolonnen-Poliere; wer selbst in dem Einsatz eingeteilt war, bekommt schon seine eigene „Einsatz entfällt“-Meldung
@@ -575,7 +581,7 @@ function naechsterEinsatztag(heute, hat) {
 }
 
 module.exports = {
-  PLANBAR, CODE_TEXT, hash, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
+  PLANBAR, CODE_TEXT, hash, gemerkteAbwesende, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
   ladeEinsaetze, ladeEinsatz, vorschauTag, materialisieren, einsatzJson, inhaltsHash, konflikteTag, konflikteFuer, personInhalt, kurzText,
   veroeffentlichen, staendeJson, pruefeErinnerung, feiertag, tagLabel, partieHash, quelleTag, konflikteBetreffen, offeneFuhren, naechsterEinsatztag, personHash
 };

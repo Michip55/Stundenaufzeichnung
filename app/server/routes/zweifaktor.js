@@ -201,9 +201,14 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     const body = v.objekt(req.body);
     const p = v.objekt(body.zweiFaktorPflicht, 'zweiFaktorPflicht');
     const neu = pflichtRollen(db);
+    const alt = { ...neu };
     for (const [k, x] of Object.entries(p)) {
       if (!ROLLEN.includes(k)) throw ungueltig(`zweiFaktorPflicht.${k}: nur bauleiter, buero, gf.`);
       neu[k] = v.bool(x, `zweiFaktorPflicht.${k}`);
+    }
+    // 15.7 (N-063): ohne Schlüssel (außer Demo/Test) kann niemand 2FA einrichten → eine neu eingeschaltete Pflicht sperrte alle aus
+    if (ROLLEN.some((k) => neu[k] && !alt[k]) && !G.schluesselVorhanden(bt) && !G.klarErlaubt(bt)) {
+      throw ungueltig('Die Zwei-Faktor-Pflicht lässt sich erst einschalten, wenn auf dem Server BAUTAG_SCHLUESSEL gesetzt ist (mindestens 32 Zeichen, siehe deploy/.env) – sonst kann niemand die Zwei-Faktor-Anmeldung einrichten.');
     }
     db.setzeEinstellung('zwei_faktor_pflicht', neu);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'sicherheit', objekt: 'einstellung', neu, text: 'Zwei-Faktor-Pflicht je Rolle geändert' });

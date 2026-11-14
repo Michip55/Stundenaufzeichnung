@@ -48,6 +48,9 @@ async function planerKorrektur(h) {
     await geh(`/plan?ansicht=woche&datum=${MO}`);
     await page.waitForSelector('.wp-gitter');
     pruef(!(await page.locator('#wp-pub').isDisabled()) && Number(await page.locator('#wp-pub').getAttribute('data-anzahl')) >= 4, P(`N-049: „Plan veröffentlichen“ oben gesperrt, obwohl Di–Fr nur Vorschau sind (${await page.locator('#wp-pub').getAttribute('data-anzahl')})`));
+    // 15.7: direkt nach dem Veröffentlichen von Mo zählt der Knopf keine Vorschau-Zellen als „Änderungen“ – Di–Fr stehen getrennt
+    const pubText = (await page.locator('#wp-pub').innerText()).replace(/\s+/g, ' ').trim();
+    pruef(!/Änderung/.test(pubText) && /Di–Fr vorbereitet/.test(pubText) && (await page.locator('#wp-pub').getAttribute('data-aenderungen')) === '0', P(`15.7: Knopf „${pubText}“ (erwartet ohne Änderungszahl, mit „Di–Fr vorbereitet“)`));
     // N-098: Notizen-Knopf nennt den Quelltag (Mo 16.11.), nicht „gestern“
     const knopf = page.locator(`.wp-gitter [data-zelle][data-datum="${DI}"][data-bs="${pitten.id}"] [data-vortag-notizen]`);
     pruef(await knopf.count() === 1 && /Notizen von Mo 16\.11\. übernehmen/.test(await knopf.innerText()), P(`N-098: Knopf „${await knopf.count() ? await knopf.innerText() : '–'}“`));

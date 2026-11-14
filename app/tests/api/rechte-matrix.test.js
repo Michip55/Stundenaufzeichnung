@@ -206,6 +206,48 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
+  await t.test('Rechteprüfung zuerst (15.7, F-036): verweigerte Rollen erhalten mit ungültigem Body dieselbe Antwort wie mit gültigem – keine 400/404-Auskunft', async () => {
+    const v = [];
+    const k = await H.starteKopie(basis);
+    // ungültige Bodys: leer, jeder Wert mit falschem Typ, jede Zahl als nicht vorhandene ID
+    const falsch = (b) => (b && typeof b === 'object' && !Array.isArray(b) ? Object.fromEntries(Object.keys(b).map((x) => [x, { ungueltig: true }])) : { ungueltig: true });
+    const fremdId = (b) => (b && typeof b === 'object' && !Array.isArray(b) ? Object.fromEntries(Object.entries(b).map(([x, w]) => [x, typeof w === 'number' ? 999999 : Array.isArray(w) && w.length && w.every((y) => typeof y === 'number') ? w.map(() => 999999) : w])) : {});
+    try {
+      const kc = Object.fromEntries(await Promise.all(ROLLEN.map(async (r) => [r, await k.login(ID[r])])));
+      let geprueft = 0;
+      for (const [schluessel, e] of Object.entries(MATRIX)) {
+        const methode = schluessel.split(' ')[0];
+        if (!istSchreibend(methode) || e.spezial || e.nein400) continue;
+        for (const rolle of ROLLEN) {
+          // nur Rollen ganz ohne Recht auf die Route (N): bei E (eigener Bereich) kann das Ziel erst aus dem Body kommen
+          if (erwartung(e, rolle) !== 'N') continue;
+          for (const variante of brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne']) {
+            const a = anfrage(schluessel, e, F, rolle, variante);
+            const gueltig = a.body === undefined ? {} : a.body;
+            const vorher = H.dbHash(k.db);
+            const soll = await kc[rolle].anfrage(methode, a.pfad, gueltig);
+            // zusätzlich: nicht vorhandene ID im Pfad (gültiger Body) – ein 404 vor der Rechteprüfung wäre eine Existenzauskunft
+            const pfadFremd = a.pfad.replace(/\/\d+(?=\/|\?|$)/g, '/999999');
+            const proben = [['leer', {}, a.pfad], ['falscher Typ', falsch(gueltig), a.pfad], ['unbekannte ID', fremdId(gueltig), a.pfad], ...(pfadFremd !== a.pfad ? [['gültig, unbekannte Pfad-ID', gueltig, pfadFremd]] : [])];
+            for (const [art, body, pfad] of proben) {
+              const r = await kc[rolle].anfrage(methode, pfad, body);
+              geprueft++;
+              const wo = `${rolle} ${methode} ${pfad} [${variante}] Body ${art}`;
+              if (!VERWEIGERT.includes(r.status)) v.push(`${wo} → ${r.status} ${JSON.stringify(r.daten).slice(0, 140)} (Prüfung vor den Rechten)`);
+              else if (r.status !== soll.status) v.push(`${wo} → ${r.status}, mit gültigem Body ${soll.status} (Antwort hängt vom Body ab)`);
+              v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: `${a.pfad} (Body ${art})` }));
+            }
+            const diff = H.dbUnterschied(vorher, H.dbHash(k.db));
+            if (diff.length) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit ungültigem Body: DB geändert (${diff.join(', ')})`);
+          }
+        }
+      }
+      if (!NUR && geprueft < 300) v.push(`nur ${geprueft} Proben mit ungültigem Body – Probe wirkungslos?`);
+    } finally { await k.stop(); }
+    v.forEach(melde);
+    assert.deepEqual(v, [], `\n${v.join('\n')}`);
+  });
+
   await t.test('Ausnahmen: gesperrte Rechte lassen sich nicht vergeben; mit allen übrigen Ausnahmen bleiben MA/Polier €-frei und der Bauleiter (= Büro) ohne GF-Vorbehalte', async () => {
     const v = [];
     const k = await H.starteKopie(basis);

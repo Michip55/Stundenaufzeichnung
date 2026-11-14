@@ -1328,11 +1328,13 @@ async function laufe(browser, g) {
       }
     }
     await geh(`/bericht/${id10}`, 'bericht-vier-augen');
-    await page.click('#freigeben');
-    await absichtlich(async () => { await page.click('dialog[open] [data-ok]'); await page.waitForSelector('dialog[open] [data-freigabe-abgelehnt]'); });
-    pruef((await page.locator('dialog[open] [data-freigabe-abgelehnt]').innerText()).length > 10 && (await api('GET', `/berichte/${id10}`)).json.status === 'unterschrieben', 'D-10: Selbstfreigabe durch den Bauleiter möglich oder ohne Erklärung abgelehnt');
+    // 15.7 (F-049, Regel 5): die verbotene Selbstfreigabe wird gar nicht angeboten – neutraler Hinweis statt „Freigeben“;
+    // der Server lehnt sie weiter ab (403, Bericht bleibt unterschrieben)
+    await page.waitForSelector('#abschluss', { state: 'attached' });
+    pruef(await page.locator('#freigeben').count() === 0 && /zweite Person/.test(await page.locator('#abschluss').innerText()), 'D-10/F-049: Selbstfreigabe wird dem Bauleiter angeboten bzw. ohne Hinweis ausgeblendet');
+    const fr10 = await absichtlich(() => api('POST', `/berichte/${id10}/freigeben`));
+    pruef(fr10.status === 403 && /Vier-Augen/.test((fr10.json || {}).fehler || '') && (await api('GET', `/berichte/${id10}`)).json.status === 'unterschrieben', 'D-10: Selbstfreigabe durch den Bauleiter möglich oder ohne Erklärung abgelehnt');
     await ueberlauf('freigabe abgelehnt'); await shot('freigabe-abgelehnt');
-    await page.click('dialog[open] [data-zu]');
     await abmelden();
 
     /* ============ 5. Polier: bekommt keinen Budget-Alarm ============ */

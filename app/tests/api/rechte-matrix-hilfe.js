@@ -16,7 +16,7 @@ const os = require('node:os');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { starte, U, BS } = require('./hilfe');
-const { testJpeg } = require('./fuhrpark-bilder');
+const { testJpeg, testPng } = require('./fuhrpark-bilder');
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
 const ID = { mitarbeiter: U.mitarbeiter, polier: U.polier, bauleiter: U.bauleiter, buero: U.buero, gf: U.gf };
@@ -73,7 +73,8 @@ const TEXT = {
   krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2',
   telefonAnderer: '+43 699 3333 3131', telefonPolier: '+43 664 1111 1111', smtp: 'smtp-kanarie.example.test', alarmAn: 'alarm-kanarie@example.test',
   rechnungServicebuch: 'SB-RECHNUNG-KANARIE-4711', // Rechnungsnr. der Werkstatt im Servicebuch: nur mit preise_sehen (14.11.2026)
-  schadenEigen: 'SCHADEN-EIGEN-KANARIE von Mitarbeiter 2', schadenFremd: 'SCHADEN-FREMD-KANARIE von Mitarbeiter 14', lvKurztext: 'LV-KANARIE-POSITION'
+  schadenEigen: 'SCHADEN-EIGEN-KANARIE von Mitarbeiter 2', schadenFremd: 'SCHADEN-FREMD-KANARIE von Mitarbeiter 14', lvKurztext: 'LV-KANARIE-POSITION',
+  lieferschein: 'LIEFERSCHEIN-KANARIE-GF' // N-112 (15.7): von der GF hochgeladener Lieferschein (Beschreibung, OCR-Text, Dokument) – Polier/Mitarbeiter nie
 };
 
 function zahlFormen(z) {
@@ -93,7 +94,7 @@ function verboteneKanarien(rolle) {
   const text = (schluessel) => k.push({ name: `Text ${schluessel}`, formen: [TEXT[schluessel]] });
   if (rolle === 'mitarbeiter' || rolle === 'polier') {
     for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
-    ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch'].forEach(text);
+    ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch', 'lieferschein'].forEach(text);
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
@@ -187,9 +188,7 @@ const SCHLUESSEL_AUSNAHMEN = [
   ...['GET /api/zeit/status', 'POST /api/zeit/stempeln'].map((route) => ({ schluessel: 'standardKostenstelleId', route, pfad: /^\$\.standardKostenstelleId$/, nurWennWert: (v) => v === null || Number.isInteger(v), grund: '12.25: ID der Standard-Kostenstelle (Baustelle), kein Betrag' })),
   { schluessel: 'summe', route: 'GET /api/zeit/woche', grund: 'Stundensumme der eigenen Woche (Stunden, kein €)' },
   { schluessel: 'satz', route: '*', nurWennWert: (v) => v === null, grund: 'nie belegt' },
-  { schluessel: 'lohngruppe', route: 'GET /api/auth/ich', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe im Anmelde-Objekt ist laut API.md 12.22 erlaubt' },
-  { schluessel: 'lohngruppe', route: 'POST /api/auth/login', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe nach der Anmeldung (wie /auth/ich)' },
-  { schluessel: 'lohngruppe', route: 'POST /api/auth/login/2fa', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe nach der Anmeldung (wie /auth/ich)' },
+  // 15.7 (F-059): keine Ausnahme mehr für die eigene Lohngruppe in /auth/ich bzw. nach der Anmeldung (Inhaberregel 2)
   { schluessel: 'rechnung', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name eines Push-Typs (bool); Wert wird zusätzlich geprüft', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'budget', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.budget$/, grund: 'nur Schalter-Name eines Push-Typs (bool)', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'rechnung', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
@@ -529,7 +528,7 @@ async function erstelleBasis() {
     const e3 = await erwarte(await gf.post('/plan/einsaetze', { datum: morgen, baustelleId: BS.reisinger, beginn: '07:00', benutzerIds: [13, FREMDER_MA], anlageIds: [5] }), 201, 'Einsatz BS3');
     F.einsatz.bs3 = e3.id;
     const f1 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 4, fahrerId: U.mitarbeiter, materialId: 4, menge: 12, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } }), 201, 'Fuhre BS1');
-    const f3 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 6, materialId: 4, menge: 8, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } }), 201, 'Fuhre BS3');
+    const f3 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 5, materialId: 4, menge: 8, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } }), 201, 'Fuhre BS3');
     F.fuhre = { bs1: f1.id, bs3: f3.id };
     await erwarte(await gf.post('/plan/veroeffentlichen', { von: morgen }), 200, 'Veröffentlichen');
     F.abschnitt = {};
@@ -538,7 +537,8 @@ async function erstelleBasis() {
     const pol13 = await s.login(13);
     F.anfrage.bs3 = (await erwarte(await pol13.post('/plan/anfragen', { datum: morgen, einsatzId: e3.id, text: 'Bitte Bagger tauschen' }), 201, 'Anfrage BS3')).id;
     F.fuhreFoto = {};
-    for (const k of ['bs1', 'bs3']) F.fuhreFoto[k] = (await erwarte(await gf.post(`/plan/fuhren/${F.fuhre[k]}/foto`, { bildBase64: b64(testJpeg()), dateiname: 'ls.jpg' }), 201, 'Fuhren-Foto')).id;
+    // N-112 (15.7): Wiegeschein der Fuhre BS1 lädt der eingeteilte Fahrer (Mitarbeiter 2) selbst hoch, den der Fuhre BS3 die GF
+    for (const k of ['bs1', 'bs3']) F.fuhreFoto[k] = (await erwarte(await (k === 'bs1' ? c.mitarbeiter : gf).post(`/plan/fuhren/${F.fuhre[k]}/foto`, { bildBase64: b64(testJpeg()), dateiname: 'ls.jpg' }), 201, 'Fuhren-Foto')).id;
 
     // --- Berichte: je Baustelle ein Entwurf von heute (für Schreibproben) + bestehende (unterschrieben/freigegeben)
     F.bericht = {};
@@ -548,10 +548,17 @@ async function erstelleBasis() {
       F.bericht[`${kk}Alt`] = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status <> 'entwurf' ORDER BY datum DESC", bs).id;
       const foto = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/fotos`, { bildBase64: b64(testJpeg()), dateiname: 'foto.jpg', beschreibung: 'Foto' }), 201, 'Berichtsfoto');
       F.bericht[`${kk}Foto`] = foto.id;
+      if (kk === 'bs1') { // N-112 (15.7): Lieferschein der GF (Preis im OCR-Text, Kanarie in der Beschreibung) – vor dem Fern-Link (Version)
+        await erwarte(await gf.post('/test/ocr', { text: `${TEXT.lieferschein}\nKies 16/32 12,5 t Preis 12,50 EUR/t` }), 200, 'OCR-Attrappe');
+        F.bericht.bs1Lieferschein = (await erwarte(await gf.post(`/berichte/${F.bericht.bs1}/lieferschein`, { bildBase64: b64(testPng()), dateiname: 'ls.png', beschreibung: TEXT.lieferschein }), 201, 'Lieferschein')).foto.id;
+        await erwarte(await gf.post('/test/ocr', { text: null }), 200, 'OCR-Attrappe zurück');
+      }
       const link = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/unterschrift-link`, { rolle: 'bh', name: 'Bauherr' }), 201, 'Fern-Link');
       F.bericht[`${kk}Link`] = link.id;
       F.bericht[`${kk}Token`] = link.url.split('/').pop();
     }
+    // --- N-112 (15.7): Dokument „Lieferscheine“ auf BS 1, hochgeladen von der GF – Polier/Mitarbeiter sehen es nie
+    F.dok.lieferscheinBs1 = await dok(BS.pitten, 'lieferscheine', `${TEXT.lieferschein}-DOK`);
     // --- Fuhrpark: Schäden (Mitarbeiter 2 eigener, Mitarbeiter 14 fremder), Mängel
     const sch2 = await erwarte(await c.mitarbeiter.post('/fuhrpark/schaeden', { anlageId: 4, baustelleId: BS.pitten, art: 'defekt', ursache: TEXT.schadenEigen, einsatzfaehig: 'ja', fotos: [{ bildBase64: b64(testJpeg()), dateiname: 's.jpg' }] }), 201, 'Schaden eigen');
     const sch14 = await erwarte(await ma14.post('/fuhrpark/schaeden', { anlageId: 5, baustelleId: BS.reisinger, art: 'defekt', ursache: TEXT.schadenFremd, einsatzfaehig: 'ja', fotos: [{ bildBase64: b64(testJpeg()), dateiname: 's.jpg' }] }), 201, 'Schaden fremd');

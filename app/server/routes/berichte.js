@@ -87,6 +87,11 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     bearbeitbar: b.status === 'entwurf' && !b.unterschriften.length
   };
   if (darfPreise(ctx, bs)) o.kostenTag = kostenTagFuer(db, b.id);
+  // API.md 15.7 (F-049): Vier-Augen-Prinzip schon in der Antwort – wer die AN-Unterschrift erfasst hat, gibt nicht selbst frei (außer GF)
+  if (ctx.benutzer && ctx.hat && ctx.hat('bericht_freigeben')) {
+    const an = b.unterschriften.find((u) => u.rolle === 'an');
+    o.freigabeVierAugen = Boolean(an && an.erfasst_von === ctx.benutzer.id && ctx.benutzer.rolle !== 'gf');
+  }
   // API.md 15.1: Konflikte Bericht ↔ eingetragene Abwesenheit nur für Aufrufer mit Sicht (Büro/Lohn/GF, Bauleiter)
   if (DS.berichtSiehtAbwesenheiten(ctx)) o.abwesenheitHinweise = abwesenheitHinweise(db, ctx, b);
   anlagenZumBericht(db, b, o);
@@ -98,7 +103,7 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     o.emailVersand = db.alle("SELECT id, erstellt, gesendet, an, status, fehler FROM mail_ausgang WHERE bezug = ? ORDER BY id", `bericht:${b.id}`)
       .map((m) => ({ id: m.id, zeit: m.gesendet || m.erstellt, an: m.an, status: m.status, ...(m.fehler ? { fehler: m.fehler } : {}) }));
   }
-  if (typeof module.exports.fotosJson === 'function') o.fotos = module.exports.fotosJson(db, b.id);
+  if (typeof module.exports.fotosJson === 'function') o.fotos = module.exports.fotosJson(db, b.id, ctx); // N-112: Lieferscheine nur für Berechtigte bzw. den Hochladenden
   if (typeof module.exports.fuhrenVorschlag === 'function') o.fuhrenVorschlag = module.exports.fuhrenVorschlag(db, b); // 12.8b
   return o;
 }
@@ -146,12 +151,17 @@ function anlagenZumBericht(db, b, o, S) {
 
 /* ---------- Rechte ---------- */
 
+/** 15.7 (F-036): Grundrecht VOR Existenz- und Body-Prüfung (Unberechtigte erhalten immer dieselbe 403) */
+function pruefeGrundrecht(ctx, schreiben) {
+  if (schreiben) { if (!ctx.hat('bericht_erstellen')) throw keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.'); }
+  else if (!ctx.hat('bericht_erstellen') && !ctx.hat('bericht_freigeben')) throw keinZugriff('Bautagesberichte sind für Ihre Rolle nicht freigeschaltet.');
+}
 function pruefeLesen(ctx, bs) {
-  if (!ctx.hat('bericht_erstellen') && !ctx.hat('bericht_freigeben')) throw keinZugriff('Bautagesberichte sind für Ihre Rolle nicht freigeschaltet.');
+  pruefeGrundrecht(ctx, false);
   if (!baustelleImBereich(ctx.benutzer, bs)) throw keinZugriff('Dieser Bericht gehört zu einer Baustelle außerhalb Ihres Bereichs.');
 }
 function pruefeSchreiben(ctx, bs) {
-  if (!ctx.hat('bericht_erstellen')) throw keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.');
+  pruefeGrundrecht(ctx, true);
   if (!baustelleImBereich(ctx.benutzer, bs)) throw keinZugriff('Dieser Bericht gehört zu einer Baustelle außerhalb Ihres Bereichs.');
 }
 
@@ -394,6 +404,7 @@ module.exports = function berichtRouten(api, bt) {
   const jetzt = () => bt.uhr().toISOString();
 
   function ladeMitZugriff(req, schreiben) {
+    pruefeGrundrecht(req.ctx, schreiben); // 15.7 (F-036)
     const id = v.pfadId(req.params.id, 'Berichts-ID');
     const b = ladeBerichtRoh(db, id);
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
@@ -628,9 +639,9 @@ module.exports = function berichtRouten(api, bt) {
 
   api.post('/berichte/:id/freigeben', (req, res) => {
     const id = v.pfadId(req.params.id, 'Berichts-ID');
+    if (!req.ctx.hat('bericht_freigeben')) throw keinZugriff('Berichte freigeben ist für Ihre Rolle nicht freigeschaltet.'); // 15.7 (F-036): Rechte vor Existenz
     const b = ladeBerichtRoh(db, id);
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
-    if (!req.ctx.hat('bericht_freigeben')) throw keinZugriff('Berichte freigeben ist für Ihre Rolle nicht freigeschaltet.');
     if (!baustelleImBereich(req.ctx.benutzer, b.baustelle)) throw keinZugriff('Freigeben dürfen Sie nur Berichte Ihrer eigenen Baustellen.');
     if (b.status === 'freigegeben') throw konflikt('Der Bericht ist bereits freigegeben.');
     if (b.status !== 'unterschrieben') throw konflikt('Freigabe erst nach beiden Unterschriften (Auftragnehmer und Bauherr) möglich.');
@@ -703,7 +714,7 @@ async function berichtPdf(bt, b, { fassung = 'ag', ctx = null, fotos = false } =
   daten.personal = DS.berichtPersonalPdf(ctx, b.personal.map((p) => ({
     benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pause_min, stunden: p.stunden, code: p.code
   })));
-  const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id) : null;
+  const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id, ctx) : null; // N-112: ohne ctx (E-Mail, Fernunterschrift) keine Lieferscheine
   return erzeugeBerichtPdf(daten, { fassung, firma, abwesenheitenSichtbar: DS.berichtSiehtAbwesenheiten(ctx), unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
 }
 
@@ -736,5 +747,6 @@ module.exports.linksUngueltig = linksUngueltig;
 module.exports.berichtGeaendert = berichtGeaendert;
 module.exports.pruefeLesen = pruefeLesen;
 module.exports.pruefeSchreiben = pruefeSchreiben;
+module.exports.pruefeGrundrecht = pruefeGrundrecht;
 module.exports.GESPERRT_TEXT = GESPERRT_TEXT;
 module.exports.pruefePng = pruefePng;

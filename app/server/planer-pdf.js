@@ -123,12 +123,17 @@ function tagesplanPdf(m, opt = {}) {
     y += KOPF_H + 5;
   };
   const rahmen = (von) => doc.rect(RAND, von, BREITE, y - von + 4).lineWidth(0.8).strokeColor('#777').stroke();
+  // Platz einer Folgeseite unter dem Seitenkopf (der Kopf der Folgeseiten ist kleiner als der der ersten Seite)
+  const FOLGE_OBEN = RAND + GR.kopf + 16;
   for (const b of m.bloecke) {
     const zeilen = blockZeilen(b);
     const h = KOPF_H + hoeheZeilen(doc, zeilen, BREITE - 16) + 14;
     // nie teilen: passt der Block nicht mehr, neue Seite. N-036: nur ein Block, der größer als eine ganze Seite ist,
-    // wird umbrochen – Zeile für Zeile, mit Seitenkopf und Block-Kopf „(Fortsetzung)“, Rahmen je Seitenteil
-    if (y + h > UNTEN && y > RAND + 60) neueSeite();
+    // wird umbrochen – Zeile für Zeile, mit Seitenkopf und Block-Kopf „(Fortsetzung)“, Rahmen je Seitenteil.
+    // 15.7 (Rest N-036): ein solcher Block beginnt gleich auf der laufenden Seite (sonst bliebe sie fast leer), sofern dort
+    // noch Platz für den Block-Kopf und einige Zeilen ist
+    const zuGross = h > UNTEN - FOLGE_OBEN;
+    if (y + h > UNTEN && y > RAND + 60 && (!zuGross || UNTEN - y < KOPF_H + 80)) neueSeite();
     let start = y;
     blockKopf(b, false);
     for (const z of zeilen) {
@@ -224,14 +229,18 @@ function wochenplanPdf(m, opt = {}) {
   if (!m.zeilen.length) doc.font('Helvetica').fontSize(GR.text).text(winAnsi('Keine Einsätze in dieser Woche.'), RAND, y + 8);
   const neueSeite = () => { doc.addPage(); y = kopf(doc, m, true); kopfZeile(); };
   const OBEN = y; // y unter dem Tabellenkopf der ersten Seite (Folgeseiten: kleinerer Kopf)
-  const hoehe = (s, w) => doc.heightOfString(winAnsi(s || ' '), { width: w });
+  // 15.7 (Rest N-080): immer mit der Schrift messen, mit der gedruckt wird (Zellen Helvetica, Baustelle Helvetica-Bold, GR.klein) –
+  // nach neueSeite() stünde sonst noch die Schrift des Tabellenkopfs (größer, fett) und es würde zu früh umbrochen
+  const hoehe = (s, w, fett = false) => doc.font(fett ? 'Helvetica-Bold' : 'Helvetica').fontSize(GR.klein).heightOfString(winAnsi(s || ' '), { width: w });
   for (const z of m.zeilen) {
     doc.font('Helvetica').fontSize(GR.klein);
     const kopfText = `${z.kst}\n${z.name}`;
     let rest = m.tage.map((t) => [...(z.zellen[t.datum] || [])]);
-    const zeilenH = (zellen, kt) => Math.max(hoehe(kt, ERSTE - 8), ...zellen.map((e) => hoehe(e.join('\n'), spB - 8))) + 10;
+    const zeilenH = (zellen, kt) => Math.max(hoehe(kt, ERSTE - 8, true), ...zellen.map((e) => hoehe(e.join('\n'), spB - 8))) + 10;
     let h = zeilenH(rest, kopfText);
-    if (y + h > UNTEN && y > OBEN + 1) neueSeite();
+    // eine Zeile, die auch auf eine leere Seite nicht passt, beginnt auf der laufenden Seite (sofern dort Platz für einige Einträge ist)
+    const zuGross = h > UNTEN - OBEN;
+    if (y + h > UNTEN && y > OBEN + 1 && (!zuGross || UNTEN - y < 80)) neueSeite();
     let forts = false;
     // N-080: eine Zeile höher als eine Seite wird auf Folgeseiten verteilt (je Zelle so viele Einträge, wie passen)
     for (;;) {
