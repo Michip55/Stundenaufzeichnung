@@ -25,6 +25,8 @@ export default async function urlaub(el, ctx) {
   let tab = ['monat', 'jahr', 'konten'].includes(ctx.query.get('ansicht')) ? ctx.query.get('ansicht') : 'monat';
   let monat = /^\d{4}-\d{2}$/.test(ctx.query.get('monat') || '') ? ctx.query.get('monat') : heute.slice(0, 7);
   let jahr = Number(monat.slice(0, 4));
+  // Urlaubskonten: ohne Wahl das laufende Urlaubsjahr (vom Server je Person, 14.3 – nicht das Kalenderjahr)
+  let kontoJahr = null;
   let fBs = '', fRolle = '';
   let kal = { tage: [], personen: [], warnungen: [] }, konten = [], baustellen = [], jahrDaten = null, antraege = [], fehler = '';
   const bsName = (id) => { const b = baustellen.find((x) => Number(x.id) === Number(id)); return b ? b.kurz || b.name : 'Ohne Partie'; };
@@ -40,10 +42,10 @@ export default async function urlaub(el, ctx) {
     fehler = '';
     try {
       // Anträge kommen gruppiert (ein Antrag = ein Zeitraum, 12.24); entschieden wird immer der ganze Antrag
-      if (handy) { [kal, konten, antraege] = await Promise.all([ladeKal(heute, fmt.addTage(heute, 60)), get(`/urlaub/konto?jahr=${jahr}`), antraegeLaden({ von: fmt.addTage(heute, -14), bis: fmt.addTage(heute, 366) }).catch(() => [])]); return; }
+      if (handy) { [kal, konten, antraege] = await Promise.all([ladeKal(heute, fmt.addTage(heute, 60)), get('/urlaub/konto'), antraegeLaden({ von: fmt.addTage(heute, -14), bis: fmt.addTage(heute, 366) }).catch(() => [])]); return; }
       if (tab === 'monat') [kal, antraege] = await Promise.all([ladeKal(`${monat}-01`, monEnde(monat)), ladeAntraege()]);
       else if (tab === 'jahr') { const teile = await Promise.all([0, 2, 4, 6, 8, 10].map((m) => ladeKal(`${jahr}-${String(m + 1).padStart(2, '0')}-01`, monEnde(`${jahr}-${String(m + 2).padStart(2, '0')}`)))); const map = new Map(); teile.forEach((t) => t.personen.forEach((p) => { if (!map.has(p.benutzerId)) map.set(p.benutzerId, { ...p, tage: {} }); Object.assign(map.get(p.benutzerId).tage, p.tage); })); jahrDaten = [...map.values()]; }
-      else konten = await get(`/urlaub/konto?jahr=${jahr}`);
+      else konten = await get(`/urlaub/konto${kontoJahr ? `?jahr=${kontoJahr}` : ''}`);
     } catch (e) { if (e.status === 401 || e.netz) throw e; fehler = e.status === 403 ? 'Kein Zugriff.' : e.message; }
   }
   baustellen = leitet ? await get('/baustellen').catch(() => []) : [];
@@ -81,14 +83,19 @@ export default async function urlaub(el, ctx) {
         <div class="ur-legende"><span><i class="ur-hz s1">1</i>1–2</span><span><i class="ur-hz s2">4</i>3–5</span><span><i class="ur-hz s3">8</i>6–10</span><span><i class="ur-hz s4">15</i>über 10 Tage</span></div></section>`;
   }
   /* ---------- Konten ---------- */
+  const MON_BEGINN = (mmtt) => { const [m, t] = String(mmtt || '01-01').split('-').map(Number); return `${t}. ${MON[m - 1]}`; };
+  const jahrZeitraum = (k) => (k && k.von && !k.von.endsWith('-01-01') ? `${fmt.datum(k.von)}–${fmt.datum(k.bis)}` : '');
+  const kontoBasis = () => kontoJahr ?? (konten[0] ? konten[0].jahr : Number(heute.slice(0, 4)));
+  const beginnFelder = (mmtt) => { const [mm, tt] = String(mmtt || '01-01').split('-'); return `<div class="form-grid"><label class="field"><span class="vh">Tag</span><select class="input lg" name="tag">${Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map((x) => `<option ${x === tt ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label class="field"><span class="vh">Monat</span><select class="input lg" name="monat">${MON.map((n, i) => `<option value="${String(i + 1).padStart(2, '0')}" ${String(i + 1).padStart(2, '0') === mm ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>`; };
+  const beginnAus = (f) => (new Date(2001, Number(f.get('monat')) - 1, Number(f.get('tag'))).getMonth() === Number(f.get('monat')) - 1 ? `${f.get('monat')}-${f.get('tag')}` : null);
   const anspruchText = (k) => `${fmt.zahl(k.anspruch, 1)} ${esc(k.einheit || 'Arbeitstage')}${k.art === 'buak' ? `<small class="muted">laut BUAK-Kontoauszug${k.buak && k.buak.datum ? ' vom ' + esc(fmt.datum(k.buak.datum)) : ' – noch nicht eingetragen'}</small>` : ''}`;
   function kontenHtml() {
-    return `<div class="toolbar wrap"><div class="wp-nav"><button type="button" class="icon-btn" data-jahr="-1" aria-label="Voriges Jahr">${ic('left')}</button><b>Urlaubsjahr ${jahr}</b><button type="button" class="icon-btn" data-jahr="1" aria-label="Nächstes Jahr">${ic('right')}</button></div><span class="grow"></span>${verwaltet ? `<a class="btn ghost" id="ur-csv" href="/api/urlaub/export.csv?jahr=${jahr}" download>${ic('download')}CSV für die Lohnverrechnung</a>` : ''}</div>
-      <section class="card">${konten.length ? `<div class="tbl-wrap"><table class="tbl" id="ur-konten"><thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th class="num">Übertrag</th><th class="num">Genommen</th><th class="num">Geplant</th><th class="num">Beantragt</th><th class="num">Rest</th>${verwaltet ? '<th></th>' : ''}</tr></thead><tbody>${konten.map((k) => `<tr data-konto="${k.benutzerId}"><td><b>${esc(k.name)}</b><small class="muted"> ${esc(rolleText(k.rolle))}</small>${k.hinweis ? `<small class="muted block">${esc(k.hinweis)}</small>` : ''}</td><td>${anspruchText(k)}</td><td class="num">${fmt.zahl(k.uebertrag, 1)}</td><td class="num">${fmt.zahl(k.genommen, 1)}</td><td class="num">${fmt.zahl(k.geplant, 1)}</td><td class="num">${fmt.zahl(k.beantragt, 1)}</td><td class="num"><b class="${k.rest < 0 ? 'neg' : ''}" data-rest>${fmt.zahl(k.rest, 1)}</b></td>${verwaltet ? `<td><button type="button" class="btn ghost sm" data-konto-edit="${k.benutzerId}">${ic('edit', 'xs')}Konto</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : leer('Keine Urlaubskonten.', 'calendar')}</section>
+    return `<div class="toolbar wrap"><div class="wp-nav"><button type="button" class="icon-btn" data-kjahr="-1" aria-label="Voriges Urlaubsjahr">${ic('left')}</button><b id="ur-konto-jahr">${kontoJahr ? `Urlaubsjahr ${kontoJahr}` : 'Laufendes Urlaubsjahr'}</b><button type="button" class="icon-btn" data-kjahr="1" aria-label="Nächstes Urlaubsjahr">${ic('right')}</button></div><span class="grow"></span>${verwaltet ? `<a class="btn ghost" id="ur-csv" href="/api/urlaub/export.csv?jahr=${kontoBasis()}" download>${ic('download')}CSV für die Lohnverrechnung</a>` : ''}</div>
+      <section class="card">${konten.length ? `<div class="tbl-wrap"><table class="tbl" id="ur-konten"><thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th class="num">Übertrag</th><th class="num">Genommen</th><th class="num">Geplant</th><th class="num">Beantragt</th><th class="num">Rest</th>${verwaltet ? '<th></th>' : ''}</tr></thead><tbody>${konten.map((k) => `<tr data-konto="${k.benutzerId}"><td><b>${esc(k.name)}</b><small class="muted"> ${esc(rolleText(k.rolle))}</small>${!kontoJahr || jahrZeitraum(k) ? `<small class="muted block" data-urlaubsjahr>Urlaubsjahr ${esc(k.jahr)}${jahrZeitraum(k) ? `: ${esc(jahrZeitraum(k))}` : ''}</small>` : ''}${k.hinweis ? `<small class="muted block">${esc(k.hinweis)}</small>` : ''}</td><td>${anspruchText(k)}</td><td class="num">${fmt.zahl(k.uebertrag, 1)}</td><td class="num">${fmt.zahl(k.genommen, 1)}</td><td class="num">${fmt.zahl(k.geplant, 1)}</td><td class="num">${fmt.zahl(k.beantragt, 1)}</td><td class="num"><b class="${k.rest < 0 ? 'neg' : ''}" data-rest>${fmt.zahl(k.rest, 1)}</b></td>${verwaltet ? `<td><button type="button" class="btn ghost sm" data-konto-edit="${k.benutzerId}">${ic('edit', 'xs')}Konto</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : leer('Keine Urlaubskonten.', 'calendar')}</section>
       <p class="muted sm">Gezählt werden Arbeitstage (Mo–Fr ohne Feiertage) mit Urlaub oder Betriebsurlaub. Bauarbeiter: Der Anspruch kommt aus dem BUAK-Kontoauszug und gilt ab dessen Datum. Angestellte: Anspruch nach Urlaubsgesetz – bitte mit der Lohnverrechnung abstimmen.</p>`;
   }
   function kontoDialog(k) {
-    const dlg = dialog({ titel: `Urlaubskonto ${jahr} · ${k.name}`, breit: true, inhalt: `<form id="ukf" class="form-grid" novalidate>
+    const dlg = dialog({ titel: `Urlaubskonto ${k.jahr} · ${k.name}`, breit: true, inhalt: `<form id="ukf" class="form-grid" novalidate>
       <label class="field full"><span class="field-label">Art</span><select class="input lg" name="art"><option value="buak" ${k.art === 'buak' ? 'selected' : ''}>Bauarbeiter – Urlaub über die BUAK</option><option value="urlg" ${k.art !== 'buak' ? 'selected' : ''}>Angestellte – Urlaubsgesetz</option></select></label>
       <label class="field" data-nur="buak"><span class="field-label">Anspruch laut BUAK-Kontoauszug (Tage)</span><input class="input lg num" name="buakStand" inputmode="decimal" value="${k.buak && k.buak.stand != null ? esc(fmt.zahl(k.buak.stand, 1)) : ''}"></label>
       <label class="field" data-nur="buak"><span class="field-label">Datum des Kontoauszugs</span><input class="input lg" type="date" name="buakDatum" value="${esc((k.buak && k.buak.datum) || '')}"></label>
@@ -96,6 +103,7 @@ export default async function urlaub(el, ctx) {
       <label class="field" data-nur="urlg"><span class="field-label">Einheit</span><select class="input lg" name="einheit"><option ${k.einheit !== 'Werktage' ? 'selected' : ''}>Arbeitstage</option><option ${k.einheit === 'Werktage' ? 'selected' : ''}>Werktage</option></select></label>
       <label class="field"><span class="field-label">Übertrag aus dem Vorjahr</span><input class="input lg num" name="uebertrag" inputmode="decimal" value="${esc(fmt.zahl(k.uebertrag || 0, 1))}"></label>
       <label class="field full"><span class="field-label">Notiz</span><input class="input lg" name="notiz" maxlength="300" value="${esc(k.notiz || '')}"></label>
+      <fieldset class="field full"><legend class="field-label">Beginn des Urlaubsjahres ${esc(k.jahr)} (nur diese Person)</legend>${beginnFelder(k.urlaubsjahrBeginn)}<small class="muted">Derzeit: ${esc(MON_BEGINN(k.urlaubsjahrBeginn))} ${esc(k.jahr)}${k.bis ? ` bis ${esc(fmt.datum(k.bis))}` : ''}.</small></fieldset>
       <p class="muted sm full" data-nur="buak">Genommene und geplante Tage zählen erst ab dem Datum des Kontoauszugs.</p><p class="muted sm full" data-nur="urlg">Üblich: 25 Arbeitstage (30 Werktage), ab dem 25. Dienstjahr 30 (36) – bitte mit der Lohnverrechnung prüfen.</p>
       <p class="form-err full" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="ukf">Speichern</button>' });
     const form = $('#ukf', dlg.el);
@@ -105,9 +113,12 @@ export default async function urlaub(el, ctx) {
       e.preventDefault(); const f = new FormData(form); const err = $('.form-err', dlg.el);
       const z = (n) => { const t = String(f.get(n) || '').trim(); return t === '' ? null : parseZahl(t); };
       const body = { art: f.get('art'), uebertrag: z('uebertrag') ?? 0, notiz: String(f.get('notiz') || '').trim() };
+      const beginn = beginnAus(f);
+      if (!beginn) { err.hidden = false; err.textContent = 'Diesen Tag gibt es in dem Monat nicht.'; return; }
+      if (beginn !== (k.urlaubsjahrBeginn || '01-01')) body.urlaubsjahrBeginn = beginn;
       if (body.art === 'buak') { body.buakStand = z('buakStand'); body.buakDatum = f.get('buakDatum') || null; if (body.buakStand != null && !body.buakDatum) { err.hidden = false; err.textContent = 'Bitte das Datum des BUAK-Kontoauszugs eintragen.'; return; } } else { body.anspruch = z('anspruch'); body.einheit = f.get('einheit'); }
       if ([body.uebertrag, body.buakStand, body.anspruch].some((x) => x != null && !Number.isFinite(x))) { err.hidden = false; err.textContent = 'Bitte Tage als Zahl eintragen, z. B. 25 oder 12,5.'; return; }
-      try { await put(`/urlaub/konto/${k.benutzerId}/${jahr}`, body); dlg.zu(); toast('Urlaubskonto gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
+      try { await put(`/urlaub/konto/${k.benutzerId}/${k.jahr}`, body); dlg.zu(); toast('Urlaubskonto gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
     });
   }
   /* ---------- Zelle: beantragen / eintragen / entscheiden ---------- */
@@ -167,7 +178,7 @@ export default async function urlaub(el, ctx) {
     const meine = antraege.filter((a) => Number(a.benutzerId) === Number(ich.id) && a.bis >= heute);
     const andere = antraege.filter((a) => Number(a.benutzerId) !== Number(ich.id) && a.bis >= heute).sort((x, y) => (x.status === 'beantragt' ? 0 : 1) - (y.status === 'beantragt' ? 0 : 1) || x.von.localeCompare(y.von));
     const kz = (t, v, kl = '') => `<div class="${kl}"><small>${t}</small><b>${v}</b></div>`;
-    return `<section class="card pad stack-s" id="mein-urlaub" aria-labelledby="h-mu"><h2 class="me-h flach" id="h-mu">Mein Urlaub ${jahr}</h2>
+    return `<section class="card pad stack-s" id="mein-urlaub" aria-labelledby="h-mu"><h2 class="me-h flach" id="h-mu">Mein Urlaub${k ? ` ${esc(k.jahr)}` : ''}</h2>${jahrZeitraum(k) ? `<p class="muted sm" data-urlaubsjahr>Urlaubsjahr ${esc(jahrZeitraum(k))}</p>` : ''}
         ${k ? `<div class="ur-konto" id="ur-mein-konto">${kz('Anspruch', fmt.zahl(k.anspruch, 1))}${kz('Übertrag', fmt.zahl(k.uebertrag, 1))}${kz('Genommen', fmt.zahl(k.genommen, 1))}${kz('Geplant', fmt.zahl(k.geplant, 1))}${kz('Beantragt', fmt.zahl(k.beantragt, 1))}${kz('Rest', fmt.zahl(k.rest, 1), 'rest')}</div><p class="muted sm">${esc(k.einheit || 'Arbeitstage')}${k.art === 'buak' ? ` · Anspruch laut BUAK-Kontoauszug${k.buak && k.buak.datum ? ' vom ' + esc(fmt.datum(k.buak.datum)) : ' (noch nicht eingetragen)'}` : ''}</p>` : '<p class="muted sm">Für dieses Jahr ist noch kein Urlaubskonto angelegt.</p>'}
         <button type="button" class="btn primary lg" id="ur-antrag">${ic('plus')}Urlaub beantragen</button></section>
       <section class="card" aria-label="Meine Anträge"><h2 class="me-h">Meine Anträge</h2><div id="ur-meine">${antraegeHtml(meine, { ...rechte, mitName: false }, 'Nichts eingetragen.')}</div></section>
@@ -178,19 +189,19 @@ export default async function urlaub(el, ctx) {
   /* ---------- Einstellungen (Büro/GF): Warngrenze je Partie, Beginn des Urlaubsjahres ---------- */
   async function einstDialog() {
     let ein; try { ein = await get('/einstellungen/urlaub'); } catch (x) { toast(x.message, 'warn'); return; }
-    const [mm, tt] = String(ein.urlaubsjahrBeginn || '01-01').split('-');
     const dlg = dialog({ titel: 'Einstellungen Urlaub', inhalt: `<form id="uef" class="form-grid" novalidate>
       <p class="muted sm full">Gewarnt wird, wenn in einer Partie am selben Tag mehr Personen abwesend sind als hier erlaubt – es gilt die Grenze, die zuerst erreicht ist.</p>
       <label class="field"><span class="field-label">Höchstens abwesend je Partie (Personen)</span><input class="input lg num" name="partieGrenze" inputmode="numeric" value="${esc(ein.partieGrenze ?? 2)}"></label>
       <label class="field"><span class="field-label">bzw. höchstens (% der Partie)</span><input class="input lg num" name="partieGrenzeProzent" inputmode="decimal" value="${esc(String(ein.partieGrenzeProzent ?? 30).replace('.', ','))}"></label>
-      <fieldset class="field full"><legend class="field-label">Beginn des Urlaubsjahres (Standard für neue Konten)</legend><div class="form-grid"><label class="field"><span class="vh">Tag</span><select class="input lg" name="tag">${Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map((x) => `<option ${x === tt ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label class="field"><span class="vh">Monat</span><select class="input lg" name="monat">${MON.map((n, i) => `<option value="${String(i + 1).padStart(2, '0')}" ${String(i + 1).padStart(2, '0') === mm ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div><small class="muted">Üblich ist der 1. Jänner; bei Abweichung bitte mit der Lohnverrechnung abstimmen.</small></fieldset>
+      <fieldset class="field full"><legend class="field-label">Beginn des Urlaubsjahres (Standard für neue Konten)</legend>${beginnFelder(ein.urlaubsjahrBeginn)}<small class="muted">Üblich ist der 1. Jänner; bei Abweichung bitte mit der Lohnverrechnung abstimmen. Eine Änderung gilt ab dem nächsten Urlaubsjahr, das nach heute beginnt – bestehende Konten behalten ihren Beginn.${ein.urlaubsjahrBeginnAb ? ` Der jetzige Standard gilt ab dem Urlaubsjahr ${esc(ein.urlaubsjahrBeginnAb)}.` : ''}</small></fieldset>
       <p class="form-err full" role="alert" hidden></p></form>`, fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="uef" id="ue-ok">Speichern</button>' });
     $('#uef', dlg.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target); const err = $('.form-err', dlg.el);
       const g = Number(String(f.get('partieGrenze')).trim()), p = parseZahl(f.get('partieGrenzeProzent'));
       if (!Number.isInteger(g) || g < 1 || g > 50 || !(p >= 1 && p <= 100)) { err.hidden = false; err.textContent = 'Bitte 1–50 Personen und 1–100 % eintragen.'; return; }
-      if (new Date(2001, Number(f.get('monat')) - 1, Number(f.get('tag'))).getMonth() !== Number(f.get('monat')) - 1) { err.hidden = false; err.textContent = 'Diesen Tag gibt es in dem Monat nicht.'; return; }
-      try { await put('/einstellungen/urlaub', { partieGrenze: g, partieGrenzeProzent: p, urlaubsjahrBeginn: `${f.get('monat')}-${f.get('tag')}` }); dlg.zu(); toast('Einstellungen gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
+      const beginn = beginnAus(f);
+      if (!beginn) { err.hidden = false; err.textContent = 'Diesen Tag gibt es in dem Monat nicht.'; return; }
+      try { const r = await put('/einstellungen/urlaub', { partieGrenze: g, partieGrenzeProzent: p, urlaubsjahrBeginn: beginn }); dlg.zu(); toast(beginn !== (ein.urlaubsjahrBeginn || '01-01') && r.urlaubsjahrBeginnAb ? `Einstellungen gespeichert – der neue Beginn gilt ab dem Urlaubsjahr ${r.urlaubsjahrBeginnAb}.` : 'Einstellungen gespeichert.'); neu(); } catch (x) { err.hidden = false; err.textContent = x.message; }
     });
   }
 
@@ -204,6 +215,7 @@ export default async function urlaub(el, ctx) {
     const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; speicher.setz('bt_urlaub_tab', tab); return neu(); }
     const m = e.target.closest('[data-mon]'); if (m) { monat = m.dataset.mon === '0' ? heute.slice(0, 7) : monPlus(monat, Number(m.dataset.mon)); jahr = Number(monat.slice(0, 4)); return neu(); }
     const j = e.target.closest('[data-jahr]'); if (j) { jahr += Number(j.dataset.jahr); return neu(); }
+    const kj = e.target.closest('[data-kjahr]'); if (kj) { kontoJahr = kontoBasis() + Number(kj.dataset.kjahr); return neu(); }
     const zm = e.target.closest('[data-zum-monat]'); if (zm) { monat = zm.dataset.zumMonat; tab = 'monat'; return neu(); }
     if (e.target.closest('#ur-bu')) return buDialog();
     if (e.target.closest('#ur-einst')) return einstDialog();

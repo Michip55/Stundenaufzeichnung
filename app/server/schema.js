@@ -1233,6 +1233,16 @@ ALTER TABLE plan_tag ADD COLUMN uebersprungen TEXT;
 -- Art der zuletzt gesendeten Meldung je Person und Tag ('neu' | 'geaendert' | 'entfaellt') für „Mein Einsatz“ (geaendert)
 ALTER TABLE plan_mitteilung ADD COLUMN art TEXT;
 `
+  },
+  {
+    version: 32,
+    name: 'Nachprüfung urlaub (14.3): Beginn des Urlaubsjahres je Konto',
+    sql: `
+-- Der Beginn des Urlaubsjahres gehört zum Konto (je Person und Jahr); bestehende Konten behalten die bisherige Vorgabe,
+-- damit eine spätere Änderung der Vorgabe sie nicht rückwirkend verschiebt.
+ALTER TABLE urlaub_konto ADD COLUMN beginn TEXT;
+UPDATE urlaub_konto SET beginn = COALESCE((SELECT json_extract(wert, '$.urlaubsjahrBeginn') FROM einstellung WHERE schluessel = 'urlaub'), '01-01');
+`
   }
 ];
 
