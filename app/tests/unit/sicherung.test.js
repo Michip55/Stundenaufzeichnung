@@ -59,8 +59,10 @@ test('sichern: konsistente Kopie bei laufendem Schreiben, Fotos, Prüfung, Rotat
   assert.equal(p.integritaet, 'ok');
   assert.equal(p.tabellen.benutzer, 1);
   assert.equal(p.tabellen.protokoll, db.eins('SELECT COUNT(*) AS n FROM protokoll').n - 1); // Stand zum Sicherungszeitpunkt
-  const liste = spawnSync('tar', ['-tzf', r.uploads], { encoding: 'utf8' }).stdout;
-  assert.match(liste, /uploads\/schaeden\/a\.jpg/);
+  // N-011: Fotos als ein Spiegel (kein tägliches Archiv)
+  assert.equal(r.uploads, path.join(ziel, 'uploads-spiegel'));
+  assert.equal(fs.readFileSync(path.join(ziel, 'uploads-spiegel', 'schaeden', 'a.jpg'), 'utf8'), 'bild');
+  assert.ok(!fs.readdirSync(ziel).some((f) => f.endsWith('.tar.gz')));
   // 14 tägliche: 13.11. + 13 alte; die ältesten Oktobertage fallen weg, der jüngste Oktoberstand bleibt (Monat)
   assert.ok(r.geloescht.includes('bautag-2026-10-01.db'));
   assert.ok(!r.geloescht.includes('bautag-2026-10-20.db'));
@@ -122,7 +124,7 @@ exit 0
   const a = fs.readFileSync(aufrufe, 'utf8');
   assert.match(a, /^backup .*sicherung --tag bautag/m);
   assert.match(a, /^forget --tag bautag --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune/m);
-  assert.match(a, /^restore latest --tag bautag --target /m);
+  assert.match(a, /^restore latest --tag bautag --target \S+ --include \S+\/bautag-\*\.db$/m); // N-011: nur Datenbanken
 
   // restic schlägt fehl → Status offsite fehler, Exit-Code 1
   fs.writeFileSync(path.join(bin, 'restic'), '#!/bin/bash\necho "Fatal: repository does not exist" >&2\nexit 1\n', { mode: 0o755 });

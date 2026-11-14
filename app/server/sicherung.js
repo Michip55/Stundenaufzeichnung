@@ -1,8 +1,10 @@
 'use strict';
 /**
- * Datensicherung (API.md 12.1): konsistente Kopie der SQLite-Datenbank (Backup-API, auch bei laufendem
- * Server), Fotos als tar.gz, Rotation 14 täglich / 8 wöchentlich / 12 monatlich, Prüfung einer Sicherung
- * (integrity_check + Zeilenzahlen) und Status-Meldung in die Datenbank (für Alarm in der App).
+ * Datensicherung (API.md 12.1, 14.5): konsistente Kopie der SQLite-Datenbank (Backup-API, auch bei laufendem
+ * Server), Rotation der Datenbank 14 täglich / 8 wöchentlich / 12 monatlich, Fotos/Dokumente als **ein**
+ * inkrementeller Spiegel `uploads-spiegel/` (N-011: kein tägliches Vollarchiv; die Versionen hält restic
+ * dedupliziert), Füllstandswarnung, Prüfung einer Sicherung (integrity_check + Zeilenzahlen) und
+ * Status-Meldung in die Datenbank (für Alarm in der App).
  *
  *   node server/sicherung.js sichern <Zielordner> [--uploads <Ordner>]
  *   node server/sicherung.js pruefen <Sicherungsdatei.db>
@@ -13,13 +15,16 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const { DatabaseSync, backup } = require('node:sqlite');
 
 const AUFBEWAHRUNG = { taeglich: 14, woechentlich: 8, monatlich: 12 };
 /** Tabellen, deren Zeilenzahl die Prüfung meldet (fehlende werden übersprungen) */
 const ZAEHL_TABELLEN = ['benutzer', 'baustelle', 'buchung', 'bericht', 'bericht_personal', 'abwesenheit', 'projektposition', 'projektposition_menge', 'anlage', 'protokoll'];
 const ARTEN = ['lokal', 'offsite', 'test'];
+/** Name des Foto-/Dokument-Spiegels im Sicherungsordner */
+const SPIEGEL = 'uploads-spiegel';
+/** Füllstandswarnung: belegt ≥ 85 % oder weniger als 3 GiB frei (N-011) */
+const PLATZ_GRENZE = { belegtProzent: 85, freiBytes: 3 * 1024 ** 3 };
 
 /** Wiener Datum JJJJ-MM-TT */
 function wienDatum(d) {
@@ -27,10 +32,10 @@ function wienDatum(d) {
 }
 
 /**
- * Konsistente Sicherung der Datenbank (+ Fotos) in `ziel`.
- * @returns {Promise<{datei:string, groesse:number, uploads:string|null, geloescht:string[]}>}
+ * Konsistente Sicherung der Datenbank (+ Spiegel der Fotos/Dokumente) in `ziel`.
+ * @returns {Promise<{datei:string, groesse:number, uploads:string|null, spiegel:object|null, geloescht:string[], platz:object}>}
  */
-async function sichern(dbPfad, ziel, { uploads = null, jetzt = new Date(), aufbewahrung = AUFBEWAHRUNG } = {}) {
+async function sichern(dbPfad, ziel, { uploads = null, jetzt = new Date(), aufbewahrung = AUFBEWAHRUNG, platzGrenze = PLATZ_GRENZE, statfs = fs.statfsSync } = {}) {
   if (!fs.existsSync(dbPfad)) throw new Error(`Datenbank ${dbPfad} nicht gefunden.`);
   fs.mkdirSync(ziel, { recursive: true, mode: 0o700 });
   const tag = wienDatum(jetzt);
@@ -50,15 +55,78 @@ async function sichern(dbPfad, ziel, { uploads = null, jetzt = new Date(), aufbe
   if (!pruefung.ok) { fs.rmSync(tmp, { force: true }); throw new Error(`Sicherung fehlerhaft: ${pruefung.integritaet}`); }
   fs.renameSync(tmp, datei);
   fs.chmodSync(datei, 0o600);
-  let uploadsDatei = null;
+  let spiegel = null;
+  const geloescht = [];
   if (uploads && fs.existsSync(uploads)) {
-    uploadsDatei = path.join(ziel, `uploads-${tag}.tar.gz`);
-    const r = spawnSync('tar', ['-czf', uploadsDatei, '-C', path.dirname(path.resolve(uploads)), path.basename(path.resolve(uploads))], { encoding: 'utf8' });
-    if (r.status !== 0) throw new Error(`Fotos konnten nicht gesichert werden: ${(r.stderr || r.error || '').toString().trim()}`);
-    fs.chmodSync(uploadsDatei, 0o600);
+    spiegel = spiegeln(uploads, path.join(ziel, SPIEGEL));
+    // frühere tägliche Vollarchive (uploads-JJJJ-MM-TT.tar.gz) belegen ein Vielfaches der Fotos – der Spiegel ersetzt sie
+    for (const f of fs.readdirSync(ziel)) {
+      if (/^uploads-\d{4}-\d{2}-\d{2}\.tar\.gz$/.test(f)) { fs.rmSync(path.join(ziel, f), { force: true }); geloescht.push(f); }
+    }
   }
-  const geloescht = rotieren(ziel, { jetzt, aufbewahrung });
-  return { datei, groesse: fs.statSync(datei).size, uploads: uploadsDatei, geloescht, tabellen: pruefung.tabellen };
+  geloescht.push(...rotieren(ziel, { jetzt, aufbewahrung }));
+  const platz = platzPruefen(ziel, { grenze: platzGrenze, statfs });
+  return { datei, groesse: fs.statSync(datei).size, uploads: spiegel ? path.join(ziel, SPIEGEL) : null, spiegel, geloescht: geloescht.sort(), platz, tabellen: pruefung.tabellen };
+}
+
+/**
+ * Inkrementeller Spiegel von `quelle` nach `ziel` (N-011): kopiert nur neue/geänderte Dateien (Größe oder
+ * Änderungszeit anders), entfernt Dateien, die es in der Quelle nicht mehr gibt. Symbolische Links werden
+ * nicht übernommen. Jede Datei wird erst vollständig geschrieben und dann umbenannt.
+ * @returns {{dateien:number, kopiert:number, entfernt:number, bytes:number}}
+ */
+function spiegeln(quelle, ziel) {
+  const st = { dateien: 0, kopiert: 0, entfernt: 0, bytes: 0 };
+  const lauf = (q, z) => {
+    fs.mkdirSync(z, { recursive: true, mode: 0o700 });
+    const vorhanden = new Set();
+    for (const e of fs.readdirSync(q, { withFileTypes: true })) {
+      const qp = path.join(q, e.name);
+      const zp = path.join(z, e.name);
+      if (e.isDirectory()) {
+        vorhanden.add(e.name);
+        const zs = fs.lstatSync(zp, { throwIfNoEntry: false });
+        if (zs && !zs.isDirectory()) fs.rmSync(zp, { recursive: true, force: true });
+        lauf(qp, zp);
+      } else if (e.isFile()) {
+        vorhanden.add(e.name);
+        const qs = fs.statSync(qp);
+        st.dateien++;
+        st.bytes += qs.size;
+        const zs = fs.lstatSync(zp, { throwIfNoEntry: false });
+        if (zs && zs.isFile() && zs.size === qs.size && Math.trunc(zs.mtimeMs / 1000) === Math.trunc(qs.mtimeMs / 1000)) continue;
+        if (zs) fs.rmSync(zp, { recursive: true, force: true });
+        const tmp = `${zp}.tmp-${process.pid}`;
+        fs.copyFileSync(qp, tmp);
+        fs.chmodSync(tmp, 0o600);
+        fs.utimesSync(tmp, qs.atime, qs.mtime);
+        fs.renameSync(tmp, zp);
+        st.kopiert++;
+      }
+    }
+    for (const n of fs.readdirSync(z)) {
+      if (!vorhanden.has(n)) { fs.rmSync(path.join(z, n), { recursive: true, force: true }); st.entfernt++; }
+    }
+  };
+  lauf(path.resolve(quelle), path.resolve(ziel));
+  return st;
+}
+
+/**
+ * Füllstand des Datenträgers von `ordner` (N-011) → {freiBytes, gesamtBytes, belegtProzent, warnung|null}
+ * @param {{grenze?:{belegtProzent:number, freiBytes:number}, statfs?:Function}} [opt]
+ */
+function platzPruefen(ordner, { grenze = PLATZ_GRENZE, statfs = fs.statfsSync } = {}) {
+  let s;
+  try { s = statfs(ordner); } catch (_) { return { freiBytes: null, gesamtBytes: null, belegtProzent: null, warnung: null }; }
+  const gesamtBytes = s.blocks * s.bsize;
+  const freiBytes = s.bavail * s.bsize;
+  const belegtProzent = gesamtBytes > 0 ? Math.round(((gesamtBytes - freiBytes) / gesamtBytes) * 100) : 0;
+  const gb = (b) => `${(b / 1024 ** 3).toFixed(1).replace('.', ',')} GB`;
+  const warnung = gesamtBytes > 0 && (belegtProzent >= grenze.belegtProzent || freiBytes < grenze.freiBytes)
+    ? `Speicherplatz knapp: ${belegtProzent} % belegt, nur noch ${gb(freiBytes)} von ${gb(gesamtBytes)} frei – bitte Festplatte vergrößern (ANLEITUNG.md, „Speicherplatz“).`
+    : null;
+  return { freiBytes, gesamtBytes, belegtProzent, warnung };
 }
 
 /**
@@ -90,7 +158,7 @@ function behalten(tage, aufbewahrung = AUFBEWAHRUNG) {
   return bleibt;
 }
 
-/** Alte Stände löschen (Datenbank und Fotos gemeinsam) → gelöschte Dateinamen */
+/** Alte Stände löschen (Datenbank; frühere Foto-Archive uploads-*.tar.gz nach derselben Regel) → gelöschte Dateinamen */
 function rotieren(ziel, { aufbewahrung = AUFBEWAHRUNG } = {}) {
   const re = /^(bautag|uploads)-(\d{4}-\d{2}-\d{2})\.(db|tar\.gz)$/;
   const dateien = fs.readdirSync(ziel).filter((f) => re.test(f));
@@ -123,7 +191,7 @@ function pruefen(datei) {
 }
 
 /** Status einer Sicherungsart in die Datenbank schreiben (Einstellung `sicherung`) */
-function statusMelden(dbPfad, art, ok, text = '', jetzt = new Date()) {
+function statusMelden(dbPfad, art, ok, text = '', jetzt = new Date(), { warnung = null } = {}) {
   if (!ARTEN.includes(art)) throw new Error(`Art muss ${ARTEN.join('|')} sein.`);
   const db = new DatabaseSync(dbPfad);
   try {
@@ -133,6 +201,7 @@ function statusMelden(dbPfad, art, ok, text = '', jetzt = new Date()) {
     try { s = z ? JSON.parse(z.wert) : {}; } catch (_) { s = {}; }
     const alt = s[art] || {};
     s[art] = { zeit: jetzt.toISOString(), ok: Boolean(ok), text: String(text).slice(0, 500), letzteOk: ok ? jetzt.toISOString() : (alt.letzteOk || null) };
+    if (warnung) s[art].warnung = String(warnung).slice(0, 300);
     db.prepare("INSERT INTO einstellung (schluessel, wert) VALUES ('sicherung', ?) ON CONFLICT(schluessel) DO UPDATE SET wert = excluded.wert").run(JSON.stringify(s));
     return s;
   } finally {
@@ -140,7 +209,7 @@ function statusMelden(dbPfad, art, ok, text = '', jetzt = new Date()) {
   }
 }
 
-module.exports = { sichern, rotieren, behalten, pruefen, statusMelden, wienDatum, AUFBEWAHRUNG };
+module.exports = { sichern, spiegeln, platzPruefen, rotieren, behalten, pruefen, statusMelden, wienDatum, AUFBEWAHRUNG, SPIEGEL, PLATZ_GRENZE };
 
 if (require.main === module) {
   const [befehl, ...rest] = process.argv.slice(2);
@@ -155,7 +224,8 @@ if (require.main === module) {
         const uploads = i > 0 ? rest[i + 1] : (process.env.BAUTAG_UPLOADS || path.join(path.dirname(path.resolve(dbPfad)), 'uploads'));
         try {
           const r = await sichern(dbPfad, ziel, { uploads });
-          statusMelden(dbPfad, 'lokal', true, `${path.basename(r.datei)} (${Math.round(r.groesse / 1024)} KB)`);
+          const fotos = r.spiegel ? `, Fotos/Dokumente: ${r.spiegel.dateien} Dateien (${r.spiegel.kopiert} neu)` : '';
+          statusMelden(dbPfad, 'lokal', true, `${path.basename(r.datei)} (${Math.round(r.groesse / 1024)} KB)${fotos}`, new Date(), { warnung: r.platz.warnung });
           aus({ ok: true, ...r });
         } catch (e) {
           try { statusMelden(dbPfad, 'lokal', false, e.message); } catch (_) { /* DB nicht erreichbar */ }

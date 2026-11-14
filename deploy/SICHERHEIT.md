@@ -8,11 +8,12 @@ Für den Inhaber, ohne Fachbegriffe. Ziel: **Keine Arbeitszeit, kein Bericht und
 
 | Kopie | Wo | Wann | Verschlüsselt? | Aufbewahrung |
 |---|---|---|---|---|
-| **1. Lokaler Stand** | auf dem Server (eigener Ordner) | täglich 02:30 | Server-Festplatte (Anbieter) | 14 Tage, 8 Wochen, 12 Monate |
+| **1. Lokaler Stand** | auf dem Server (eigener Ordner) | täglich 02:30 | Server-Festplatte (Anbieter) | Datenbank: 14 Tage, 8 Wochen, 12 Monate; Fotos/Dokumente: aktueller Stand (ein Spiegel) |
 | **2. Externe Kopie** | **zweiter Anbieter** in der EU (z. B. Storage Box, S3) | täglich direkt danach | **ja – auf dem Server verschlüsselt**, bevor die Daten das Haus verlassen | 14 Tage, 8 Wochen, 12 Monate |
 | **3. Büro-Kopie** (optional, empfohlen) | NAS oder PC im Büro | täglich morgens | ja (dieselbe Verschlüsselung) | 14 Tage, 8 Wochen, 24 Monate |
 
-Gesichert werden die **Datenbank** (alle Zeiten, Berichte, Unterschriften, Preise, Protokoll) und alle **Fotos** (Schäden, Berichtsfotos, Lieferscheine, Papierberichte).
+Gesichert werden die **Datenbank** (alle Zeiten, Berichte, Unterschriften, Preise, Protokoll) und alle **Fotos und Dokumente** (Schäden, Berichtsfotos, Lieferscheine, Papierberichte, Projektdokumente).
+Die Fotos liegen lokal **einmal** als Spiegel (`uploads-spiegel/`, jede Nacht nur Neues kopiert); ältere Stände der Fotos hält die externe Sicherung – restic speichert jedes Foto nur einmal, auch über viele Tage. So wächst der Platzbedarf nicht mit jedem Sicherungstag (Platzbedarf: ANLEITUNG.md, „Speicherplatz“).
 Die Sicherung ist **„konsistent“**: Sie wird bei laufender App erstellt, ohne dass halbe Einträge entstehen können.
 
 ### Kopie 2: externe, verschlüsselte Sicherung (restic)
@@ -29,12 +30,13 @@ Die Sicherung ist **„konsistent“**: Sie wird bei laufender App erstellt, ohn
 
 ## 2. Automatische Kontrolle und Alarm
 
-- Jeden **Sonntag** holt der Server den neuesten Stand aus der **externen** Sicherung in einen Probeordner, prüft die Datenbank auf Fehler und zählt die Einträge („Wiederherstellungstest“). So ist sicher, dass die Sicherung im Ernstfall auch wirklich funktioniert.
+- Jeden **Sonntag** holt der Server die Datenbank-Stände aus der **externen** Sicherung in einen Probeordner (ohne die Fotos – das spart Platz), prüft die neueste Datenbank auf Fehler und zählt die Einträge („Wiederherstellungstest“). So ist sicher, dass die Sicherung im Ernstfall auch wirklich funktioniert.
 - **Alarm an die Geschäftsführung** (Meldung in der App, Push aufs Handy und E-Mail), wenn
   - eine Sicherung oder der Wiederherstellungstest fehlschlägt, oder
   - die letzte erfolgreiche Sicherung (lokal oder extern) **älter als 26 Stunden** ist, oder
-  - der letzte erfolgreiche Wiederherstellungstest älter als 8 Tage ist.
-- Ist die App selbst nicht erreichbar, schickt der Server die Warnung direkt an die bei der Installation angegebene E-Mail-Adresse (`ALARM_EMAIL`, sofern der Server Mails versenden kann).
+  - der letzte erfolgreiche Wiederherstellungstest älter als 8 Tage ist, oder
+  - die Server-Festplatte zu **85 %** belegt ist bzw. weniger als 3 GB frei sind (Meldung „Speicherplatz knapp“).
+- Ist die App selbst nicht erreichbar, schickt der Server die Warnung direkt an die bei der Installation angegebene E-Mail-Adresse (`ALARM_EMAIL`). Das geht nur mit einem Mailprogramm auf dem Server – die Installation richtet keines ein: ANLEITUNG.md, „Notfall-E-Mail“.
 - Den Stand sieht die Geschäftsführung in der App unter *Einstellungen → Datensicherung*.
 
 ### Wenn ein Alarm kommt
@@ -50,7 +52,7 @@ Die Sicherung ist **„konsistent“**: Sie wird bei laufender App erstellt, ohn
 sudo bash /opt/bautag/deploy/wiederherstellen.sh --liste
 sudo bash /opt/bautag/deploy/wiederherstellen.sh --datei /var/lib/bautag/sicherung/bautag-2026-11-12.db
 ```
-Das Skript prüft den Stand, hält die App kurz an, legt den aktuellen Stand **beiseite** (nichts wird gelöscht) und startet die App mit dem gewählten Stand. Eingaben seit diesem Stand fehlen danach – vorher mit dem Büro klären.
+Das Skript prüft den Stand, hält die App kurz an, legt die aktuelle Datenbank **beiseite** (nichts wird gelöscht) und startet die App mit dem gewählten Stand. Der Foto-Ordner bleibt dabei, wie er ist (er enthält alle Fotos bis heute); fehlt er, wird der lokale Spiegel eingespielt. Eingaben seit diesem Stand fehlen danach – vorher mit dem Büro klären.
 
 ### b) Server komplett verloren (Anbieter-Ausfall, Hackerangriff, Konto gekündigt)
 1. **Notfallblatt** aus dem Tresor holen.

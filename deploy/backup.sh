@@ -3,14 +3,19 @@
 #
 #   backup.sh            tägliche Sicherung: (a) lokaler Stand + (b) verschlüsselte externe Kopie (restic);
 #                        sonntags zusätzlich der Wiederherstellungstest
-#   backup.sh --test     nur Wiederherstellungstest (letzter Stand → Probeordner → Integritätsprüfung)
+#   backup.sh --test     nur Wiederherstellungstest (neueste Datenbank → Probeordner → Integritätsprüfung)
 #   backup.sh --lokal    nur lokaler Stand
 #
 # Ergebnis jedes Schritts wird in die App gemeldet (Status „Sicherung“); die App alarmiert die
 # Geschäftsführung (In-App + E-Mail), wenn ein Schritt scheitert oder die letzte Sicherung älter als 26 Std. ist.
-# Ist die App selbst nicht erreichbar, geht der Alarm per sendmail an ALARM_EMAIL.
+# Ist die App selbst nicht erreichbar, geht der Alarm per sendmail an ALARM_EMAIL (Mailprogramm nötig, ANLEITUNG.md).
+#
+# Fotos/Dokumente liegen lokal als EIN Spiegel (uploads-spiegel/, inkrementell); die Versionen hält restic
+# dedupliziert (N-011). Der Wiederherstellungstest holt nur die Datenbanken – nicht alle Fotos.
 set -Eeuo pipefail
 umask 077
+# N-067: cron setzt nur PATH=/usr/bin:/bin – sendmail liegt in /usr/sbin
+PATH="${PATH:-/usr/bin:/bin}:/usr/local/sbin:/usr/sbin:/sbin"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${BAUTAG_LOG:-/var/log/bautag-sicherung.log}"
@@ -109,14 +114,17 @@ wiederherstellungstest() {
   PROBE_ORDNER="$tmp"
   if restic_bereit; then
     quelle="extern (restic)"
-    if ! aus="$("$RESTIC" restore latest --tag bautag --target "$tmp" 2>&1)"; then
+    # N-011: nur die Datenbank-Stände zurückholen, nicht den ganzen Snapshot samt Fotos
+    if ! aus="$("$RESTIC" restore latest --tag bautag --target "$tmp" --include "$SICHERUNG_HOST/bautag-*.db" 2>&1)"; then
       log "FEHLER Wiederherstellungstest: $aus"
       melden test fehler "Wiederherstellung aus der externen Sicherung fehlgeschlagen: ${aus:0:300}"
       return 1
     fi
   else
     quelle="lokal"
-    cp -a "$SICHERUNG_HOST"/. "$tmp"/ 2>/dev/null || true
+    # N-011: nur die neueste Datenbank kopieren (nicht den ganzen Sicherungsordner)
+    datei="$(find "$SICHERUNG_HOST" -maxdepth 1 -name 'bautag-*.db' -type f 2>/dev/null | sort | tail -n 1 || true)"
+    if [[ -n "$datei" ]]; then cp -a "$datei" "$tmp"/; fi
   fi
   datei="$(find "$tmp" -name 'bautag-*.db' -type f | sort | tail -n 1)"
   if [[ -z "$datei" ]]; then
