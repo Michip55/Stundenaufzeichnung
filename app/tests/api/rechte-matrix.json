@@ -88,6 +88,7 @@
     "GET /api/abwesenheiten/sw-meldungen": { "r": "N J J J J", "grund": "7/12.24 (13.11.2026): Polier eigene Schlechtwetter-Meldungen, Büro/Bauleiter alle" },
     "POST /api/abwesenheiten/sw-meldungen/:id/bestaetigen": { "r": "N N J J J", "pfad": "/api/abwesenheiten/sw-meldungen/{swMeldung}/bestaetigen", "body": {}, "grund": "7/12.24: Büro (stammdaten/lohn) bestätigt SW-Meldungen" },
     "DELETE /api/abwesenheiten/antraege/:antragId": { "r": "E E J J J", "pfad": "/api/abwesenheiten/antraege/{antragEigen}", "grund": "12.24: eigener beantragter, sonst stammdaten/lohn" },
+    "POST /api/abwesenheiten/antraege/:antragId/korrektur": { "r": "N N J J J", "pfad": "/api/abwesenheiten/antraege/{antragAnderer}/korrektur", "body": { "tage": [] }, "grund": "14.3: Korrektur entschiedener Anträge nur stammdaten/lohn, nie der eigene" },
 
     "GET /api/berichte": { "r": "N J J J J", "grund": "4: Polier eigene Baustellen" },
     "POST /api/berichte": { "r": "N E J J J", "body": { "baustelleId": "{bs}", "datum": "2026-11-11" }, "grund": "4: bericht_erstellen im Bereich" },

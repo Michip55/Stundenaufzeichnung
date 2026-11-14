@@ -48,6 +48,33 @@ module.exports = function abwesenheitsRouten(api, bt) {
     return ids;
   }
 
+  /**
+   * Offene (beantragte) Anträge der Person, die von den Tagen berührt werden (Inhaber 13.11.2026: Urlaub nur als ganzer Antrag).
+   * ganz = alle offenen Tage des Antrags liegen in `tage` (darf als Ganzes ersetzt werden), teil = nur ein Teil (→ 409 bzw. bleibt).
+   */
+  function offeneBetroffen(benutzerId, tage) {
+    const menge = new Set(tage);
+    const ganz = [], teil = [], gesehen = new Set();
+    for (const d of menge) {
+      const a = db.eins("SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'beantragt'", benutzerId, d);
+      if (!a || gesehen.has(antragId(a))) continue;
+      gesehen.add(antragId(a));
+      const offen = a.antrag_id ? db.alle("SELECT * FROM abwesenheit WHERE antrag_id = ? AND status = 'beantragt' ORDER BY datum", a.antrag_id) : [a];
+      (offen.every((x) => x.benutzer_id === benutzerId && menge.has(x.datum)) ? ganz : teil).push({ antragId: antragId(a), tage: offen });
+    }
+    return { ganz, teil };
+  }
+  bt.offeneAntraegeBetroffen = offeneBetroffen;
+  /** Person informieren: ihr offener Antrag wurde vom Büro als Ganzes ersetzt (14.3) */
+  function ersetztMelden(ganz, neu, zeit) {
+    for (const g of ganz) {
+      const a0 = g.tage[0], z = zeitText(a0.datum, g.tage[g.tage.length - 1].datum);
+      benachrichtige(db, { benutzerId: a0.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a0.code]}: Antrag ersetzt`, text: `Ihr Antrag (${CODE_TEXT[a0.code]} ${z}) wurde vom Büro durch einen neuen Eintrag ersetzt (${neu.text}).`, zeit, schluessel: `abw:antrag:${g.antragId}:ersetzt:${zeit}` });
+    }
+  }
+  bt.antragErsetztMelden = ersetztMelden;
+  const mehrtaegigOffen = (a) => a.status === 'beantragt' && a.antrag_id && db.eins("SELECT COUNT(*) AS n FROM abwesenheit WHERE antrag_id = ? AND status = 'beantragt'", a.antrag_id).n > 1;
+
   api.get('/abwesenheiten', (req, res) => {
     const q = req.query;
     const bed = [];
@@ -100,6 +127,13 @@ module.exports = function abwesenheitsRouten(api, bt) {
     if (swMeldung(ctx, benutzerId, code)) return swMelden(req, res, { ziel, von: datum, bis: datum, notiz: null, vorschau: false });
     const vorhanden = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, datum);
     if (vorhanden && vorhanden.status !== 'abgelehnt' && (!ctx.hat('stammdaten') || benutzerId === ich.id)) throw konflikt(`Für ${deDatum(datum)} ist ${DS.bereits(ctx, benutzerId, vorhanden.code)}.`);
+    // 14.3: ein offener Antrag wird nur als Ganzes ersetzt – ein Tag aus einem mehrtägigen offenen Antrag → 409
+    let ersetzt = [];
+    if (vorhanden && vorhanden.status === 'beantragt') {
+      const b = offeneBetroffen(benutzerId, [datum]);
+      if (b.teil.length) throw konflikt('Der Tag gehört zu einem offenen Antrag über mehrere Tage – bitte den ganzen Antrag entscheiden.', { antragId: b.teil[0].antragId });
+      ersetzt = b.ganz;
+    }
     const zeit = bt.uhr().toISOString();
     let id;
     db.transaktion(() => {
@@ -110,6 +144,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
         id = db.lauf('INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, antrag_id) VALUES (?, ?, ?, ?, ?, ?, ?)', benutzerId, datum, code, status, ich.id, zeit, neueAntragId()).id;
       }
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, alt: vorhanden ? { datum, code: vorhanden.code, status: vorhanden.status } : null, neu: { datum, code, status } });
+      ersetztMelden(ersetzt, { text: `${CODE_TEXT[code]} am ${tagKurz(datum)}, ${status}` }, zeit);
       if (status === 'beantragt') {
         for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", benutzerId)) {
           benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Antrag: ${CODE_TEXT[code]} – ${ziel.name}`, text: `${ziel.name} beantragt ${CODE_TEXT[code]} am ${deDatum(datum)}.`, zeit, schluessel: `abw:${id}:${zeit}` });
@@ -133,6 +168,8 @@ module.exports = function abwesenheitsRouten(api, bt) {
     if (a.antrag_id && db.eins('SELECT COUNT(*) AS n FROM abwesenheit WHERE antrag_id = ?', a.antrag_id).n > 1) {
       throw konflikt('Bitte den ganzen Antrag entscheiden.', { antragId: a.antrag_id });
     }
+    // 12.24/14.3: wie beim Antrag – Entschiedenes wird nicht umentschieden (Korrektur nur über Löschen)
+    if (a.status !== 'beantragt') throw konflikt('Der Antrag ist schon entschieden.');
     const status = v.auswahl(v.objekt(req.body).status, 'status', ['genehmigt', 'abgelehnt']);
     const zeit = bt.uhr().toISOString();
     db.transaktion(() => {
@@ -149,9 +186,13 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'ID');
     const a = db.eins('SELECT * FROM abwesenheit WHERE id = ?', id);
     if (!a || !DS.siehtAbwesenheit(ctx, a.benutzer_id)) throw nichtGefunden('Abwesenheit nicht gefunden.'); // nie Auskunft über fremde Einträge
-    const eigenerAntrag = a.benutzer_id === ctx.benutzer.id && a.status === 'beantragt';
-    if (!eigenerAntrag && !darfEntscheiden(ctx)) throw keinZugriff('Löschen können Sie nur eigene, noch nicht entschiedene Anträge.');
-    const korrektur = a.benutzer_id !== ctx.benutzer.id;
+    const eigen = a.benutzer_id === ctx.benutzer.id;
+    // Vier-Augen-Prinzip (7, 14.3): eigene entschiedene Abwesenheiten löscht nur eine andere Person – auch für Büro/GF
+    if (eigen && a.status !== 'beantragt') throw keinZugriff(darfEntscheiden(ctx) ? 'Eigene entschiedene Abwesenheiten korrigiert eine andere Person (Vier-Augen-Prinzip).' : 'Löschen können Sie nur eigene, noch nicht entschiedene Anträge.');
+    if (!eigen && !darfEntscheiden(ctx)) throw keinZugriff('Löschen können Sie nur eigene, noch nicht entschiedene Anträge.');
+    // Inhaber 13.11.2026: ein offener mehrtägiger Antrag nur als Ganzes (zurückziehen bzw. entscheiden)
+    if (mehrtaegigOffen(a)) throw konflikt(eigen ? 'Bitte den ganzen Antrag zurückziehen.' : 'Bitte den ganzen Antrag entscheiden.', { antragId: a.antrag_id });
+    const korrektur = !eigen;
     db.transaktion(() => {
       db.lauf('DELETE FROM abwesenheit WHERE id = ?', id);
       db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${a.benutzer_id}`, alt: { datum: a.datum, code: a.code, status: a.status, antragId: antragId(a), ...(korrektur && a.status === 'genehmigt' ? { korrektur: true } : {}) }, text: 'Abwesenheit gelöscht' });
@@ -189,23 +230,35 @@ module.exports = function abwesenheitsRouten(api, bt) {
     if (bis > plusTage(heute, 366)) throw ungueltig('Das Datum liegt zu weit in der Zukunft.');
     if (swMeldung(ctx, benutzerId, code)) return swMelden(req, res, { ziel, von, bis, notiz, vorschau });
     const ersetzenErlaubt = ctx.hat('stammdaten') && benutzerId !== ich.id;
-    const tage = [], uebersprungen = [], ersetzen = [], konflikte = [];
+    const tage = [], uebersprungen = [], ersetzen = [], konflikte = [], vorab = new Map();
     for (let d = von; d <= bis; d = plusTage(d, 1)) {
       if (!istArbeitstag(d)) { const f = feiertag(d); if (f && wochentag(d) >= 1 && wochentag(d) <= 5) uebersprungen.push({ datum: d, grund: `Feiertag: ${f}` }); continue; }
       const a = db.eins('SELECT * FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, d);
       if (a && a.status === 'genehmigt') { uebersprungen.push({ datum: d, grund: DS.darfDetails(ctx, benutzerId) ? `schon ${a.code} genehmigt` : 'bereits abwesend' }); continue; }
       if (a && a.status === 'beantragt' && !ersetzenErlaubt) { konflikte.push(d); continue; }
       if (a) ersetzen.push(a.id);
+      vorab.set(d, a ? { status: a.status, antragId: a.antrag_id || '' } : null);
       tage.push(d);
     }
     if (konflikte.length) throw konflikt(`Für ${konflikte.map(deDatum).join(', ')} gibt es schon einen offenen Antrag – bitte zuerst zurückziehen.`, { tage: konflikte });
+    // 14.3 (Inhaber 13.11.2026): offene Anträge der Person nur als Ganzes ersetzen; ragt einer über den Zeitraum hinaus → 409
+    let ersetzt = [];
+    if (ersetzenErlaubt) {
+      const b = offeneBetroffen(benutzerId, tage);
+      if (b.teil.length) {
+        const td = b.teil.flatMap((g) => g.tage.map((x) => x.datum)).filter((d) => tage.includes(d));
+        throw konflikt(`Für ${td.map(deDatum).join(', ')} gibt es einen offenen Antrag, der über diesen Zeitraum hinausreicht – bitte zuerst den ganzen Antrag entscheiden.`, { antragIds: b.teil.map((g) => g.antragId) });
+      }
+      ersetzt = b.ganz;
+    }
     let konto = null;
     if (code === 'U' && typeof bt.urlaubKonto === 'function' && darfKontoSehen(ctx, benutzerId)) {
       const k = bt.urlaubKonto(ziel, von);
-      const neu = tage.filter((d) => d >= k.von && d <= k.bis).length;
+      // gezählt wird wie im Konto: ab Beginn des Urlaubsjahres bzw. ab dem BUAK-Stichtag (14.3)
+      const neu = tage.filter((d) => d >= k.ab && d <= k.bis).length;
       konto = { rest: k.rest, restNachAntrag: k.rest == null ? null : Math.round((k.rest - neu) * 10) / 10 };
     }
-    const antwort = { antragId: null, benutzerId, code, status, tage, uebersprungen, arbeitstage: tage.length, konto };
+    const antwort = { antragId: null, benutzerId, code, status, tage, uebersprungen, ersetzt: ersetzt.flatMap((g) => g.tage.map((x) => ({ datum: x.datum, antragId: g.antragId }))), arbeitstage: tage.length, konto };
     if (vorschau) return res.json(antwort);
     if (!tage.length) throw ungueltig('Im Zeitraum liegt kein Arbeitstag, der beantragt werden kann.');
     const zeit = bt.uhr().toISOString();
@@ -214,13 +267,15 @@ module.exports = function abwesenheitsRouten(api, bt) {
       for (const d of tage) {
         db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, antrag_id, notiz) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = excluded.code, status = excluded.status, erfasst_von = excluded.erfasst_von, erfasst = excluded.erfasst,
-            entschieden = NULL, entschieden_von = NULL, betriebsurlaub = 0, antwort = NULL, antrag_id = excluded.antrag_id, notiz = excluded.notiz`,
-        benutzerId, d, code, status, ich.id, zeit, aid, notiz);
-        // Schutz: ein inzwischen genehmigter Tag darf nicht überschrieben werden (Transaktion bricht ab)
+            entschieden = NULL, entschieden_von = NULL, betriebsurlaub = 0, antwort = NULL, antrag_id = excluded.antrag_id, notiz = excluded.notiz
+          WHERE abwesenheit.status = ? AND COALESCE(abwesenheit.antrag_id, '') = ?`,
+        benutzerId, d, code, status, ich.id, zeit, aid, notiz, vorab.get(d) ? vorab.get(d).status : '', vorab.get(d) ? vorab.get(d).antragId : '');
+        // Schutz (N-076): nur der vorab geprüfte Stand wird ersetzt – ein inzwischen geänderter (z. B. genehmigter) Tag bricht die Transaktion ab
         const z = db.eins('SELECT status, antrag_id FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', benutzerId, d);
-        if (z.antrag_id !== aid) throw konflikt(`${deDatum(d)} konnte nicht gespeichert werden.`);
+        if (z.antrag_id !== aid) throw konflikt(`${deDatum(d)} wurde inzwischen geändert – bitte neu laden.`);
       }
-      db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, neu: { antragId: aid, von, bis, code, status, tage: tage.length, uebersprungen: uebersprungen.length, ersetzt: ersetzen.length }, text: `${titelCode(code)} ${ziel.name}: ${zeitText(tage[0], tage[tage.length - 1])} (${tage.length} Arbeitstage, ${status})` });
+      ersetztMelden(ersetzt, { text: `${CODE_TEXT[code]} ${zeitText(tage[0], tage[tage.length - 1])}, ${status}` }, zeit);
+      db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, neu: { antragId: aid, von, bis, code, status, tage: tage.length, uebersprungen: uebersprungen.length, ersetzt: ersetzen.length, ersetzteAntraege: ersetzt.map((g) => g.antragId) }, text: `${titelCode(code)} ${ziel.name}: ${zeitText(tage[0], tage[tage.length - 1])} (${tage.length} Arbeitstage, ${status})` });
       if (status === 'beantragt') {
         const text = `${titelCode(code)} ${ziel.name}: ${zeitText(tage[0], tage[tage.length - 1])} (${tage.length} ${tage.length === 1 ? 'Arbeitstag' : 'Arbeitstage'})${notiz ? ` – ${notiz}` : ''}`;
         for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", benutzerId)) {
@@ -306,11 +361,13 @@ module.exports = function abwesenheitsRouten(api, bt) {
     if (!zeilen.length || !DS.siehtAbwesenheit(ctx, zeilen[0].benutzer_id)) throw nichtGefunden('Antrag nicht gefunden.');
     let weg;
     const eigen = zeilen[0].benutzer_id === ctx.benutzer.id;
-    if (darfEntscheiden(ctx) && !(eigen && zeilen.every((a) => a.status === 'beantragt'))) weg = zeilen;
-    else if (eigen) {
+    if (eigen) {
+      // Vier-Augen-Prinzip (7, 14.3): selbst nur den offenen Antrag zurückziehen – Entschiedenes löscht eine andere Person
       weg = zeilen.filter((a) => a.status === 'beantragt');
+      if (!weg.length && darfEntscheiden(ctx)) throw keinZugriff('Eigene entschiedene Abwesenheiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
       if (!weg.length) throw konflikt('Der Antrag ist schon entschieden – zurückziehen nicht mehr möglich.');
-    } else throw keinZugriff('Zurückziehen können Sie nur eigene, noch nicht entschiedene Anträge.');
+    } else if (darfEntscheiden(ctx)) weg = zeilen;
+    else throw keinZugriff('Zurückziehen können Sie nur eigene, noch nicht entschiedene Anträge.');
     const korrektur = !eigen && weg.some((a) => a.status !== 'beantragt');
     db.transaktion(() => {
       for (const a of weg) db.lauf('DELETE FROM abwesenheit WHERE id = ?', a.id);
@@ -319,6 +376,32 @@ module.exports = function abwesenheitsRouten(api, bt) {
       if (!eigen) benachrichtige(db, { benutzerId: zeilen[0].benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[zeilen[0].code]} gelöscht`, text: `Ihr Antrag (${CODE_TEXT[zeilen[0].code]} ${z}, ${weg.length} ${weg.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}) wurde gelöscht (${korrektur ? 'Korrektur durch das Büro' : 'durch das Büro'}).`, zeit: bt.uhr().toISOString(), schluessel: `abw:antrag:${aid}:weg:${bt.uhr().toISOString()}` });
     });
     res.json({ ok: true, geloescht: weg.length });
+  });
+
+  /** 14.3: Korrektur eines entschiedenen Antrags – mehrere Tage auf einmal, atomar, genau eine Benachrichtigung */
+  api.post('/abwesenheiten/antraege/:antragId/korrektur', (req, res) => {
+    const ctx = req.ctx;
+    if (!darfEntscheiden(ctx)) throw keinZugriff('Korrekturen nimmt das Büro bzw. die Lohnverrechnung vor.');
+    const aid = antragPfad(req.params.antragId);
+    const zeilen = db.alle(`SELECT a.* FROM abwesenheit a WHERE ${ANTRAG_SQL} = ? ORDER BY a.datum`, aid);
+    if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
+    if (zeilen[0].benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene entschiedene Abwesenheiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
+    const body = v.objekt(req.body);
+    const ids = [...new Set(v.liste(body.tage, 'tage', { max: 100 }).map((x) => v.id(x, 'tage')))];
+    if (!ids.length) throw ungueltig('tage: bitte mindestens einen Tag angeben.');
+    const weg = zeilen.filter((a) => ids.includes(a.id));
+    if (weg.length !== ids.length) throw ungueltig('tage: nicht alle Tage gehören zu diesem Antrag.');
+    if (zeilen.some((a) => a.status === 'beantragt')) throw konflikt('Der Antrag ist noch offen – bitte den ganzen Antrag entscheiden.');
+    if (weg.some((a) => a.status !== 'genehmigt')) throw konflikt('Korrigiert werden nur genehmigte Tage.');
+    const zeit = bt.uhr().toISOString();
+    const a0 = zeilen[0];
+    db.transaktion(() => {
+      for (const a of weg) db.lauf('DELETE FROM abwesenheit WHERE id = ?', a.id);
+      const z = weg.length === 1 ? tagKurz(weg[0].datum) : weg.map((a) => tagKurz(a.datum)).join(', ');
+      db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'abwesenheit', objekt: `benutzer:${a0.benutzer_id}`, alt: { antragId: aid, code: a0.code, status: 'genehmigt', tage: weg.map((a) => a.datum), korrektur: true }, text: `Antrag ${CODE_TEXT[a0.code]}: ${weg.length} ${weg.length === 1 ? 'Tag' : 'Tage'} gelöscht (Korrektur)` });
+      benachrichtige(db, { benutzerId: a0.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a0.code]} korrigiert`, text: `${CODE_TEXT[a0.code]} am ${z} wurde gelöscht (Korrektur durch das Büro, ${weg.length} ${weg.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}).`, zeit, schluessel: `abw:antrag:${aid}:korrektur:${zeit}` });
+    });
+    res.json({ ok: true, geloescht: weg.length, antrag: antraegeLaden(ctx, { antragId: aid })[0] || null });
   });
 
   /* ---------- Schlechtwetter-Meldung des Poliers (Inhaber 13.11.2026) ----------

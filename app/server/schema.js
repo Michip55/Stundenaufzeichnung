@@ -1223,6 +1223,16 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
   SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
   FROM baustelle WHERE kst = '9100' AND intern = 1;
 `
+  },
+  {
+    version: 32,
+    name: 'Nachprüfung urlaub (14.3): Beginn des Urlaubsjahres je Konto',
+    sql: `
+-- Der Beginn des Urlaubsjahres gehört zum Konto (je Person und Jahr); bestehende Konten behalten die bisherige Vorgabe,
+-- damit eine spätere Änderung der Vorgabe sie nicht rückwirkend verschiebt.
+ALTER TABLE urlaub_konto ADD COLUMN beginn TEXT;
+UPDATE urlaub_konto SET beginn = COALESCE((SELECT json_extract(wert, '$.urlaubsjahrBeginn') FROM einstellung WHERE schluessel = 'urlaub'), '01-01');
+`
   }
 ];
 

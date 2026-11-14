@@ -3,13 +3,19 @@
 const v = require('../validierung');
 const { ungueltig, keinZugriff } = require('../fehler');
 const { bereich, baustelleImBereich } = require('../rechte');
-const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag } = require('../datum');
+const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag, istDatum } = require('../datum');
 const { csv } = require('../export');
 const { benachrichtige } = require('../budget');
 const DS = require('../datenschutz');
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const CODE_TEXT = { U: 'Urlaub', ZA: 'Zeitausgleich', K: 'Krank', SW: 'Schlechtwetter', BU: 'Betriebsurlaub' };
+/** Beginn des Urlaubsjahres MM-TT: ein Tag, den es in jedem Jahr gibt (also ohne 29.02.) – 14.3 */
+function pruefeBeginn(wert, feld) {
+  const x = String(wert);
+  if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(x) || !istDatum(`2001-${x}`)) throw ungueltig(`${feld}: ein gültiger Tag im Format MM-TT (z. B. 01-01; den 29.02. gibt es nicht in jedem Jahr).`);
+  return x;
+}
 
 module.exports = function urlaubRouten(api, bt) {
   const { db } = bt;
@@ -35,7 +41,8 @@ module.exports = function urlaubRouten(api, bt) {
   function zeitraum(q, max = 62) {
     const von = q.von ? v.datum(String(q.von), 'von') : heute();
     const bis = q.bis ? v.datum(String(q.bis), 'bis') : plusTage(von, 27);
-    if (bis < von || plusTage(von, max) < bis) throw ungueltig(`Zeitraum höchstens ${max} Tage.`);
+    // höchstens `max` Kalendertage einschließlich von und bis (wie POST /abwesenheiten/zeitraum)
+    if (bis < von || plusTage(von, max - 1) < bis) throw ungueltig(`Zeitraum höchstens ${max} Tage.`);
     return { von, bis };
   }
 
@@ -64,11 +71,34 @@ module.exports = function urlaubRouten(api, bt) {
     res.json({ tage, personen, warnungen: warnungen(req.ctx, von, bis, ids) });
   });
 
+  /* ---------- Urlaubsjahr (14.3): Beginn je Konto, Vorgabe nur für neue Konten, nie rückwirkend ---------- */
+  /** Vorgabe für ein Urlaubsjahr: frühere Vorgaben gelten für die Jahre, für die sie galten (beginnVerlauf) */
+  function standardBeginn(jahr, E = einst()) {
+    for (const e of E.beginnVerlauf || []) if (jahr <= e.bisJahr) return e.beginn;
+    return E.urlaubsjahrBeginn;
+  }
+  function beginnFuer(benutzerId, jahr) {
+    const k = db.eins('SELECT beginn FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', benutzerId, jahr);
+    return (k && k.beginn) || standardBeginn(jahr);
+  }
+  /** Urlaubsjahr `jahr` der Person: vom eigenen Beginn bis zum Tag vor dem Beginn des nächsten Urlaubsjahres */
+  function grenzen(benutzerId, jahr) {
+    return { von: `${jahr}-${beginnFuer(benutzerId, jahr)}`, bis: plusTage(`${jahr + 1}-${beginnFuer(benutzerId, jahr + 1)}`, -1) };
+  }
+  /** Urlaubsjahr der Person, in dem `datum` liegt */
+  function jahrVon(benutzerId, datum) {
+    const y = Number(datum.slice(0, 4));
+    return datum >= `${y}-${beginnFuer(benutzerId, y)}` ? y : y - 1;
+  }
+  /** laufendes Urlaubsjahr nach der Vorgabe (Export ohne jahr) */
+  function standardJahr(datum) {
+    const y = Number(datum.slice(0, 4));
+    return datum >= `${y}-${standardBeginn(y)}` ? y : y - 1;
+  }
+
   /* ---------- Urlaubskonto ---------- */
   function zaehle(benutzerId, jahr, abDatum) {
-    const beginn = einst().urlaubsjahrBeginn;
-    const von = `${jahr}-${beginn}`;
-    const bis = plusTage(`${jahr + 1}-${beginn}`, -1);
+    const { von, bis } = grenzen(benutzerId, jahr);
     const h = heute();
     let genommen = 0, geplant = 0, beantragt = 0;
     for (const a of db.alle("SELECT datum, status FROM abwesenheit WHERE benutzer_id = ? AND datum >= ? AND datum <= ? AND code = 'U' AND status IN ('genehmigt','beantragt')", benutzerId, abDatum && abDatum > von ? abDatum : von, bis)) {
@@ -87,30 +117,31 @@ module.exports = function urlaubRouten(api, bt) {
     const z = zaehle(b.id, jahr, art === 'buak' && k && k.buak_datum ? k.buak_datum : null);
     const uebertrag = k ? k.uebertrag : 0;
     const rest = anspruch == null ? null : Math.round((anspruch + (art === 'buak' ? 0 : uebertrag) - z.genommen - z.geplant) * 10) / 10;
+    const g = grenzen(b.id, jahr);
     return {
-      benutzerId: b.id, name: b.name, rolle: b.rolle, pnr: b.pnr, art, jahr, anspruch, einheit, uebertrag,
+      benutzerId: b.id, name: b.name, rolle: b.rolle, pnr: b.pnr, art, jahr, urlaubsjahrBeginn: g.von.slice(5), von: g.von, bis: g.bis, anspruch, einheit, uebertrag,
       ...(art === 'buak' ? { buak: { stand: k ? k.buak_stand : null, datum: k ? k.buak_datum : null } } : {}),
       ...z, rest, notiz: k ? k.notiz || '' : '',
       hinweis: art === 'buak' ? 'Bauarbeiter: Urlaub nach BUAK (Anwartschaftswochen) – Stand laut BUAK-Kontoauszug eintragen; gezählt wird ab diesem Datum.' : 'Angestellte: Anspruch nach UrlG (30 Werktage bzw. 25 Arbeitstage, ab 25. Dienstjahr mehr) – Prüfen mit der Lohnverrechnung.'
     };
   }
-  /** 12.24: Konto im Urlaubsjahr des Datums → {rest, von, bis} (für den Zeitraum-Antrag) */
+  /** 12.24: Konto im Urlaubsjahr des Datums → {rest, von, bis, ab} (für den Zeitraum-Antrag); ab = Zählbeginn (BUAK: ab dem Kontoauszug, 14.3) */
   bt.urlaubKonto = (b, datum) => {
-    const beginn = einst().urlaubsjahrBeginn;
-    const y = Number(datum.slice(0, 4));
-    const jahr = datum >= `${y}-${beginn}` ? y : y - 1;
+    const jahr = jahrVon(b.id, datum);
     const k = konto({ ...b, pnr: b.pnr ?? null }, jahr);
-    return { rest: k.rest, von: `${jahr}-${beginn}`, bis: plusTage(`${jahr + 1}-${beginn}`, -1) };
+    const ab = k.art === 'buak' && k.buak && k.buak.datum && k.buak.datum > k.von ? k.buak.datum : k.von;
+    return { rest: k.rest, von: k.von, bis: k.bis, ab };
   };
   api.get('/urlaub/konto', (req, res) => {
-    const jahr = req.query.jahr ? v.zahl(Number(req.query.jahr), 'jahr', { min: 2000, max: 2100, ganz: true }) : Number(heute().slice(0, 4));
+    // ohne jahr: das laufende Urlaubsjahr der Person (14.3), nicht das Kalenderjahr
+    const jahr = req.query.jahr ? v.zahl(Number(req.query.jahr), 'jahr', { min: 2000, max: 2100, ganz: true }) : null;
     const ids = sichtbareIds(req.ctx);
     let liste = db.alle('SELECT id, name, rolle, pnr FROM benutzer WHERE aktiv = 1 ORDER BY name').filter((b) => !ids || ids.has(b.id));
     if (req.query.benutzerId) liste = liste.filter((b) => b.id === Number(req.query.benutzerId));
     if (req.ctx.benutzer.rolle === 'mitarbeiter') liste = liste.filter((b) => b.id === req.ctx.benutzer.id);
     // R-05: Personalnummer nur mit stammdaten/lohn/benutzer (wie /mitarbeiter) bzw. die eigene
     const pnrSichtbar = req.ctx.hat('stammdaten') || req.ctx.hat('lohn') || req.ctx.hat('benutzer');
-    res.json(liste.map((b) => { const k = konto(b, jahr); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return k; }));
+    res.json(liste.map((b) => { const k = konto(b, jahr ?? jahrVon(b.id, heute())); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return k; }));
   });
   api.put('/urlaub/konto/:benutzerId/:jahr', (req, res) => {
     if (!verwaltung(req.ctx)) throw keinZugriff('Urlaubskonten pflegen Büro bzw. Lohnverrechnung.');
@@ -119,7 +150,9 @@ module.exports = function urlaubRouten(api, bt) {
     const jahr = v.zahl(Number(req.params.jahr), 'jahr', { min: 2000, max: 2100, ganz: true });
     const body = v.objekt(req.body);
     const alt = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr) || {};
-    const f = { art: alt.art || (['mitarbeiter', 'polier'].includes(b.rolle) ? 'buak' : 'urlg'), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null };
+    // 14.3: der Beginn des Urlaubsjahres wird mit dem Konto gespeichert (Vorgabe zum Zeitpunkt des Anlegens)
+    const f = { art: alt.art || (['mitarbeiter', 'polier'].includes(b.rolle) ? 'buak' : 'urlg'), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null, beginn: alt.beginn || standardBeginn(jahr) };
+    if (body.urlaubsjahrBeginn !== undefined) f.beginn = body.urlaubsjahrBeginn === null ? standardBeginn(jahr) : pruefeBeginn(body.urlaubsjahrBeginn, 'urlaubsjahrBeginn');
     if (body.art !== undefined) f.art = v.auswahl(body.art, 'art', ['buak', 'urlg']);
     if (body.anspruch !== undefined) f.anspruch = body.anspruch === null ? null : v.zahl(body.anspruch, 'anspruch', { min: 0, max: 100 });
     if (body.einheit !== undefined) f.einheit = v.auswahl(body.einheit, 'einheit', ['Arbeitstage', 'Werktage']);
@@ -128,9 +161,9 @@ module.exports = function urlaubRouten(api, bt) {
     if (body.buakDatum !== undefined) f.buak_datum = v.datum(body.buakDatum, 'buakDatum', { pflicht: false });
     if (body.notiz !== undefined) f.notiz = body.notiz == null ? null : v.text(body.notiz, 'notiz', { max: 500, pflicht: false }) || null;
     db.transaktion(() => {
-      db.lauf(`INSERT INTO urlaub_konto (benutzer_id, jahr, art, anspruch, einheit, uebertrag, buak_stand, buak_datum, notiz, geaendert, geaendert_von) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(benutzer_id, jahr) DO UPDATE SET art = excluded.art, anspruch = excluded.anspruch, einheit = excluded.einheit, uebertrag = excluded.uebertrag, buak_stand = excluded.buak_stand, buak_datum = excluded.buak_datum, notiz = excluded.notiz, geaendert = excluded.geaendert, geaendert_von = excluded.geaendert_von`,
-      b.id, jahr, f.art, f.anspruch, f.einheit, f.uebertrag, f.buak_stand, f.buak_datum, f.notiz, jetzt(), req.ctx.benutzer.id);
+      db.lauf(`INSERT INTO urlaub_konto (benutzer_id, jahr, art, anspruch, einheit, uebertrag, buak_stand, buak_datum, notiz, geaendert, geaendert_von, beginn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(benutzer_id, jahr) DO UPDATE SET art = excluded.art, anspruch = excluded.anspruch, einheit = excluded.einheit, uebertrag = excluded.uebertrag, buak_stand = excluded.buak_stand, buak_datum = excluded.buak_datum, notiz = excluded.notiz, geaendert = excluded.geaendert, geaendert_von = excluded.geaendert_von, beginn = excluded.beginn`,
+      b.id, jahr, f.art, f.anspruch, f.einheit, f.uebertrag, f.buak_stand, f.buak_datum, f.notiz, jetzt(), req.ctx.benutzer.id, f.beginn);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'urlaub', objekt: `benutzer:${b.id}`, alt, neu: f, text: `Urlaubskonto ${b.name} ${jahr} geändert` });
     });
     res.json(konto(b, jahr));
@@ -139,9 +172,11 @@ module.exports = function urlaubRouten(api, bt) {
   /* ---------- Betriebsurlaub ---------- */
   api.post('/urlaub/betriebsurlaub', (req, res) => {
     if (!req.ctx.hat('stammdaten')) throw keinZugriff('Betriebsurlaub trägt das Büro ein.');
+    const ich = req.ctx.benutzer;
     const body = v.objekt(req.body);
     const von = v.datum(body.von, 'von'), bis = v.datum(body.bis, 'bis');
-    if (bis < von || plusTage(von, 62) < bis) throw ungueltig('Zeitraum höchstens 62 Tage.');
+    // höchstens 62 Kalendertage einschließlich von und bis (wie POST /abwesenheiten/zeitraum, 14.3)
+    if (bis < von || plusTage(von, 61) < bis) throw ungueltig('Zeitraum höchstens 62 Kalendertage.');
     if (von < plusTage(heute(), -62)) throw ungueltig('Höchstens 62 Tage zurück.');
     const codeNeu = v.auswahl(body.code ?? 'BU', 'code', ['BU', 'U']);
     const vorschau = body.vorschau === undefined ? true : v.bool(body.vorschau, 'vorschau');
@@ -151,32 +186,53 @@ module.exports = function urlaubRouten(api, bt) {
     const tage = [];
     for (let d = von; d <= bis; d = plusTage(d, 1)) if (istArbeitstag(d)) tage.push(d);
     const plan = new Map(db.alle('SELECT p.benutzer_id, e.datum FROM plan_person p JOIN plan_einsatz e ON e.id = p.einsatz_id WHERE e.datum >= ? AND e.datum <= ? AND e.geloescht = 0', von, bis).map((x) => [`${x.benutzer_id}|${x.datum}`, true]));
-    const ergebnis = personen.map((p) => {
-      const konflikte = [];
-      let neu = 0;
+    const betroffen = typeof bt.offeneAntraegeBetroffen === 'function' ? bt.offeneAntraegeBetroffen : () => ({ ganz: [], teil: [] });
+    const vorhaben = personen.map((p) => {
+      // Vier-Augen-Prinzip (7, 14.3): der eigene Eintrag ist auch beim Betriebsurlaub nur beantragt – eine andere Person genehmigt
+      const eigen = p.id === ich.id;
+      const konflikte = [], kandidaten = [];
       for (const d of tage) {
         const a = db.eins('SELECT code, status FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', p.id, d);
         if (a && a.status === 'genehmigt') { konflikte.push({ datum: d, text: `schon ${CODE_TEXT[a.code] || a.code} (genehmigt) – bleibt` }); continue; }
-        if (plan.has(`${p.id}|${d}`)) konflikte.push({ datum: d, text: 'im Baustellenplaner eingeteilt' });
-        neu++;
+        kandidaten.push(d);
       }
-      return { benutzerId: p.id, name: p.name, neu, konflikte };
+      // Inhaber 13.11.2026: offene Anträge nur als Ganzes ersetzen; ragt einer über den Zeitraum hinaus, bleibt er (bitte entscheiden)
+      const b = betroffen(p.id, kandidaten);
+      const bleibt = new Set(b.teil.flatMap((g) => g.tage.map((x) => x.datum)));
+      const anlegen = [];
+      for (const d of kandidaten) {
+        if (bleibt.has(d)) { konflikte.push({ datum: d, text: 'offener Antrag, der über den Zeitraum hinausreicht – bleibt; bitte den ganzen Antrag entscheiden' }); continue; }
+        if (b.ganz.some((g) => g.tage.some((x) => x.datum === d))) konflikte.push({ datum: d, text: 'offener Antrag – wird als Ganzes ersetzt' });
+        if (plan.has(`${p.id}|${d}`)) konflikte.push({ datum: d, text: 'im Baustellenplaner eingeteilt' });
+        anlegen.push(d);
+      }
+      return { p, eigen, status: eigen ? 'beantragt' : 'genehmigt', konflikte, anlegen, ersetzt: b.ganz };
     });
+    const ergebnis = vorhaben.map((x) => ({ benutzerId: x.p.id, name: x.p.name, neu: x.anlegen.length, status: x.status, ...(x.eigen ? { hinweis: 'Eigener Eintrag – wird beantragt und von einer anderen Person genehmigt (Vier-Augen-Prinzip).' } : {}), konflikte: x.konflikte }));
     let angelegt = 0;
     if (!vorschau) {
+      const zeit = jetzt();
+      const art = codeNeu === 'BU' ? 'Betriebsurlaub' : 'Urlaub';
       db.transaktion(() => {
-        for (const p of personen) {
+        for (const x of vorhaben) {
+          if (!x.anlegen.length) continue;
           const aid = `a${require('node:crypto').randomBytes(6).toString('hex')}`; // 12.24: ein Antrag je Person
-          for (const d of tage) {
-            const a = db.eins('SELECT status FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', p.id, d);
-            if (a && a.status === 'genehmigt') continue;
-            db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, entschieden_von, entschieden, betriebsurlaub, notiz, antrag_id) VALUES (?, ?, 'U', 'genehmigt', ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = 'U', status = 'genehmigt', entschieden_von = excluded.entschieden_von, entschieden = excluded.entschieden, betriebsurlaub = excluded.betriebsurlaub, notiz = excluded.notiz, antrag_id = excluded.antrag_id, antwort = NULL`,
-            p.id, d, req.ctx.benutzer.id, jetzt(), req.ctx.benutzer.id, jetzt(), codeNeu === 'BU' ? 1 : 0, notiz, aid);
-            angelegt++;
+          const entschVon = x.eigen ? null : ich.id, entsch = x.eigen ? null : zeit;
+          for (const d of x.anlegen) {
+            const r = db.lauf(`INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, entschieden_von, entschieden, betriebsurlaub, notiz, antrag_id) VALUES (?, ?, 'U', ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(benutzer_id, datum) DO UPDATE SET code = 'U', status = excluded.status, erfasst_von = excluded.erfasst_von, erfasst = excluded.erfasst, entschieden_von = excluded.entschieden_von, entschieden = excluded.entschieden, betriebsurlaub = excluded.betriebsurlaub, notiz = excluded.notiz, antrag_id = excluded.antrag_id, antwort = NULL
+              WHERE abwesenheit.status <> 'genehmigt'`,
+            x.p.id, d, x.status, ich.id, zeit, entschVon, entsch, codeNeu === 'BU' ? 1 : 0, notiz, aid);
+            if (r.changes) angelegt++;
+          }
+          if (!x.eigen && typeof bt.antragErsetztMelden === 'function') bt.antragErsetztMelden(x.ersetzt, { text: `${art} ${x.anlegen[0].split('-').reverse().join('.')}–${x.anlegen[x.anlegen.length - 1].split('-').reverse().join('.')}, genehmigt` }, zeit);
+          if (x.eigen) {
+            for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", ich.id)) {
+              benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Antrag ${art}: ${x.p.name}`, text: `${x.p.name} hat ${art} für sich selbst eingetragen (${x.anlegen.length} ${x.anlegen.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}) – bitte den Antrag entscheiden (Vier-Augen-Prinzip).`, zeit, schluessel: `abw:antrag:${aid}` });
+            }
           }
         }
-        db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'abwesenheit', objekt: 'betriebsurlaub', neu: { von, bis, personen: personen.length, angelegt, code: codeNeu }, text: `${codeNeu === 'BU' ? 'Betriebsurlaub' : 'Urlaub'} ${von}–${bis} für ${personen.length} Personen eingetragen` });
+        db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: 'betriebsurlaub', neu: { von, bis, personen: personen.length, angelegt, code: codeNeu, eigenBeantragt: vorhaben.some((x) => x.eigen && x.anlegen.length) }, text: `${art} ${von}–${bis} für ${personen.length} Personen eingetragen` });
       });
     }
     res.json({ tage, personen: ergebnis, ...(vorschau ? {} : { angelegt }) });
@@ -233,10 +289,9 @@ module.exports = function urlaubRouten(api, bt) {
       const n = (personen.find((p) => p.id === w.benutzerId) || {}).name;
       out.push({ ...w, ...(w.bis === w.datum ? { bis: undefined } : {}), text: w.tage === 1 ? `${n} ist eingeteilt, aber abwesend.` : `${n} ist an ${w.tage} Tagen eingeteilt, aber abwesend (${de(w.datum)}–${de(w.bis)}).` });
     }
-    // Resturlaub negativ, Anträge offen > 3 Tage
-    const jahr = Number(heute().slice(0, 4));
+    // Resturlaub negativ (laufendes Urlaubsjahr der Person, 14.3), Anträge offen > 3 Tage
     for (const p of personen.filter((x) => sicht(x.id))) {
-      const k = konto({ ...p, pnr: null }, jahr);
+      const k = konto({ ...p, pnr: null }, jahrVon(p.id, heute()));
       if (k.rest != null && k.rest < 0) out.push({ typ: 'rest_negativ', benutzerId: p.id, text: `${p.name}: Resturlaub ${String(k.rest).replace('.', ',')} ${k.einheit}.` });
     }
     for (const g of offeneAntraege(db, bt)) {
@@ -261,7 +316,22 @@ module.exports = function urlaubRouten(api, bt) {
     const e = { ...(db.einstellung('urlaub', {}) || {}) };
     if (body.partieGrenze !== undefined) e.partieGrenze = v.zahl(body.partieGrenze, 'partieGrenze', { min: 1, max: 50, ganz: true });
     if (body.partieGrenzeProzent !== undefined) e.partieGrenzeProzent = v.zahl(body.partieGrenzeProzent, 'partieGrenzeProzent', { min: 1, max: 100 });
-    if (body.urlaubsjahrBeginn !== undefined) { if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(body.urlaubsjahrBeginn))) throw ungueltig('urlaubsjahrBeginn: MM-TT.'); e.urlaubsjahrBeginn = body.urlaubsjahrBeginn; }
+    if (body.urlaubsjahrBeginn !== undefined) {
+      const neu = pruefeBeginn(body.urlaubsjahrBeginn, 'urlaubsjahrBeginn');
+      const alt = einst();
+      if (neu !== alt.urlaubsjahrBeginn) {
+        // 14.3: die Vorgabe gilt erst ab dem nächsten Urlaubsjahr, das nach heute beginnt – bestehende Jahre verschieben sich nie rückwirkend
+        const h = heute();
+        let ab = standardJahr(h) + 1;
+        while (`${ab}-${neu}` <= h) ab++;
+        const verlauf = [];
+        for (let j = 2000; j < ab; j++) { const b = standardBeginn(j, alt); const l = verlauf[verlauf.length - 1]; if (l && l.beginn === b) l.bisJahr = j; else verlauf.push({ bisJahr: j, beginn: b }); }
+        if (verlauf.length && verlauf[verlauf.length - 1].beginn === neu) verlauf.pop();
+        e.beginnVerlauf = verlauf;
+        e.urlaubsjahrBeginn = neu;
+        e.urlaubsjahrBeginnAb = ab;
+      }
+    }
     db.setzeEinstellung('urlaub', e);
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'einstellung', objekt: 'urlaub', neu: e, text: 'Urlaubs-Einstellungen geändert' });
     res.json(einst());
@@ -269,7 +339,7 @@ module.exports = function urlaubRouten(api, bt) {
 
   api.get('/urlaub/export.csv', (req, res) => {
     if (!verwaltung(req.ctx)) throw keinZugriff();
-    const jahr = req.query.jahr ? v.zahl(Number(req.query.jahr), 'jahr', { min: 2000, max: 2100, ganz: true }) : Number(heute().slice(0, 4));
+    const jahr = req.query.jahr ? v.zahl(Number(req.query.jahr), 'jahr', { min: 2000, max: 2100, ganz: true }) : standardJahr(heute());
     const z = [['Personalnummer', 'Name', 'Art', 'Anspruch', 'Einheit', 'Übertrag', 'genommen', 'geplant', 'beantragt', 'Rest', 'BUAK-Stand', 'BUAK-Datum']];
     for (const b of db.alle('SELECT id, name, rolle, pnr FROM benutzer WHERE aktiv = 1 ORDER BY name')) {
       const k = konto(b, jahr);
