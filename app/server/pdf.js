@@ -115,7 +115,8 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t('PERSONAL:', X0 + 3, yl + 3.5, { fett: true, gr: 9 });
   ['von', 'bis', 'von', 'bis', 'Pause', 'Arbstd.'].forEach((h, i) => { box(sx[i + 1], yl, sp[i + 1], ZEILE + 1); t(h, sx[i + 1], yl + 3.5, { b: sp[i + 1], align: 'center', gr: 8 }); });
   yl += ZEILE + 1;
-  // R-01: Krankenstand nie im PDF – berichtJson liefert ihn maskiert als „abwesend“ → „abw.“ (AG-Fassung ganz ohne)
+  // R-01: Krankenstand nie im PDF – „abw.“ (AG-Fassung ganz ohne). Welche Zeilen/Kürzel der Aufrufer überhaupt bekommt,
+  // entscheidet vorher server/datenschutz.js (berichtPersonalPdf) – hier wird nur gedruckt.
   // AG-Fassung: keine persönlichen Abwesenheiten (K, U, ZA) – auch der Polier lädt sie (Inhaber 13.11.2026)
   const versteckt = (c) => fassung === 'ag' && ['K', 'U', 'ZA', 'abwesend'].includes(c);
   const personal = bericht.personal.filter((p) => !(versteckt(p.code) && !p.stunden));
@@ -140,7 +141,14 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t(zahl(gesamt), sx[6], yl + 3.5, { b: sp[6], align: 'center', gr: 8.5, fett: true });
   yl += ZEILE + 1;
   box(X0, yl, LINKS_B, ZEILE);
-  t(fassung === 'ag' ? 'SW = Schlechtwetter' : 'abw. = abwesend      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich', X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
+  // API.md 15.1: ohne Sicht auf fremde Abwesenheiten (Polier/Mitarbeiter, auch mit Ausnahmen) keine Abwesenheits-Legende –
+  // nur die Kürzel, die tatsächlich gedruckt sind (SW und ggf. die eigene Zeile)
+  const LEGENDE = { 'abw.': 'abw. = abwesend', U: 'U = Urlaub', SW: 'SW = Schlechtwetter', ZA: 'ZA = Zeitausgleich' };
+  const gedruckt = new Set(personal.map((p) => (p.code && !versteckt(p.code) ? (p.code === 'K' || p.code === 'abwesend' ? 'abw.' : p.code) : null)).filter(Boolean));
+  const legende = fassung === 'ag' ? 'SW = Schlechtwetter'
+    : opt.abwesenheitenSichtbar ? 'abw. = abwesend      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich'
+      : Object.keys(LEGENDE).filter((k) => k === 'SW' || gedruckt.has(k)).map((k) => LEGENDE[k]).join('      ');
+  t(legende, X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
   yl += ZEILE + 8;
 
   /* ---- Links: Material ---- */

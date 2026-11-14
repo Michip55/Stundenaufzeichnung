@@ -82,7 +82,8 @@ module.exports = function assistentRouten(api, bt) {
     const b = bericht({ ...req, params: { id: String(body.berichtId) } }, { offen: false });
     const text = v.text(body.text, 'text', { max: 5000 });
     const s = stamm();
-    const personen = [...new Map([...b.personal.map((p) => ({ id: p.benutzer_id, name: p.name })), ...db.alle("SELECT id, name FROM benutzer WHERE aktiv = 1 AND rolle IN ('mitarbeiter','polier') AND baustelle_id = ?", b.baustelle_id)].map((p) => [p.id, p])).values()];
+    // API.md 15.1: verborgene Abwesenheits-Zeilen (fremd, ohne Stunden) zählen für Aufrufer ohne Sicht nicht als bekannte Person
+    const personen = [...new Map([...b.personal.filter((p) => !require('../datenschutz').berichtZeileVerborgen(req.ctx, p)).map((p) => ({ id: p.benutzer_id, name: p.name })), ...db.alle("SELECT id, name FROM benutzer WHERE aktiv = 1 AND rolle IN ('mitarbeiter','polier') AND baustelle_id = ?", b.baustelle_id)].map((p) => [p.id, p])).values()];
     const regeln = Diktat.auswerten(text, { ...s, personen });
     if (KI.aktiv(bt)) {
       try {

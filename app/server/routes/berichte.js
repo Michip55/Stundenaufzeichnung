@@ -8,6 +8,7 @@ const { wienDatum, wienZeit, plusTage } = require('../datum');
 const { pruefeBudget, benachrichtige } = require('../budget');
 const { erzeugeBerichtPdf } = require('../pdf');
 const { bildHash } = require('../db');
+const DS = require('../datenschutz');
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
 const WETTER_SCHLUESSEL = ['text', 'temperatur', 'niederschlag', 'wind', 'quelle'];
@@ -55,8 +56,8 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     },
     datum: b.datum,
     status: b.status,
-    // Datenschutz (server/datenschutz.js): Polier/Mitarbeiter sehen keine fremden Abwesenheiten, K nur mit Recht
-    personal: require('../datenschutz').berichtPersonal(ctx, b.personal.map((p) => ({
+    // Datenschutz (server/datenschutz.js): ohne Recht stammdaten/lohn keine fremden Abwesenheiten (API.md 13.2, 15.1)
+    personal: DS.berichtPersonal(ctx, b.personal.map((p) => ({
       benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2,
       pauseMin: p.pause_min, stunden: p.stunden, code: p.code, segStunden: p.seg_stunden, ...(p.hinweis ? { hinweis: p.hinweis } : {}), ...(p.gast ? { gast: true } : {})
     }))),
@@ -85,6 +86,8 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     bearbeitbar: b.status === 'entwurf' && !b.unterschriften.length
   };
   if (darfPreise(ctx, bs)) o.kostenTag = kostenTagFuer(db, b.id);
+  // API.md 15.1: Konflikte Bericht ↔ eingetragene Abwesenheit nur für Aufrufer mit Sicht (Büro/Lohn/GF, Bauleiter)
+  if (DS.berichtSiehtAbwesenheiten(ctx)) o.abwesenheitHinweise = abwesenheitHinweise(db, ctx, b);
   anlagenZumBericht(db, b, o);
   // API.md 12.4: Schlechtwetter-Vorschlag aus dem Wetter-Zwischenspeicher
   const w = require('../wetter').wetterAusCache(db, bs, b.datum);
@@ -97,6 +100,23 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
   if (typeof module.exports.fotosJson === 'function') o.fotos = module.exports.fotosJson(db, b.id);
   if (typeof module.exports.fuhrenVorschlag === 'function') o.fuhrenVorschlag = module.exports.fuhrenVorschlag(db, b); // 12.8b
   return o;
+}
+
+/**
+ * API.md 15.1: Bericht-Zeilen, die einer genehmigten Abwesenheit (K/U/ZA) widersprechen – z. B. „Bericht enthält Stunden
+ * trotz Abwesenheit“ oder ein Polier hat die Person ohne Code bzw. mit SW eingetragen. Nur für Aufrufer mit Sicht.
+ */
+function abwesenheitHinweise(db, ctx, b) {
+  const abw = new Map(db.alle("SELECT benutzer_id, code FROM abwesenheit WHERE datum = ? AND status = 'genehmigt' AND code IN ('K', 'U', 'ZA')", b.datum).map((a) => [a.benutzer_id, a.code]));
+  const out = [];
+  for (const p of b.personal) {
+    const a = abw.get(p.benutzer_id);
+    if (!a) continue;
+    const art = DS.text(ctx, p.benutzer_id, a);
+    if (p.stunden > 0) out.push({ typ: 'stunden_trotz_abwesenheit', benutzerId: p.benutzer_id, name: p.name, code: a, text: `${p.name}: Bericht enthält Stunden (${String(p.stunden).replace('.', ',')}) trotz eingetragener Abwesenheit (${art}) – bitte prüfen.` });
+    else if (p.code !== a) out.push({ typ: 'code_abweichend', benutzerId: p.benutzer_id, name: p.name, code: a, text: `${p.name}: im Bericht ${p.code ? `„${p.code}“` : 'ohne Code'}, eingetragen ist ${art} – bitte prüfen.` });
+  }
+  return out;
 }
 
 /** Servicebuch (API.md 11.4): Anlage je Gerätezeile (manuell oder automatisch) und Vorschlag je Gerät */
@@ -158,6 +178,8 @@ const hmZ = (t) => wienZeit(new Date(t));
  */
 function pruefePersonal(db, liste, kontext) {
   const { baustelle: bs, datum, berichtId, jetzt } = kontext;
+  // API.md 15.1: Aufrufer ohne Sicht auf fremde Abwesenheiten (kontext.ctx fehlt nur bei Server-internen Aufrufen)
+  const ohneSicht = Boolean(kontext.ctx) && !DS.berichtSiehtAbwesenheiten(kontext.ctx);
   v.liste(liste, 'personal', { max: 80 });
   const gesehen = new Set();
   const schichtenTag = schichtenAmTag(db, datum, jetzt);
@@ -191,14 +213,21 @@ function pruefePersonal(db, liste, kontext) {
     // „bis“ vor „von“ = über Mitternacht (nächster Tag); gesamte Spanne höchstens 24 Std.
     if (blockZeitleiste(z, datum).spanneMin > 24 * 60) throw ungueltig(`${f}: Die Zeitblöcke umfassen mehr als 24 Stunden.`);
     const pauseMin = v.zahl(p.pauseMin ?? 0, `${f}.pauseMin`, { min: 0, max: 600, ganz: true });
-    // R-01: „abwesend“ ist die maskierte Anzeige eines Krankenstands – beim Speichern bleibt der gespeicherte Code
     let code;
-    if (p.code === 'abwesend') {
+    if (ohneSicht && benutzerId !== kontext.ctx.benutzer.id) {
+      // API.md 15.1 (F-003, F-010, F-028): ohne Recht stammdaten/lohn für ANDERE nur „–“ oder SW. Die Antwort hängt nur vom
+      // gesendeten Wert ab – nie von der Tabelle abwesenheit oder gespeicherten Codes (kein Abwesenheits-Orakel).
+      if (DS.LEER_CODES.includes(p.code)) code = null;
+      else if (DS.BERICHT_CODES_OHNE_RECHT.includes(p.code)) code = p.code;
+      else throw ungueltig(`${f}.code: ${DS.BERICHT_CODE_NEUTRAL}`);
+    } else if (p.code === 'abwesend') {
+      // R-01: „abwesend“ ist die maskierte Anzeige eines Krankenstands – beim Speichern bleibt der gespeicherte Code
+      // (nur für Aufrufer mit Sicht bzw. die eigene Zeile – dort ist die Auskunft keine fremde Abwesenheit)
       const alt = berichtId ? db.eins('SELECT code FROM bericht_personal WHERE bericht_id = ? AND benutzer_id = ?', berichtId, benutzerId) : null;
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", benutzerId, datum);
       code = alt && alt.code ? alt.code : abw ? abw.code : null;
       if (!code) throw ungueltig(`${f}.code: „abwesend“ ist nur für eingetragene Abwesenheiten möglich.`);
-    } else code = p.code === '' || p.code === null || p.code === undefined ? null : v.auswahl(p.code, `${f}.code`, CODES);
+    } else code = DS.LEER_CODES.includes(p.code) ? null : v.auswahl(p.code, `${f}.code`, CODES);
     // C-02: Stunden immer aus Zeiten und Pause (echte Zeitpunkte, C-10); mitgesendete Stunden werden ignoriert
     const stunden = stundenAusBloecken({ ...z, pauseMin }, datum);
     if (z.von1 && pauseMin > 0 && stunden === 0) throw ungueltig(`${f}: Die Pause ist länger als die Arbeitszeit.`);
@@ -392,11 +421,21 @@ module.exports = function berichtRouten(api, bt) {
         (SELECT COUNT(*) FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'bh') AS bh
       FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
       ${bedingungen.length ? 'WHERE ' + bedingungen.join(' AND ') : ''} ORDER BY r.datum DESC, b.kst LIMIT 1000`, ...p);
-    res.json(zeilen
-      .filter((z) => baustelleImBereich(ctx.benutzer, { id: z.baustelle_id, polier_id: z.polier_id, bauleiter_id: z.bauleiter_id }))
+    const sichtbar = zeilen.filter((z) => baustelleImBereich(ctx.benutzer, { id: z.baustelle_id, polier_id: z.polier_id, bauleiter_id: z.bauleiter_id }));
+    // F-006/F-011 (API.md 15.1): personalAnzahl = Zeilen, die der Aufrufer im Detail sieht (verborgene Abwesende zählen nicht)
+    const anzahl = new Map();
+    if (!DS.berichtSiehtAbwesenheiten(ctx) && sichtbar.length) {
+      const jeBericht = new Map();
+      for (const p of db.alle('SELECT bericht_id, benutzer_id, code, stunden, von1 FROM bericht_personal WHERE bericht_id IN (SELECT value FROM json_each(?))', JSON.stringify(sichtbar.map((z) => z.id)))) {
+        if (!jeBericht.has(p.bericht_id)) jeBericht.set(p.bericht_id, []);
+        jeBericht.get(p.bericht_id).push(p);
+      }
+      for (const z of sichtbar) anzahl.set(z.id, DS.berichtPersonalAnzahl(ctx, jeBericht.get(z.id) || []));
+    }
+    res.json(sichtbar
       .map((z) => ({
         id: z.id, baustelleId: z.baustelle_id, kst: z.kst, baustelle: z.kurz || z.name, datum: z.datum, status: z.status,
-        personalAnzahl: z.anzahl, stunden: r2(z.stunden), unterschriften: { an: z.an > 0, bh: z.bh > 0 }, geaendertNachUnterschrift: Boolean(z.geaendert_nach_unterschrift)
+        personalAnzahl: anzahl.has(z.id) ? anzahl.get(z.id) : z.anzahl, stunden: r2(z.stunden), unterschriften: { an: z.an > 0, bh: z.bh > 0 }, geaendertNachUnterschrift: Boolean(z.geaendert_nach_unterschrift)
       })));
   });
 
@@ -441,13 +480,16 @@ module.exports = function berichtRouten(api, bt) {
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const body = v.objekt(req.body);
     pruefeBerichtVersion(body, b, true);
-    // Datenschutz: wer fremde Abwesenheiten nicht sieht (Polier), kann sie auch nicht löschen oder ändern –
-    // ausgeblendete Zeilen und ausgeblendete Codes bleiben beim Speichern erhalten
-    if (Array.isArray(body.personal) && require('../datenschutz').stufe(req.ctx) === 'keine') body.personal = abwesendeBehalten(req.ctx, b, body.personal);
-    const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr() });
+    const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr(), ctx: req.ctx });
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
+    // Datenschutz (API.md 13.2, 15.1): wer fremde Abwesenheiten nicht sieht, kann sie weder löschen noch ändern –
+    // verborgene Zeilen und Codes bleiben serverseitig erhalten; Konflikte sieht nur das Büro (abwesenheitHinweise, Protokoll)
+    const konflikte = u.personal && !DS.berichtSiehtAbwesenheiten(req.ctx) ? personalOhneSicht(req.ctx, b, u) : [];
     db.transaktion(() => {
       speichereUpdate(db, b.id, u, jetzt());
+      for (const k of konflikte) {
+        db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Bericht ${b.baustelle.kst} ${b.datum}: ${k.name} ${k.neu ? `mit „${k.neu}“` : 'ohne Code'} eingetragen, gespeichert war „${k.alt}“ – bitte prüfen` });
+      }
       linksUngueltig(db, b.id); // 12.9
       const warGast = new Set(b.personal.filter((p) => p.gast).map((p) => p.benutzer_id));
       for (const p of (u.personal || []).filter((x) => x.gast && !warGast.has(x.benutzerId))) {
@@ -480,6 +522,14 @@ module.exports = function berichtRouten(api, bt) {
     pruefeBerichtVersion(v.objekt(req.body || {}), b, true); // D-07
     const seg = new Map(b.personal.map((p) => [p.benutzer_id, p.seg_stunden]));
     const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: Math.min(seg.get(p.benutzerId) || 0, p.stunden) }));
+    // API.md 15.1: Zeilen, die der Aufrufer nicht sieht (z. B. vom Büro eingetragene abwesende Gäste), bleiben erhalten
+    if (!DS.berichtSiehtAbwesenheiten(req.ctx)) {
+      const drin = new Set(personal.map((p) => p.benutzerId));
+      for (const alt of b.personal) {
+        if (drin.has(alt.benutzer_id) || !DS.berichtZeileVerborgen(req.ctx, alt)) continue;
+        personal.push({ benutzerId: alt.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, stunden: 0, code: alt.code, segStunden: 0, gast: alt.gast === 1, hinweis: alt.hinweis || null });
+      }
+    }
     db.transaktion(() => { speichereUpdate(db, b.id, { personal }, jetzt()); linksUngueltig(db, b.id); });
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
   });
@@ -604,41 +654,56 @@ module.exports = function berichtRouten(api, bt) {
     const b = ladeMitZugriff(req, false);
     const fassung = req.query.fassung === undefined ? 'ag' : v.auswahl(String(req.query.fassung), 'fassung', ['ag', 'intern']);
     if (fassung === 'intern' && !req.ctx.hat('bericht_freigeben') && !req.ctx.hat('stammdaten')) throw keinZugriff('Die interne Fassung ist Bauleitung und Büro vorbehalten.');
-    const pdf = await berichtPdf(bt, b, { fassung, benutzer: req.ctx.benutzer, fotos: req.query.fotos === '1' });
+    const pdf = await berichtPdf(bt, b, { fassung, ctx: req.ctx, fotos: req.query.fotos === '1' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Bautagesbericht_${b.baustelle.kst}_${b.datum}${fassung === 'intern' ? '_intern' : ''}.pdf"`);
     res.send(pdf);
   });
 };
 
-/** Polier speichert Personal: verborgene Abwesenheits-Zeilen/-Codes anderer Personen unverändert übernehmen */
-function abwesendeBehalten(ctx, b, liste) {
-  const DS = require('../datenschutz');
-  const verborgen = (p) => p.benutzer_id !== ctx.benutzer.id && DS.ABWESENHEIT_CODES.includes(p.code);
+/**
+ * API.md 15.1: Personal eines Aufrufers ohne Sicht auf fremde Abwesenheiten zusammenführen (ändert u.personal).
+ * - Zeilen, die er nicht sieht (fremd, K/U/ZA ohne Stunden), bleiben unverändert erhalten (mit gast/hinweis) – ohne erneute
+ *   Prüfung, also auch ohne Fehlertexte zu Zeilen, die er nicht kennt (F-027).
+ * - Gesendete Zeile mit Zeiten zu einer gespeicherten Abwesenheit, Code „–“: der Code bleibt (der Aufrufer sieht ohnehin code:null).
+ * - Sonst gilt die gesendete Zeile wie für jede anwesende Person; ein ersetzter Code wird als Konflikt zurückgegeben (nur Protokoll/Büro).
+ * @returns {{name:string, alt:string, neu:string|null}[]}
+ */
+function personalOhneSicht(ctx, b, u) {
   const gespeichert = new Map(b.personal.map((p) => [p.benutzer_id, p]));
-  const out = liste.map((x) => {
-    const alt = x && gespeichert.get(Number(x.benutzerId));
-    if (alt && verborgen(alt) && (x.code === null || x.code === undefined || x.code === '')) return { ...x, code: alt.code };
-    return x;
+  const konflikte = [];
+  u.personal = u.personal.map((p) => {
+    const alt = gespeichert.get(p.benutzerId);
+    if (p.benutzerId === ctx.benutzer.id || !alt || !DS.ABWESENHEIT_CODES.includes(alt.code) || alt.code === p.code) return p;
+    if (p.code === null && (p.stunden || p.von1)) return { ...p, code: alt.code };
+    konflikte.push({ name: p.name, alt: alt.code, neu: p.code });
+    return p;
   });
-  const drin = new Set(out.map((x) => Number(x && x.benutzerId)));
-  for (const p of b.personal) {
-    if (verborgen(p) && !p.stunden && !p.von1 && !drin.has(p.benutzer_id)) {
-      out.push({ benutzerId: p.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, code: p.code, segStunden: 0 });
-    }
+  const drin = new Set(u.personal.map((p) => p.benutzerId));
+  for (const alt of b.personal) {
+    if (drin.has(alt.benutzer_id) || !DS.berichtZeileVerborgen(ctx, alt)) continue;
+    u.personal.push({ benutzerId: alt.benutzer_id, von1: null, bis1: null, von2: null, bis2: null, pauseMin: 0, stunden: 0, code: alt.code, segStunden: 0, gast: alt.gast === 1, hinweis: alt.hinweis || null, name: alt.name });
   }
-  return out;
+  return konflikte;
 }
 
-/** PDF eines Berichts (nie €): Fassung ag|intern, optional Fotoseiten (API.md 12.6) */
-async function berichtPdf(bt, b, { fassung = 'ag', benutzer = null, fotos = false } = {}) {
+/**
+ * PDF eines Berichts (nie €): Fassung ag|intern, optional Fotoseiten (API.md 12.6).
+ * `ctx` = Aufrufer; ohne ctx (E-Mail an den Auftraggeber, Fernunterschrift) gilt: keine Sicht auf Abwesenheiten.
+ * Personal nach derselben Regel wie das JSON (DS.berichtPersonalPdf, API.md 15.1): ohne Recht stammdaten/lohn keine fremden
+ * Abwesenden, keine fremden Abwesenheits-Kürzel und keine Abwesenheits-Legende – auch nicht in der internen Fassung.
+ */
+async function berichtPdf(bt, b, { fassung = 'ag', ctx = null, fotos = false } = {}) {
   const { db } = bt;
   const firma = db.einstellung('firma', { name: 'Michael Pichler Ges.m.b.H.', ort: '2624 Breitenau' });
-  // Bewusst ohne kostenTag: das PDF enthält nie €-Werte
-  // R-01: PDFs (intern und AG) zeigen nie den Krankenstand – „abw.“ (ctx ohne Rechte und ohne Person maskiert K)
-  const daten = berichtJson(db, { benutzer: { id: 0, rolle: 'buero' }, rechte: new Set(), hat: () => false }, b); // Stufe „maskiert“: K → abw., übrige Codes bleiben
+  // Bewusst ohne kostenTag und ohne Aufrufer-Rechte: das PDF enthält nie €-Werte
+  const daten = berichtJson(db, { benutzer: { id: 0, rolle: 'mitarbeiter' }, rechte: new Set(), hat: () => false }, b);
+  // R-01: PDFs (intern und AG) zeigen nie den Krankenstand – „abw.“
+  daten.personal = DS.berichtPersonalPdf(ctx, b.personal.map((p) => ({
+    benutzerId: p.benutzer_id, name: p.name, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pause_min, stunden: p.stunden, code: p.code
+  })));
   const anhang = fotos && typeof module.exports.fotoAnhang === 'function' ? module.exports.fotoAnhang(bt, b.id) : null;
-  return erzeugeBerichtPdf(daten, { fassung, firma, unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
+  return erzeugeBerichtPdf(daten, { fassung, firma, abwesenheitenSichtbar: DS.berichtSiehtAbwesenheiten(ctx), unkomprimiert: Boolean(bt.pdfUnkomprimiert), fotos: anhang, geraete: db.alle('SELECT id, code, name FROM geraet WHERE vorlage = 1 ORDER BY sortierung, id'), materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE vorlage = 1 ORDER BY sortierung, id') });
 }
 
 /** AG-Fassung für E-Mail/Fernunterschrift */
