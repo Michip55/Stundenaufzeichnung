@@ -110,12 +110,12 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
         v.push(...await H.scanne('mitarbeiter', r, { route: 'UMGEHUNG', url: `${p}?${q}` }));
       }
     }
-    const vorher = H.dbHash(s.db);
+    const vorher = H.dbHash(s);
     for (const body of [{ benutzerId: [U.mitarbeiter, ANDERER_MA], datum: '2026-12-21', code: 'U' }, { benutzerId: String(ANDERER_MA), datum: '2026-12-21', code: 'U' }, { benutzerId: ANDERER_MA + 0.0000001, datum: '2026-12-21', code: 'U' }, { benutzerId: { id: ANDERER_MA }, datum: '2026-12-21', code: 'U' }]) {
       const r = await ma.post('/abwesenheiten', body);
       if (![400, 403].includes(r.status)) v.push(`mitarbeiter POST /abwesenheiten ${JSON.stringify(body)} → ${r.status}`);
     }
-    const diff = H.dbUnterschied(vorher, H.dbHash(s.db));
+    const diff = H.dbUnterschied(vorher, H.dbHash(s));
     if (diff.length) v.push(`Abwesenheiten für andere: DB geändert (${diff.join(', ')})`);
     // Stempeln mit fremder benutzerId im Body bucht nur für sich selbst
     const n3 = s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ?', ANDERER_MA).n;
@@ -131,9 +131,9 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     const v = [];
     const bl = c.bauleiter, pol = c.polier;
     const fall = async (wer, m, p, body, erlaubt = [400, 403, 404, 409, 422]) => {
-      const vorher = H.dbHash(s.db);
+      const vorher = H.dbHash(s);
       const r = await c[wer].anfrage(m, p, body);
-      const diff = H.dbUnterschied(vorher, H.dbHash(s.db));
+      const diff = H.dbUnterschied(vorher, H.dbHash(s));
       if (!erlaubt.includes(r.status)) v.push(`${wer} ${m} ${p} ${body ? JSON.stringify(body).slice(0, 80) : ''} → ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`);
       if (diff.length && m !== 'GET') v.push(`${wer} ${m} ${p}: DB geändert (${diff.join(', ')})`);
       v.push(...await H.scanne(wer, r, { route: 'IDOR', variante: 'fremd', url: p }));
@@ -486,13 +486,18 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     // Inhaber 13.11.2026: die SW-Meldung des Poliers ist immer gleich aufgebaut – 201 „gemeldet“, nichts über bestehende Abwesenheiten
     const NEUTRAL = ['arbeitstage', 'benutzerId', 'bis', 'code', 'meldungId', 'status', 'text', 'von'];
     if (r1.status !== 201 || r1.daten.status !== 'gemeldet' || JSON.stringify(Object.keys(r1.daten).sort()) !== JSON.stringify(NEUTRAL)) v.push(`polier SW an Krankentag → ${r1.status} ${JSON.stringify(r1.daten)} (erwartet neutrale Meldung)`);
-    const r1b = await pol.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-13', code: 'SW' }); // Tag ohne Abwesenheit
+    // Tag ohne Abwesenheit (13.11. trägt seit F-024 fremde Abwesenheiten aller Arten)
+    if (s.db.eins("SELECT 1 AS x FROM abwesenheit WHERE benutzer_id = ? AND datum = '2026-11-18'", ANDERER_MA)) v.push('Vorbereitung: 18.11. ist für Person 3 kein freier Tag');
+    const r1b = await pol.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-18', code: 'SW' });
     if (JSON.stringify(Object.keys(r1b.daten).sort()) !== JSON.stringify(NEUTRAL) || r1b.daten.text !== r1.daten.text || r1b.status !== r1.status) v.push('polier: SW-Antwort an einem freien Tag unterscheidet sich von der am Krankentag');
     if (r2.status !== 200 || 'uebersprungen' in r2.daten || JSON.stringify(Object.keys(r2.daten).sort()) !== JSON.stringify(['arbeitstage', 'benutzerId', 'bis', 'code', 'text', 'von', 'vorschau'])) v.push(`polier SW-Vorschau → ${r2.status} ${JSON.stringify(r2.daten)} (erwartet neutrale Vorschau)`);
     // Planer-Konflikttexte: „Krank“ nur mit stammdaten/lohn (Bauleiter = Büro); Polier: Meine Partie ohne Abwesenheiten
     const w = await c.polier.get('/plan/partie?datum=2026-11-16');
     v.push(...await H.scanne('polier', w, { route: 'GET /api/plan/partie', url: '/plan/partie?datum=2026-11-16' }));
     if (/abwesend|Krank|Urlaub/.test(JSON.stringify(w.daten))) v.push('polier /plan/partie nennt Abwesenheiten');
+    // F-024: die Probe läuft nicht ins Leere – veröffentlichter Einsatz mit den fremden Abwesenden (K, U, ZA, BU) an diesem Tag
+    const gesehen = w.status === 200 ? w.daten.einsaetze.flatMap((e) => e.personen.map((p) => p.benutzerId)) : [];
+    for (const id of [ANDERER_MA, ...H.PARTIE_ABW]) if (!gesehen.includes(id)) v.push(`Vorbereitung: /plan/partie?datum=2026-11-16 ohne Person ${id} (${w.status}) – Abwesenheits-Probe wirkungslos`);
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 

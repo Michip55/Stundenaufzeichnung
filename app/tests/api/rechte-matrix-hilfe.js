@@ -17,6 +17,7 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { starte, U, BS } = require('./hilfe');
 const { testJpeg } = require('./fuhrpark-bilder');
+const W = require('./rechte-werte');
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
 const ID = { mitarbeiter: U.mitarbeiter, polier: U.polier, bauleiter: U.bauleiter, buero: U.buero, gf: U.gf };
@@ -25,6 +26,17 @@ const TOKEN = 'rechte-matrix-test-token-0123456789';
 const ANDERER_MA = 3;
 // Mitarbeiter 14 (Mario Gruber) gehört zur Baustelle 3 (Reisinger, Bauleiter = GF, Polier 13)
 const FREMDER_MA = 14;
+// F-024: Personen im veröffentlichten Einsatz Pitten am 13.11. und 16.11. mit je einer anderen Abwesenheit (Code, Status)
+const PARTIE_ABW = [4, 5, 6, 7, 9];
+const PLAN_TAGE = ['2026-11-13', '2026-11-16'];
+const ABW_PLAN = [ // [Person, Code, eingetragen von, Notiz-Kanarie, Zeiträume]
+  [4, 'U', 'buero', 'ABW-U-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [5, 'ZA', 'buero', 'ABW-ZA-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [6, 'U', 'selbst', 'ABW-U-BEANTRAGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [7, 'ZA', 'selbst', 'ABW-ZA-BEANTRAGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [9, 'BU', 'buero', 'ABW-BU-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [3, 'K', 'buero', 'ABW-K-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-13']]] // 16./17.11. schon K (Diagnose-Kanarie)
+];
 
 /* ------------------------------------------------------------------ Routen */
 
@@ -62,9 +74,11 @@ function routenAusApp(app) {
 
 // Geld je Baustelle (Bauleiter 103 besitzt BS 1 Pitten, nicht BS 3 Reisinger)
 const GELD = {
-  bs1: { rechnungNetto: 87654.32, nachtrag: 76543.21, fremdleistung: 65432.19, zahlung: 3456.78, haftruecklass: 5432.11, posEp: 777.77, mengePa: 6666.66, auftragssumme: 345678.91 },
-  bs3: { rechnungNetto: 81818.18, nachtrag: 72727.27, fremdleistung: 63636.36, zahlung: 3939.39, haftruecklass: 5151.51, posEp: 717.17, mengePa: 6161.61, auftragssumme: 312312.31 },
-  global: { leistungEp: 4321.98, geplantEp: 1234.56, katalogEp: 999.88, geraetSatz: 188.77, reparatur: 2468.13 }
+  bs1: { rechnungNetto: 87654.32, nachtrag: 76543.21, fremdleistung: 65432.19, zahlung: 3456.78, haftruecklass: 5432.11, posEp: 5813.37, mengePa: 6666.66, auftragssumme: 345678.91 },
+  bs3: { rechnungNetto: 81818.18, nachtrag: 72727.27, fremdleistung: 63636.36, zahlung: 3939.39, haftruecklass: 5151.51, posEp: 7171.73, mengePa: 6161.61, auftragssumme: 312312.31 },
+  // F-022: alle Beträge mit unverwechselbarem ganzzahligem Anteil (auch gerundet/abgeschnitten erkennbar)
+  // lieferscheinOcr: Preis auf dem fotografierten Lieferschein (Test-OCR, POST /test/ocr) – darf nicht an Polier/Mitarbeiter zurück
+  global: { leistungEp: 4321.98, geplantEp: 3579.24, katalogEp: 9898.83, geraetSatz: 1887.71, reparatur: 2468.13, lieferscheinOcr: 6248.19 }
 };
 const TEXT = {
   rechnungNrBs1: 'R-KANARIE-BS1', rechnungNrBs3: 'R-KANARIE-BS3',
@@ -73,6 +87,9 @@ const TEXT = {
   krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2',
   telefonAnderer: '+43 699 3333 3131', telefonPolier: '+43 664 1111 1111', smtp: 'smtp-kanarie.example.test', alarmAn: 'alarm-kanarie@example.test',
   rechnungServicebuch: 'SB-RECHNUNG-KANARIE-4711', // Rechnungsnr. der Werkstatt im Servicebuch: nur mit preise_sehen (14.11.2026)
+  // F-023/F-024/F-040: Notizen fremder Abwesenheiten an den geprüften Planer-Tagen (je Code und Status eindeutig)
+  abwKg: 'ABW-K-GENEHMIGT-KANARIE', abwUg: 'ABW-U-GENEHMIGT-KANARIE', abwZAg: 'ABW-ZA-GENEHMIGT-KANARIE', abwUb: 'ABW-U-BEANTRAGT-KANARIE', abwZAb: 'ABW-ZA-BEANTRAGT-KANARIE', abwBU: 'ABW-BU-KANARIE',
+  abwKheute: 'ABW-K-HEUTE-KANARIE', abwUbHeute: 'ABW-U-BEANTRAGT-HEUTE-KANARIE', abwZAbHeute: 'ABW-ZA-BEANTRAGT-HEUTE-KANARIE',
   schadenEigen: 'SCHADEN-EIGEN-KANARIE von Mitarbeiter 2', schadenFremd: 'SCHADEN-FREMD-KANARIE von Mitarbeiter 14', lvKurztext: 'LV-KANARIE-POSITION'
 };
 
@@ -94,6 +111,7 @@ function verboteneKanarien(rolle) {
   if (rolle === 'mitarbeiter' || rolle === 'polier') {
     for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
     ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch'].forEach(text);
+    ABW_TEXTE.forEach(text); // F-023/F-040: Notizen fremder Abwesenheiten
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
@@ -102,27 +120,70 @@ function verboteneKanarien(rolle) {
   return k;
 }
 
+const ABW_TEXTE = ['abwKg', 'abwUg', 'abwZAg', 'abwUb', 'abwZAb', 'abwBU', 'abwKheute', 'abwUbHeute', 'abwZAbHeute'];
+
+/**
+ * Zustand der Test-Datenbank für die wertbasierten Prüfungen (F-022/F-040): Geld-Kanarien (alle Preis-Spalten) und
+ * Personen (Name → ID). Wird von erstelleBasis gesetzt und mit fixtures.json weitergegeben (ladeZustand).
+ */
+const ZUSTAND = { geld: new Map(), namen: new Map(), kanarien: [] };
+function ladeZustand(F) {
+  const handGeld = [];
+  for (const g of Object.keys(GELD)) for (const [k, w] of Object.entries(GELD[g])) handGeld.push({ name: `€ ${g}.${k}=${w}`, wert: w });
+  ZUSTAND.kanarien = handGeld.concat(F && F.geldKanarien ? F.geldKanarien : []);
+  ZUSTAND.geld = W.geldIndex(ZUSTAND.kanarien);
+  ZUSTAND.namen = new Map(((F && F.personen) || []).map((p) => [p.name, p.id]));
+  ZUSTAND.ignorieren = (F && F.firma) ? [F.firma, require('../../server/pdf').winAnsi(F.firma)] : [];
+  return ZUSTAND;
+}
+ladeZustand(null);
+
 /* ------------------------------------------------------------------ Text aus Antworten */
 
-/** Text aus einem PDF (Flate-Streams entpacken, Tj/TJ-Strings dekodieren; Hex und Literal) */
-function pdfText(buf) {
+/**
+ * Text aus einem PDF (F-039): Flate-Streams entpacken; aus Inhalts-Streams die Tj/TJ-Strings, aus allem anderen (Info-
+ * Dictionary Title/Subject/Keywords/Author, Annotationen, Formularfelder, Lesezeichen, Objekt-Streams) JEDEN Literal- und
+ * Hex-String; eingebettete Dateien (Anhänge) als Text bzw. – wenn selbst PDF – rekursiv. XMP-Metadaten als Rohtext.
+ */
+function pdfText(buf, tiefe = 0) {
   const roh = buf.toString('latin1');
-  const teile = [roh];
+  const out = [];
+  const streams = [];
   const re = /stream\r?\n/g;
   let m;
+  let ohneStreams = '';
+  let pos = 0;
   while ((m = re.exec(roh))) {
     const start = m.index + m[0].length;
     const ende = roh.indexOf('endstream', start);
     if (ende < 0) break;
+    ohneStreams += roh.slice(pos, m.index);
+    pos = ende + 'endstream'.length;
+    re.lastIndex = pos;
     const daten = buf.subarray(start, ende);
-    try { teile.push(zlib.inflateSync(daten).toString('latin1')); } catch (_) { try { teile.push(zlib.inflateSync(daten.subarray(0, daten.length - 1)).toString('latin1')); } catch (__) { /* kein Flate */ } }
+    let inhalt = null;
+    try { inhalt = zlib.inflateSync(daten); } catch (_) { try { inhalt = zlib.inflateSync(daten.subarray(0, daten.length - 1)); } catch (__) { inhalt = daten; } }
+    streams.push(inhalt);
   }
-  const out = [];
-  for (const t of teile) {
-    for (const x of t.matchAll(/\[((?:[^\]\\]|\\.)*)\]\s*TJ/g)) out.push(stringsAus(x[1]).join(''));
-    for (const x of t.matchAll(/(<[0-9a-fA-F]*>|\((?:[^)\\]|\\.)*\))\s*Tj/g)) out.push(stringsAus(x[1]).join(''));
+  ohneStreams += roh.slice(pos);
+  // Objekte außerhalb der Streams (Info, Annotationen, Anhang-Namen …): alle Strings; die Datei-ID im Trailer (/ID [<…><…>])
+  // ist Zufall und kein Text. Strings, die überwiegend aus Steuer-/Binärzeichen bestehen, ebenso nicht.
+  const lesbar = (x) => x.length < 4 || [...x].filter((ch) => /[\x20-\x7e\xa0-\xff\n\r\t]/.test(ch) && !/[\x80-\x9f]/.test(ch)).length / x.length > 0.85;
+  // Erstellungs-/Änderungsdatum (D:JJJJMMTThhmmss…) ist die Uhr des Rechners, kein Inhalt (sonst wären PDFs nie vergleichbar)
+  out.push(...stringsAus(ohneStreams.replace(/\/ID\s*\[[^\]]*\]/g, ' ').replace(/<<|>>/g, ' ')).filter(lesbar).filter((x) => !/^D:\d{8,14}/.test(x)));
+  for (const st of streams) {
+    const t = st.toString('latin1');
+    if (/\bBT\b[\s\S]*\bET\b/.test(t)) {
+      for (const x of t.matchAll(/\[((?:[^\]\\]|\\.)*)\]\s*TJ/g)) out.push(stringsAus(x[1]).join(''));
+      for (const x of t.matchAll(/(<[0-9a-fA-F]*>|\((?:[^)\\]|\\.)*\))\s*Tj/g)) out.push(stringsAus(x[1]).join(''));
+    } else if (t.startsWith('%PDF') && tiefe < 3) {
+      out.push(pdfText(st, tiefe + 1)); // eingebettetes PDF (Anhang)
+    } else if (/^[\x09\x0a\x0d\x20-\x7e\xa0-\xff]*$/.test(t.slice(0, 4000))) {
+      out.push(t); // Text-Anhang, XMP, Objekt-Stream mit Strings
+      out.push(...stringsAus(t.replace(/<<|>>/g, ' ')));
+    }
   }
-  return out.join('\n');
+  return out.filter((x) => x !== '').join('\n');
 }
 function stringsAus(s) {
   const r = [];
@@ -140,34 +201,58 @@ async function xlsxText(buf) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
   const out = [];
+  // Metadaten der Mappe (Titel, Betreff, Stichwörter …) zählen wie Inhalt (F-039)
+  for (const k of ['title', 'subject', 'keywords', 'description', 'creator', 'lastModifiedBy', 'category', 'company', 'manager']) if (wb[k]) out.push(`[${k}] ${wb[k]}`);
   wb.eachSheet((ws) => {
     out.push(`[Blatt ${ws.name}]`);
+    // F-023: eine Zeile je Tabellenzeile (Zellen mit „ | “), damit Name und Code derselben Zeile zusammen geprüft werden
     ws.eachRow({ includeEmpty: false }, (row) => {
+      const zellen = [];
       row.eachCell({ includeEmpty: false }, (c) => {
         const v = c.value;
         if (v == null) return;
+        let t;
         if (typeof v === 'object') {
-          if (v.formula !== undefined) out.push(`=${v.formula} → ${v.result === undefined ? '' : JSON.stringify(v.result)}`);
-          else if (v.richText) out.push(v.richText.map((x) => x.text).join(''));
-          else if (v instanceof Date) out.push(v.toISOString());
-          else out.push(JSON.stringify(v));
-        } else out.push(String(v));
-        if (c.numFmt && /€|EUR/.test(c.numFmt)) out.push(`[Zahlenformat mit €: ${c.numFmt}]`);
+          if (v.formula !== undefined) t = `=${v.formula} → ${v.result === undefined ? '' : JSON.stringify(v.result)}`;
+          else if (v.richText) t = v.richText.map((x) => x.text).join('');
+          else if (v instanceof Date) t = v.toISOString();
+          else t = JSON.stringify(v);
+        } else t = String(v);
+        if (c.numFmt && /€|EUR/.test(c.numFmt)) t += ` [Zahlenformat mit €: ${c.numFmt}]`;
+        if (c.note) t += ` [Notiz: ${typeof c.note === 'string' ? c.note : JSON.stringify(c.note)}]`;
+        zellen.push(t);
       });
+      out.push(zellen.join(' | '));
     });
   });
   return out.join('\n');
 }
 
-/** Gesamter lesbarer Inhalt einer Antwort (für Text-/Kanarien-Suche) */
-async function antwortText(r) {
+// F-038: Kopfzeilen gehören zur Antwort (Content-Disposition-Dateiname, Location, X-* …); nur reine Protokollköpfe nicht
+const KOPF_OHNE = new Set(['set-cookie', 'date', 'content-length', 'etag', 'connection', 'keep-alive', 'transfer-encoding']);
+function kopfText(headers) {
+  if (!headers) return '';
+  const paare = [];
+  const add = (k, v) => { if (!KOPF_OHNE.has(String(k).toLowerCase())) paare.push(`${k}: ${v}`); };
+  if (typeof headers.forEach === 'function' && !(headers instanceof Map)) headers.forEach((v, k) => add(k, v));
+  else if (headers instanceof Map) headers.forEach((v, k) => add(k, v));
+  else if (typeof headers === 'object') for (const [k, v] of Object.entries(headers)) if (typeof v !== 'function') add(k, v);
+  // Dateinamen nach RFC 5987 (filename*=UTF-8''…) lesbar machen
+  return paare.map((x) => x.replace(/filename\*=UTF-8''([^;]+)/i, (m, f) => { try { return `${m} [${decodeURIComponent(f)}]`; } catch (_) { return m; } })).join('\n');
+}
+
+/** Gesamter lesbarer Inhalt einer Antwort (für Text-/Kanarien-Suche), mit Kopfzeilen (F-038) */
+async function antwortText(r, { ohneKopf = false } = {}) {
   const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+  let t;
   if (Buffer.isBuffer(r.daten)) {
-    if (ct.includes('pdf')) return winAnsi(pdfText(r.daten));
-    if (ct.includes('spreadsheetml')) { try { return await xlsxText(r.daten); } catch (e) { return `[XLSX unlesbar: ${e.message}]`; } }
-    return r.daten.toString('utf8');
-  }
-  return typeof r.daten === 'string' ? r.daten : JSON.stringify(r.daten);
+    if (ct.includes('pdf')) t = winAnsi(pdfText(r.daten));
+    else if (ct.includes('spreadsheetml')) { try { t = await xlsxText(r.daten); } catch (e) { t = `[XLSX unlesbar: ${e.message}]`; } }
+    else t = r.daten.toString('utf8');
+  } else t = typeof r.daten === 'string' ? r.daten : JSON.stringify(r.daten);
+  if (ohneKopf) return t;
+  const k = kopfText(r.headers);
+  return k ? `${t}\n[Kopfzeilen]\n${k}` : t;
 }
 
 /* ------------------------------------------------------------------ Scanner */
@@ -195,19 +280,42 @@ const SCHLUESSEL_AUSNAHMEN = [
   { schluessel: 'rechnung', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'budget', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.budget$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'auftraggeber', route: '*', grund: 'Name des Auftraggebers (kein €-Wert; Konzept: Baustellen-Stammdaten)' },
+  // F-037: seit jeder nicht leere Wert unter einem €-Schlüssel zählt – feste Aufzählungswerte ohne Betrag
+  { schluessel: 'db', route: 'GET /api/gesundheit', pfad: /^\$\.db$/, nurWennWert: (v) => ['ok', 'fehler'].includes(v), grund: 'Zustand der Datenbank (ok/fehler), kein Deckungsbeitrag' },
+  { schluessel: 'kostenstelle', route: '*', nurWennWert: (v) => ['baustelle', 'intern'].includes(v), grund: 'Art der Kostenstelle (12.25: baustelle|intern), kein Betrag' },
   { schluessel: 'euro', route: '*', pfad: /\.paletten\.euro$/, grund: 'Anzahl Europaletten im Bautagesbericht (Stück, kein Geld)' },
   { schluessel: 'lohngruppen', route: 'GET /api/preise', pfad: /^\$\.lohngruppen$/, grund: 'Preisliste je Lohngruppe (Kostensatz/Regiesatz) – Recht preise_sehen, keine Person' },
   { schluessel: 'lohngruppeId', route: 'GET /api/kalkulation/:baustelleId', pfad: /^\$\.positionen\.lohn\[\d+\]\.lohngruppeId$/, grund: 'aggregierte Stunden je Lohngruppe der eigenen Baustelle (API.md 6, kalk_sehen), keine Person' }
 ];
-/** Nur Zahlen, Zahl-Texte und Objekte/Listen gelten unter einem €-Schlüssel als Geldwert (nicht bool/Text wie offen=false, db="ok") */
-const geldWert = (w) => typeof w === 'number' || (typeof w === 'string' && /^-?\d+([.,]\d+)?$/.test(w.trim())) || (w && typeof w === 'object' && Object.keys(w).length > 0);
+/**
+ * F-037: unter einem €-Schlüssel gilt JEDER nicht leere Wert als Geldwert – Zahl, Zahl-Text und auch formatierter Text
+ * („14,60 je m²“, „1.234 €“). Nur true/false, null und leere Werte/Objekte nicht (z. B. offen=false).
+ */
+const geldWert = (w) => typeof w === 'number' || (typeof w === 'string' && w.trim() !== '') || (w && typeof w === 'object' && Object.keys(w).length > 0);
+// F-037: Betrag je Einheit ohne €-Zeichen („14,60 je m²“, „95,00/h“, „12,5 pro t“) in jedem Text
+const PREIS_JE_EINHEIT = /\d+[.,]\d{1,2}\s*(€|EUR)?\s*(je|pro|\/)\s*(m²|m2|m³|m3|lfm|lm|m|h|Std\.?|Stunde|t|Tonne|Stk\.?|Stück|PA|kg|Fuhre|Tag)\b/;
 
 function schluesselErlaubt(route, pfad, k, wert) {
   return SCHLUESSEL_AUSNAHMEN.some((a) => a.schluessel === k && (a.route === '*' || a.route === route) && (!a.pfad || a.pfad.test(pfad)) && (!a.nurWennWert || a.nurWennWert(wert)));
 }
 
 /** Routen, die nur Daten des Aufrufers liefern (Einträge ohne benutzerId gehören ihm selbst) */
-const EIGENE_ROUTEN = ['GET /api/zeit/woche', 'GET /api/zeit/status', 'GET /api/plan/ich', 'GET /api/auth/ich'];
+/**
+ * F-040: Objekte OHNE Personen-Kennung gelten nur an diesen JSON-Pfaden als Daten des Aufrufers (z. B. eigener Tag mit
+ * Code K in der eigenen Woche). Jedes Objekt MIT Kennung (benutzerId, id+Name, Name, benutzer.id …) wird immer geprüft.
+ */
+const EIGENE_PFADE = {
+  'GET /api/zeit/woche': /^\$(\.tage\[\d+\])?$/,
+  'GET /api/zeit/status': /^\$(\.heute|\.geplant|\.abwesenheit)?$/,
+  'GET /api/plan/ich': /^\$(\.morgen|\.tage\[\d+\])?$/,
+  'GET /api/auth/ich': /^\$(\.benutzer)?$/
+};
+const EIGENE_ROUTEN = Object.keys(EIGENE_PFADE);
+
+/** Optionen der wertbasierten Abwesenheitsprüfung (eigene ID, Namen, Notiz-Kanarien, eigene Pfade der Route) */
+function abwOpt(rolle, k) {
+  return { ich: k.ich !== undefined ? k.ich : ID[rolle], namen: ZUSTAND.namen, texte: ABW_TEXTE.map((x) => TEXT[x]), ignorieren: ZUSTAND.ignorieren };
+}
 
 /** Darf diese Rolle (in dieser Variante) €-Schlüssel sehen? */
 function geldErlaubt(rolle, variante) { // eslint-disable-line no-unused-vars
@@ -244,12 +352,12 @@ async function scanne(rolle, r, k) {
     lauf(r.daten, '$');
     // Krankenstand (Code K) anderer Personen nur für stammdaten/lohn (API.md 12.19/12.24)
     if (!lohn) {
-      const eigeneId = ID[rolle];
+      const eigeneId = k.ich !== undefined ? k.ich : ID[rolle];
       const kLauf = (x, pfad, person) => {
         if (Array.isArray(x)) return x.forEach((e, i) => kLauf(e, `${pfad}[${i}]`, person));
         if (x && typeof x === 'object') {
           const p2 = x.benutzerId !== undefined ? x.benutzerId : person;
-          const eigeneRoute = p2 === undefined && EIGENE_ROUTEN.includes(k.route);
+          const eigeneRoute = p2 === undefined && EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad);
           if (x.code === 'K' && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Krankenstand (Code K) einer anderen Person (${p2}) bei ${pfad}`);
           if (x.pnr != null && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${p2}) bei ${pfad}`);
           // Mitarbeiter: Zeiten, Abwesenheiten und Urlaub nur von sich selbst (API.md 7 B-07, 12.19)
@@ -280,13 +388,29 @@ async function scanne(rolle, r, k) {
         }
       };
       aLauf(r.daten, '$');
+      // F-040: wertbasiert – fremde Person (jede Kennung) + Abwesenheitswert unter beliebigem Schlüssel
+      v.push(...W.abwesenheitJson(r.daten, abwOpt(rolle, k), wo));
     }
   }
   // 2) Text: €-Beträge und Kanarienvögel (alle Formate, auch Fehlermeldungen)
   const text = await antwortText(r);
+  const feld = ['mitarbeiter', 'polier'].includes(rolle);
+  // F-022: Geld-Kanarien (jede Preis-Spalte der Test-DB) in jeder Schreibweise, unter jedem Schlüssel, in jedem Format
+  const geldFunde = feld ? W.findeGeld(text, ZUSTAND.geld) : [];
+  for (const g of geldFunde.slice(0, 5)) v.push(`${wo}: Geld-Kanarie ${g.name} als „${g.form}“ („…${text.slice(Math.max(0, g.stelle - 50), g.stelle + g.form.length + 20).replace(/\s+/g, ' ')}…“)`);
   if (k.nurKanarien) {
     for (const kan of verboteneKanarien(rolle)) for (const f of kan.formen) if (text.includes(f)) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden`); break; }
     return v;
+  }
+  if (feld) {
+    const pe = PREIS_JE_EINHEIT.exec(text);
+    if (pe) v.push(`${wo}: Betrag je Einheit „${pe[0]}“ im Text („…${text.slice(Math.max(0, pe.index - 40), pe.index + 40).replace(/\s+/g, ' ')}…“)`);
+    // F-023: Textformate (PDF/CSV/XLSX/Text) – Name einer anderen Person neben einem Abwesenheitswert
+    if (typeof r.daten === 'string' || Buffer.isBuffer(r.daten)) {
+      const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+      v.push(...W.abwesenheitText(await antwortText(r, { ohneKopf: true }), abwOpt(rolle, k), wo, { fenster: /pdf/.test(ct) ? 6 : 0 }));
+    }
+    v.push(...W.abwesenheitText(kopfText(r.headers), abwOpt(rolle, k), `${wo} (Kopfzeilen)`));
   }
   if (!geldErlaubt(rolle, k.variante === 'fremd' && rolle === 'bauleiter' ? 'fremd' : k.variante) && rolle !== 'bauleiter') {
     const m = GELD_TEXT.exec(text);
@@ -296,7 +420,7 @@ async function scanne(rolle, r, k) {
   // API.md 15.1: Bericht-PDFs (jede Fassung) für Polier/Mitarbeiter ohne Abwesenheits-Legende und ohne Abwesenheits-Kürzel.
   // Voraussetzung: der Aufrufer selbst ist am Berichtstag nicht abwesend (so in der Matrix-Basis); die genaue Prüfung
   // gegen die Datenbank (eigene Zeile erlaubt, verborgene Namen) macht berichtPdfAbwesenheitVerstoesse.
-  if (['mitarbeiter', 'polier'].includes(rolle) && /\/berichte\/\d+\/pdf/.test(k.url || '') && Buffer.isBuffer(r.daten)) {
+  if (['mitarbeiter', 'polier'].includes(rolle) && /\/berichte\/\d+\/pdf/.test(k.url || '') && Buffer.isBuffer(r.daten) && !k.eigeneAbwesenheit) {
     const lg = /abw\. = abwesend|U = Urlaub|ZA = Zeitausgleich/.exec(text);
     if (lg) v.push(`${wo}: Abwesenheits-Legende „${lg[0]}“ im Bericht-PDF`);
     const kz = text.split('\n').map((x) => x.trim()).find((x) => /^(\d+(,\d+)?\s+)?(abw\.|U|ZA|K|abwesend)$/.test(x));
@@ -312,6 +436,58 @@ async function scanne(rolle, r, k) {
       if (i >= 0) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden („…${text.slice(Math.max(0, i - 60), i + f.length + 20).replace(/\s+/g, ' ')}…“)`); break; }
     }
   }
+  return v;
+}
+
+/* ------------------------------------------------------------------ Ausgänge: Benachrichtigungen, Push, Mails mit Anhängen */
+
+// F-039: Mail-Anhänge (Bericht-PDF an den Auftraggeber) – der Test-Ausgang speichert nur Name und Größe. Der Inhalt wird
+// hier im Testprozess an der Quelle (routes/berichte.agPdf, zur Laufzeit über das Modul aufgerufen) mitgeschnitten und
+// über die Größe dem Ausgang zugeordnet. Ein Anhang ohne passenden Mitschnitt ist ein Befund (neuer, ungeprüfter Weg).
+const ANHAENGE = new Map(); // Größe → Buffer[]
+(() => {
+  const B = require('../../server/routes/berichte');
+  if (B.agPdf && !B.agPdf.__mitschnitt) {
+    const orig = B.agPdf;
+    B.agPdf = async (...a) => { const buf = await orig(...a); if (Buffer.isBuffer(buf)) { const l = ANHAENGE.get(buf.length) || []; l.push(buf); ANHAENGE.set(buf.length, l); } return buf; };
+    B.agPdf.__mitschnitt = true;
+  }
+})();
+
+/**
+ * Neue Benachrichtigungen (DB) an Polier/Mitarbeiter, neue Push-Meldungen an Nicht-Büro-Empfänger und neue Mails (mit
+ * Anhang-Inhalt) seit dem letzten Aufruf für diesen Server prüfen. Mails gehen an Externe → strengste Prüfung.
+ */
+async function pruefeAusgaenge(s, wo) {
+  const v = [];
+  const st = s.__ausgang || (s.__ausgang = { benachrichtigung: 0, push: 0, mails: 0 });
+  const rollen = new Map(s.db.alle('SELECT id, rolle FROM benutzer').map((b) => [b.id, b.rolle]));
+  const neu = s.db.alle('SELECT * FROM benachrichtigung WHERE id > ? ORDER BY id', st.benachrichtigung);
+  for (const n of neu) {
+    st.benachrichtigung = n.id;
+    const rolle = rollen.get(n.benutzer_id);
+    if (!['mitarbeiter', 'polier'].includes(rolle)) continue;
+    if (n.typ === 'budget') v.push(`${wo}: Budget-Benachrichtigung an ${rolle} ${n.benutzer_id}: ${n.titel}`);
+    const fuhrpark = hatRecht(s.db, n.benutzer_id, 'fuhrpark');
+    v.push(...await scanne(rolle, { status: 200, daten: { titel: n.titel, text: n.text, link: n.link }, headers: new Map() }, { route: 'DB benachrichtigung', url: `${wo}: Benachrichtigung ${n.id} an ${n.benutzer_id}`, ich: n.benutzer_id, erlaubteKanarien: fuhrpark ? ['Text schadenFremd'] : [] }));
+  }
+  const aus = s.app.bt.testAusgang;
+  for (const p of aus.push.slice(st.push)) {
+    const rolle = rollen.get(p.benutzerId);
+    if (rolle === 'buero' || rolle === 'gf' || !rolle) continue;
+    v.push(...await scanne(rolle, { status: 200, daten: p, headers: new Map() }, { route: 'PUSH', url: `${wo}: Push an ${p.benutzerId}`, ich: p.benutzerId, variante: rolle === 'bauleiter' ? 'fremd' : undefined }));
+  }
+  st.push = aus.push.length;
+  for (const m of aus.mails.slice(st.mails)) {
+    v.push(...await scanne('mitarbeiter', { status: 200, daten: { an: m.an, betreff: m.betreff, text: m.text, anhaenge: m.anhaenge }, headers: new Map() }, { route: 'MAIL', url: `${wo}: Mail an ${m.an}`, ich: -1 }));
+    for (const a of m.anhaenge || []) {
+      const kandidaten = ANHAENGE.get(a.groesse) || [];
+      if (!kandidaten.length) { v.push(`${wo}: Mail-Anhang ${a.dateiname} (${a.groesse} Byte) nicht mitgeschnitten – Inhalt ungeprüft`); continue; }
+      const buf = kandidaten[kandidaten.length - 1];
+      v.push(...await scanne('mitarbeiter', { status: 200, daten: buf, headers: new Map([['content-type', 'application/pdf']]) }, { route: 'MAIL-ANHANG', url: `${wo}: Anhang ${a.dateiname} an ${m.an}`, ich: -1 }));
+    }
+  }
+  st.mails = aus.mails.length;
   return v;
 }
 
@@ -366,22 +542,41 @@ function berichtJsonAbwesenheitVerstoesse(db, ichId, daten, wo) {
 
 /* ------------------------------------------------------------------ DB-Fingerabdruck */
 
-// Tabellen, die sich durch jede Anfrage ändern dürfen (keine fachlichen Daten), mit Grund
+/**
+ * F-041: „unverändert“ heißt ALLE Tabellen (auch sitzung, push_abo, login_*), dazu Upload-Dateien und Test-Ausgang
+ * (Push, Mails, KI). Ausgenommen sind nur einzelne Spalten, die jede Anfrage rechtmäßig berührt – je mit Grund:
+ */
 const DB_FLUECHTIG = {
-  sitzung: 'letzter Zugriff der Sitzung wird bei jeder Anfrage aktualisiert',
-  login_versuch: 'Anmeldebremse (nur bei Login-Routen)',
-  login_konto: 'Kontosperre (nur bei Login-Routen)',
-  wetter_cache: 'Zwischenspeicher',
-  push_abo: 'Zustellversuch (zuletzt/fehler) nach jeder Anfrage (12.3)'
+  'sitzung.letzte_aktivitaet': 'letzter Zugriff der eigenen Sitzung wird bei jeder angemeldeten Anfrage gesetzt (auth.js)',
+  'push_abo.zuletzt': 'Zeitpunkt des letzten Zustellversuchs (push.js, auch durch Hintergrund-Zustellung)',
+  'push_abo.fehler': 'Ergebnis des letzten Zustellversuchs (push.js)'
 };
-function dbHash(db) {
+function dbHash(x) {
+  const db = x && x.app ? x.db : x;
   const tabellen = db.alle("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").map((t) => t.name);
   const je = {};
   for (const t of tabellen) {
-    if (DB_FLUECHTIG[t]) continue;
+    const spalten = db.alle(`PRAGMA table_info("${t}")`).map((c) => c.name).filter((c) => !DB_FLUECHTIG[`${t}.${c}`]);
     const h = crypto.createHash('sha256');
-    for (const z of db.alle(`SELECT * FROM "${t}" ORDER BY rowid`)) h.update(JSON.stringify(z));
+    for (const z of db.alle(`SELECT ${spalten.map((c) => `"${c}"`).join(', ')} FROM "${t}" ORDER BY rowid`)) h.update(JSON.stringify(z));
     je[t] = h.digest('hex');
+  }
+  if (x && x.app) {
+    const bt = x.app.bt;
+    // Dateien (uploads/): Liste mit Größe und Inhalt
+    const h = crypto.createHash('sha256');
+    const lauf = (d, rel) => {
+      let e; try { e = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+      for (const f of e.sort((a, b) => a.name.localeCompare(b.name))) {
+        const p = path.join(d, f.name);
+        if (f.isDirectory()) lauf(p, `${rel}${f.name}/`);
+        else { h.update(`${rel}${f.name}\0`); try { h.update(fs.readFileSync(p)); } catch (_) { /* gelöscht */ } }
+      }
+    };
+    lauf(bt.uploads, '');
+    je['[Dateien uploads/]'] = h.digest('hex');
+    // Test-Ausgang (Push-Warteschlange/-Versand, Mails, KI) – liegt im Speicher, nicht in der DB
+    for (const k of Object.keys(bt.testAusgang || {})) je[`[Ausgang ${k}]`] = crypto.createHash('sha256').update(JSON.stringify(bt.testAusgang[k])).digest('hex');
   }
   return je;
 }
@@ -499,6 +694,9 @@ async function erstelleBasis() {
     // Schlechtwetter-Meldung des Poliers für seine Partie (Inhaber 13.11.2026)
     F.swMeldung = (await erwarte(await c.polier.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-12', code: 'SW' }), 201, 'SW-Meldung')).meldungId;
     F.urlaubAndererTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id", ANDERER_MA).id;
+    // F-024: heute (12.11., Kolonne der Partie Pitten) neben dem genehmigten Urlaub von Person 3 auch K sowie beantragte U/ZA
+    await erwarte(await buero.post('/abwesenheiten/zeitraum', { benutzerId: 6, von: '2026-11-12', bis: '2026-11-12', code: 'K', notiz: TEXT.abwKheute }), 201, 'K heute');
+    for (const [id, code, notiz] of [[4, 'U', TEXT.abwUbHeute], [5, 'ZA', TEXT.abwZAbHeute]]) await erwarte(await (await s.login(id)).post('/abwesenheiten/zeitraum', { benutzerId: id, von: '2026-11-12', bis: '2026-11-12', code, notiz }), 201, `${code} beantragt heute`);
     const u2 = await erwarte(await c.mitarbeiter.post('/abwesenheiten/zeitraum', { benutzerId: U.mitarbeiter, von: '2026-12-03', bis: '2026-12-04', code: 'U', notiz: 'eigener Urlaub' }), 201, 'eigener Urlaub');
     F.urlaubEigen = u2.antragId;
     F.urlaubEigenTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id DESC", U.mitarbeiter).id;
@@ -523,15 +721,33 @@ async function erstelleBasis() {
     F.datumMorgen = morgen;
     const e1 = await erwarte(await gf.post('/plan/einsaetze', {
       datum: morgen, baustelleId: BS.pitten, beginn: '06:30', treffpunkt: 'Bauhof', arbeit: 'Pflaster', benoetigt: 'Rüttelplatte', notiz: 'Zufahrt hinten',
-      benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA], anlageIds: [4], notizen: { [ANDERER_MA]: TEXT.planNotizAnderer, [U.mitarbeiter]: TEXT.planNotizEigen }, fahrer: { 4: U.mitarbeiter }
+      benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW], anlageIds: [4], notizen: { [ANDERER_MA]: TEXT.planNotizAnderer, [U.mitarbeiter]: TEXT.planNotizEigen }, fahrer: { 4: U.mitarbeiter }
     }), 201, 'Einsatz BS1');
     F.einsatz = { bs1: e1.id };
+    // F-024: auch am Montag 16.11. (Probe /plan/partie in rechte-umgehung, Varianten) ein veröffentlichter Einsatz derselben Partie
+    const mo = await gf.post('/plan/einsaetze', { datum: '2026-11-16', baustelleId: BS.pitten, beginn: '06:30', arbeit: 'Pflaster', benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW] });
+    if (mo.status === 409 && mo.daten.id) { // Seed hat am 16.11. schon einen Einsatz Pitten: Partie ergänzen
+      F.einsatz.bs1Mo = mo.daten.id;
+      const da = new Set(s.db.alle('SELECT benutzer_id FROM plan_person WHERE einsatz_id = ?', mo.daten.id).map((x) => x.benutzer_id));
+      const fehlt = [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW].filter((x) => !da.has(x));
+      if (fehlt.length) await erwarte(await gf.post(`/plan/einsaetze/${mo.daten.id}/personen`, { benutzerIds: fehlt }), [200, 201], 'Partie 16.11.');
+    } else F.einsatz.bs1Mo = (await erwarte(mo, 201, 'Einsatz BS1 16.11.')).id;
     const e3 = await erwarte(await gf.post('/plan/einsaetze', { datum: morgen, baustelleId: BS.reisinger, beginn: '07:00', benutzerIds: [13, FREMDER_MA], anlageIds: [5] }), 201, 'Einsatz BS3');
     F.einsatz.bs3 = e3.id;
     const f1 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 4, fahrerId: U.mitarbeiter, materialId: 4, menge: 12, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } }), 201, 'Fuhre BS1');
     const f3 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 6, materialId: 4, menge: 8, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } }), 201, 'Fuhre BS3');
     F.fuhre = { bs1: f1.id, bs3: f3.id };
-    await erwarte(await gf.post('/plan/veroeffentlichen', { von: morgen }), 200, 'Veröffentlichen');
+    await erwarte(await gf.post('/plan/veroeffentlichen', { von: morgen, bis: '2026-11-16' }), 200, 'Veröffentlichen');
+    // F-024: fremde Abwesenheiten aller Arten GENAU an den geprüften Planer-Tagen (13.11. und 16.11.), Personen im Einsatz
+    for (const [id, code, wer, notiz, tage] of ABW_PLAN) {
+      for (const [von, bis] of tage) {
+        if (code === 'BU') await erwarte(await buero.post('/urlaub/betriebsurlaub', { von, bis, benutzerIds: [id], code: 'BU', notiz, vorschau: false }), 200, `Betriebsurlaub ${id}`);
+        else {
+          const cl = wer === 'selbst' ? await s.login(id) : buero;
+          await erwarte(await cl.post('/abwesenheiten/zeitraum', { benutzerId: id, von, bis, code, notiz }), 201, `Abwesenheit ${code} ${id} ${von}`);
+        }
+      }
+    }
     F.abschnitt = {};
     for (const [bs, kk] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) F.abschnitt[kk] = (await erwarte(await gf.post(`/baustellen/${bs}/abschnitte`, { art: 'erdbau', von: '2026-11-16', bis: '2026-11-20' }), 201, 'Abschnitt')).id;
     F.anfrage = { bs1: (await erwarte(await c.polier.post('/plan/anfragen', { datum: morgen, einsatzId: e1.id, text: 'Bitte einen LKW mehr' }), 201, 'Anfrage')).id };
@@ -585,10 +801,27 @@ async function erstelleBasis() {
     F.schicht = { anderer: s.db.eins("SELECT id FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY id DESC", ANDERER_MA).id };
     F.bsVersion = { bs1: await ver(`/baustellen/${BS.pitten}`), bs3: await ver(`/baustellen/${BS.reisinger}`) };
     F.dummyBenutzer = (await erwarte(await gf.post('/benutzer', { name: 'Rechte Dummy', rolle: 'mitarbeiter', pin: '482915' }), 201, 'Dummy')).id;
+    // F-053: gleichrangige Konten (zweites Büro, zweiter Bauleiter) für Selbst-/Peer-Proben der Verwaltungsrouten
+    F.peer = {};
+    for (const [rolle, name] of [['buero', 'Büro Zwei'], ['bauleiter', 'Bauleiter Zwei']]) {
+      F.peer[rolle] = (await erwarte(await gf.post('/benutzer', { name, rolle, pin: '482915' }), 201, `Peer ${rolle}`)).id;
+      s.db.lauf('UPDATE benutzer SET pin_hash = (SELECT pin_hash FROM benutzer WHERE id = ?), muss_pin_aendern = 0 WHERE id = ?', U.buero, F.peer[rolle]);
+    }
+    await Promise.allSettled(s.app.bt.laufend || []);
+    // F-022: Kanarien-Beträge in JEDER Preis-Spalte (Positionen-EP, Kostensätze, Rechnungen, Zahlungen, Reparaturkosten, Budget …)
+    const hand = [];
+    for (const g of Object.keys(GELD)) hand.push(...Object.values(GELD[g]));
+    F.geldKanarien = W.pflanzeGeldKanarien(s.db, hand);
+    F.personen = s.db.alle('SELECT id, name FROM benutzer ORDER BY id');
+    F.firma = s.db.einstellung('firma', { name: 'BauTag' }).name;
+    // Sitzungen in der Basis: jede Kopie hat sie schon (keine Anmeldung je Probe, spart Laufzeit)
+    F.cookie = {};
+    for (const id of [...new Set([...ROLLEN.map((r) => ID[r]), ANDERER_MA, FREMDER_MA, 13, F.peer.buero, F.peer.bauleiter])]) F.cookie[id] = (await s.login(id)).cookie;
   } finally {
     await s.stop();
   }
   fs.writeFileSync(path.join(ordner, 'fixtures.json'), JSON.stringify(F, null, 1));
+  ladeZustand(F);
   return { ordner, datei, F };
 }
 
@@ -605,12 +838,23 @@ async function starteKopie(basis, opt = {}) {
   const up = path.join(basis.ordner, 'uploads');
   if (fs.existsSync(up)) fs.cpSync(up, path.join(ziel, 'uploads'), { recursive: true });
   const s = await starte({ dbPath: path.join(ziel, 'basis.db'), seed: false, test: true, testToken: TOKEN, ...opt });
+  if (basis.F) ladeZustand(basis.F);
+  // angemeldete Clients aus den Sitzungen der Basis (s.als(rolle | id))
+  s.als = (wer) => { const id = typeof wer === 'number' ? wer : ID[wer]; const ck = basis.F && basis.F.cookie && basis.F.cookie[id]; if (!ck) throw new Error(`keine Sitzung für ${wer} in der Basis`); return s.client(ck); };
+  // Hintergrund-Arbeit des Starts (Push-Zustellung) abwarten, damit Vorher/Nachher-Vergleiche nur die Probe sehen
+  s.ruhe = () => Promise.allSettled(s.app.bt.laufend || []);
+  await s.ruhe();
+  // Ausgänge ab hier (pruefeAusgaenge prüft nur Neues; den Bestand prüft rechte-matrix.test.js vollständig)
+  s.__ausgang = { benachrichtigung: (s.db.eins('SELECT MAX(id) AS m FROM benachrichtigung') || {}).m || 0, push: s.app.bt.testAusgang.push.length, mails: s.app.bt.testAusgang.mails.length };
   const stop = s.stop;
-  s.stop = async () => { await stop(); fs.rmSync(ziel, { recursive: true, force: true }); };
+  s.ordner = ziel;
+  s.stopOhneAufraeumen = stop;
+  s.aufraeumen = () => fs.rmSync(ziel, { recursive: true, force: true });
+  s.stop = async () => { await stop(); s.aufraeumen(); };
   return s;
 }
 
 module.exports = {
-  ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
-  routenAusApp, hatRecht, berichtPdfAbwesenheitVerstoesse, berichtJsonAbwesenheitVerstoesse, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
+  ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, PARTIE_ABW, PLAN_TAGE, ABW_PLAN, ZUSTAND, ladeZustand, kopfText, EIGENE_PFADE, W, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
+  routenAusApp, hatRecht, pruefeAusgaenge, ANHAENGE, berichtPdfAbwesenheitVerstoesse, berichtJsonAbwesenheitVerstoesse, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
 };

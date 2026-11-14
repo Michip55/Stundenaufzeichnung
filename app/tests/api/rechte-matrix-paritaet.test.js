@@ -103,7 +103,7 @@ async function neutral(r) {
     if (typeof w === 'string') return text(w);
     return w;
   };
-  if (Buffer.isBuffer(r.daten)) return { status: r.status, text: text(await H.antwortText(r)) };
+  if (Buffer.isBuffer(r.daten)) return { status: r.status, text: text(await H.antwortText(r, { ohneKopf: true })) };
   return { status: r.status, daten: lauf(r.daten) };
 }
 
