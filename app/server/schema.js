@@ -1223,6 +1223,19 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
   SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
   FROM baustelle WHERE kst = '9100' AND intern = 1;
 `
+  },
+  {
+    version: 33,
+    name: 'Nachprüfung sicherheit: kontoweiter Zähler falscher Zwei-Faktor-Codes (nicht durch PIN-Anmeldung zurückgesetzt)',
+    sql: `
+-- N-004/N-027: falsche 2FA-Codes je Konto über alle IPs; nur Ablauf des 24-h-Fensters, Kontosperre oder Entsperren durch Büro/GF setzen ihn zurück
+CREATE TABLE login_2fa_fehler (
+  benutzer_id INTEGER PRIMARY KEY,
+  fehlversuche INTEGER NOT NULL DEFAULT 0,
+  erster TEXT,
+  letzter TEXT
+);
+`
   }
 ];
 
