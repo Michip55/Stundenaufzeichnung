@@ -188,9 +188,7 @@ const SCHLUESSEL_AUSNAHMEN = [
   ...['GET /api/zeit/status', 'POST /api/zeit/stempeln'].map((route) => ({ schluessel: 'standardKostenstelleId', route, pfad: /^\$\.standardKostenstelleId$/, nurWennWert: (v) => v === null || Number.isInteger(v), grund: '12.25: ID der Standard-Kostenstelle (Baustelle), kein Betrag' })),
   { schluessel: 'summe', route: 'GET /api/zeit/woche', grund: 'Stundensumme der eigenen Woche (Stunden, kein €)' },
   { schluessel: 'satz', route: '*', nurWennWert: (v) => v === null, grund: 'nie belegt' },
-  { schluessel: 'lohngruppe', route: 'GET /api/auth/ich', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe im Anmelde-Objekt ist laut API.md 12.22 erlaubt' },
-  { schluessel: 'lohngruppe', route: 'POST /api/auth/login', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe nach der Anmeldung (wie /auth/ich)' },
-  { schluessel: 'lohngruppe', route: 'POST /api/auth/login/2fa', pfad: /^\$\.benutzer\.lohngruppe$/, grund: 'eigene Lohngruppe nach der Anmeldung (wie /auth/ich)' },
+  // 15.7 (F-059): keine Ausnahme mehr für die eigene Lohngruppe in /auth/ich bzw. nach der Anmeldung (Inhaberregel 2)
   { schluessel: 'rechnung', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name eines Push-Typs (bool); Wert wird zusätzlich geprüft', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'budget', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.budget$/, grund: 'nur Schalter-Name eines Push-Typs (bool)', nurWennWert: (v) => typeof v === 'boolean' },
   { schluessel: 'rechnung', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
