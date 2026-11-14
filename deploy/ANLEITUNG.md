@@ -106,10 +106,11 @@ user bautag@ihre-firma.at
 password IHR-PASSWORT
 account default : standard
 ```
-Testen: `printf 'Subject: BauTag Test
-
-Test
-' | sudo sendmail ihre@adresse.at`. Die tägliche Sicherung (`/etc/cron.d/bautag`) findet `sendmail` in `/usr/sbin`.
+Testen (eigene Adresse einsetzen):
+```
+printf 'Subject: BauTag Test\n\nTest\n' | sudo sendmail ihre@adresse.at
+```
+Die tägliche Sicherung (`/etc/cron.d/bautag`) findet `sendmail` in `/usr/sbin`.
 
 ## Notfall: Server weg oder Daten kaputt
 

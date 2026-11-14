@@ -498,6 +498,20 @@ test('N-066: Fernunterschrift-Token auch im Caddy-Standard-/Fehlerprotokoll mask
 
 // ---------------------------------------------------------------- N-067
 
+test('N-067 Rest: Testbefehl für die Notfall-E-Mail ist ein Codeblock; kein Inline-Code über Zeilen in deploy/*.md', () => {
+  for (const f of fs.readdirSync(DEPLOY).filter((x) => x.endsWith('.md'))) {
+    let block = false;
+    lies(f).split('\n').forEach((z, i) => {
+      if (/^\s*```/.test(z)) { block = !block; return; }
+      if (!block) assert.equal((z.match(/`/g) || []).length % 2, 0, `${f}:${i + 1} Inline-Code nicht in derselben Zeile geschlossen: ${z}`);
+    });
+    assert.equal(block, false, `${f}: Codeblock nicht geschlossen`);
+  }
+  const anl = lies('ANLEITUNG.md');
+  const notfall = anl.slice(anl.indexOf('## Notfall-E-Mail'), anl.indexOf('\n## ', anl.indexOf('## Notfall-E-Mail') + 5));
+  assert.match(notfall, /\n```\nprintf 'Subject: BauTag Test\\n\\nTest\\n' \| sudo sendmail ihre@adresse\.at\n```\n/);
+});
+
 test('N-067: cron für backup.sh mit PATH inkl. /usr/sbin; backup.sh findet sendmail auch unter cron; Hinweis in ANLEITUNG.md', (t) => {
   const inst = lies('installieren.sh');
   const cron = /cat > \/etc\/cron\.d\/bautag <<EOF\n([\s\S]*?)\nEOF/.exec(inst)[1];
