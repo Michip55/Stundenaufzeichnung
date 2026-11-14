@@ -22,7 +22,7 @@ test('D-01: befristete Kontosperre, Büro entsperrt GF, Notfall-Befehl, Warnung'
   };
   const login = (id, pin = '1234') => s.client(null, `10.2.${n++}.1`).post('/auth/login', { benutzerId: id, pin });
 
-  await t.test('D-01: GF gesperrt (423, Retry-After 24 h) – Büro entsperrt (nur entsperren)', async () => {
+  await t.test('D-01/15.5: GF gesperrt (423, Retry-After 24 h) – Büro entsperrt NICHT, nur entsperren.js (F-051)', async () => {
     const r = await sperre(U.gf);
     assert.equal(r.status, 423);
     assert.ok(Math.abs(Number(r.headers.get('retry-after')) - 86400) < 5);
@@ -32,7 +32,9 @@ test('D-01: befristete Kontosperre, Büro entsperrt GF, Notfall-Befehl, Warnung'
     assert.equal(liste.gesperrt, true);
     assert.ok(liste.gesperrtBis > liste.gesperrtSeit);
     assert.equal((await buero.put(`/benutzer/${U.gf}`, { pin: '582915' })).status, 403); // kein PIN-Reset
-    assert.equal((await buero.post(`/benutzer/${U.gf}/entsperren`)).status, 200);
+    assert.equal((await buero.post(`/benutzer/${U.gf}/entsperren`)).status, 403); // 15.5 (F-051): kein Entsperren höherer Stufe
+    assert.equal((await login(U.gf)).status, 423);
+    entsperren(s.db, 1102, s.uhr()); // GF-Konten nur über den Notfall-Befehl am Server
     assert.equal((await login(U.gf)).status, 200);
     // GF entsperrt Büro; niemand sich selbst
     await sperre(U.buero);
@@ -62,10 +64,11 @@ test('D-01: befristete Kontosperre, Büro entsperrt GF, Notfall-Befehl, Warnung'
   await t.test('D-01: Notfall-Befehl entsperren.js (protokolliert)', async () => {
     await sperre(U.gf);
     assert.equal((await login(U.gf)).status, 423);
+    const notfallVorher = s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'sicherheit' AND text LIKE 'Notfall-Entsperrung%'").n;
     const b = entsperren(s.db, 1102, s.uhr());
     assert.equal(b.name, 'Michael Pichler');
     assert.equal((await login(U.gf)).status, 200);
-    assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'sicherheit' AND text LIKE 'Notfall-Entsperrung%'").n === 1);
+    assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'sicherheit' AND text LIKE 'Notfall-Entsperrung%'").n === notfallVorher + 1);
     assert.throws(() => entsperren(s.db, 999999), /Keine Person/);
     const cli = spawnSync(process.execPath, [path.join(SERVER, 'entsperren.js')], { encoding: 'utf8' });
     assert.equal(cli.status, 2);

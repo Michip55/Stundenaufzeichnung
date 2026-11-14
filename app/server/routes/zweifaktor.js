@@ -73,8 +73,9 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     if (typeof pin !== 'string' || !/^\d{4,12}$/.test(pin)) throw ungueltig('PIN fehlt.');
     const ip = clientIp(req);
     bt.bremse.pruefe(b.id, ip);
+    bt.bremse.pruefeKonto(b.id); // 15.5 (F-031): Kontosperre gilt auch innerhalb der Sitzung
     const voll = db.eins('SELECT pin_hash FROM benutzer WHERE id = ?', b.id);
-    if (!(await auth.pruefePin(pin, voll.pin_hash))) { fehlversuch(b, ip); throw nichtAngemeldet('PIN falsch.'); }
+    if (!(await auth.pruefePin(pin, voll.pin_hash))) { fehlversuch(b, ip, { inSitzung: true }); throw nichtAngemeldet('PIN falsch.'); }
   }
 
   api.get('/auth/2fa', (req, res) => {
@@ -108,9 +109,10 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     if (!z) throw konflikt('Bitte zuerst einrichten (QR-Code).');
     const ip = clientIp(req);
     bt.bremse.pruefe(b.id, ip);
+    bt.bremse.pruefeKonto(b.id); // 15.5 (F-031)
     const body = v.objekt(req.body);
     if (!/^\d{6}$/.test(String(body.code || ''))) throw ungueltig('Bitte den 6-stelligen Code aus der App eingeben.');
-    if (pruefeCode(bt, z, body.code) !== 'totp') { fehlversuch(b, ip); throw ungueltig('Der Code stimmt nicht. Uhrzeit am Handy prüfen und den aktuellen Code eingeben.'); }
+    if (pruefeCode(bt, z, body.code) !== 'totp') { fehlversuch(b, ip, { inSitzung: true }); throw ungueltig('Der Code stimmt nicht. Uhrzeit am Handy prüfen und den aktuellen Code eingeben.'); }
     const c = neueCodes(z);
     db.transaktion(() => {
       db.lauf('UPDATE benutzer_2fa SET aktiv = 1, bestaetigt = ?, codes = ? WHERE benutzer_id = ?', jetzt(), c.gespeichert, b.id);
@@ -127,6 +129,7 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     if (!z) throw konflikt('Die Zwei-Faktor-Anmeldung ist nicht eingerichtet.');
     const ip = clientIp(req);
     bt.bremse.pruefe(b.id, ip);
+    bt.bremse.pruefeKonto(b.id); // 15.5 (F-031)
     const art = pruefeCode(bt, z, v.objekt(req.body).code);
     if (art === 'unlesbar') throw ungueltig(UNLESBAR_TEXT);
     if (art !== 'totp') { zweiFaktorFehlversuch(b, ip, { anlass: 'einstellungen' }); throw ungueltig('Der Code stimmt nicht.'); }
@@ -214,9 +217,11 @@ module.exports = function zweiFaktorRouten(api, bt, { anmelden, fehlversuch, zwe
     if (id === req.ctx.benutzer.id) throw keinZugriff('Die eigene Zwei-Faktor-Anmeldung setzt eine andere Person mit Benutzerrecht zurück.');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    require('./benutzer').pruefeKontoZuruecksetzen(db, req.ctx, b); // 15.5 (F-050/F-051): nur bei niedrigerer Verwaltungsstufe, GF nie über die API
     db.transaktion(() => {
       db.lauf('DELETE FROM benutzer_2fa WHERE benutzer_id = ?', id);
       db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', id);
+      require('../push').abosLoeschen(db, id); // 15.5 (F-014)
       prot(b, `Zwei-Faktor-Anmeldung von ${b.name} zurückgesetzt durch ${req.ctx.benutzer.name}`, req.ctx.benutzer.id);
       benachrichtige(db, { benutzerId: id, typ: 'sicherheit', titel: 'Zwei-Faktor-Anmeldung zurückgesetzt', text: `${req.ctx.benutzer.name} hat Ihre Zwei-Faktor-Anmeldung zurückgesetzt. Bitte nach der Anmeldung neu einrichten.`, zeit: jetzt(), schluessel: `2fa-reset:${id}:${jetzt()}` });
     });

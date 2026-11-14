@@ -170,10 +170,18 @@ async function verteilen(bt) {
   }
 }
 
+/**
+ * 15.5 (F-014): alle Push-Abos einer Person löschen (PIN-Reset, 2FA-Reset, Deaktivierung, Rollen-/Rechtewechsel) → Anzahl.
+ * Ein geteiltes Gerät erhält danach keine Meldungen dieser Person mehr; sie schaltet Push nach der Anmeldung neu ein.
+ */
+function abosLoeschen(db, benutzerId) {
+  return db.lauf('DELETE FROM push_abo WHERE benutzer_id = ?', benutzerId).changes;
+}
+
 /** Nach Anfragen und stündlich anstoßen (ohne zu warten) */
 function anstossen(bt) {
   if (bt.pushAus) return;
   setImmediate(() => { verteilen(bt).catch(() => {}); });
 }
 
-module.exports = { endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };
+module.exports = { abosLoeschen, endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };

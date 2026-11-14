@@ -116,6 +116,9 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     assert.equal(r.status, 200, JSON.stringify(r.daten));
     const pol = await anmelden(U.buero);
     assert.equal((await pol.get('/auth/ich')).daten.benutzer.rolle, 'polier');
+    // 15.5 (F-014): der Rollenwechsel hat alle Push-Abos beendet – die Person schaltet Push nach der Anmeldung neu ein
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM push_abo WHERE benutzer_id = ?', U.buero).n, 0);
+    assert.equal((await pol.post('/push/abo', { endpoint: 'https://push.example.test/b101', keys: KEYS })).status, 201);
 
     const nach = await liste(pol);
     assert.deepEqual(verboten(nach, [...FREMDE, 'AR-2026-4711']), []);
@@ -235,6 +238,9 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     assert.deepEqual(verboten(bt.testAusgang.push, [FREMDE[1]]), []);
     assert.equal(s.db.eins("SELECT push FROM benachrichtigung WHERE schluessel = 'abw:9001:2026-11-12T09:30:00.000Z'").push, 'aus');
     c.buero = await hochstufen(U.buero, 'buero');
+    // 15.5 (F-014): Rollenwechsel beendet die Abos – zwei Geräte neu einschalten (Prüfung „zwischen zwei Abos“)
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM push_abo WHERE benutzer_id = ?', U.buero).n, 0);
+    for (const ep of ['https://push.example.test/b101', 'https://push.example.test/b101-2']) assert.equal((await c.buero.post('/push/abo', { endpoint: ep, keys: KEYS })).status, 201);
 
     // Herabstufung WÄHREND des Versands (nach dem ersten Abo): kein weiteres Abo erhält die Meldung
     bt.pushAus = true;

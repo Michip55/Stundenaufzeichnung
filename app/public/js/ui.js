@@ -170,8 +170,10 @@ export const speicher = {
   // R-08 (geteiltes Gerät): beim Abmelden und beim Benutzerwechsel alles Benutzerbezogene vom Gerät entfernen.
   // Es bleibt nur, was nichts über eine Person verrät (GERAET) – und noch nicht gesendete Meldungen (WARTEND, M-04):
   // die gehören genau einem Benutzer, werden nie mit einer fremden Sitzung gesendet und verschwinden nach dem Senden.
+  // 15.5 (F-046): vorher versiegelt tresor.js die WARTEND-Einträge der Person (AES-GCM) – für andere unlesbar.
   raeumeBenutzer() {
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer'];
+    // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }

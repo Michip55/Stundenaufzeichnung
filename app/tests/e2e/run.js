@@ -45,7 +45,7 @@ async function starteServer(extra = {}) {
   const url = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100; i++) {
     if (proc.exitCode != null) throw new Error('Server beendet:\n' + log);
-    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, jetzt: () => new Date(UHR).getTime() + (Date.now() - t0), stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
+    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, dbPfad: env.BAUTAG_DB, jetzt: () => new Date(UHR).getTime() + (Date.now() - t0), stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
     await sleep(100);
   }
   proc.kill();
@@ -1215,12 +1215,17 @@ async function laufe(browser, g) {
     await page.reload(); await bereit();
     const gfZeile = page.locator(`#gesperrte li[data-benutzer="${gfKonto.id}"]`);
     await gfZeile.waitFor();
-    pruef(await gfZeile.locator('[data-bearb]').count() === 0 && (await gfZeile.locator('[data-entsperren]').innerText()).includes('Anmeldesperre aufheben'), 'D-01: Büro sieht für die GF nicht genau „Anmeldesperre aufheben“');
+    // 15.5 (F-051, ersetzt D-01): das Büro entsperrt die GF NICHT – keine Schaltfläche, nur der Hinweis auf den Notfall-Befehl
+    pruef(await gfZeile.locator('[data-bearb]').count() === 0 && await gfZeile.locator('[data-entsperren]').count() === 0 && /am Server/.test(await gfZeile.innerText()), '15.5: Büro sieht für die gesperrte GF eine Entsperren-Schaltfläche statt „nur am Server“');
     pruef(/bis/.test(await gfZeile.locator('.chip.st-red').innerText()), 'D-01: Ende der Sperre wird in der Benutzerverwaltung nicht angezeigt');
     await ueberlauf('benutzer gf gesperrt'); await shot('benutzer-gf-gesperrt');
-    await gfZeile.locator('[data-entsperren]').click();
+    const f051 = await absichtlich(() => api('POST', `/benutzer/${gfKonto.id}/entsperren`));
+    pruef(f051.status === 403, `15.5 (F-051): Büro kann die GF über die API entsperren (Status ${f051.status})`);
+    const notfall = spawnSync(process.execPath, ['server/entsperren.js', String(gfKonto.pnr)], { cwd: APP, env: { ...process.env, BAUTAG_DB: srv.dbPfad }, encoding: 'utf8' });
+    pruef(notfall.status === 0, `15.5: entsperren.js für die GF fehlgeschlagen: ${notfall.stderr}`);
+    await page.reload(); await bereit();
     await page.waitForFunction((id) => !document.querySelector(`#gesperrte li[data-benutzer="${id}"]`), gfKonto.id);
-    pruef(await gfVersuch(PIN, '10.80.0.1') === 200, 'D-01: GF kann sich nach dem Entsperren durch das Büro nicht anmelden');
+    pruef(await gfVersuch(PIN, '10.80.0.1') === 200, '15.5: GF kann sich nach entsperren.js nicht anmelden');
     const d01 = await absichtlich(() => api('PUT', `/benutzer/${gfKonto.id}`, { pin: '739154' }));
     pruef(d01.status === 403, `D-01: Büro kann die PIN der GF zurücksetzen (Status ${d01.status})`);
     await toastWeg();
@@ -1607,6 +1612,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_KOLONNE) {
       console.log('    Kolonne ohne Abwesenheits-Rückschluss …');
       try { const kr = await require('./kolonne').laufe(browser, g); r.fehler.push(...kr.fehler); r.schritte += kr.schritte; } catch (e) { r.fehler.push('Abbruch Kolonne: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Geteiltes Tablet: Abmelden ohne Netz, Versiegeln, Push, Benutzerwechsel beim Nachsenden (tests/e2e/geraet.js, API.md 15.5)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_GERAET) {
+      console.log('    Geteiltes Gerät (Sitzung, Speicher, Push, Warteschlangen) …');
+      try { const gr = await require('./geraet').laufe(browser, g); r.fehler.push(...gr.fehler); r.schritte += gr.schritte; } catch (e) { r.fehler.push('Abbruch Gerät: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

@@ -1570,7 +1570,9 @@ async function geteilt(h) {
   await page.waitForTimeout(600);
   page.off('request', lausche);
   const dann = await lager();
-  pruef(gesendet.length === 0 && JSON.parse(dann.ls.bt_fuhren_warten || '[]').some((w) => w.nr === 'e2e-geteilt' && w.benutzerId === P), 'R-08: wartende Meldung des Poliers wurde mit der Sitzung des Mitarbeiters gesendet oder ging verloren');
+  // 15.5 (F-046): die wartende Meldung des Poliers bleibt erhalten, aber versiegelt – ohne jede Angabe im Klartext
+  const fw = JSON.parse(dann.ls.bt_fuhren_warten || '[]');
+  pruef(gesendet.length === 0 && fw.length === 1 && fw[0].versiegelt && Object.keys(fw[0]).join() === 'versiegelt' && !(dann.ls.bt_fuhren_warten || '').includes('e2e-geteilt'), 'R-08: wartende Meldung des Poliers wurde mit der Sitzung des Mitarbeiters gesendet, ging verloren oder ist lesbar');
   pruef(!Object.entries(dann.ls).some(([x, w]) => !WARTEND.includes(x) && w.includes(name)) && !(await h.text()).includes(name), 'R-08: Daten oder Name des Poliers beim Mitarbeiter sichtbar');
   pruef(JSON.parse(dann.ls.bt_geraet_benutzer) !== P, 'R-08: Gerät merkt sich den Benutzerwechsel nicht');
   await page.evaluate(() => localStorage.removeItem('bt_fuhren_warten'));

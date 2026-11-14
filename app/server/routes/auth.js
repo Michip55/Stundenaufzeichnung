@@ -11,12 +11,17 @@ function benutzerJson(b, mitLohngruppe) {
   return o;
 }
 
-/** Fehlversuch zählen (IP und Konto); bei Kontosperre Büro/GF benachrichtigen */
-function fehlversuch(bt, b, ip) {
+/**
+ * Fehlversuch zählen (IP und Konto); bei Kontosperre Büro/GF benachrichtigen.
+ * 15.5 (F-031): `inSitzung` = PIN-/Code-Prüfung innerhalb einer Sitzung (/auth/pin, 2FA-Einstellungen) – führt sie zur
+ * Kontosperre, enden zusätzlich alle Sitzungen des Kontos (wer dort rät, hat eine Sitzung, aber offenbar nicht die PIN).
+ */
+function fehlversuch(bt, b, ip, { inSitzung = false } = {}) {
   const gesperrt = bt.bremse.fehlversuch(b ? b.id : null, ip);
   if (b && bt.bremse.kontoFehlversuch(b.id)) {
     const zeit = bt.uhr().toISOString();
-    bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})` });
+    if (inSitzung) auth.beendeAlleSitzungen(bt.db, b.id);
+    bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})${inSitzung ? ' – alle Sitzungen beendet' : ''}` });
     for (const e of empfaengerMitRecht(bt.db, 'stammdaten|benutzer', { ohne: b.id })) { // 15.3: wer entsperren kann
       benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} befristet gesperrt. Bitte prüfen und ggf. entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
     }
@@ -31,6 +36,7 @@ function fehlversuch(bt, b, ip) {
  * offenbar bekannt. Danach zählt der Versuch wie ein PIN-Fehlversuch (Sperre je Benutzer+IP, 20er-Kontogrenze).
  */
 function zweiFaktorFehlversuch(bt, b, ip, { anlass = 'anmeldung', schluessel = null } = {}) {
+  const inSitzung = anlass !== 'anmeldung';
   const zeit = bt.uhr().toISOString();
   const z = bt.bremse.zweiFaktorFehlversuch(b.id);
   const wo = anlass === 'anmeldung' ? 'bei der Anmeldung nach richtiger PIN' : 'in den Einstellungen zur Zwei-Faktor-Anmeldung';
@@ -43,13 +49,14 @@ function zweiFaktorFehlversuch(bt, b, ip, { anlass = 'anmeldung', schluessel = n
     zeit, schluessel: schluessel || `2fa-falsch:${b.id}:${zeit}`
   });
   if (z.gesperrt) {
+    if (inSitzung) auth.beendeAlleSitzungen(bt.db, b.id); // 15.5 (F-031)
     bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. gesperrt (letzte IP ${ip})` });
     for (const e of empfaengerMitRecht(bt.db, 'stammdaten|benutzer', { ohne: b.id })) { // 15.3: wer entsperren kann
       benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. (die PIN war jeweils richtig) ist die Anmeldung von ${b.name} befristet gesperrt. Die PIN ist vermutlich bekannt – bitte prüfen, PIN zurücksetzen und ggf. entsperren.`, zeit, schluessel: `konto-2fa:${b.id}:${zeit}` });
     }
     bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer
   }
-  fehlversuch(bt, b, ip);
+  fehlversuch(bt, b, ip, { inSitzung });
 }
 
 /** N-120: Client-IP für Sperren – IPv6 je /64, IPv4-mapped als IPv4, Unlesbares gemeinsam */
@@ -101,20 +108,57 @@ module.exports = function authRouten(api, bt) {
     anmelden(req, res, b);
   });
 
-  /** Sitzung anlegen (nach PIN bzw. PIN + zweitem Faktor) */
+  /**
+   * Sitzung anlegen (nach PIN bzw. PIN + zweitem Faktor). 15.5: Eine mitgeschickte alte Sitzung endet immer (Rotation).
+   * `bindung: true` (App am Gerät): die Sitzung gilt nur mit dem Bindungs-Cookie, das die App beim Abmelden löscht.
+   * `pushEndpoint`: Push-Abo dieses Geräts – gehört es einer anderen Person, wird es gelöscht (F-014).
+   */
   function anmelden(req, res, b) {
     if (req.token) auth.beendeSitzung(db, req.token);
-    const token = auth.neueSitzung(db, b.id, bt.uhr());
-    auth.setzeCookie(req, res, token);
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const s = auth.neueSitzung(db, b.id, bt.uhr(), { bindung: body.bindung === true });
+    auth.setzeCookie(req, res, typeof s === 'string' ? s : s.token, typeof s === 'string' ? null : s.bindung);
+    if (typeof body.pushEndpoint === 'string' && body.pushEndpoint.length <= 1000) {
+      const weg = db.lauf('DELETE FROM push_abo WHERE endpoint = ? AND benutzer_id <> ?', body.pushEndpoint, b.id).changes;
+      if (weg) db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: b.id, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `${b.name} hat sich an einem Gerät angemeldet, das Push-Meldungen einer anderen Person erhielt – Abo der anderen Person gelöscht` });
+    }
     res.json({ benutzer: benutzerJson(b, true), mussPinAendern: b.muss_pin_aendern === 1 });
   }
 
-  require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip) => fehlversuch(bt, b, ip), zweiFaktorFehlversuch: (b, ip, o) => zweiFaktorFehlversuch(bt, b, ip, o), clientIp });
+  require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip, o) => fehlversuch(bt, b, ip, o), zweiFaktorFehlversuch: (b, ip, o) => zweiFaktorFehlversuch(bt, b, ip, o), clientIp });
 
+  /**
+   * Abmelden (15.5): beendet die Sitzung des Cookies – auch eine abgelaufene oder (nach dem Abmelden ohne Netz) ungebundene –
+   * und löscht mit `endpoint` das Push-Abo dieses Geräts der Person, der die Sitzung gehörte (F-014).
+   */
   api.post('/auth/logout', (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const wer = req.ctx ? req.ctx.benutzer.id : req.tokenBenutzerId;
+    if (wer && typeof body.endpoint === 'string' && body.endpoint.length <= 1000) {
+      db.lauf('DELETE FROM push_abo WHERE endpoint = ? AND benutzer_id = ?', body.endpoint, wer);
+    }
     auth.beendeSitzung(db, req.token);
     auth.loescheCookie(req, res);
     res.json({ ok: true });
+  });
+
+  /**
+   * 15.5 (F-046): Geräteschlüssel der angemeldeten Person (AES-256, Base64). Die App versiegelt damit beim Abmelden und beim
+   * Benutzerwechsel die noch wartenden Einträge dieser Person; ohne ihre Anmeldung sind sie am Gerät nicht lesbar.
+   * `?benutzerId=` muss die angemeldete Person sein (sonst 403).
+   */
+  api.get('/auth/geraet-schluessel', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const id = req.ctx.benutzer.id;
+    // nur der eigene Schlüssel – auch die GF erhält nie den einer anderen Person
+    if (v.pfadId(String(req.query.benutzerId ?? ''), 'benutzerId') !== id) throw require('../fehler').keinZugriff('Nur der eigene Geräteschlüssel.');
+    let z = db.eins('SELECT schluessel FROM geraet_schluessel WHERE benutzer_id = ?', id);
+    if (!z) {
+      db.lauf('INSERT INTO geraet_schluessel (benutzer_id, schluessel, erstellt) VALUES (?, ?, ?) ON CONFLICT(benutzer_id) DO NOTHING', id, require('node:crypto').randomBytes(32).toString('base64'), bt.uhr().toISOString());
+      z = db.eins('SELECT schluessel FROM geraet_schluessel WHERE benutzer_id = ?', id);
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ benutzerId: id, schluessel: z.schluessel });
   });
 
   api.get('/auth/ich', (req, res) => {
@@ -126,6 +170,7 @@ module.exports = function authRouten(api, bt) {
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,
       sitzungMinuten: auth.inaktivMinuten(b.rolle, bt.sitzung),
+      sperreMinuten: auth.sperreMinuten(b.rolle, bt.sitzung), // 15.5: Abmelden am Gerät nach Untätigkeit
       zweiFaktor: require('./zweifaktor').stand(db, b)
     });
   });
@@ -150,8 +195,9 @@ module.exports = function authRouten(api, bt) {
     if (body.neu === body.alt) throw ungueltig('Die neue PIN muss sich von der bisherigen unterscheiden.');
     const ip = clientIp(req);
     bt.bremse.pruefe(ich.id, ip);
+    bt.bremse.pruefeKonto(ich.id); // 15.5 (F-031): dieselbe Kontosperre wie bei der Anmeldung
     if (!(await auth.pruefePin(body.alt, ich.pin_hash))) {
-      fehlversuch(bt, ich, ip);
+      fehlversuch(bt, ich, ip, { inSitzung: true });
       throw nichtAngemeldet('Die bisherige PIN ist falsch.');
     }
     const hash = await auth.hashPin(body.neu);

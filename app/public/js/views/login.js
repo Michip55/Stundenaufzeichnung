@@ -1,6 +1,14 @@
 // Anmeldung: Benutzer wählen (oder Personalnummer eingeben, wenn die Namensliste abgeschaltet ist), dann PIN.
 import { get, post } from '../api.js';
 import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, $ } from '../ui.js';
+import { geraetPushAbo } from './push.js';
+
+// 15.5: Anmeldung der App am Gerät – Sitzung mit Bindungs-Cookie (F-029); das Push-Abo dieses Geräts nennen,
+// damit der Server es einer anderen Person entzieht (F-014)
+async function geraetAngaben() {
+  const sub = await geraetPushAbo();
+  return { bindung: true, ...(sub && sub.endpoint ? { pushEndpoint: sub.endpoint } : {}) };
+}
 
 const PIN_MAX = 12;
 // D-01: Wenn der Server ein Ende der Sperre mitteilt, wird es angezeigt („läuft ab um …“)
@@ -114,7 +122,7 @@ export default async function login(root, { angemeldet }) {
       if (!/^(\d{6}|[A-Za-z0-9]{4}-?[A-Za-z0-9]{4})$/.test(code)) { zeigeCode(vorgang, 'Bitte die 6 Ziffern aus der App oder einen Wiederherstellungscode eingeben.'); return; }
       $('#zf-ok', card).disabled = true;
       try {
-        await post('/auth/login/2fa', { vorgang, code });
+        await post('/auth/login/2fa', { vorgang, code, ...(await geraetAngaben()) });
         if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
         await angemeldet();
       } catch (x) {
@@ -136,7 +144,7 @@ export default async function login(root, { angemeldet }) {
     sendet = true; punkte();
     $('#pin-msg', card).textContent = 'Wird geprüft …';
     try {
-      const antwort = await post('/auth/login', gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin });
+      const antwort = await post('/auth/login', { ...(gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin }), ...(await geraetAngaben()) });
       // 12.7: PIN stimmt, aber es fehlt noch der Code aus der Authenticator-App
       if (antwort && antwort.zweiterFaktor) { sendet = false; pin = ''; zeigeCode(antwort.vorgang); return; }
       if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
@@ -185,5 +193,8 @@ export default async function login(root, { angemeldet }) {
     }
   }
   await lade();
-  return () => document.removeEventListener('keydown', taste);
+  // 15.5: wieder online → Namensliste neu laden (davor holt api.js ein vorgemerktes Abmelden nach)
+  const wiederOnline = () => { if (!gewaehlt && card.querySelector('[data-neu-laden]')) lade(); };
+  window.addEventListener('online', wiederOnline);
+  return () => { document.removeEventListener('keydown', taste); window.removeEventListener('online', wiederOnline); };
 }

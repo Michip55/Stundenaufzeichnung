@@ -30,6 +30,29 @@ function telefonPruefen(t) {
   return t.trim();
 }
 
+/**
+ * 15.5 (F-050/F-051): Verwaltungsstufe eines Kontos – 3 = Geschäftsführung (bzw. Recht „benutzer“), 2 = Büro/Bauleiter
+ * (bzw. Recht „stammdaten“), 1 = alle anderen. Zählt die höhere aus Rolle und tatsächlichen Rechten.
+ */
+function verwaltungsStufe(rolle, rechte) {
+  if (rolle === 'gf' || rechte.has('benutzer')) return 3;
+  if (['buero', 'bauleiter'].includes(rolle) || rechte.has('stammdaten')) return 2;
+  return 1;
+}
+
+/**
+ * 15.5 (F-050/F-051): PIN, Zwei-Faktor-Anmeldung und Sperren eines Kontos setzt nur zurück, wer eine HÖHERE Verwaltungsstufe hat
+ * (Büro/Bauleiter → Mitarbeiter/Polier; GF → Büro/Bauleiter/Mitarbeiter/Polier). Konten der Stufe 3 (GF) nur über den
+ * Notfall-Befehl am Server (node server/entsperren.js). `neueRolle`: gleichzeitiger Rollenwechsel – es zählt die höhere Stufe.
+ */
+function pruefeKontoZuruecksetzen(db, ctx, ziel, { neueRolle = null } = {}) {
+  const zielStufe = Math.max(verwaltungsStufe(ziel.rolle, R.ladeRechteFuer(db, ziel)), neueRolle ? verwaltungsStufe(neueRolle, new Set()) : 1);
+  if (zielStufe >= 3) throw keinZugriff('PIN, Zwei-Faktor-Anmeldung und Sperren der Geschäftsführung setzt nur der Notfall-Befehl am Server zurück (node server/entsperren.js).');
+  if (ziel.id === ctx.benutzer.id || verwaltungsStufe(ctx.benutzer.rolle, ctx.rechte) <= zielStufe) {
+    throw keinZugriff('PIN, Zwei-Faktor-Anmeldung und Sperren von Konten mit gleicher oder höherer Verwaltungsstufe setzt nur die Geschäftsführung zurück.');
+  }
+}
+
 function benutzerVoll(b) {
   return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null };
 }
@@ -67,7 +90,10 @@ module.exports = function benutzerRouten(api, bt) {
     db.transaktion(() => {
       db.lauf('INSERT INTO rolle_recht (rolle, recht, wert) VALUES (?, ?, ?) ON CONFLICT(rolle, recht) DO UPDATE SET wert = excluded.wert', rolle, recht, wert ? 1 : 0);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'recht', objekt: `rolle:${rolle}`, alt: { [recht]: alt ? alt.wert === 1 : false }, neu: { [recht]: wert }, text: `Rechte-Matrix: ${R.ROLLEN_NAMEN[rolle]} – ${recht} ${wert ? 'erteilt' : 'entzogen'}` });
+      // 15.5 (F-014): Rechte der Rolle geändert → Push-Abos ihrer Konten löschen (Push nach der Anmeldung neu einschalten)
+      if ((alt ? alt.wert === 1 : false) !== wert) for (const b of db.alle('SELECT id FROM benutzer WHERE rolle = ?', rolle)) require('../push').abosLoeschen(db, b.id);
     });
+    require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id }); // 15.5 (F-047)
     res.json({ ok: true, matrix: R.ladeMatrix(db) });
   });
 
@@ -83,8 +109,10 @@ module.exports = function benutzerRouten(api, bt) {
     db.transaktion(() => {
       if (wert) db.lauf('INSERT INTO benutzer_recht (benutzer_id, recht, erteilt_von, erteilt) VALUES (?, ?, ?, ?) ON CONFLICT(benutzer_id, recht) DO NOTHING', benutzerId, recht, req.ctx.benutzer.id, jetzt());
       else db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', benutzerId, recht);
+      if (vorher !== wert) require('../push').abosLoeschen(db, benutzerId); // 15.5 (F-014): Rechtewechsel
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'recht', objekt: `benutzer:${benutzerId}`, alt: { [recht]: vorher }, neu: { [recht]: wert }, text: `Ausnahme für ${b.name}: ${recht} ${wert ? 'erteilt' : 'entfernt'}` });
     });
+    require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id }); // 15.5 (F-047)
     res.json({ ok: true, benutzerId, recht, wert, rechte: [...R.ladeRechteFuer(db, b)] });
   });
 
@@ -141,7 +169,10 @@ module.exports = function benutzerRouten(api, bt) {
     const sperren = new Map(db.alle('SELECT benutzer_id, gesperrt_seit, gesperrt_bis FROM login_konto WHERE gesperrt = 1 AND gesperrt_bis > ?', jetztIso).map((k) => [k.benutzer_id, k]));
     res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map((b) => {
       const k = sperren.get(b.id);
-      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}) };
+      // 15.5 (F-050/F-051): darf der Aufrufer PIN, 2FA und Sperren dieses Kontos zurücksetzen? (Oberfläche blendet sonst aus)
+      let zuruecksetzbar = true;
+      try { pruefeKontoZuruecksetzen(db, req.ctx, b); } catch (_) { zuruecksetzbar = false; }
+      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
     }));
   });
 
@@ -194,7 +225,10 @@ module.exports = function benutzerRouten(api, bt) {
     if (verliertGf && db.eins("SELECT COUNT(*) AS n FROM benutzer WHERE rolle = 'gf' AND aktiv = 1 AND id <> ?", id).n === 0) {
       throw konflikt('Mindestens eine aktive Geschäftsführung muss bestehen bleiben.');
     }
-    if (pin) { f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1; }
+    if (pin) {
+      pruefeKontoZuruecksetzen(db, req.ctx, alt, { neueRolle: f.rolle || null }); // 15.5 (F-050)
+      f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1;
+    }
     // D-02: neue Rolle mit Mindestlänge 6 und kürzere/unbekannte PIN → PIN-Wechsel erzwingen
     if (rollenwechsel && !auth.FELD_ROLLEN.includes(f.rolle) && !pin && !(alt.pin_laenge >= 6)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
@@ -230,8 +264,15 @@ module.exports = function benutzerRouten(api, bt) {
           }
         }
       }
-      if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) auth.beendeAlleSitzungen(db, id);
-      if (pin) { bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id); }
+      if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) {
+        auth.beendeAlleSitzungen(db, id);
+        require('../push').abosLoeschen(db, id); // 15.5 (F-014): kein Gerät erhält danach noch Meldungen dieser Person
+      }
+      if (pin) {
+        bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id);
+        // 15.5 (F-050): die Person erfährt vom Zurücksetzen (bei der nächsten Anmeldung muss sie die PIN ändern)
+        benachrichtige(db, { benutzerId: id, typ: 'sicherheit', titel: 'PIN zurückgesetzt', text: `${req.ctx.benutzer.name} hat Ihre PIN zurückgesetzt. Bei der nächsten Anmeldung wählen Sie eine neue PIN. Haben Sie das nicht veranlasst, bitte sofort die Geschäftsführung informieren.`, zeit: jetzt(), schluessel: `pin-reset:${id}:${jetzt()}` });
+      }
       const altW = {}, neuW = {};
       for (const x of k) {
         if (['pin_hash', 'muss_pin_aendern', 'pin_laenge'].includes(x)) continue;
@@ -244,6 +285,8 @@ module.exports = function benutzerRouten(api, bt) {
         alt: altW, neu: neuW, text: `Benutzer ${alt.name} geändert${pin ? ' (PIN zurückgesetzt)' : ''}`
       });
     });
+    // 15.5 (F-047): offene Fernunterschrift-Links, deren Ersteller nicht mehr darf, sofort widerrufen
+    if (f.aktiv === 0 || rollenwechsel) require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id });
     // 12.22: Budget-Alarme neu prüfen, wenn schon gerechnete Tage betroffen sind
     if (lgErg && lgErg.gueltigAb <= heute) {
       const B = require('../budget');
@@ -277,14 +320,17 @@ module.exports = function benutzerRouten(api, bt) {
     res.json({ ok: true, lohngruppeVerlauf: L.verlaufJson(db, id, heute) });
   });
 
-  /** Konto entsperren (C-07): Büro für Mitarbeiter/Polier/Bauleiter, GF für alle */
+  /**
+   * Konto entsperren (C-07). 15.5 (F-051, ersetzt D-01): nur bei niedrigerer Verwaltungsstufe – Büro/Bauleiter entsperren
+   * Mitarbeiter und Poliere, die GF auch Büro und Bauleiter; GF-Konten nur der Notfall-Befehl am Server (entsperren.js).
+   */
   api.post('/benutzer/:id/entsperren', verwalterPruefen, (req, res) => {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
-    // D-01: Büro darf auch GF-/Büro-Konten ENTSPERREN (nur entsperren), damit sich die Verwaltung nicht aussperrt
     if (!R.darfBenutzerVerwalten(req.ctx)) throw keinZugriff();
     if (id === req.ctx.benutzer.id) throw keinZugriff('Das eigene Konto entsperrt eine andere Person.');
+    pruefeKontoZuruecksetzen(db, req.ctx, b);
     db.transaktion(() => {
       bt.bremse.entsperre(id);
       bt.bremse.kontoEntsperren(id);
@@ -295,3 +341,5 @@ module.exports = function benutzerRouten(api, bt) {
 };
 
 module.exports.telefonPruefen = telefonPruefen;
+module.exports.verwaltungsStufe = verwaltungsStufe;
+module.exports.pruefeKontoZuruecksetzen = pruefeKontoZuruecksetzen;

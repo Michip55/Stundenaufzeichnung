@@ -3,11 +3,40 @@
 const crypto = require('node:crypto');
 const v = require('../validierung');
 const { ungueltig, keinZugriff, nichtGefunden, konflikt, ApiFehler } = require('../fehler');
-const { baustelleImBereich } = require('../rechte');
+const { baustelleImBereich, kontext } = require('../rechte');
 const B = require('./berichte');
 
 const GUELTIG_STD = 72;
 const hash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+
+/**
+ * 15.5 (F-047): Darf die Person, die den Link erstellt hat, den Bericht JETZT noch bearbeiten? Aktives Konto, aktuelles Recht
+ * bericht_erstellen und Baustelle im Bereich – sonst gilt ihr Link nicht mehr (die Unterschrift würde auf ihren Namen gespeichert).
+ */
+function erstellerDarf(db, l, bericht) {
+  const u = db.eins('SELECT * FROM benutzer WHERE id = ?', l.erstellt_von);
+  if (!u || !u.aktiv) return false;
+  const bs = bericht ? bericht.baustelle : null;
+  if (!bs) return false;
+  try { B.pruefeSchreiben(kontext(db, u), bs); return true; } catch (_) { return false; }
+}
+
+/**
+ * 15.5 (F-047): offene Links widerrufen, deren Ersteller deaktiviert ist oder das Recht verloren hat (nach Deaktivierung,
+ * Rollenwechsel und Rechteänderungen) → Anzahl. Wird zusätzlich beim Öffnen jedes Links geprüft.
+ */
+function linksOhneRechtWiderrufen(bt, { von = null } = {}) {
+  const { db } = bt;
+  let n = 0;
+  for (const l of db.alle("SELECT * FROM unterschrift_link WHERE status = 'offen'")) {
+    const b = B.ladeBerichtRoh(db, l.bericht_id);
+    if (erstellerDarf(db, l, b)) continue;
+    db.lauf("UPDATE unterschrift_link SET status = 'widerrufen' WHERE id = ? AND status = 'offen'", l.id);
+    db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: von, art: 'bericht', objekt: `bericht:${l.bericht_id}`, neu: { linkId: l.id }, text: 'Fernunterschrift-Link widerrufen: die erstellende Person darf den Bericht nicht mehr bearbeiten' });
+    n++;
+  }
+  return n;
+}
 
 /** Öffentliche Routen (ohne Anmeldung) – vor `angemeldet` einbinden */
 function oeffentlich(api, bt) {
@@ -40,6 +69,11 @@ function oeffentlich(api, bt) {
     if (!b || b.status !== 'entwurf' || b.unterschriften.some((u) => u.rolle === l.rolle)) {
       db.lauf("UPDATE unterschrift_link SET status = 'ungueltig' WHERE id = ?", l.id);
       throw weg('Dieser Link ist nicht mehr gültig.');
+    }
+    // 15.5 (F-047): Ersteller muss JETZT noch aktiv sein und den Bericht bearbeiten dürfen
+    if (!erstellerDarf(db, l, b)) {
+      db.lauf("UPDATE unterschrift_link SET status = 'widerrufen' WHERE id = ? AND status = 'offen'", l.id);
+      throw weg('Dieser Link ist nicht mehr gültig. Bitte neuen Link anfordern.');
     }
     return { l, b };
   }
@@ -150,4 +184,4 @@ function intern(api, bt) {
   });
 }
 
-module.exports = { oeffentlich, intern };
+module.exports = { oeffentlich, intern, erstellerDarf, linksOhneRechtWiderrufen };

@@ -12,6 +12,10 @@ const { kontext } = require('./rechte');
 const scryptAsync = promisify(crypto.scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 };
 const COOKIE = 'bt_session';
+/** 15.5 (F-029): Bindungs-Cookie einer App-Sitzung – von der App lesbar und löschbar, damit das Abmelden auch ohne Netz wirkt */
+const BINDUNG = 'bt_bindung';
+/** 15.5 (F-030): Kopf, mit dem die App bei nachgesendeten Einträgen den Ersteller angibt */
+const ERSTELLER_KOPF = 'x-bautag-ersteller';
 const MAX_FEHLVERSUCHE = 5;
 /** steigende Sperrdauer je (Benutzer, IP): 5 min, 15 min, danach 60 min */
 const SPERRSTUFEN_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
@@ -39,11 +43,17 @@ function sitzungsKonfig(opt = {}) {
   return {
     feldMin: opt.feldMin || zahlEnv('BAUTAG_SITZUNG_FELD_MIN', 720),
     bueroMin: opt.bueroMin || zahlEnv('BAUTAG_SITZUNG_BUERO_MIN', 60),
-    maxH: opt.maxH || zahlEnv('BAUTAG_SITZUNG_MAX_H', 24)
+    maxH: opt.maxH || zahlEnv('BAUTAG_SITZUNG_MAX_H', 24),
+    // 15.5 (F-029): Sperre der App nach Untätigkeit am Gerät (Feldrollen arbeiten an geteilten Tablets)
+    sperreFeldMin: opt.sperreFeldMin || zahlEnv('BAUTAG_SPERRE_FELD_MIN', 30)
   };
 }
 function inaktivMinuten(rolle, k) {
   return FELD_ROLLEN.includes(rolle) ? k.feldMin : k.bueroMin;
+}
+/** 15.5: nach so vielen Minuten ohne Bedienung meldet die App am Gerät ab (Feldrollen 30, sonst wie die Sitzung) */
+function sperreMinuten(rolle, k) {
+  return FELD_ROLLEN.includes(rolle) ? Math.min(k.sperreFeldMin || 30, k.feldMin) : k.bueroMin;
 }
 const INAKTIV_MS = 12 * 60 * 60 * 1000; // Standard Mitarbeiter/Polier (Kompatibilität)
 
@@ -85,11 +95,16 @@ async function pruefePin(pin, gespeichert) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
-function neueSitzung(db, benutzerId, jetzt) {
+/**
+ * Neue Sitzung. Mit `bindung` (App am Gerät, 15.5) gilt sie nur zusammen mit dem Bindungs-Cookie, das die App beim
+ * Abmelden selbst löscht – auch ohne Netz. → Token (bzw. {token, bindung} mit bindung = true)
+ */
+function neueSitzung(db, benutzerId, jetzt, { bindung = false } = {}) {
   const token = crypto.randomBytes(32).toString('hex');
+  const b = bindung ? crypto.randomBytes(32).toString('hex') : null;
   const t = jetzt.toISOString();
-  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet) VALUES (?, ?, ?, ?)', sha256(token), benutzerId, t, t);
-  return token;
+  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet, bindung_hash) VALUES (?, ?, ?, ?, ?)', sha256(token), benutzerId, t, t, b ? sha256(b) : null);
+  return bindung ? { token, bindung: b } : token;
 }
 
 function beendeSitzung(db, token) {
@@ -120,26 +135,44 @@ function istHttps(req) {
   return Boolean(req.secure);
 }
 
-function setzeCookie(req, res, token) {
+function setzeCookie(req, res, token, bindung = null) {
   const teile = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict'];
   if (istHttps(req)) teile.push('Secure');
-  res.setHeader('Set-Cookie', teile.join('; '));
+  const liste = [teile.join('; ')];
+  // 15.5: Bindungs-Cookie ohne HttpOnly – die App löscht es beim Abmelden selbst (auch offline)
+  const zweit = [`${BINDUNG}=${bindung || ''}`, 'Path=/', 'SameSite=Strict', ...(bindung ? [] : ['Max-Age=0'])];
+  if (istHttps(req)) zweit.push('Secure');
+  liste.push(zweit.join('; '));
+  res.setHeader('Set-Cookie', liste);
 }
 
 function loescheCookie(req, res) {
   const teile = [`${COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0'];
-  if (istHttps(req)) teile.push('Secure');
-  res.setHeader('Set-Cookie', teile.join('; '));
+  const zweit = [`${BINDUNG}=`, 'Path=/', 'SameSite=Strict', 'Max-Age=0'];
+  if (istHttps(req)) { teile.push('Secure'); zweit.push('Secure'); }
+  res.setHeader('Set-Cookie', [teile.join('; '), zweit.join('; ')]);
+}
+
+/** Gleich lange Hex-Hashes zeitkonstant vergleichen */
+function hashGleich(a, b) {
+  const x = Buffer.from(String(a || ''), 'utf8');
+  const y = Buffer.from(String(b || ''), 'utf8');
+  return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y);
 }
 
 /**
  * Lädt Benutzer zur Sitzung (oder null). Aktualisiert die letzte Aktivität.
  */
-function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig()) {
+function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = undefined) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
   const h = sha256(token);
-  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
+  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, s.bindung_hash, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
   if (!s) return null;
+  // 15.5 (F-029): gebundene App-Sitzung ohne passendes Bindungs-Cookie (z. B. nach dem Abmelden ohne Netz) → Sitzung endet
+  if (s.bindung_hash && !(typeof bindung === 'string' && /^[0-9a-f]{64}$/.test(bindung) && hashGleich(sha256(bindung), s.bindung_hash))) {
+    db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h);
+    return null;
+  }
   const t = jetzt.getTime();
   const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
   if (!s.aktiv || t - new Date(s.letzte_aktivitaet).getTime() > inaktivMs || t - new Date(s.sitzung_erstellt).getTime() > konfig.maxH * 3600000) {
@@ -149,17 +182,25 @@ function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig()) {
   if (t - new Date(s.letzte_aktivitaet).getTime() > 30 * 1000) {
     db.lauf('UPDATE sitzung SET letzte_aktivitaet = ? WHERE token_hash = ?', jetzt.toISOString(), h);
   }
-  const { token_hash, letzte_aktivitaet, sitzung_erstellt, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
+  const { token_hash, letzte_aktivitaet, sitzung_erstellt, bindung_hash, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
   return benutzer;
 }
 
 /** Middleware: setzt req.ctx (Benutzer + Rechte) falls angemeldet */
 function sitzungMiddleware(bt) {
   return (req, res, next) => {
-    const token = leseCookies(req.headers.cookie)[COOKIE];
-    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung);
+    const cookies = leseCookies(req.headers.cookie);
+    const token = cookies[COOKIE];
+    // 15.5: Inhaber des Tokens (auch einer abgelaufenen/ungebundenen Sitzung) – nur für das Abmelden (Push-Abo des Geräts)
+    req.tokenBenutzerId = req.path.toLowerCase() === '/auth/logout' && token && /^[0-9a-f]{64}$/.test(token) ? (bt.db.eins('SELECT benutzer_id FROM sitzung WHERE token_hash = ?', sha256(token)) || {}).benutzer_id ?? null : null;
+    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung, cookies[BINDUNG]);
     req.token = token;
     req.ctx = benutzer ? kontext(bt.db, benutzer) : null;
+    // 15.5 (F-030): nachgesendete Einträge nennen ihren Ersteller – nie unter der Sitzung einer anderen Person annehmen
+    const ersteller = req.headers[ERSTELLER_KOPF];
+    if (ersteller !== undefined && req.ctx && String(ersteller).trim() !== String(req.ctx.benutzer.id)) {
+      return next(new ApiFehler(409, 'ERSTELLER_ANDERS', 'Dieser Eintrag wurde von einer anderen Person an diesem Gerät erfasst. Er wird nur gesendet, wenn diese Person angemeldet ist.'));
+    }
     next();
   };
 }
@@ -350,8 +391,8 @@ class LoginBremse {
 }
 
 module.exports = {
-  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
-  sitzungsKonfig, inaktivMinuten, pinFehler,
+  COOKIE, BINDUNG, ERSTELLER_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse
 };
