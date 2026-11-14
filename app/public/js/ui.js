@@ -117,7 +117,8 @@ export const kalkChip = (s) => { const [t, c] = KALK_STATUS[s] || [s || '–', '
 /* ---------- Zustände ---------- */
 export const laden = (text = 'Wird geladen …') => `<div class="state" role="status"><span class="spinner" aria-hidden="true"></span><p>${esc(text)}</p></div>`;
 export const leer = (text, icon = 'info', extra = '') => `<div class="state empty">${ic(icon)}<p>${esc(text)}</p>${extra}</div>`;
-export const keinZugriff = (text) => `<div class="page narrow"><div class="card state big" data-zustand="kein-zugriff">${ic('lock')}<h2>Kein Zugriff</h2><p>${esc(text || 'Für diesen Bereich fehlt Ihnen die Berechtigung. Wenden Sie sich bei Bedarf an die Geschäftsführung.')}</p><a class="btn ghost" href="#/">Zur Startseite</a></div></div>`;
+// Gesperrte oder nicht vorhandene Seite: bewusst neutral – nennt weder den Bereich noch den Grund
+export const keinZugriff = () => `<div class="page narrow"><div class="card state big" data-zustand="kein-zugriff">${ic('info')}<h2>Seite nicht verfügbar</h2><p>Diese Seite steht Ihnen nicht zur Verfügung.</p><a class="btn ghost" href="#/">Zur Startseite</a></div></div>`;
 export const fehlerBox = (err, mitNeu = true) => {
   const netz = err && err.netz;
   return `<div class="page narrow"><div class="card state big" data-zustand="fehler">${ic(netz ? 'wifiOff' : 'alert')}<h2>${netz ? 'Keine Verbindung' : 'Das hat nicht geklappt'}</h2><p>${esc(netz ? 'Der Server ist gerade nicht erreichbar. Stempeln funktioniert weiterhin – die Buchung wird nachgesendet.' : (err && err.message) || 'Unbekannter Fehler.')}</p>${mitNeu ? '<button class="btn ghost" data-neu-laden>Erneut versuchen</button>' : ''}</div></div>`;

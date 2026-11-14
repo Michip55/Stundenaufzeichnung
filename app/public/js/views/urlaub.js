@@ -19,6 +19,8 @@ export default async function urlaub(el, ctx) {
   const verwaltet = ctx.kann('stammdaten') || ctx.kann('lohn');
   const darfBu = ctx.kann('stammdaten');
   const leitet = verwaltet; // Büro, Bauleiter, GF sehen alle; Polier und Mitarbeiter nur die eigenen Einträge (Entscheidung des Inhabers)
+  // Leerer Tag im Kalender: eintragen darf das Büro für alle; man selbst beantragt nur ab heute (Vergangenes trägt das Büro nach)
+  const darfFrei = (pid, datum) => ctx.kann('stammdaten') || (Number(pid) === Number(ich.id) && datum >= heute);
   const handy = window.matchMedia('(max-width: 719px)').matches;
   let tab = ['monat', 'jahr', 'konten'].includes(ctx.query.get('ansicht')) ? ctx.query.get('ansicht') : 'monat';
   let monat = /^\d{4}-\d{2}$/.test(ctx.query.get('monat') || '') ? ctx.query.get('monat') : heute.slice(0, 7);
@@ -65,7 +67,7 @@ export default async function urlaub(el, ctx) {
       ${leitet && (kal.warnungen || []).length ? `<section class="card pad" id="ur-warnungen" aria-label="Warnungen"><ul class="warn-list">${kal.warnungen.map((w) => `<li data-warnung="${esc(w.typ)}">${ic('alert')}<span>${w.datum ? `<b>${esc(fmt.datumKurz(w.datum))}</b> ` : ''}${esc(w.text)}${w.typ === 'plan_konflikt' ? ` <a class="link sm" href="#/plan?datum=${w.datum}&ansicht=woche">im Planer ansehen</a>` : ''}</span></li>`).join('')}</ul></section>` : ''}
       <div class="ur-wrap">
         <section class="card ur-karte" aria-label="Team-Kalender ${MON[m - 1]} ${y}"><div class="wp-scroll"><table class="ur-tbl" id="ur-kalender"><thead><tr><th class="ur-name">Mitarbeiter</th>${kal.tage.map((t) => { const d = fmt.dt(t.datum); return `<th class="${t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''}${t.datum === heute ? ' heute' : ''}" title="${t.feiertag ? esc(t.feiertag === true ? 'Feiertag' : t.feiertag) : ''}"><small>${fmt.WTK[d.getDay()]}</small>${d.getDate()}</th>`; }).join('')}</tr></thead>
-          <tbody>${gruppen(kal.personen).map(([bs, leute]) => `<tr class="ur-gruppe"><th colspan="${kal.tage.length + 1}">${esc(bsName(bs))} · ${leute.length}</th></tr>${leute.map((p) => `<tr data-person="${p.benutzerId}"><th class="ur-name" scope="row">${esc(p.name)}<small>${esc(rolleText(p.rolle))}</small></th>${kal.tage.map((t) => { const e = (p.tage || {})[t.datum]; const frei = t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''; return `<td class="${frei}"><button type="button" class="ur-z ${frei} ${zelleKl(e)}" data-zelle data-datum="${t.datum}" data-person="${p.benutzerId}" ${e ? `data-code="${esc(e.code)}" data-status="${esc(e.status)}" data-id="${e.id}" data-antrag-id="${esc(e.antragId ?? 'e' + e.id)}"` : ''} aria-label="${esc(p.name)}, ${esc(fmt.datumKurz(t.datum))}: ${e ? `${esc(CODES[e.code] || e.code)} ${esc(e.status)}` : t.feiertag ? 'Feiertag' : 'frei'}">${e ? esc(e.code === 'abwesend' ? '–' : e.code) : t.feiertag ? 'F' : ''}</button></td>`; }).join('')}</tr>`).join('')}`).join('') || `<tr><td colspan="${kal.tage.length + 1}">${leer('Niemand in diesem Bereich.', 'users')}</td></tr>`}</tbody></table></div>${legende()}</section>
+          <tbody>${gruppen(kal.personen).map(([bs, leute]) => `<tr class="ur-gruppe"><th colspan="${kal.tage.length + 1}">${esc(bsName(bs))} · ${leute.length}</th></tr>${leute.map((p) => `<tr data-person="${p.benutzerId}"><th class="ur-name" scope="row">${esc(p.name)}<small>${esc(rolleText(p.rolle))}</small></th>${kal.tage.map((t) => { const e = (p.tage || {})[t.datum]; const frei = t.feiertag ? 'feiertag' : !t.arbeitstag ? 'we' : ''; return `<td class="${frei}"><button type="button" class="ur-z ${frei} ${zelleKl(e)}" data-zelle data-datum="${t.datum}" data-person="${p.benutzerId}" ${!e && !darfFrei(p.benutzerId, t.datum) ? 'disabled' : ''} ${e ? `data-code="${esc(e.code)}" data-status="${esc(e.status)}" data-id="${e.id}" data-antrag-id="${esc(e.antragId ?? 'e' + e.id)}"` : ''} aria-label="${esc(p.name)}, ${esc(fmt.datumKurz(t.datum))}: ${e ? `${esc(CODES[e.code] || e.code)} ${esc(e.status)}` : t.feiertag ? 'Feiertag' : 'frei'}">${e ? esc(e.code === 'abwesend' ? '–' : e.code) : t.feiertag ? 'F' : ''}</button></td>`; }).join('')}</tr>`).join('')}`).join('') || `<tr><td colspan="${kal.tage.length + 1}">${leer('Niemand in diesem Bereich.', 'users')}</td></tr>`}</tbody></table></div>${legende()}</section>
         ${leitet ? `<aside class="card ur-seite" id="ur-antraege" aria-label="Offene Anträge"><h3>Offene Anträge <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3>${antraegeHtml(offen, rechte, 'Keine offenen Anträge.')}
           ${antraege.some((a) => a.status !== 'beantragt') ? `<details class="an-erledigt" id="ur-entschieden"><summary>Entschieden in diesem Monat (${antraege.filter((a) => a.status !== 'beantragt').length})</summary>${antraegeHtml(antraege.filter((a) => a.status !== 'beantragt'), rechte)}</details>` : ''}</aside>` : `<aside class="card ur-seite" id="ur-meine-box" aria-label="Meine Anträge"><h3>Meine Anträge <span class="count">${antraege.length}</span></h3><div id="ur-meine">${antraegeHtml(antraege, { ...rechte, mitName: false }, 'Kein Antrag.')}</div></aside>`}
       </div>`;
@@ -122,8 +124,7 @@ export default async function urlaub(el, ctx) {
       antraegeBinden(dlg.el, ctx, (id) => antraege.find((x) => String(x.antragId) === String(id)), () => { dlg.zu(); neu(); });
       return;
     }
-    const darfEintragen = selbst || ctx.kann('stammdaten');
-    if (!darfEintragen) return;
+    if (!darfFrei(pid, datum)) return;
     antragDialog(pid, p.name, datum);
   }
   function antragDialog(pid, name, datum) {

@@ -308,8 +308,9 @@ async function zeige() {
   markiereNav(route ? route.nav : '');
   view.scrollTop = 0;
   if (!route) { setzTitel('Nicht gefunden'); view.innerHTML = `<div class="page narrow"><div class="card state big">${ic('info')}<h2>Seite nicht gefunden</h2><p>Diese Adresse gibt es in BauTag nicht.</p><a class="btn ghost" href="#${start()}">Zur Startseite</a></div></div>`; return; }
+  // Gesperrte Adresse (direkt eingetippt): neutrale Seite – kein Titel der Seite, keine Anfrage an den Server
+  if (route.darf && !route.darf()) { markiereNav(''); setzTitel('Seite nicht verfügbar'); view.innerHTML = keinZugriff(); return; }
   setzTitel(route.titel);
-  if (route.darf && !route.darf()) { view.innerHTML = keinZugriff(); return; }
   // Jede Ansicht bekommt einen frischen Behälter (keine Ereignis-Altlasten der vorigen Ansicht)
   view.innerHTML = '';
   const box = document.createElement('div');
@@ -332,7 +333,7 @@ async function zeige() {
   } catch (e) {
     if (nr !== lauf) return;
     if (e.status === 401) return; // Abmelde-Ereignis übernimmt
-    if (e.status === 403) { view.innerHTML = keinZugriff(e.message && e.code !== 'KEIN_ZUGRIFF' ? e.message : ''); return; }
+    if (e.status === 403) { markiereNav(''); setzTitel('Seite nicht verfügbar'); view.innerHTML = keinZugriff(); return; }
     if (e.netz) setzOnline(false); else if (!e.status) console.error(e);
     view.innerHTML = fehlerBox(e);
     const b = $('[data-neu-laden]', view); if (b) b.addEventListener('click', zeige);

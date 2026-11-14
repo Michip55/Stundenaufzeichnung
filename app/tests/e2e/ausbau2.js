@@ -781,7 +781,9 @@ async function dokumenteUndRechnungen(h, z) {
   await dialogUeberlauf('zahlung');
   await page.click('#za-ok');
   await page.waitForSelector('#re-detail [data-r-status="teilbezahlt"]');
-  pruef((await page.locator('#re-detail [data-wert="offen"]').innerText()).includes('6.400,00') && await page.locator('#re-zahlungen li').count() === 1, 'A2-Re: Teilzahlung nicht verbucht');
+  // nach der Zahlung öffnet sich die Rechnung neu – kurz können der alte und der neue Dialog nebeneinander stehen
+  await page.waitForFunction(() => document.querySelectorAll('#re-detail').length === 1 && /6\.400,00/.test(document.querySelector('#re-detail [data-wert="offen"]').textContent), null, { timeout: 8000 }).catch(() => {});
+  pruef((await page.locator('#re-detail [data-wert="offen"]').last().innerText()).includes('6.400,00') && await page.locator('#re-zahlungen li').last().count() === 1, 'A2-Re: Teilzahlung nicht verbucht');
   await toastWeg();
   await page.click('#re-mahnung');
   await page.waitForSelector('dialog[open] [data-ok]'); await page.locator('dialog[open] [data-ok]').last().click();

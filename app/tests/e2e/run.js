@@ -1576,6 +1576,11 @@ async function laufe(browser, g) {
     const t = Date.now();
     let r;
     try { r = await laufe(browser, g); } catch (e) { r = { fehler: ['Start fehlgeschlagen: ' + e.message], schritte: 0 }; console.log('    ✗ ' + e.message); }
+    // „Keine Sackgassen“ je Rolle (tests/e2e/sackgassen.js): Menülisten, Rundgang über alle sichtbaren Links/Reiter/Knöpfe, gesperrte Adressen
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SACKGASSEN) {
+      console.log('    Rundgang „keine Sackgassen“ …');
+      try { const sg = await require('./sackgassen').laufe(browser, g); r.fehler.push(...sg.fehler); r.schritte += sg.schritte; } catch (e) { r.fehler.push('Abbruch Sackgassen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }
