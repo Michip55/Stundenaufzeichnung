@@ -69,18 +69,55 @@ function abwesenheitFuer(ctx, a) {
   return o;
 }
 
+/* ---------- Bautagesbericht (API.md 13.2 und 15.1, Korrekturen Rechte-Kontrolle 14.11.2026) ---------- */
+
 /**
- * Bericht-Personal für den Aufrufer (API-Form personal[]): ohne Sicht auf fremde Abwesenheiten (Polier/Mitarbeiter)
- * fallen Abwesende ohne Stunden ganz weg; bei Zeilen mit Stunden entfällt der Abwesenheits-Code (SW bleibt – Wetter).
+ * Darf ctx im Bautagesbericht Abwesenheiten ANDERER sehen (und K/U/ZA für andere eintragen)?
+ * Allein nach RECHTEN, nie nach dem Rollennamen: `stammdaten` oder `lohn`. Beide sind für Polier und Mitarbeiter
+ * gesperrt (rechte.js GESPERRT) – keine vergebbare Ausnahme (auch nicht bericht_freigeben/bericht_erstellen) öffnet das.
+ * Ohne Kontext (E-Mail an den Auftraggeber, Fernunterschrift) gilt: keine Sicht.
+ */
+function berichtSiehtAbwesenheiten(ctx) {
+  return Boolean(ctx && ctx.benutzer && typeof ctx.hat === 'function' && (ctx.hat('stammdaten') || ctx.hat('lohn')));
+}
+/** Eigene Zeile des Aufrufers? */
+const eigeneZeile = (ctx, benutzerId) => Boolean(ctx && ctx.benutzer && benutzerId != null && Number(benutzerId) === ctx.benutzer.id);
+/**
+ * Ist eine (gespeicherte) Bericht-Zeile für ctx unsichtbar? – fremde Person, Abwesenheits-Code, ohne Stunden und ohne Zeiten.
+ * Akzeptiert API-Form ({benutzerId, code, stunden, von1}) und DB-Form ({benutzer_id, …}).
+ */
+function berichtZeileVerborgen(ctx, p) {
+  const id = p.benutzerId !== undefined ? p.benutzerId : p.benutzer_id;
+  if (berichtSiehtAbwesenheiten(ctx) || eigeneZeile(ctx, id)) return false;
+  return ABWESENHEIT_CODES.includes(p.code) && !p.stunden && !p.von1;
+}
+/**
+ * Bericht-Personal für den Aufrufer (API-Form personal[]) – EINE Regel für JSON (Liste, Detail, Schreibantworten),
+ * PDF (intern und AG), E-Mail und Fernansicht: ohne Sicht auf fremde Abwesenheiten fallen fremde Abwesende ohne
+ * Stunden ganz weg; bei fremden Zeilen mit Stunden entfällt der Abwesenheits-Code (SW bleibt – Wetter).
  */
 function berichtPersonal(ctx, personal) {
   return personal.flatMap((p) => {
-    if (siehtAbwesenheit(ctx, p.benutzerId)) return [{ ...p, code: code(ctx, p.benutzerId, p.code) }];
+    if (berichtSiehtAbwesenheiten(ctx) || eigeneZeile(ctx, p.benutzerId)) return [{ ...p, code: code(ctx, p.benutzerId, p.code) }];
     if (!ABWESENHEIT_CODES.includes(p.code)) return [p];
-    if (!p.stunden && !p.von1) return [];
+    if (berichtZeileVerborgen(ctx, p)) return [];
     return [{ ...p, code: null }];
   });
 }
+/** Anzahl der Zeilen, die ctx im Bericht sieht (Liste GET /berichte: personalAnzahl = Länge von Detail-personal[]) */
+function berichtPersonalAnzahl(ctx, zeilen) {
+  return zeilen.filter((p) => !berichtZeileVerborgen(ctx, p)).length;
+}
+/** PDF-Fassung: wie berichtPersonal; mit Sicht nie „K“ (R-01: intern „abw.“) */
+function berichtPersonalPdf(ctx, personal) {
+  if (berichtSiehtAbwesenheiten(ctx)) return personal.map((p) => ({ ...p, code: p.code === 'K' ? NEUTRAL : p.code }));
+  return berichtPersonal(ctx, personal);
+}
+/** Codes, die ein Aufrufer ohne Sicht für ANDERE Personen setzen darf („–“ = kein Code, SW = Wetter, keine persönliche Abwesenheit) */
+const BERICHT_CODES_OHNE_RECHT = ['SW'];
+const LEER_CODES = [undefined, null, '', '–', '-'];
+/** Neutraler Fehlertext – hängt nur vom gesendeten Wert ab, nie davon, ob die Person abwesend ist */
+const BERICHT_CODE_NEUTRAL = 'Für andere Personen sind im Bericht nur „–“ oder „SW“ möglich – Abwesenheiten trägt das Büro ein.';
 
 /**
  * Aggregate über Abwesenheiten (Inhaber 13.11.2026): Polier/Mitarbeiter erhalten keine Zählungen, Warnungen oder
@@ -105,4 +142,6 @@ function ohneFremdeAggregate(ctx, wert, tiefe = 0) {
   return out;
 }
 
-module.exports = { aggregateErlaubt, ohneFremdeAggregate, fremdesAggregat, berichtPersonal, stufe, siehtAbwesenheit, KOLONNE_NEUTRAL, SW_GEMELDET, ABWESENHEIT_CODES, NEUTRAL, NEUTRAL_PDF, CODE_TEXT, darfDetails, code, notiz, text, bereits, abwesenheitFuer };
+module.exports = {
+  berichtSiehtAbwesenheiten, berichtZeileVerborgen, berichtPersonalAnzahl, berichtPersonalPdf, BERICHT_CODES_OHNE_RECHT, LEER_CODES, BERICHT_CODE_NEUTRAL,
+  aggregateErlaubt, ohneFremdeAggregate, fremdesAggregat, berichtPersonal, stufe, siehtAbwesenheit, KOLONNE_NEUTRAL, SW_GEMELDET, ABWESENHEIT_CODES, NEUTRAL, NEUTRAL_PDF, CODE_TEXT, darfDetails, code, notiz, text, bereits, abwesenheitFuer };

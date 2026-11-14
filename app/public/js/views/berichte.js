@@ -191,7 +191,8 @@ export async function bericht(el, ctx) {
   const versionAus = async (r) => { if (r && r.berichtVersion != null) b.version = r.berichtVersion; else await versionHolen(); };
   // Inhaber 13.11.2026: Büro/Lohn/GF und Bauleiter sehen und setzen alle Codes; Polier/Mitarbeiter sehen fremde Abwesenheiten
   // gar nicht – für andere bleibt ihnen nur „SW · Schlechtwetter“ (Wetter ist keine persönliche Abwesenheit)
-  const siehtAbw = ctx.kann('stammdaten') || ctx.kann('lohn') || ctx.ich.benutzer.rolle === 'bauleiter';
+  // API.md 15.1: allein nach Rechten (stammdaten/lohn) – wie der Server, nie nach dem Rollennamen
+  const siehtAbw = ctx.kann('stammdaten') || ctx.kann('lohn');
   const selbst = (p) => Number(p.benutzerId) === Number(ctx.ich.benutzer.id);
   const darfKrank = (p) => ctx.kann('stammdaten') || ctx.kann('lohn') || selbst(p);
   const codesFuer = (p) => [...CODES.filter(([k]) => p.code === k || (siehtAbw || selbst(p) ? k !== 'K' || darfKrank(p) : k === '' || k === 'SW')), ...(p.code === 'abwesend' ? [ABW] : [])];
@@ -510,6 +511,7 @@ export async function bericht(el, ctx) {
       <div class="banner err" id="unsaved" role="alert" hidden>${ic('alert')}<span></span></div>
       ${b.status !== 'entwurf' ? banner(b.status === 'freigegeben' ? 'ok' : 'info', b.status === 'freigegeben' ? 'Dieser Bericht ist freigegeben und abgeschlossen.' : 'Dieser Bericht ist unterschrieben und kann nicht mehr geändert werden.', b.status === 'freigegeben' ? 'check' : 'lock') : ''}
       <div id="anlage-hinweise" hidden></div>
+      ${(b.abwesenheitHinweise || []).length ? `<div id="abwesenheit-hinweise">${banner('warn', `<b>Abwesenheit prüfen:</b> ${b.abwesenheitHinweise.map((x) => esc(x.text)).join(' · ')}`)}</div>` : ''}
       <div class="kosten-zeile" id="kosten" hidden></div>
 
       <nav class="wiz-steps" aria-label="Schritte">
