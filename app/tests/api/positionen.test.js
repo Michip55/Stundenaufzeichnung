@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const ExcelJS = require('exceljs');
-const { starte, U, BS, euroFelder } = require('./hilfe');
+const { starte, U, BS, euroFelder, sofficeVorhanden } = require('./hilfe');
 const X = require('../../server/katalog-excel');
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
@@ -166,7 +166,8 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal(q.daten.zuordnungPruefen, false);
     const d2 = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
     assert.ok(finde(d2, 'Dumper').mengeAuto > dv.mengeAuto);
-    assert.ok(d2.hinweise.some((h) => /mehreren Positionen zugeordnet/.test(h.text)) || true);
+    // E-09: b9 ist sonst nur der ausgeblendeten Mobilbagger-Position zugeordnet → keine Doppelzählungs-Warnung
+    assert.ok(!d2.hinweise.some((h) => /mehreren Positionen zugeordnet/.test(h.text)), JSON.stringify(d2.hinweise));
   });
 
   await t.test('Eigene Position anlegen, löschen nur ohne Mengen (sonst 409 → ausblenden)', async () => {
@@ -177,8 +178,16 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal((await c.buero.post(`/baustellen/${BS.pitten}/positionen`, { gruppe: 'geraete', bezeichnung: 'X', einheit: 'Std.', ep: -1 })).status, 400);
     const leer = await c.buero.post(`/baustellen/${BS.pitten}/positionen`, { gruppe: 'abgaben', bezeichnung: 'Leer', einheit: 'PA', ep: 1 });
     assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${leer.daten.id}`)).status, 200);
+    // Eigene Position mit gebuchter Menge → 409, ohne Bedingung (N-088)
+    assert.equal(finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Gräder Cat 140').menge, 0);
+    const m = await c.buero.post(`/baustellen/${BS.pitten}/positionen/${r.daten.id}/mengen`, { datum: '2026-11-12', menge: 3.5 });
+    assert.equal(m.status, 201);
     const mitMenge = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
-    if (finde(mitMenge, 'Gräder Cat 140').menge > 0) assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${r.daten.id}`)).status, 409);
+    assert.ok(finde(mitMenge, 'Gräder Cat 140').menge > 0);
+    const d409 = await c.buero.del(`/baustellen/${BS.pitten}/positionen/${r.daten.id}`);
+    assert.equal(d409.status, 409);
+    assert.match(d409.daten.fehler, /ausblenden statt löschen/);
+    assert.ok(s.db.eins('SELECT id FROM projektposition WHERE id = ?', r.daten.id), 'Position darf nicht gelöscht sein');
     assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${pid(BS.pitten, 'Facharbeiter')}`)).status, 409);
     // Katalog bleibt unberührt
     assert.ok(!(await c.buero.get('/positionen/katalog')).daten.gruppen.flatMap((g) => g.positionen).some((p) => p.bezeichnung === 'Gräder Cat 140'));
@@ -315,7 +324,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.deepEqual(zurueck.positionen.map((p) => [p.bezeichnung, p.ep]), d.gruppen.flatMap((g) => g.positionen.filter((p) => p.aktiv).map((p) => [p.bezeichnung, p.ep])));
   });
 
-  await t.test('Excel-Export: Formeln rechnen in LibreOffice dieselben Summen', { skip: !fs.existsSync('/usr/bin/soffice') && 'LibreOffice nicht installiert' }, async () => {
+  await t.test('Excel-Export: Formeln rechnen in LibreOffice dieselben Summen', { skip: !sofficeVorhanden() && 'LibreOffice nicht installiert' }, async () => {
     const r = await c.buero.get(`/baustellen/${BS.kogler}/positionen/export.xlsx`);
     const d = (await c.buero.get(`/baustellen/${BS.kogler}/positionen`)).daten;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-xlsx-'));

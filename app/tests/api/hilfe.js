@@ -100,4 +100,16 @@ function euroFelder(daten) {
   return findeEuroFelder(daten);
 }
 
-module.exports = { starte, U, BS, START, euroFelder };
+/**
+ * N-090: Ist LibreOffice (soffice) installiert? Nur dann dürfen LibreOffice-abhängige Tests übersprungen werden –
+ * eine fehlgeschlagene Konvertierung bei installiertem soffice ist ein Testfehler, kein Skip.
+ */
+function sofficeVorhanden() {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  return String(process.env.PATH || '').split(path.delimiter).filter(Boolean).some((d) => {
+    try { fs.accessSync(path.join(d, 'soffice'), fs.constants.X_OK); return true; } catch { return false; }
+  });
+}
+
+module.exports = { starte, U, BS, START, euroFelder, sofficeVorhanden };
