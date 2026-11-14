@@ -172,7 +172,7 @@ export const speicher = {
   // die gehören genau einem Benutzer, werden nie mit einer fremden Sitzung gesendet und verschwinden nach dem Senden.
   raeumeBenutzer() {
     const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer'];
-    const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+    const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
     }

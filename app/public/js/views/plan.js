@@ -7,6 +7,7 @@ import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, rolleText, spei
 import { wienHeute, wienLokal } from '../zahl.js';
 import { ziehbar } from '../ziehen.js';
 import { feiertage, naechsterArbeitstag, tagName } from '../arbeitstag.js';
+import { pubAnzahl, vortagNotizenText, vortagNotizenToast, pubToast, wochenLeerText, einsatzLeerText, partieReiter } from '../plan-regeln.js';
 import { zeitplanHtml, zeitplanLaden, zeitplanBinden } from './zeitplan.js';
 import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, fuhrenWartend, partieFuhrenHtml } from './fuhren.js';
 
@@ -125,7 +126,7 @@ export default async function plan(el, ctx) {
   function vorschauKopf(e, schreib) {
     return `<span class="wp-wie" data-wie-vortag="${esc(e.quelleDatum || '')}">wie ${e.quelleDatum ? esc(fmt.WTK[fmt.dt(e.quelleDatum).getDay()]) : 'Vortag'} · noch nicht gespeichert</span>
       ${(e.uebersprungen || []).map((u) => `<span class="wp-chip konflikt" data-uebersprungen="${esc(u.typ)}">${ic('alert', 'xs')}<span>${esc(u.text)}${['abwesenheit', 'inaktiv', 'anlage_gesperrt'].includes(u.typ) ? ' – Ersatz einteilen' : ''}</span></span>`).join('')}
-      ${schreib && hatVortagNotizen(e) ? `<button type="button" class="wp-mini notizen" data-vortag-notizen="${esc(e.id)}">${ic('copy', 'xs')}Notizen von gestern übernehmen</button>` : ''}`;
+      ${schreib && hatVortagNotizen(e) ? `<button type="button" class="wp-mini notizen" data-vortag-notizen="${esc(e.id)}">${ic('copy', 'xs')}${esc(vortagNotizenText(e.quelleDatum, heute))}</button>` : ''}`;
   }
   function zelle(t, b) {
     const e = einsatz(t.datum, b.id), schreib = darfBs(b.id);
@@ -267,7 +268,7 @@ export default async function plan(el, ctx) {
       fuss: '<button class="btn ghost" type="button" data-zu id="pub-abbrechen">Abbrechen</button><button class="btn primary" type="button" id="pub-ok">Jetzt veröffentlichen</button>' });
     $('#pub-ok', dlg.el).addEventListener('click', async (ev) => {
       ev.target.disabled = true;
-      try { const r = await post('/plan/veroeffentlichen', { von, bis }); dlg.zu(); toast(`Veröffentlicht – ${r.benachrichtigt ?? 0} Person${r.benachrichtigt === 1 ? '' : 'en'} benachrichtigt.`); ctx.meldungenNeu(); } catch (x) { ev.target.disabled = false; toast(x.message, 'warn'); }
+      try { const r = await post('/plan/veroeffentlichen', { von, bis }); dlg.zu(); toast(pubToast(r)); /* N-094 */ ctx.meldungenNeu(); } catch (x) { ev.target.disabled = false; toast(x.message, 'warn'); }
       neu();
     });
   }
@@ -326,7 +327,7 @@ export default async function plan(el, ctx) {
       if (v.notiz || v.benoetigt) await put(`/plan/einsaetze/${e.id}`, { version: e.version, ...(v.notiz ? { notiz: v.notiz } : {}), ...(v.benoetigt ? { benoetigt: v.benoetigt } : {}) });
       for (const [pid, text] of Object.entries(v.personen || {})) if ((e.personen || []).some((p) => String(p.benutzerId) === String(pid))) await put(`/plan/einsaetze/${e.id}/personen/${pid}`, { notiz: text });
       for (const [aid, text] of Object.entries(v.anlagen || {})) if ((e.anlagen || []).some((a) => String(a.anlageId) === String(aid))) await put(`/plan/einsaetze/${e.id}/anlagen/${aid}`, { notiz: text });
-      toast('Notizen von gestern übernommen.');
+      toast(vortagNotizenToast(vor.quelleDatum, heute)); // N-098
     } catch (x) { toast(x.message, 'warn'); }
     neu();
   }
@@ -342,7 +343,7 @@ export default async function plan(el, ctx) {
   }
 
   function zeichne() {
-    const n = d.unveroeffentlicht || 0;
+    const n = pubAnzahl(d, darfBs); // N-049: Vorschau-Tage sind auch noch nicht veröffentlicht
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
         ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
@@ -541,6 +542,8 @@ export default async function plan(el, ctx) {
 const route = (adr) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(adr)}`;
 export async function einsatz(el, ctx) {
   const heute = wienHeute();
+  const frei = await feiertage(heute).catch(() => new Set()); // N-097
+  const naechster = naechsterArbeitstag(heute, frei);
   const uid = ctx.ich.benutzer.id;
   // Ohne Netz (Fahrer unterwegs): letzter Stand aus dem Gerät – enthält keine Preise
   let d, offlineStand = '';
@@ -570,11 +573,11 @@ export async function einsatz(el, ctx) {
   }
   const zeichne = () => { el.innerHTML = `<div class="page narrow me-page">
     ${offlineStand ? banner('warn', `Keine Verbindung – Stand von ${esc(fmt.uhr(offlineStand))} Uhr.`) : ''}
-    ${haupt ? karte(haupt) : `<section class="card pad" id="einsatz-leer">${leer('Für heute und morgen ist noch kein Einsatz veröffentlicht.', 'calendar')}</section>`}
+    ${haupt ? karte(haupt) : `<section class="card pad" id="einsatz-leer">${leer(einsatzLeerText(heute, naechster), 'calendar')}</section>`}
     ${haupt ? `<div class="me-hinweis">Am Morgen schlägt die Stempeluhr diese Baustelle automatisch vor.</div>` : ''}
     ${meineFuhrenHtml(tage, heute, uid)}
     <section class="card" aria-labelledby="h-mw"><h2 class="me-h" id="h-mw">Diese Woche</h2>
-      <ul class="plain me-woche" id="einsatz-woche">${tage.map((t) => { const e = t.einsatz; return `<li data-tag="${t.datum}" class="${e ? '' : 'leer'}"><span class="me-tag"><small>${esc(fmt.WTK[fmt.dt(t.datum).getDay()])}</small><b>${fmt.dt(t.datum).getDate()}</b></span><span class="grow"><b>${e ? esc((e.baustelle && e.baustelle.name) || 'Baustelle') : 'noch nicht eingeteilt'}</b><small>${e ? [t.datum === heute ? 'heute' : t.datum === fmt.addTage(heute, 1) ? 'morgen' : '', e.beginn, e.arbeit, t.geaendert ? 'neu eingeteilt' : '', e.wetterHinweis].filter(Boolean).map(esc).join(' · ') : ''}</small></span>${t.wieVortag ? '<span class="chip xs st-grey" data-wie-vortag>wie Vortag</span>' : ''}</li>`; }).join('') || '<li class="leer"><span class="grow muted">Noch nichts veröffentlicht.</span></li>'}</ul></section>
+      <ul class="plain me-woche" id="einsatz-woche">${tage.map((t) => { const e = t.einsatz; return `<li data-tag="${t.datum}" class="${e ? '' : 'leer'}"><span class="me-tag"><small>${esc(fmt.WTK[fmt.dt(t.datum).getDay()])}</small><b>${fmt.dt(t.datum).getDate()}</b></span><span class="grow"><b>${e ? esc((e.baustelle && e.baustelle.name) || 'Baustelle') : esc(wochenLeerText(t.datum, frei))}</b><small>${e ? [t.datum === heute ? 'heute' : t.datum === fmt.addTage(heute, 1) ? 'morgen' : '', e.beginn, e.arbeit, t.geaendert ? 'geändert' : '', e.wetterHinweis].filter(Boolean).map(esc).join(' · ') : ''}</small></span>${t.wieVortag ? '<span class="chip xs st-grey" data-wie-vortag>wie Vortag</span>' : ''}</li>`; }).join('') || '<li class="leer"><span class="grow muted">Noch nichts veröffentlicht.</span></li>'}</ul></section>
   </div>`; };
   zeichne();
   // gesendet → frisch vom Server; nur gemerkt (kein Netz) → Anzeige aus dem Gerät neu zeichnen
@@ -601,15 +604,18 @@ export async function einsatz(el, ctx) {
 export async function partie(el, ctx) {
   // G-05: Standard ist der nächste Arbeitstag (am Freitag der Montag, vor einem Feiertag der Tag danach)
   const heute = wienHeute(), morgen = naechsterArbeitstag(heute, await feiertage(heute));
-  let datum = ctx.query.get('datum') === heute ? heute : morgen;
-  let d = { einsaetze: [] };
+  // N-058: ohne Datum liefert der Server den nächsten Einsatztag (ein Sa/So/Feiertag mit veröffentlichtem Einsatz geht dem Arbeitstag vor)
+  let d = await get('/plan/partie');
+  const reiter = partieReiter(heute, d.datum, morgen);
+  let datum = d.datum;
+  const q = ctx.query.get('datum');
   async function lade() { d = await get(`/plan/partie?datum=${datum}`); }
-  await lade();
+  if (q && reiter.includes(q) && q !== datum) { datum = q; await lade(); }
   function zeichne() {
     const name = tagName(datum, heute); const wort = name === 'heute' || name === 'morgen' ? name : `am ${name}`;
     ctx.titel(`Meine Partie ${wort}`, `${fmt.WTK[fmt.dt(datum).getDay()]} ${tagKurz(datum).slice(3)}`);
     el.innerHTML = `<div class="page narrow me-page">
-      <div class="tabs" role="tablist" aria-label="Tag">${[[heute, 'Heute'], [morgen, tagName(morgen, heute) === 'morgen' ? 'Morgen' : tagName(morgen, heute)]].map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === datum}" class="${k === datum ? 'on' : ''}" data-partie-tag="${k}">${t}</button>`).join('')}</div>
+      <div class="tabs" role="tablist" aria-label="Tag">${reiter.map((k) => [k, k === heute ? 'Heute' : tagName(k, heute) === 'morgen' ? 'Morgen' : tagName(k, heute)]).map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === datum}" class="${k === datum ? 'on' : ''}" data-partie-tag="${k}">${t}</button>`).join('')}</div>
       ${d.einsaetze.length ? d.einsaetze.map((e) => `<div class="stack" data-partie-einsatz="${e.id}">
         <p class="me-kopf"><b>${esc((e.baustelle && (e.baustelle.name || e.baustelle.kurz)) || 'Baustelle')}</b>${e.beginn ? ` · ${esc(e.beginn)} Uhr` : ''}${e.treffpunkt ? ` · Treffpunkt ${esc(e.treffpunkt)}` : ''}${e.arbeit ? ` · ${esc(e.arbeit)}` : ''}</p>
         <section class="card" aria-label="Personal"><h2 class="me-h">Personal · ${(e.personen || []).length} <small class="muted" data-lesezahl>${(e.personen || []).filter((p) => p.gelesen || p.bestaetigt).length} gelesen · ${(e.personen || []).filter((p) => p.bestaetigt).length} bestätigt</small></h2><ul class="plain rows" data-partie-personen>${(e.personen || []).map((p) => `<li data-person="${p.benutzerId}"><span class="grow"><b>${esc(p.name)}</b><small>${esc(rolleText(p.rolle))}</small>${p.notiz ? `<span class="me-zeile-notiz" data-notiz>${esc(p.notiz)}</span>` : ''}</span>${p.telefon ? `<a class="icon-btn sm" href="tel:${esc(String(p.telefon).replace(/[^+\d]/g, ''))}" aria-label="${esc(p.name)} anrufen">${ic('sms')}</a>` : ''}<span class="me-status ${p.bestaetigt ? 'ok' : p.gelesen ? 'gelesen' : ''}" data-lesestand="${p.bestaetigt ? 'bestaetigt' : p.gelesen ? 'gelesen' : 'offen'}">${p.bestaetigt ? 'bestätigt' : p.gelesen ? 'gelesen' : 'noch nicht gelesen'}</span></li>`).join('') || '<li class="muted">Niemand eingeteilt.</li>'}</ul></section>
