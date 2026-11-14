@@ -79,7 +79,7 @@ test('F-059: Polier und Mitarbeiter erhalten keine Lohngruppe – auch die eigen
   assert.equal((await b.get('/auth/ich')).daten.benutzer.lohngruppe, 'pol');
 });
 
-test('F-055/F-057: Polier-Sicht der Partie ohne Rückschluss auf Abwesenheit und mit derselben Notizregel wie das PDF', async (t) => {
+test('F-055/F-057 (ersetzt durch 15.10 G2): Polier sieht genau den veröffentlichten Plan – ohne Rückschluss auf Abwesenheit – und dieselbe Notizregel wie im PDF', async (t) => {
   const s = await starte({ test: true, sitzung: LANG, pdfUnkomprimiert: true });
   t.after(() => s.stop());
   const buero = await s.login(U.buero);
@@ -93,18 +93,27 @@ test('F-055/F-057: Polier-Sicht der Partie ohne Rückschluss auf Abwesenheit und
   const partieMeldung = s.db.alle("SELECT * FROM benachrichtigung WHERE id > ? AND benutzer_id = ? AND titel LIKE 'Ihre Partie%'", vor, U.polier);
   assert.equal(partieMeldung.length, 1);
   assert.doesNotMatch(partieMeldung[0].text, /Person|Gerät|\d+ Pers/, `Partie-Meldung ohne Zählung: ${partieMeldung[0].text}`);
-  // Planer (stammdaten): echter Stand ohne Daniel
+  // Planer (stammdaten): echter Stand ohne Daniel, dazu die Warnungen „ausgelassen“ (mit Grund) und „Gerät ohne Fahrer“ (15.10)
   const echt = (await buero.get(`/plan/partie?datum=${MO}`)).daten.einsaetze.find((e) => e.baustelleId === BS.pitten);
   assert.deepEqual(echt.personen.map((p) => p.benutzerId).sort(), [2, 4]);
-  // Polier: Liste und Anzahl wie am Quelltag – unabhängig von der fremden Abwesenheit
-  const fr = (await pol.get(`/plan/partie?datum=${FR}`)).daten.einsaetze.find((e) => e.baustelleId === BS.pitten);
+  const kb = (await buero.get(`/plan/woche?von=${MO}`)).daten.konflikte.filter((k) => k.datum === MO);
+  assert.ok(kb.some((k) => k.typ === 'ausgelassen' && /Daniel Schwarz: Krank/.test(k.text)), JSON.stringify(kb));
+  assert.ok(kb.some((k) => k.typ === 'fahrer_fehlt' && k.anlageId === 4 && /ohne Fahrer/.test(k.text)), JSON.stringify(kb));
+  // Polier (15.10 statt F-055): GENAU der veröffentlichte Plan – Daniel ist nicht eingeteilt, also nicht in der Liste und nicht
+  // Fahrer; nach Name sortiert. Früher (F-055) blieb er sichtbar – das zeigte Leute, die nicht kommen.
   const mo = (await pol.get(`/plan/partie?datum=${MO}`)).daten.einsaetze.find((e) => e.baustelleId === BS.pitten);
-  assert.deepEqual(mo.personen.map((p) => p.benutzerId).sort(), fr.personen.map((p) => p.benutzerId).sort());
-  assert.equal(mo.anlagen.find((a) => a.anlageId === 4).fahrer.benutzerId, 3, 'Fahrer des Geräts wie am Quelltag');
-  assert.ok(!JSON.stringify(mo).match(/Krank|abwesend|uebersprungen/i));
+  assert.deepEqual(mo.personen.map((p) => p.name), ['Lukas Brandstätter', 'Roland Kerschbaumer']);
+  assert.equal(mo.anlagen.find((a) => a.anlageId === 4).fahrer, null, 'Gerät ohne Fahrer – wie nach Entfernen durch das Büro');
+  assert.ok(!JSON.stringify(mo).match(/Krank|abwesend|uebersprungen|ausgelassen|Daniel/i));
+  // Lesestand nur für Eingeteilte (G2-027/G2-031)
+  await (await s.login(2)).get(`/plan/ich?von=${FR}&bis=${MO}`);
+  await (await s.login(3)).get(`/plan/ich?von=${FR}&bis=${MO}`);
+  const mo2 = (await pol.get(`/plan/partie?datum=${MO}`)).daten.einsaetze.find((e) => e.baustelleId === BS.pitten);
+  assert.deepEqual(mo2.personen.map((p) => [p.benutzerId, p.gelesen]), [[2, true], [4, false]]);
   // Polier-PDF: dieselbe Liste
   const pdf = pdfText((await pol.get(`/plan/tag.pdf?datum=${MO}`)).daten);
-  for (const n of ['Lukas Brandstätter', 'Daniel Schwarz', 'Roland Kerschbaumer']) assert.ok(pdf.includes(n), `PDF ohne ${n}`);
+  for (const n of ['Lukas Brandstätter', 'Roland Kerschbaumer']) assert.ok(pdf.includes(n), `PDF ohne ${n}`);
+  assert.ok(!pdf.includes('Daniel Schwarz'), 'PDF zeigt nur Eingeteilte');
 
   // F-057: Polier 8 (Partie Kogler) als Gast in Pitten am Fr – Notizen fremder Baustelle/Partie weder im JSON noch im PDF
   const e = (await buero.get(`/plan/woche?von=${FR}`)).daten.einsaetze.find((x) => x.datum === FR && x.baustelleId === BS.pitten);
