@@ -1223,6 +1223,28 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
   SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
   FROM baustelle WHERE kst = '9100' AND intern = 1;
 `
+  },
+  {
+    version: 35,
+    name: '14.6: Name/Einheit von Material und Gerät je Berichtszeile festhalten (Stand beim Erfassen)',
+    sql: `
+-- N-009: Berichte zeigen Name/Einheit so, wie sie beim Erfassen der Zeile galten – spätere Stammdaten-Änderungen
+-- ändern unterschriebene/freigegebene Berichte, Fern-Links und das AG-PDF nicht mehr rückwirkend.
+ALTER TABLE bericht_material ADD COLUMN name TEXT;
+ALTER TABLE bericht_material ADD COLUMN einheit TEXT;
+ALTER TABLE bericht_geraet ADD COLUMN name TEXT;
+UPDATE bericht_material SET name = (SELECT m.name FROM material m WHERE m.id = bericht_material.material_id),
+  einheit = (SELECT m.einheit FROM material m WHERE m.id = bericht_material.material_id);
+UPDATE bericht_geraet SET name = (SELECT g.name FROM geraet g WHERE g.id = bericht_geraet.geraet_id);
+CREATE TRIGGER bericht_material_stand AFTER INSERT ON bericht_material WHEN NEW.name IS NULL BEGIN
+  UPDATE bericht_material SET name = (SELECT m.name FROM material m WHERE m.id = NEW.material_id),
+    einheit = (SELECT m.einheit FROM material m WHERE m.id = NEW.material_id)
+    WHERE rowid = NEW.rowid;
+END;
+CREATE TRIGGER bericht_geraet_stand AFTER INSERT ON bericht_geraet WHEN NEW.name IS NULL BEGIN
+  UPDATE bericht_geraet SET name = (SELECT g.name FROM geraet g WHERE g.id = NEW.geraet_id) WHERE rowid = NEW.rowid;
+END;
+`
   }
 ];
 
