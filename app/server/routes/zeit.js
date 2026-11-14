@@ -6,7 +6,7 @@ const { pruefeBuchung, schichten, plausibilisieren, ungueltigeUebergaenge, TYPEN
 const { azgWarnungen } = require('../azg');
 const { wienDatum, wienZeit, wienZuDate, plusTage, deDatum } = require('../datum');
 const { ladeBaustelle, aktuellerStatus, buchungenSeit, letzteBuchungen } = require('../daten');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const { woche } = require('../auswertung');
 const { brauche } = require('./hilfe');
 
@@ -117,7 +117,7 @@ function azgNachGehen(bt, benutzerId, jetzt) {
   const w = azgWarnungen(sch, { jetzt }).filter((x) => x.datum === letzte.datum && x.typ !== 'offen');
   if (!w.length) return;
   const b = db.eins('SELECT id, name FROM benutzer WHERE id = ?', benutzerId);
-  const buero = db.alle("SELECT id FROM benutzer WHERE rolle IN ('buero','gf') AND aktiv = 1");
+  const buero = empfaengerMitRecht(db, 'lohn', { ohne: benutzerId }); // 15.3: AZG anderer nur für die Lohnverrechnung (Recht lohn)
   for (const x of w) {
     const titel = `AZG-Hinweis: ${b.name}`;
     for (const e of [{ id: b.id }, ...buero]) {

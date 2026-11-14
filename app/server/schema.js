@@ -1223,6 +1223,43 @@ INSERT INTO protokoll (zeit, benutzer_id, art, objekt, alt, neu, text)
   SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL, 'stammdaten', 'baustelle:' || id, '{"kst":"9100"}', NULL, 'Interne Kostenstelle ' || name || ': KST 9100 nicht umbenannt – 90-100 ist schon vergeben'
   FROM baustelle WHERE kst = '9100' AND intern = 1;
 `
+  },
+  {
+    version: 39,
+    name: '15.3: Benachrichtigungen speichern die nötigen Rechte (erfordert) – Rückfüllung des Bestands',
+    // Gleiche Regeln wie erfordertFuer() in server/benachrichtigung.js (Paritätstest in tests/api/benachrichtigung-rechte.test.js).
+    // Eine erfordert-Liste: jedes Element muss erfüllt sein; "a|b" = eines der Rechte genügt; [] = nur für den Empfänger selbst.
+    sql: `
+ALTER TABLE benachrichtigung ADD COLUMN erfordert TEXT;
+UPDATE benachrichtigung SET erfordert = CASE
+  WHEN typ = 'budget' THEN '["kalk_sehen"]'
+  WHEN typ = 'rechnung' THEN '["preise_sehen"]'
+  WHEN typ = 'email' THEN '["stammdaten"]'
+  WHEN typ = 'urlaub' THEN '["lohn|stammdaten"]'
+  WHEN typ = 'azg' THEN CASE WHEN substr(COALESCE(schluessel, ''), 1, length('azg:' || benutzer_id || ':')) = 'azg:' || benutzer_id || ':' THEN '[]' ELSE '["lohn"]' END
+  WHEN typ = 'abwesenheit' THEN CASE
+    WHEN COALESCE(schluessel, '') GLOB 'abw:*:genehmigt:*' OR COALESCE(schluessel, '') GLOB 'abw:*:abgelehnt:*'
+      OR COALESCE(schluessel, '') GLOB 'abw:*:weg' OR COALESCE(schluessel, '') GLOB 'abw:*:weg:*'
+      OR ((COALESCE(schluessel, '') GLOB 'sw:*:bestaetigt' OR COALESCE(schluessel, '') GLOB 'sw:*:person') AND COALESCE(schluessel, '') NOT GLOB 'sw:*:*:*' AND COALESCE(schluessel, '') NOT GLOB 'sw::*')
+    THEN '[]' ELSE '["lohn|stammdaten"]' END
+  WHEN typ = 'baustelle' THEN CASE
+    WHEN COALESCE(schluessel, '') GLOB 'bv:sr:*' OR COALESCE(schluessel, '') GLOB 'bv:bg:*' OR COALESCE(schluessel, '') GLOB 'bv:hr:*' THEN '["preise_sehen"]'
+    ELSE '["stammdaten"]' END
+  WHEN typ = 'bericht' THEN '["bericht_freigeben"]'
+  WHEN typ = 'plan' THEN CASE
+    WHEN COALESCE(schluessel, '') GLOB 'plan:erinnerung:*' OR COALESCE(schluessel, '') GLOB 'plan:anfrage:*' OR COALESCE(schluessel, '') GLOB 'fuhre:pruefen:*' THEN '["stammdaten"]'
+    ELSE '[]' END
+  WHEN typ = 'sicherheit' THEN CASE
+    WHEN COALESCE(schluessel, '') GLOB 'konto:*' THEN '["benutzer|stammdaten"]'
+    WHEN COALESCE(schluessel, '') GLOB 'rolle:*' OR COALESCE(schluessel, '') GLOB 'sicherung:*' THEN '["benutzer"]'
+    ELSE '[]' END
+  WHEN typ = 'fuhrpark' THEN CASE
+    WHEN COALESCE(schluessel, '') GLOB 'fp:woche:*' OR COALESCE(schluessel, '') GLOB 'fp:unplausibel:*' OR COALESCE(schluessel, '') GLOB 'fp:gesperrt-genutzt:*' THEN '["fuhrpark"]'
+    ELSE '[]' END
+  ELSE '["stammdaten"]'
+END;
+-- Offene Push-Meldungen des Bestands prüft der Versand ohnehin gegen die aktuellen Rechte (15.3).
+`
   }
 ];
 

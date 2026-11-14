@@ -5,7 +5,7 @@ const { ungueltig, keinZugriff } = require('../fehler');
 const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag } = require('../datum');
 const { csv } = require('../export');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const DS = require('../datenschutz');
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -296,7 +296,7 @@ function offeneAntraege(db, bt) {
 }
 module.exports.pruefeAntraege = (bt) => {
   const { db } = bt;
-  const buero = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'buero'");
+  const buero = empfaengerMitRecht(db, 'stammdaten|lohn'); // 15.3: wer entscheidet (Bauleiter = Büro)
   const de = (d) => d.split('-').reverse().join('.');
   for (const a of offeneAntraege(db, bt)) {
     // einmal je Antrag (Bestand: Schlüssel wie bisher je Eintrag)

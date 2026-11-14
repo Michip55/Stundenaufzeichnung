@@ -4,7 +4,7 @@
  * Mit bt.test landen Mails in bt.testAusgang.mails.
  */
 const G = require('./geheim');
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
 /** Wirksame Konfiguration → {host, port, sicher, benutzer, passwort, absender, alarmAn, aktiv, quelle} | null */
 function konfig(bt) {
@@ -79,7 +79,7 @@ function berichtVersenden(bt, berichtId, an, benutzerId = null) {
       const fehler = String(e.message || e).slice(0, 300);
       db.lauf("UPDATE mail_ausgang SET status = 'fehler', fehler = ?, versuche = versuche + 1 WHERE id = ?", fehler, id);
       db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId, art: 'email', objekt: `bericht:${berichtId}`, neu: { an, fehler }, text: `E-Mail-Versand Bericht ${b.kst} ${b.datum} fehlgeschlagen` });
-      for (const e2 of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')")) {
+      for (const e2 of empfaengerMitRecht(db, 'stammdaten')) { // 15.3: Büro/Bauleiter/GF über das Recht
         benachrichtige(db, { benutzerId: e2.id, typ: 'email', titel: `E-Mail nicht zugestellt: ${b.kst}`, text: `Der Bautagesbericht vom ${b.datum.split('-').reverse().join('.')} konnte nicht an ${an} gesendet werden: ${fehler}`, zeit: bt.uhr().toISOString(), schluessel: `mail:${id}` });
       }
       alarm(bt, `BauTag: E-Mail nicht zugestellt (${b.kst})`, `${betreff}\nan: ${an}\nFehler: ${fehler}`);

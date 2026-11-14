@@ -10,28 +10,22 @@ const { kontext, darfKalk } = require('./rechte');
 
 const NIE_EMPFAENGER = ['polier', 'mitarbeiter'];
 
-function benachrichtige(db, { benutzerId, typ, titel, text, zeit, baustelleId = null, schluessel = null }) {
-  return db.lauf(`INSERT INTO benachrichtigung (benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel)
-    VALUES (?, ?, ?, ?, ?, 0, ?, ?) ON CONFLICT(benutzer_id, schluessel) DO NOTHING`,
-  benutzerId, typ, titel, text, zeit, baustelleId, schluessel).changes > 0;
-}
+// Benachrichtigungen: EINE Stelle (server/benachrichtigung.js, API.md 15.3) – hier weitergereicht für bestehende Aufrufer
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
-/** Empfänger eines Budget-Alarms für eine Baustelle */
+/**
+ * Empfänger eines Budget-Alarms für eine Baustelle – über Rechte (kalk_sehen), nie über Rollennamen allein (15.3):
+ * „Büro“ = alle mit kalk_sehen außer der GF (Bauleiter = Büro), „GF“ = Geschäftsführung mit kalk_sehen,
+ * „Bauleiter“ = der Bauleiter der Baustelle (bauleiterId) mit kalk_sehen.
+ */
 function budgetEmpfaenger(db, bs) {
   const emp = parseJson(bs.empfaenger, { bauleiter: true, buero: true, gf: true });
-  const kandidaten = [];
-  if (emp.bauleiter && bs.bauleiter_id) {
-    const b = db.eins('SELECT * FROM benutzer WHERE id = ? AND aktiv = 1', bs.bauleiter_id);
-    if (b) kandidaten.push(b);
-  }
-  if (emp.buero) kandidaten.push(...db.alle("SELECT * FROM benutzer WHERE rolle = 'buero' AND aktiv = 1"));
-  if (emp.gf) kandidaten.push(...db.alle("SELECT * FROM benutzer WHERE rolle = 'gf' AND aktiv = 1"));
-  const gesehen = new Set();
-  return kandidaten.filter((b) => {
-    if (gesehen.has(b.id) || NIE_EMPFAENGER.includes(b.rolle)) return false;
-    gesehen.add(b.id);
-    return darfKalk(kontext(db, b), bs);
-  });
+  return empfaengerMitRecht(db, 'kalk_sehen').filter((b) => {
+    if (NIE_EMPFAENGER.includes(b.rolle)) return false; // Sicherheitsnetz (kalk_sehen ist für sie ohnehin gesperrt)
+    if (emp.bauleiter && bs.bauleiter_id === b.id) return true;
+    if (b.rolle === 'gf') return Boolean(emp.gf);
+    return Boolean(emp.buero);
+  }).filter((b) => darfKalk(kontext(db, b), bs));
 }
 
 const pz = (x) => (x == null ? '–' : x.toLocaleString('de-AT', { maximumFractionDigits: 1 }));

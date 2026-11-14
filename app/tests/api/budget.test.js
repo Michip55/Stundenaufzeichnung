@@ -32,12 +32,13 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.deepEqual(st, { '26-041': 'ok', '26-038': 'warnung', '26-044': 'warnung', '26-029': 'warnung', '26-047': 'kritisch', '26-035': 'kritisch', '26-050': 'ok' });
   });
 
-  await t.test('Ausgangsstand: Alarme der Testdaten nur an Bauleiter (eigene)/Büro/GF', async () => {
+  await t.test('Ausgangsstand: Alarme der Testdaten an Bauleiter/Büro/GF (15.3: Bauleiter = Büro, alle Baustellen)', async () => {
     assert.equal((await budgetMeldungen(pol)).length, 0);
     assert.equal((await budgetMeldungen(ma)).length, 0);
     const blm = await budgetMeldungen(bl);
     assert.ok(blm.length >= 2);
-    assert.ok(blm.every((n) => [1, 2, 5, 7].includes(n.baustelleId)));
+    // Bauleiter erhält über das Recht kalk_sehen dieselben Alarme wie das Büro (vorher nur eigene Baustellen)
+    assert.deepEqual(blm.map((n) => n.titel).sort(), (await budgetMeldungen(buero)).map((n) => n.titel).sort());
     assert.ok(blm.some((n) => n.baustelleId === BS.ternitz && /kritisch/i.test(n.titel)));
     assert.ok((await budgetMeldungen(buero, BS.reisinger)).length === 1);
     assert.ok(!JSON.stringify(blm).includes('€'));

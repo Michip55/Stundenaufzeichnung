@@ -1,7 +1,7 @@
 'use strict';
 const v = require('../validierung');
 const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const auth = require('../auth');
 const { eigeneBaustellenIds } = require('../rechte');
 
@@ -17,7 +17,7 @@ function fehlversuch(bt, b, ip) {
   if (b && bt.bremse.kontoFehlversuch(b.id)) {
     const zeit = bt.uhr().toISOString();
     bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})` });
-    for (const e of bt.db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", b.id)) {
+    for (const e of empfaengerMitRecht(bt.db, 'stammdaten|benutzer', { ohne: b.id })) { // 15.3: wer entsperren kann
       benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} befristet gesperrt. Bitte prüfen und ggf. entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
     }
     bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer

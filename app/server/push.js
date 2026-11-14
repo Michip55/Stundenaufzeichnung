@@ -4,6 +4,7 @@
  * Push-Texte enthalten nie Beträge (Sperrbildschirm). Mit bt.test gehen Nachrichten in bt.testAusgang.push.
  */
 const G = require('./geheim');
+const B = require('./benachrichtigung');
 
 const TYPEN = ['budget', 'fuhrpark', 'schaden', 'abwesenheit', 'bericht', 'plan', 'azg', 'sicherheit', 'baustelle', 'rechnung', 'email', 'urlaub'];
 const NUR_VERWALTUNG = ['budget', 'rechnung', 'email'];
@@ -94,16 +95,42 @@ async function sende(bt, abo, daten) {
   }
 }
 
-/** An alle Abos eines Benutzers senden → {gesendet, fehler} */
-async function anBenutzer(bt, benutzerId, daten) {
+/**
+ * An alle Abos eines Benutzers senden → {gesendet, fehler} (+ abgebrochen:true, wenn vorSenden den Versand beendet hat)
+ * @param {{vorSenden?: () => boolean}} opt  vorSenden: vor JEDEM Abo erneut prüfen (z. B. Rechte); false → nichts mehr senden
+ */
+async function anBenutzer(bt, benutzerId, daten, { vorSenden = null } = {}) {
   const { db } = bt;
-  let gesendet = 0, fehler = 0;
+  let gesendet = 0, fehler = 0, abgebrochen = false;
   for (const a of db.alle('SELECT * FROM push_abo WHERE benutzer_id = ?', benutzerId)) {
+    if (vorSenden && !vorSenden()) { abgebrochen = true; break; }
     const r = await sende(bt, a, daten);
     if (r === 'ok') { gesendet++; db.lauf('UPDATE push_abo SET zuletzt = ?, fehler = NULL WHERE id = ?', bt.uhr().toISOString(), a.id); } else if (r === 'weg') db.lauf('DELETE FROM push_abo WHERE id = ?', a.id);
     else { fehler++; db.lauf('UPDATE push_abo SET fehler = ? WHERE id = ?', r, a.id); }
   }
-  return { gesendet, fehler };
+  return abgebrochen ? { gesendet, fehler, abgebrochen } : { gesendet, fehler };
+}
+
+/**
+ * Darf diese Benachrichtigung JETZT per Push an ihren Empfänger? (API.md 15.3)
+ * Zählt allein der Stand zum Versandzeitpunkt: aktives Konto, aktuelle Rechte (erfordert), Push-Typ für die Rolle
+ * und Einstellung. Wird vor jedem Versand und vor jedem Abo neu geprüft (auch bei einem erneuten Versuch).
+ */
+function pushErlaubt(db, nId) {
+  const n = db.eins('SELECT * FROM benachrichtigung WHERE id = ?', nId);
+  if (!n) return false;
+  const ctx = B.aktuellerKontext(db, n.benutzer_id);
+  if (!ctx || !ctx.benutzer.aktiv || !B.darfSehen(ctx, n)) return false;
+  const typ = pushTyp(n);
+  return typenFuerRolle(ctx.benutzer.rolle).includes(typ) && einstellungen(db, ctx.benutzer)[typ] !== false;
+}
+
+/** Eine wartende Benachrichtigung zustellen → Status für die Spalte push ('aus' = verworfen, nie nachgeholt) */
+async function zustellen(bt, n) {
+  if (!pushErlaubt(bt.db, n.id)) return 'aus';
+  const r = await anBenutzer(bt, n.benutzer_id, payload(bt, n), { vorSenden: () => pushErlaubt(bt.db, n.id) });
+  if (r.abgebrochen && !r.gesendet) return 'aus';
+  return r.gesendet ? 'gesendet' : r.fehler ? 'fehler' : 'kein_abo';
 }
 
 /** Neue Benachrichtigungen verteilen (push IS NULL) – läuft nie doppelt */
@@ -114,15 +141,9 @@ async function verteilen(bt) {
     do {
       bt.pushNochmal = false;
       const { db } = bt;
-      const neu = db.alle('SELECT n.*, b.rolle, b.aktiv FROM benachrichtigung n JOIN benutzer b ON b.id = n.benutzer_id WHERE n.push IS NULL ORDER BY n.id LIMIT 200');
+      const neu = db.alle('SELECT * FROM benachrichtigung WHERE push IS NULL ORDER BY id LIMIT 200');
       for (const n of neu) {
-        const typ = pushTyp(n);
-        const ein = einstellungen(db, { id: n.benutzer_id, rolle: n.rolle });
-        let status = 'aus';
-        if (n.aktiv && ein[typ] !== false && typenFuerRolle(n.rolle).includes(typ)) {
-          const r = await anBenutzer(bt, n.benutzer_id, payload(bt, n));
-          status = r.gesendet ? 'gesendet' : r.fehler ? 'fehler' : 'kein_abo';
-        }
+        const status = await zustellen(bt, n);
         db.lauf('UPDATE benachrichtigung SET push = ? WHERE id = ?', status, n.id);
       }
       if (neu.length === 200) bt.pushNochmal = true;
@@ -140,4 +161,4 @@ function anstossen(bt) {
   setImmediate(() => { verteilen(bt).catch(() => {}); });
 }
 
-module.exports = { endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, verteilen, anstossen };
+module.exports = { endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };

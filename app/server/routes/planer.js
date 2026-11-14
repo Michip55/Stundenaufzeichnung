@@ -6,7 +6,7 @@ const v = require('../validierung');
 const { ungueltig, keinZugriff, nichtGefunden, konflikt, ApiFehler } = require('../fehler');
 const { wienDatum, wienZeit, plusTage, istArbeitstag, feiertag, wochentag, istZeit } = require('../datum');
 const { baustelleImBereich } = require('../rechte');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const P = require('../planer');
 const F = require('../fuhren');
 const Bild = require('../fuhrpark-bild');
@@ -567,8 +567,7 @@ module.exports = function planerRouten(api, bt) {
     const bsId = e ? e.baustelle_id : ich.baustelle_id || null;
     const r = db.transaktion(() => {
       const x = db.lauf('INSERT INTO plan_anfrage (datum, einsatz_id, baustelle_id, text, von, zeit) VALUES (?, ?, ?, ?, ?, ?)', datum, e ? e.id : null, bsId, text, ich.id, jetzt());
-      const bs = bsId ? db.eins('SELECT * FROM baustelle WHERE id = ?', bsId) : null;
-      const empf = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND (rolle = 'buero' OR id = ?) AND id <> ?", (bs && bs.bauleiter_id) || -1, ich.id);
+      const empf = empfaengerMitRecht(db, 'stammdaten', { ohne: ich.id }); // 15.3: Büro und Bauleiter (= Büro) über das Recht
       for (const b of empf) benachrichtige(db, { benutzerId: b.id, typ: 'plan', titel: `Änderung angefragt: ${P.deKurz(datum)}`, text: `${ich.name}: ${text.slice(0, 200)}`, zeit: jetzt(), baustelleId: bsId, schluessel: `plan:anfrage:${x.id}` });
       return x;
     });

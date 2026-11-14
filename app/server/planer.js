@@ -5,7 +5,7 @@
  */
 const crypto = require('node:crypto');
 const { wienDatum, plusTage, istArbeitstag, feiertag, wochentag } = require('./datum');
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
 const PLANBAR = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -441,16 +441,9 @@ function pruefeErinnerung(bt) {
   const WT_LANG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
   const fuer = n === plusTage(heute, 1) ? 'morgen' : `${WT_LANG[wochentag(n)]} ${n.slice(8, 10)}.${n.slice(5, 7)}.`;
   const titel = `Einteilung für ${fuer} noch nicht veröffentlicht`;
-  for (const b of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')")) {
+  // 15.3: an alle Planer über das Recht stammdaten (Bauleiter = Büro, gleicher Text); nie nach Rollennamen
+  for (const b of empfaengerMitRecht(db, 'stammdaten')) {
     benachrichtige(db, { benutzerId: b.id, typ: 'plan', titel, text, zeit, schluessel: `plan:erinnerung:${heute}` });
-  }
-  const bsIds = new Set(offen.map((o) => o.baustelleId));
-  const bl = new Set([...bsIds].map((id) => (K.baustellen.get(id) || {}).bauleiter_id).filter(Boolean));
-  for (const id of bl) {
-    const b = K.personen.get(id);
-    if (!b || !b.aktiv || b.rolle !== 'bauleiter') continue;
-    const eigene = [...bsIds].filter((x) => (K.baustellen.get(x) || {}).bauleiter_id === id).length;
-    benachrichtige(db, { benutzerId: id, typ: 'plan', titel, text: `${eigene} Ihrer Baustellen für ${deKurz(n)} noch nicht veröffentlicht.${abw.length ? ` Abweichungen: ${abw.join('; ')}.` : ''}`, zeit, schluessel: `plan:erinnerung:${heute}` });
   }
 }
 

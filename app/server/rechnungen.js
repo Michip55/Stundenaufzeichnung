@@ -5,7 +5,7 @@
  */
 const { wienDatum, plusTage } = require('./datum');
 const { parseJson } = require('./daten');
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 const MAHN = { 1: 'Zahlungserinnerung', 2: '1. Mahnung', 3: '2. Mahnung' };
@@ -84,7 +84,7 @@ function pruefeRechnungen(bt) {
   const { db } = bt;
   const heute = wienDatum(bt.uhr());
   const zeit = bt.uhr().toISOString();
-  const empf = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')");
+  const empf = empfaengerMitRecht(db, 'preise_sehen'); // 15.3: Rechnungsnummern nur mit preise_sehen (Bauleiter = Büro)
   for (const r of db.alle('SELECT * FROM rechnung WHERE storniert IS NULL')) {
     const s = rechnungStand(db, r, heute);
     if (s.status === 'bezahlt' || r.typ === 'gutschrift') continue;
