@@ -133,7 +133,7 @@
     "GET /api/rechte": { "r": "N N N N J", "grund": "4/8: benutzer (GF)" },
     "PUT /api/rechte/matrix": { "r": "N N N N J", "body": { "rolle": "buero", "recht": "kolonne", "wert": false }, "grund": "4: benutzer" },
     "PUT /api/rechte/ausnahme": { "r": "N N N N J", "body": { "benutzerId": "{dummy}", "recht": "kolonne", "wert": true }, "grund": "4: benutzer" },
-    "GET /api/benutzer": { "r": "N N J J J", "grund": "8 C-14: Büro verwaltet MA/Polier/Bauleiter" },
+    "GET /api/benutzer": { "r": "N N J J J", "grund": "8 C-14/15.9: Büro verwaltet MA/Polier (Bauleiter/Büro/GF nur die GF, eigenes Konto niemand)" },
     "POST /api/benutzer": { "r": "N N J J J", "body": { "name": "Neu Probe", "rolle": "mitarbeiter", "pin": "482915" }, "grund": "8/9" },
     "PUT /api/benutzer/:id": { "r": "N N J J J", "pfad": "/api/benutzer/{dummy}", "body": { "name": "Dummy Umbenannt" }, "grund": "8/9" },
     "GET /api/benutzer/:id/lohngruppen-verlauf": { "r": "N N J J J", "pfad": "/api/benutzer/{person}/lohngruppen-verlauf", "grund": "12.22: stammdaten/lohn/benutzer" },

@@ -21,7 +21,7 @@ const MATRIX = [
   ['GET', '/monat/export.csv?monat=2026-11', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/monat/buak.csv?monat=2026-11', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/rechte', null, [NEIN, NEIN, NEIN, NEIN, OK]],
-  ['GET', '/benutzer', null, [NEIN, NEIN, OK, OK, OK]], // C-14: Büro verwaltet Mitarbeiter/Polier/Bauleiter
+  ['GET', '/benutzer', null, [NEIN, NEIN, OK, OK, OK]], // C-14/15.9: Büro verwaltet Mitarbeiter/Polier (Bauleiter/Büro/GF nur die GF)
   ['GET', '/zeit/anwesend', null, [NEIN, NEIN, OK, OK, OK]],
   ['GET', '/berichte', null, [NEIN, OK, OK, OK, OK]],
   ['GET', `/zeit/kolonne?baustelleId=${BS.pitten}`, null, [NEIN, OK, NEIN, NEIN, OK]],
@@ -38,7 +38,8 @@ const MATRIX = [
   ['PUT', '/rechte/ausnahme', { benutzerId: 2, recht: 'kolonne', wert: false }, [NEIN, NEIN, NEIN, NEIN, OK]],
   ['POST', '/benutzer', {}, [NEIN, NEIN, OK, OK, OK]],
   ['PUT', '/benutzer/2', {}, [NEIN, NEIN, OK, OK, OK]],
-  ['PUT', `/benutzer/${U.gf}`, { name: 'X' }, [NEIN, NEIN, NEIN, NEIN, OK]],
+  ['PUT', `/benutzer/${U.gf}`, { name: 'X' }, [NEIN, NEIN, NEIN, NEIN, NEIN]], // 15.9: das GF-Konto verwaltet nur eine ANDERE GF, das eigene niemand selbst
+  ['PUT', `/benutzer/${U.bauleiter}`, { name: 'Stefan Aigner' }, [NEIN, NEIN, NEIN, NEIN, OK]], // 15.9 (F-050): Bauleiter = Büro → nur die GF
   ['POST', '/zeit/kolonne', {}, [NEIN, OK, NEIN, NEIN, OK]],
   ['POST', '/berichte', {}, [NEIN, OK, OK, OK, OK]]
 ];

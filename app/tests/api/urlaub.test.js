@@ -46,7 +46,9 @@ test('Urlaub', async (t) => {
     const beantragt = s.db.alle("SELECT datum FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' AND status = 'beantragt' AND datum >= '2026-11-01' AND datum <= '2026-12-31'", U.mitarbeiter).filter((x) => ![0, 6].includes(new Date(x.datum + 'T12:00:00Z').getUTCDay())).length;
     assert.deepEqual([r.daten.anspruch, r.daten.genommen, r.daten.geplant, r.daten.beantragt, r.daten.rest], [20, 2, 1, beantragt, 17]);
     assert.match(r.daten.hinweis, /BUAK/);
-    r = await c.buero.put(`/urlaub/konto/${U.buero}/2026`, { art: 'urlg', anspruch: 25, uebertrag: 3 });
+    // 15.9 (Vier-Augen-Prinzip): das eigene Urlaubskonto pflegt eine andere Person – hier die GF das Konto des Büros
+    assert.equal((await c.buero.put(`/urlaub/konto/${U.buero}/2026`, { art: 'urlg', anspruch: 25, uebertrag: 3 })).status, 403);
+    r = await c.gf.put(`/urlaub/konto/${U.buero}/2026`, { art: 'urlg', anspruch: 25, uebertrag: 3 });
     assert.deepEqual([r.daten.art, r.daten.rest], ['urlg', 28]);
     const own = (await c.mitarbeiter.get('/urlaub/konto?jahr=2026')).daten;
     assert.deepEqual(own.map((k) => k.benutzerId), [U.mitarbeiter]);

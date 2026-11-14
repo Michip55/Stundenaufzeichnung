@@ -334,6 +334,23 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
+  await t.test('15.8: Gerätewahl- und Rechte-Angaben bei der Anmeldung ändern am Server nichts (Rolle, Rechte, Sperre, Sitzungsdauer)', async () => {
+    const v = [];
+    for (const r of H.ROLLEN) {
+      const normal = (await (await s.login(H.ID[r])).get('/auth/ich')).daten;
+      const kl = s.client();
+      const a = await kl.post('/auth/login', { benutzerId: H.ID[r], pin: '1234', geraet: 'eigen', geraetArt: 'eigen', eigenesGeraet: true, sperreMinuten: 0, sitzungMinuten: 99999, rolle: 'gf', rechte: ['preise_sehen', 'benutzer', 'lohn'] });
+      if (a.status !== 200) { v.push(`${r} Anmeldung mit Gerätewahl-Angaben → ${a.status}`); continue; }
+      v.push(...await H.scanne(r, a, { route: 'POST /api/auth/login', url: '/auth/login (mit Gerätewahl-Angaben)' }));
+      const ich = (await kl.get('/auth/ich')).daten;
+      v.push(...await H.scanne(r, { status: 200, daten: ich, headers: new Map() }, { route: 'GET /api/auth/ich', url: '/auth/ich nach Anmeldung mit Gerätewahl-Angaben' }));
+      if (ich.benutzer.rolle !== normal.benutzer.rolle) v.push(`${r}: Rolle nach Anmeldung mit Angaben ${ich.benutzer.rolle}`);
+      if (JSON.stringify([...ich.rechte].sort()) !== JSON.stringify([...normal.rechte].sort())) v.push(`${r}: Rechte nach Anmeldung mit Angaben ${ich.rechte.join(',')} ≠ ${normal.rechte.join(',')}`);
+      for (const f of ['sperreMinuten', 'sitzungMinuten']) if (ich[f] !== normal[f]) v.push(`${r}: ${f} ${ich[f]} ≠ ${normal[f]} (Server vertraut der Gerätewahl)`);
+    }
+    assert.deepEqual(v, [], `\n${v.join('\n')}`);
+  });
+
   await t.test('PIN raten: Sperre je Benutzer/IP, X-Forwarded-For ohne TRUST_PROXY wirkungslos, Kontosperre über alle IPs', async () => {
     const v = [];
     const a = s.client();

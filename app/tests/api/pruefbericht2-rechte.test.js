@@ -116,7 +116,7 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal((await gf2.put('/benutzer/3', { pnr: 1002, __id: 2 })).status, 409);
   });
 
-  await t.test('C-14: Büro legt Mitarbeiter/Polier/Bauleiter an, setzt PINs zurück – nicht Büro/GF', async () => {
+  await t.test('C-14: Büro legt Mitarbeiter/Polier an, setzt PINs zurück – nicht Bauleiter/Büro/GF (15.9)', async () => {
     const m = await buero2.post('/benutzer', { name: 'Büro Neu MA', rolle: 'mitarbeiter', pin: '4829', baustelleId: BS.kogler });
     assert.equal(m.status, 201);
     assert.equal((await buero2.post('/benutzer', { name: 'X', rolle: 'bauleiter', pin: '482915' })).status, 403); // D-02: Bauleiter nur GF
@@ -126,7 +126,10 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal((await buero2.put(`/benutzer/${m.daten.id}`, { rolle: 'polier' })).status, 200);
     assert.equal((await buero2.put(`/benutzer/${m.daten.id}`, { rolle: 'buero' })).status, 403);
     assert.equal((await buero2.put(`/benutzer/${U.gf}`, { pin: '582915' })).status, 403);
-    assert.equal((await buero2.put('/benutzer/103', { name: 'Stefan Aigner' })).status, 200);
+    // 15.9 (F-050): Bauleiter = Büro – das Konto eines Bauleiters verwaltet nur die GF (auch Name und Telefon)
+    assert.equal((await buero2.put('/benutzer/103', { name: 'Stefan Aigner' })).status, 403);
+    assert.equal((await buero2.put('/benutzer/103', { telefon: '+43 660 1111111' })).status, 403);
+    assert.equal((await buero2.put(`/benutzer/${m.daten.id}`, { name: 'Büro Neu MA2' })).status, 200);
     assert.equal((await buero2.get('/benutzer')).status, 200);
     assert.equal((await buero2.get('/rechte')).status, 403);
     assert.equal((await buero2.post(`/benutzer/${U.gf}/entsperren`)).status, 403); // 15.5 (F-051): GF-Konten nur über entsperren.js

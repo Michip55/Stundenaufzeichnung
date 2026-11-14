@@ -140,6 +140,9 @@ module.exports = function urlaubRouten(api, bt) {
     if (!verwaltung(req.ctx)) throw keinZugriff('Urlaubskonten pflegen Büro bzw. Lohnverrechnung.');
     const b = db.eins('SELECT id, name, rolle, pnr FROM benutzer WHERE id = ?', v.pfadId(req.params.benutzerId));
     if (!b) throw ungueltig('Benutzer nicht gefunden.');
+    // 15.9 (Vier-Augen-Prinzip): das eigene Urlaubskonto pflegt eine andere Person – für jede Rolle, auch die GF
+    // (ihr Konto pflegt eine andere GF oder das Büro)
+    if (b.id === req.ctx.benutzer.id) throw keinZugriff('Das eigene Urlaubskonto pflegt eine andere Person (Vier-Augen-Prinzip).');
     const jahr = v.zahl(Number(req.params.jahr), 'jahr', { min: 2000, max: 2100, ganz: true });
     const body = v.objekt(req.body);
     const alt = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr) || {};

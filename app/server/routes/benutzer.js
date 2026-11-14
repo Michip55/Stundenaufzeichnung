@@ -53,6 +53,23 @@ function pruefeKontoZuruecksetzen(db, ctx, ziel, { neueRolle = null } = {}) {
   }
 }
 
+/**
+ * 15.9 (F-050, Selbstverwaltung): Darf ctx das Konto `ziel` über die Verwaltung ändern (Name, Telefon, Rolle, Aktiv, PIN,
+ * Lohngruppe, Rechte/Ausnahmen …)? Nie das eigene Konto (eigene PIN nur über /auth/pin mit alter PIN, eigenes Telefon über
+ * /auth/telefon) – auch nicht die GF. Mit Recht `benutzer` (GF) alle anderen Konten; sonst (Büro/Bauleiter über
+ * `stammdaten`) nur Konten mit NIEDRIGERER Verwaltungsstufe – auch nach einem gleichzeitigen Rollenwechsel.
+ */
+function pruefeKontoVerwalten(db, ctx, ziel, { neueRolle = null } = {}) {
+  if (ziel.id === ctx.benutzer.id) throw keinZugriff('Das eigene Konto verwaltet eine andere Person – die eigene PIN ändern Sie unter „PIN ändern“ (mit der alten PIN), die eigene Telefonnummer unter „Mehr“.');
+  if (ctx.hat('benutzer')) return;
+  const zielStufe = Math.max(verwaltungsStufe(ziel.rolle, R.ladeRechteFuer(db, ziel)), neueRolle ? verwaltungsStufe(neueRolle, new Set()) : 1);
+  if (verwaltungsStufe(ctx.benutzer.rolle, ctx.rechte) <= zielStufe) throw keinZugriff('Konten mit gleicher oder höherer Verwaltungsstufe (Büro, Bauleiter, Geschäftsführung) verwaltet nur die Geschäftsführung.');
+}
+/** wie pruefeKontoVerwalten, als Wahrheitswert (Oberfläche: „Bearbeiten“ nur, wenn erlaubt) */
+function kontoVerwaltbar(db, ctx, ziel) {
+  try { pruefeKontoVerwalten(db, ctx, ziel); return true; } catch (_) { return false; }
+}
+
 function benutzerVoll(b) {
   return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null };
 }
@@ -104,6 +121,7 @@ module.exports = function benutzerRouten(api, bt) {
     const wert = v.bool(body.wert, 'wert');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', benutzerId);
     if (!b) throw ungueltig('Benutzer nicht gefunden.');
+    if (b.id === req.ctx.benutzer.id) throw keinZugriff('Die eigenen Rechte ändert eine andere Person mit Benutzerrecht.'); // 15.9 (auch GF)
     if (wert && R.istGesperrt(b.rolle, recht)) throw ungueltig(`Das Recht „${recht}“ ist für die Rolle ${R.ROLLEN_NAMEN[b.rolle]} gesperrt – auch nicht als Ausnahme vergebbar.`);
     const vorher = Boolean(db.eins('SELECT 1 AS x FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', benutzerId, recht));
     db.transaktion(() => {
@@ -172,7 +190,7 @@ module.exports = function benutzerRouten(api, bt) {
       // 15.5 (F-050/F-051): darf der Aufrufer PIN, 2FA und Sperren dieses Kontos zurücksetzen? (Oberfläche blendet sonst aus)
       let zuruecksetzbar = true;
       try { pruefeKontoZuruecksetzen(db, req.ctx, b); } catch (_) { zuruecksetzbar = false; }
-      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
+      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), bearbeitbar: kontoVerwaltbar(db, req.ctx, b), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
     }));
   });
 
@@ -200,7 +218,8 @@ module.exports = function benutzerRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const alt = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Benutzer nicht gefunden.');
-    if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
+    if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, alt); // 15.9: nie das eigene Konto, Büro/Bauleiter nur niedrigere Stufe (vor jeder Body-Prüfung)
     const body = v.objekt(req.body);
     const { f, pin } = pruefeFelder(body, true, alt.rolle, id);
     // 12.22: Lohngruppe als Verlaufseintrag (stichtaggenau), nicht direkt überschreiben
@@ -211,7 +230,8 @@ module.exports = function benutzerRouten(api, bt) {
       lgNeu = { id: f.lohngruppe_id, gueltigAb: L.pruefeGueltigAb(body.lohngruppeGueltigAb, body.lohngruppeRueckwirkend, heute), explizit: body.lohngruppeGueltigAb != null && body.lohngruppeGueltigAb !== '' };
       delete f.lohngruppe_id;
     }
-    if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Büro und Geschäftsführung vergibt nur die GF.');
+    if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Bauleiter, Büro und Geschäftsführung vergibt nur die GF.');
+    if (f.rolle) pruefeKontoVerwalten(db, req.ctx, alt, { neueRolle: f.rolle });
     const rollenwechsel = Boolean(f.rolle && f.rolle !== alt.rolle);
     if (rollenwechsel && !req.ctx.hat('benutzer') && !(BUERO_ROLLENWECHSEL.includes(alt.rolle) && BUERO_ROLLENWECHSEL.includes(f.rolle))) {
       throw keinZugriff('Zum oder vom Bauleiter macht nur die Geschäftsführung (Büro: Mitarbeiter ↔ Polier).');
@@ -307,7 +327,8 @@ module.exports = function benutzerRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
-    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, b); // 15.9: nie die eigene Lohngruppe
     const e = db.eins('SELECT * FROM benutzer_lohngruppe WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.vid, 'Eintrag-ID'), id);
     if (!e) throw nichtGefunden('Eintrag nicht gefunden.');
     const heute = wienDatum(bt.uhr());
@@ -343,3 +364,4 @@ module.exports = function benutzerRouten(api, bt) {
 module.exports.telefonPruefen = telefonPruefen;
 module.exports.verwaltungsStufe = verwaltungsStufe;
 module.exports.pruefeKontoZuruecksetzen = pruefeKontoZuruecksetzen;
+module.exports.pruefeKontoVerwalten = pruefeKontoVerwalten;

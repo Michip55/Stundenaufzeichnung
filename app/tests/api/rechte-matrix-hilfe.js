@@ -84,7 +84,7 @@ const TEXT = {
   rechnungNrBs1: 'R-KANARIE-BS1', rechnungNrBs3: 'R-KANARIE-BS3',
   nachtragBs3: 'NACHTRAG-KANARIE-BS3', fremdBs3: 'FREMD-KANARIE-BS3', nachtragBs1: 'NACHTRAG-KANARIE-BS1', fremdBs1: 'FREMD-KANARIE-BS1',
   dokFinBs1: 'DOKFIN-KANARIE-BS1', dokFinBs3: 'DOKFIN-KANARIE-BS3', dokSvBs1: 'DOKSV-KANARIE-BS1', dokPlanBs3: 'DOKPLAN-KANARIE-BS3', dokPlanBs1: 'DOKPLAN-OK-BS1',
-  krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2',
+  krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2', planNotizGastFremd: 'PLANNOTIZ-GAST-FREMDE-PARTIE-8',
   telefonAnderer: '+43 699 3333 3131', telefonPolier: '+43 664 1111 1111', smtp: 'smtp-kanarie.example.test', alarmAn: 'alarm-kanarie@example.test',
   rechnungServicebuch: 'SB-RECHNUNG-KANARIE-4711', // Rechnungsnr. der Werkstatt im Servicebuch: nur mit preise_sehen (14.11.2026)
   // F-023/F-024/F-040: Notizen fremder Abwesenheiten an den geprüften Planer-Tagen (je Code und Status eindeutig)
@@ -113,6 +113,7 @@ function verboteneKanarien(rolle) {
     for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
     ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch', 'lieferschein'].forEach(text);
     ABW_TEXTE.forEach(text); // F-023/F-040: Notizen fremder Abwesenheiten
+    text('planNotizGastFremd'); // F-057 (15.7): Personen-Notiz eines Gasts aus fremder Partie
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
@@ -134,6 +135,7 @@ function ladeZustand(F) {
   ZUSTAND.kanarien = handGeld.concat(F && F.geldKanarien ? F.geldKanarien : []);
   ZUSTAND.geld = W.geldIndex(ZUSTAND.kanarien);
   ZUSTAND.namen = new Map(((F && F.personen) || []).map((p) => [p.name, p.id]));
+  ZUSTAND.geheim = (F && F.geheim) || [];
   ZUSTAND.ignorieren = (F && F.firma) ? [F.firma, require('../../server/pdf').winAnsi(F.firma)] : [];
   return ZUSTAND;
 }
@@ -324,13 +326,32 @@ function geldErlaubt(rolle, variante) { // eslint-disable-line no-unused-vars
 const lohnErlaubt = (rolle) => rolle === 'buero' || rolle === 'gf' || rolle === 'bauleiter';
 
 /**
+ * Inhaberentscheidung N-112 (API.md 15.7, 15.9): Polier, LKW-Fahrer und Mitarbeiter dürfen Liefer-/Wiegescheine sehen, die
+ * sie SELBST hochgeladen haben – auch mit Preisen. Einzige Ausnahme vom Scanner: die aus dem eigenen Bild erkannten Felder
+ * `text` (OCR-Text), `unklar` (nicht zugeordnete OCR-Zeilen) und `vorschlag` in der Erfolgsantwort von
+ * POST /berichte/:id/lieferschein, wenn das zurückgegebene Foto ein Lieferschein des Aufrufers selbst ist. Alles andere
+ * dieser Antwort (Foto-Daten, Hinweise, Version, Kopfzeilen) wird weiter vollständig geprüft. Dass niemand
+ * sonst (andere Poliere/Mitarbeiter, Fernansicht, Auftraggeber, Mail, Benachrichtigungen) Text oder Foto bekommt, prüfen die
+ * Lese-Proben (Kanarie LIEFERSCHEIN-KANARIE-GF), pruefeAusgaenge und tests/api/rechte-selbst-peer.test.js (N-112).
+ */
+function ohneEigenenLieferscheinText(rolle, r, k) {
+  if (k.route !== 'POST /api/berichte/:id/lieferschein' || !['polier', 'mitarbeiter'].includes(rolle)) return r;
+  const d = r.daten;
+  const ich = k.ich !== undefined ? k.ich : ID[rolle];
+  if (!(r.status === 200 || r.status === 201) || !d || typeof d !== 'object' || Buffer.isBuffer(d) || typeof d.text !== 'string') return r;
+  if (!d.foto || d.foto.art !== 'lieferschein' || !d.foto.erstelltVon || d.foto.erstelltVon.id !== ich) return r;
+  return { ...r, daten: { ...d, text: '[eigener Lieferschein – OCR-Text erlaubt, N-112]', unklar: [], vorschlag: null } };
+}
+
+/**
  * Prüft eine Antwort. Liefert Verstöße als Texte.
  * @param {string} rolle
  * @param {{status:number, daten:any, headers:any}} r
  * @param {{route:string, variante?:string, url?:string}} k
  */
-async function scanne(rolle, r, k) {
+async function scanne(rolle, r0, k) {
   const v = [];
+  const r = ohneEigenenLieferscheinText(rolle, r0, k);
   const wo = `${rolle} ${k.url || k.route}${k.variante ? ` [${k.variante}]` : ''} → ${r.status}`;
   // 1) Schlüssel (nur JSON)
   if (r.daten && typeof r.daten === 'object' && !Buffer.isBuffer(r.daten)) {
@@ -395,6 +416,9 @@ async function scanne(rolle, r, k) {
   const text = await antwortText(r);
   const feld = ['mitarbeiter', 'polier'].includes(rolle);
   // F-022: Geld-Kanarien (jede Preis-Spalte der Test-DB) in jeder Schreibweise, unter jedem Schlüssel, in jedem Format
+  // 15.5/15.8: Sitzungs-Token, Geräteschlüssel und Push-Endpunkte ANDERER Personen – für jede Rolle (auch die GF), jedes Format
+  const ichSelbst = k.ich !== undefined ? k.ich : ID[rolle];
+  for (const g of ZUSTAND.geheim || []) if (g.id !== ichSelbst && text.includes(g.wert)) v.push(`${wo}: ${g.art} von Person ${g.id} in der Antwort an ${ichSelbst}`);
   const geldFunde = feld ? W.findeGeld(text, ZUSTAND.geld) : [];
   for (const g of geldFunde.slice(0, 5)) v.push(`${wo}: Geld-Kanarie ${g.name} als „${g.form}“ („…${text.slice(Math.max(0, g.stelle - 50), g.stelle + g.form.length + 20).replace(/\s+/g, ' ')}…“)`);
   if (k.nurKanarien) {
@@ -723,6 +747,9 @@ async function erstelleBasis() {
       benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW], anlageIds: [4], notizen: { [ANDERER_MA]: TEXT.planNotizAnderer, [U.mitarbeiter]: TEXT.planNotizEigen }, fahrer: { 4: U.mitarbeiter }
     }), 201, 'Einsatz BS1');
     F.einsatz = { bs1: e1.id };
+    // F-057 (15.7): Gast aus fremder Partie (Polier 8, Partie Kogler) im Einsatz BS 1 mit Personen-Notiz – Polier 1 und
+    // Mitarbeiter sehen diese Notiz nie (dieselbe Notizregel wie das Polier-PDF)
+    await erwarte(await gf.post(`/plan/einsaetze/${e1.id}/personen`, { benutzerIds: [U.polier2], notizen: { [U.polier2]: TEXT.planNotizGastFremd } }), [200, 201], 'Gast fremder Partie BS1');
     // F-024: auch am Montag 16.11. (Probe /plan/partie in rechte-umgehung, Varianten) ein veröffentlichter Einsatz derselben Partie
     const mo = await gf.post('/plan/einsaetze', { datum: '2026-11-16', baustelleId: BS.pitten, beginn: '06:30', arbeit: 'Pflaster', benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW] });
     if (mo.status === 409 && mo.daten.id) { // Seed hat am 16.11. schon einen Einsatz Pitten: Partie ergänzen
@@ -824,6 +851,16 @@ async function erstelleBasis() {
     // Sitzungen in der Basis: jede Kopie hat sie schon (keine Anmeldung je Probe, spart Laufzeit)
     F.cookie = {};
     for (const id of [...new Set([...ROLLEN.map((r) => ID[r]), ANDERER_MA, FREMDER_MA, 13, F.peer.buero, F.peer.bauleiter])]) F.cookie[id] = (await s.login(id)).cookie;
+    // 15.5 (F-029, F-046, F-014) / 15.8: persönliche Geheimnisse je Person – Sitzungs-Token, Geräteschlüssel (Gerätespeicher),
+    // Push-Endpunkt. Wertbasiert: nie in einer Antwort an eine ANDERE Person, für jede Rolle (auch GF, Büro, Bauleiter).
+    F.geheim = [];
+    for (const [id, ck] of Object.entries(F.cookie)) {
+      for (const m of String(ck).matchAll(/=([^;\s]{16,})/g)) F.geheim.push({ id: Number(id), art: 'Sitzungs-Token', wert: m[1] });
+      const gs = await s.client(ck).get(`/auth/geraet-schluessel?benutzerId=${id}`);
+      if (gs.status !== 200 || typeof gs.daten.schluessel !== 'string' || gs.daten.schluessel.length < 16) throw new Error(`Vorbereitung Geräteschlüssel ${id}: ${gs.status}`);
+      F.geheim.push({ id: Number(id), art: 'Geräteschlüssel', wert: gs.daten.schluessel });
+    }
+    for (const r of ROLLEN) F.geheim.push({ id: ID[r], art: 'Push-Endpunkt', wert: `https://push.example.invalid/abo/${r}` });
   } finally {
     await s.stop();
   }

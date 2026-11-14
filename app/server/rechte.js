@@ -180,8 +180,12 @@ function ladeRechteFuer(db, benutzer) {
   return effektiveRechte(benutzer.rolle, matrix, ausnahmen);
 }
 
-/** Mit stammdaten (Büro/Bauleiter laut Matrix) verwaltbar: Benutzer dieser Rollen (C-14); mit `benutzer` (GF) alle */
-const BUERO_VERWALTBAR = ['mitarbeiter', 'polier', 'bauleiter'];
+/**
+ * Mit stammdaten (Büro/Bauleiter laut Matrix) verwaltbar: Benutzer dieser Rollen; mit `benutzer` (GF) alle.
+ * 15.9 (F-050): Bauleiter = Büro – Konten gleicher Stufe (Büro, Bauleiter) und der GF verwaltet nur die GF.
+ * Zusätzlich prüft routes/benutzer.js `pruefeKontoVerwalten` die tatsächlichen Rechte des Ziels (Verwaltungsstufe).
+ */
+const BUERO_VERWALTBAR = ['mitarbeiter', 'polier'];
 function darfBenutzerVerwalten(ctx, zielRolle) {
   if (ctx.hat('benutzer')) return true;
   // 15.4: allein das Recht stammdaten (für Polier/Mitarbeiter gesperrt) – nicht der Rollenname des Aufrufers

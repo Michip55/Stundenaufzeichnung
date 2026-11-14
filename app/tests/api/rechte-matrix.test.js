@@ -75,6 +75,12 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
       }
     }
     if (s.db.eins('SELECT COUNT(*) AS n FROM projektposition').n < 10) v.push('Testdaten ohne Projektpositionen – Kanarien-Prüfung wirkungslos');
+    // 15.5/15.8: persönliche Geheimnisse (Sitzungs-Token, Geräteschlüssel, Push-Endpunkt) je Person – und der Scanner erkennt sie
+    for (const art of ['Sitzungs-Token', 'Geräteschlüssel', 'Push-Endpunkt']) if (H.ZUSTAND.geheim.filter((g) => g.art === art).length < 5) v.push(`Testdaten: zu wenige ${art}-Kanarien`);
+    const fremd = H.ZUSTAND.geheim.find((g) => g.id === ANDERER_MA && g.art === 'Geräteschlüssel');
+    if (!fremd || !(await H.scanne('gf', { status: 200, daten: { schluessel: fremd.wert }, headers: new Map() }, { route: 'SELBSTTEST', url: 'Geräteschlüssel' })).length) v.push('Scanner erkennt den Geräteschlüssel einer anderen Person nicht');
+    const eigen = H.ZUSTAND.geheim.find((g) => g.id === ID.gf && g.art === 'Geräteschlüssel');
+    if (!eigen || (await H.scanne('gf', { status: 200, daten: { schluessel: eigen.wert }, headers: new Map() }, { route: 'SELBSTTEST', url: 'Geräteschlüssel' })).length) v.push('Scanner meldet den eigenen Geräteschlüssel');
     // fremde Abwesenheiten je geprüftem Planer-Tag: veröffentlichter Einsatz Pitten mit Polier, darin je Art eine andere Person
     const ARTEN = [['K', 'genehmigt', 0], ['U', 'genehmigt', 0], ['U', 'beantragt', 0], ['ZA', 'genehmigt', 0], ['ZA', 'beantragt', 0], ['U', 'genehmigt', 1]];
     for (const tag of H.PLAN_TAGE) {

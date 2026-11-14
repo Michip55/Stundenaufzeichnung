@@ -1,5 +1,5 @@
 // Benutzer & Rechte: Rechte-Matrix (mit gesperrten Zellen), Ausnahmen je Benutzer, Benutzerverwaltung, Protokoll.
-// Geschäftsführung: alles. Büro (Prüfbericht 2, C-14): nur Benutzer der Rollen Mitarbeiter/Polier/Bauleiter anlegen,
+// Geschäftsführung: alles außer dem eigenen Konto. Büro/Bauleiter (C-14, 15.9): nur Benutzer der Rollen Mitarbeiter/Polier anlegen und pflegen,
 // PIN zurücksetzen und gesperrte Konten entsperren – keine Rechte-Matrix, kein Protokoll.
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, bestaetigen, toast, speicher, istIntern, $, $$ } from '../ui.js';
@@ -8,11 +8,13 @@ import { diensteTab } from './dienste.js';
 
 export default async function benutzer(el, ctx) {
   const voll = ctx.kann('benutzer');
-  const BUERO_ROLLEN = ['mitarbeiter', 'polier', 'bauleiter']; // diese Benutzer pflegt das Büro
+  const BUERO_ROLLEN = ['mitarbeiter', 'polier']; // diese Benutzer pflegt das Büro (15.9: Bauleiter = Büro → nur die GF)
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [];
   let tab = !voll ? 'benutzer' : ctx.query.get('reiter') === 'dienste' ? 'dienste' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
-  const darfBearbeiten = (m) => voll || BUERO_ROLLEN.includes(m.rolle); // rolle-ok: Rolle der ZIEL-Person (C-14, wie rechte.BUERO_VERWALTBAR am Server)
+  // 15.9: der Server sagt je Konto, ob der Aufrufer es verwalten darf (nie das eigene, Büro/Bauleiter nur niedrigere Stufe)
+  const istIch = (m) => Number(m.id) === Number(ctx.ich.benutzer.id);
+  const darfBearbeiten = (m) => (m.bearbeitbar !== undefined ? m.bearbeitbar === true : !istIch(m) && (voll || BUERO_ROLLEN.includes(m.rolle))); // rolle-ok: Rolle der ZIEL-Person (wie rechte.BUERO_VERWALTBAR am Server)
   const istGesperrt = (m) => !!(m.gesperrt || m.kontoGesperrt || m.sperre || m.gesperrtSeit);
   // 15.5 (F-050/F-051): PIN, Zwei-Faktor und Sperren nur bei niedrigerer Verwaltungsstufe; GF-Konten nur am Server
   const zuruecksetzbar = (m) => !!m && m.zuruecksetzbar !== false;
@@ -49,8 +51,8 @@ export default async function benutzer(el, ctx) {
     const gesperrte = leute.filter(istGesperrt);
     const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
       ${istGesperrt(m) ? `<span class="chip st-red" title="${m.gesperrtBis ? 'läuft ab am ' + esc(fmt.zeitpunkt(m.gesperrtBis)) + ' Uhr' : ''}">${ic('lock')}Gesperrt${m.gesperrtBis ? ` bis ${esc(fmt.zeitpunkt(m.gesperrtBis).slice(0, 6))} ${esc(fmt.uhr(m.gesperrtBis))}` : ''}</span>${zuruecksetzbar(m) ? `<button type="button" class="btn primary sm" data-entsperren="${m.id}">Entsperren</button>` : `<span class="muted sm nw" data-nur-gf>${esc(nurDurch(m))}</span>`}` : ''}
-      ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : '<span class="muted sm nw">Bearbeiten nur durch GF</span>'}</li>`;
-    return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter, Poliere und Bauleiter an, setzen PINs zurück und entsperren Konten. Rollen Büro/Geschäftsführung und die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
+      ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : (istIch(m) ? '<span class="muted sm nw" data-eigenes-konto>Eigenes Konto: PIN und Telefon unter „Mehr“</span>' : '<span class="muted sm nw">Bearbeiten nur durch GF</span>')}</li>`;
+    return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter und Poliere an, pflegen ihre Daten, setzen PINs zurück und entsperren Konten. Konten von Büro, Bauleitern und Geschäftsführung sowie die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
       ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto befristet gesperrt (24 Std., dann länger). „Entsperren“ hebt die Sperre sofort auf; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben. Konten gleicher oder höherer Stufe (Büro, Bauleiter) entsperrt nur die Geschäftsführung, Konten der Geschäftsführung nur der Notfall-Befehl am Server.</p></section>` : ''}
       <div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
       <section class="card">${leute.length ? `<ul class="plain rows" id="benutzerliste">${leute.map(zeile).join('')}</ul>` : leer('Keine Benutzer.', 'users')}</section>`;

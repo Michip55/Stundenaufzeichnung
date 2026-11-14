@@ -1153,10 +1153,12 @@ async function laufe(browser, g) {
     const katNach = await katApi();
     pruef(katNach.length === katAnzahlVor && geschuetztVor.every((x) => { const n = katNach.find((y) => y.id === x.id); return n && (x.id === katVor.id || n.ep === x.ep) && n.bezeichnung === x.bezeichnung; }), `E-04: Import der alten Vorlage hat den Katalog verändert (Positionen ${katAnzahlVor} → ${katNach.length})`);
     await ueberlauf('/preise katalog'); await toastWeg();
-    // C-14: Büro verwaltet Mitarbeiter, Poliere und Bauleiter – ohne Rechte-Matrix und Protokoll
+    // C-14/15.9: Büro verwaltet Mitarbeiter und Poliere – nicht Bauleiter, Büro (auch nicht das eigene Konto) und GF; ohne Rechte-Matrix und Protokoll
     await geh('/benutzer', 'buero-benutzer');
     pruef(await page.locator('[data-tab="matrix"], [data-tab="protokoll"], #matrix').count() === 0, 'C-14: Büro sieht Rechte-Matrix oder Protokoll');
     pruef(await page.locator(`#benutzerliste li:has-text("${NAME.gf}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.mitarbeiter}") [data-bearb]`).count() === 1, 'C-14: Büro kann GF bearbeiten oder Mitarbeiter nicht');
+    pruef(await page.locator(`#benutzerliste li:has-text("${NAME.bauleiter}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.buero}") [data-bearb]`).count() === 0, '15.9 (F-050): Büro kann einen Bauleiter oder das eigene Konto bearbeiten');
+    pruef(await page.locator(`#benutzerliste li:has-text("${NAME.buero}") [data-eigenes-konto]`).count() === 1, '15.9: Hinweis „Eigenes Konto“ fehlt');
     await page.click('[data-akt="neu"]');
     pruef((await page.locator('dialog[open] select[name="rolle"] option').evaluateAll((l) => l.map((o) => o.value))).join(',') === 'mitarbeiter,polier', 'D-02: Büro kann andere Rollen als Mitarbeiter/Polier vergeben');
     pruef((await page.locator('dialog[open] #rolle-hinweis').innerText()).includes('Geschäftsführung'), 'D-02: Hinweis zur Rollenvergabe/GF-Benachrichtigung fehlt');
