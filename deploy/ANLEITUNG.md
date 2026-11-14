@@ -12,7 +12,7 @@ Laufende Kosten: Server ca. 5–10 € im Monat, externe Sicherung ca. 3–5 €
 1. Bei einem Anbieter mit Rechenzentrum in der EU ein Konto anlegen, z. B. **Hetzner** (Deutschland/Finnland), **netcup** (Deutschland) oder **IONOS** (Deutschland). Wählen Sie ein Rechenzentrum in Deutschland oder Österreich.
 2. Einen „Cloud-Server“ / „VPS“ bestellen:
    - Betriebssystem: **Ubuntu 24.04**
-   - Größe: 2 CPU, 4 GB RAM, 40 GB Festplatte reichen für einen Betrieb mit 50 Mitarbeitern.
+   - Größe: 2 CPU, 4 GB RAM und **80 GB** Festplatte für einen Betrieb mit 50 Mitarbeitern (40 GB reichen für den Start, siehe „Speicherplatz“ unten; die Festplatte lässt sich beim Anbieter später vergrößern).
    - **SSH-Schlüssel hinterlegen** (der Anbieter erklärt das im Bestellvorgang; auf Windows mit „PuTTYgen“, auf dem Mac im Terminal mit `ssh-keygen`). Ohne Schlüssel bleibt die Passwort-Anmeldung offen – das ist weniger sicher.
    - Falls angeboten: „Backups“ des Anbieters dazubuchen (zusätzliche Sicherheit, ca. 20 % Aufpreis).
 3. **Auftragsverarbeitungsvertrag (AVV)** im Kundenbereich des Anbieters abschließen (meist ein Klick unter „Datenschutz“ / „AV-Vertrag“). Das ist nach DSGVO Pflicht, weil Arbeitszeiten personenbezogene Daten sind.
@@ -74,6 +74,43 @@ ssh root@203.0.113.10
 sudo bash /opt/bautag/deploy/update.sh
 ```
 
+Nach einer Änderung an der `Caddyfile` erstellt `update.sh` den Webserver (Caddy) automatisch neu. Ist ein Bau fehlgeschlagen, setzt `update.sh` den Programmstand zurück; einfach später erneut aufrufen – es baut dann wieder.
+
+## Speicherplatz
+
+Was die Festplatte braucht (Richtwerte):
+- System, Docker und Programm: ca. 10 GB
+- **Fotos und Dokumente doppelt** (App-Ordner + ein Sicherungs-Spiegel): bei ca. 10 Berichten am Tag mit 3 Fotos rund 3–4 GB im Jahr, also 6–8 GB Platz im Jahr
+- Datenbank-Stände (14 + 8 + 12): je Stand meist unter 100 MB, zusammen wenige GB
+
+Mit 40 GB reicht der Platz also für etwa 2–3 Jahre, mit 80 GB deutlich länger. Ältere Foto-Stände liegen nur in der externen Sicherung (dort speichert restic jedes Foto nur einmal).
+**Warnung:** Ist die Festplatte zu 85 % belegt oder sind weniger als 3 GB frei, meldet die nächtliche Sicherung „Speicherplatz knapp“ an die Geschäftsführung (in der App und per E-Mail). Dann beim Anbieter die Festplatte vergrößern. Belegung ansehen: `df -h /var/lib/bautag`.
+
+## Notfall-E-Mail (wenn die App selbst ausfällt)
+
+Normalerweise meldet die App Probleme der Sicherung selbst (Meldung, Push und E-Mail über *Einstellungen → E-Mail*). Ist die App aber nicht erreichbar, schickt `backup.sh` die Warnung mit dem Programm `sendmail` an `ALARM_EMAIL` (in `deploy/.env`). **Die Installation richtet dafür kein Mailprogramm ein** – ohne steht im Protokoll nur „Kein Notfall-Versand möglich“. Einrichten (Daten vom E-Mail-Anbieter, wie in der App):
+```
+sudo apt-get install -y msmtp-mta
+sudo nano /etc/msmtprc
+```
+Inhalt (Werte anpassen), danach `sudo chmod 600 /etc/msmtprc`:
+```
+defaults
+auth on
+tls on
+account standard
+host smtp.ihr-anbieter.at
+port 587
+from bautag@ihre-firma.at
+user bautag@ihre-firma.at
+password IHR-PASSWORT
+account default : standard
+```
+Testen: `printf 'Subject: BauTag Test
+
+Test
+' | sudo sendmail ihre@adresse.at`. Die tägliche Sicherung (`/etc/cron.d/bautag`) findet `sendmail` in `/usr/sbin`.
+
 ## Notfall: Server weg oder Daten kaputt
 
 Siehe **SICHERHEIT.md, Abschnitt „Notfall: Wiederherstellung“**. Kurzfassung:
@@ -95,10 +132,11 @@ Alle Dateien gehen als Base64 im JSON an den Server (ca. 4/3 der Dateigröße). 
 
 | Wofür | Datei höchstens | Anfrage (JSON) höchstens | Ort in der App |
 |---|---|---|---|
-| Projektdokumente, LV-, BMD- und Stammdaten-Import | 25 MB | 35 MB | `jsonDokumente` |
+| Projektdokumente | 25 MB | 35 MB | `jsonDokumente` |
+| LV-, BMD- und Stammdaten-Import | 5 MB | 35 MB (gemeinsame Grenze mit den Dokumenten) | `jsonDokumente` |
 | Fotos (Bericht, Lieferschein, Papierbericht, Schaden, Fuhre, Fernunterschrift) | 8 MB je Foto | 12 MB | `jsonFotos` |
 | Excel-Import Positionskatalog | 5 MB | 7 MB | `jsonImport` |
 | alle anderen Anfragen | – | 2 MB | `jsonKlein` |
 | **Webserver Caddy** | – | **40 MB** (35 MB + Reserve) | `Caddyfile` |
 
-Das Zugriffsprotokoll von Caddy (`/data/zugriff.log` im Volume `caddy_daten`) enthält keine Fernunterschrift-Token: der Pfad `/api/fern/<Token>` bzw. `/unterschrift/<Token>` wird als `…/***` gespeichert, `Referer` und `Cookie` werden nicht protokolliert.
+Das Zugriffsprotokoll von Caddy (`/data/zugriff.log` im Volume `caddy_daten`) und das Fehlerprotokoll (`docker compose logs caddy`, z. B. bei „502“ während eines Updates) enthalten keine Fernunterschrift-Token: der Pfad `/api/fern/<Token>` bzw. `/unterschrift/<Token>` wird als `…/***` gespeichert (auch in Schreibweisen wie `//api/fern/…` oder `/API/fern/…`), `Referer` und `Cookie` werden nicht protokolliert.

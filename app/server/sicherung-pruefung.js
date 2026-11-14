@@ -25,6 +25,7 @@ function sicherungsStatus(bt, jetzt = bt.uhr()) {
     const x = s[art];
     if (!x) { warnungen.push({ art, text: `${NAMEN[art]}: noch nie gemeldet.` }); continue; }
     if (!x.ok) warnungen.push({ art, text: `${NAMEN[art]} fehlgeschlagen: ${x.text || 'ohne Angabe'}` });
+    if (x.warnung) warnungen.push({ art, text: `${NAMEN[art]}: ${x.warnung}` }); // N-011: Füllstand
     const alter = x.letzteOk ? (jetzt - new Date(x.letzteOk)) / 36e5 : Infinity;
     if (alter > GRENZEN_STUNDEN[art]) {
       warnungen.push({ art, text: `${NAMEN[art]}: letzte erfolgreiche ${x.letzteOk ? `am ${new Date(x.letzteOk).toLocaleString('de-AT', { timeZone: 'Europe/Vienna' })}` : 'noch nie'} – älter als ${GRENZEN_STUNDEN[art]} Std.` });

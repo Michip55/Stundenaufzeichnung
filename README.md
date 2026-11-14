@@ -30,6 +30,8 @@ Entwurf einer Plattform für einen Erdbau- und Pflasterbetrieb in Österreich (c
 
 **Testdaten zurücksetzen:** BauTag-Fenster schließen, `BauTag-Testdaten-zuruecksetzen-Windows.bat` (Mac: `BauTag-Testdaten-zuruecksetzen-Mac.command`) doppelklicken und mit `JA` bestätigen – beim nächsten Start gibt es frische Beispieldaten. Die Testversion hat eine eigene Datenbank; der Echtbetrieb auf dem Server startet immer leer (ohne Testdaten).
 
+**Testversion aktualisieren:** BauTag-Fenster schließen, den neuen Programmstand über den alten Ordner kopieren (oder `git pull`) – den Ordner `app/data` dabei **nicht** löschen – und wieder das Startskript doppelklicken. Das Startskript prüft bei jedem Start, ob alle Programmteile zum neuen Stand passen (`node app/server/abhaengigkeiten.js`), und lädt fehlende oder geänderte mit `npm install` nach. Fehlt trotzdem ein Programmteil, startet der Server nicht und lässt die Datenbank unverändert („START VERWEIGERT … Bitte im Ordner „app“ „npm install“ ausführen“). Manuell: `cd app && npm install && BAUTAG_DEMO=1 npm start`.
+
 Manuell:
 
 ```bash

@@ -2,6 +2,14 @@
 /**
  * BauTag – Server. App-Fabrik `createApp({dbPath, uhr})` für Tests; Start mit `node server/index.js`.
  */
+// N-046: beim Start zuerst prüfen, ob alle Programmteile installiert sind – vor jedem Paket-require und vor dem Öffnen
+// (Migrieren) der Datenbank. Fehlt eines, bleibt die Datenbank unverändert.
+if (require.main === module) {
+  const { pruefeAbhaengigkeiten, meldung } = require('./abhaengigkeiten');
+  const r = pruefeAbhaengigkeiten();
+  if (r.fehlen.length) { console.error(`[BauTag] START VERWEIGERT: ${meldung(r)} Die Datenbank wurde nicht verändert.`); process.exit(1); }
+  if (r.veraltet.length) console.warn(`[BauTag] WARNUNG: ${meldung(r)}`);
+}
 const path = require('node:path');
 const fs = require('node:fs');
 const express = require('express');

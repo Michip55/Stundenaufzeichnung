@@ -23,8 +23,10 @@ if %NODEVERSION% LSS 22 (
   exit /b 1
 )
 
-if not exist node_modules (
-  echo  Erster Start: Programmteile werden geladen ^(1-2 Minuten, Internet noetig^) ...
+rem N-046: auch nach einem Update ^(neue oder geaenderte Programmteile^) npm install ausfuehren, nicht nur beim ersten Start
+node server\abhaengigkeiten.js >nul 2>nul
+if errorlevel 1 (
+  echo  Programmteile werden geladen bzw. aktualisiert ^(1-2 Minuten, Internet noetig^) ...
   call npm install --no-audit --no-fund
   if errorlevel 1 goto fehler
 )

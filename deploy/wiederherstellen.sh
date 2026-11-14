@@ -8,6 +8,9 @@
 #
 # Ablauf: Stand holen → prüfen (Integrität, Zeilenzahlen) → App anhalten → aktuelle Datenbank beiseitelegen
 #         → Stand einspielen (Datenbank + Fotos) → App starten → Gesundheitsprüfung.
+# Fotos/Dokumente (N-011): --extern spielt den Spiegel uploads-spiegel/ des gewählten Stands ein; --datei lässt den
+# vorhandenen Foto-Ordner unverändert (er enthält alle Fotos bis heute) und nimmt nur, wenn er fehlt, den lokalen
+# Spiegel. Ältere Sicherungen mit uploads-JJJJ-MM-TT.tar.gz werden weiterhin erkannt.
 set -Eeuo pipefail
 umask 077
 
@@ -71,8 +74,22 @@ else
 fi
 [[ -n "$DB" && -f "$DB" ]] || fehler "Keine Sicherungsdatei gefunden."
 TAG="$(basename "$DB" .db | sed 's/^bautag-//')"
-UPLOADS="$(find "$TMP" -name "uploads-$TAG.tar.gz" -type f | head -n 1)"
-echo "Datenbank: $(basename "$DB")   Fotos: ${UPLOADS:+$(basename "$UPLOADS")}${UPLOADS:-keine}"
+UPLOADS="$(find "$TMP" -name "uploads-$TAG.tar.gz" -type f | head -n 1)"   # älteres Format (Archiv je Tag)
+SPIEGEL=""; FOTOS_BEHALTEN=""
+if [[ -z "$UPLOADS" ]]; then
+  if [[ "$MODUS" == extern ]]; then
+    SPIEGEL="$(find "$TMP" -type d -name uploads-spiegel | head -n 1)"
+  elif [[ -d "$DATEN/uploads" ]]; then
+    FOTOS_BEHALTEN=1
+  elif [[ -d "$(dirname "$WERT")/uploads-spiegel" ]]; then
+    SPIEGEL="$(dirname "$WERT")/uploads-spiegel"
+  fi
+fi
+if [[ -n "$UPLOADS" ]]; then FOTOS_TEXT="$(basename "$UPLOADS")"
+elif [[ -n "$SPIEGEL" ]]; then FOTOS_TEXT="Spiegel uploads-spiegel"
+elif [[ -n "$FOTOS_BEHALTEN" ]]; then FOTOS_TEXT="bleiben unverändert (aktueller Foto-Ordner)"
+else FOTOS_TEXT="keine"; fi
+echo "Datenbank: $(basename "$DB")   Fotos: $FOTOS_TEXT"
 
 schritt "2/6 Stand prüfen (Integrität, Zeilenzahlen)"
 chmod -R a+rX "$TMP"
@@ -95,14 +112,17 @@ schritt "4/6 Bisherigen Stand beiseitelegen"
 VORHER="$DATEN/vorher-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$VORHER"
 for f in bautag.db bautag.db-wal bautag.db-shm uploads; do
-  [[ -e "$DATEN/$f" ]] && mv "$DATEN/$f" "$VORHER/"
+  [[ "$f" == uploads && -n "$FOTOS_BEHALTEN" ]] && continue
+  if [[ -e "$DATEN/$f" ]]; then mv "$DATEN/$f" "$VORHER/"; fi
 done
 echo "Bisheriger Stand: $VORHER"
 
 schritt "5/6 Stand einspielen"
 mkdir -p "$DATEN"
 cp "$DB" "$DATEN/bautag.db"
-if [[ -n "$UPLOADS" ]]; then tar -xzf "$UPLOADS" -C "$DATEN"; fi
+if [[ -n "$UPLOADS" ]]; then tar -xzf "$UPLOADS" -C "$DATEN"
+elif [[ -n "$SPIEGEL" && "$MODUS" == extern ]]; then mv "$SPIEGEL" "$DATEN/uploads"   # Probeordner wird ohnehin gelöscht
+elif [[ -n "$SPIEGEL" ]]; then cp -a "$SPIEGEL" "$DATEN/uploads"; fi
 chown -R "$APP_UID:$APP_UID" "$DATEN"
 chmod 700 "$DATEN"
 
