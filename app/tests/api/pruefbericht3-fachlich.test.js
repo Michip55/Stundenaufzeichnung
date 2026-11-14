@@ -145,7 +145,12 @@ test('D-03: Überschneidung über die Tagesgrenze (Nachtschicht)', async (t) => 
     assert.equal((await buero.post('/zeit/schichten', { benutzerId: 3, baustelleId: BS.pitten, datum: '2027-11-08', von: '22:00', bis: '06:00', pauseMin: 0, grund: 'Nachtschicht' })).status, 201);
     const b = await pol.post('/berichte', { baustelleId: BS.pitten, datum: '2027-11-09' });
     assert.ok(!b.daten.personal.some((p) => p.benutzerId === 3));
-    const r = await pol.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
+    // 15.11 (G2-016): der Polier bekommt keine Auskunft (gespeichert, Hinweis ans Büro); die Prüfung selbst zeigt die Ablehnung des Büros
+    const rp = await pol.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
+    assert.equal(rp.status, 200, JSON.stringify(rp.daten));
+    assert.ok(!/Schicht vom|gestempelt/.test(JSON.stringify(rp.daten)));
+    assert.equal((await pol.putV(`/berichte/${b.daten.id}`, { personal: [] })).status, 200);
+    const r = await buero.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /Schicht vom 08\.11\.2027/);
   });
@@ -154,7 +159,11 @@ test('D-03: Überschneidung über die Tagesgrenze (Nachtschicht)', async (t) => 
     const b9 = await pol8.post('/berichte', { baustelleId: BS.kogler, datum: '2027-11-09' });
     assert.equal((await pol8.putV(`/berichte/${b9.daten.id}`, { personal: [{ benutzerId: 9, von1: '04:00', bis1: '12:00', pauseMin: 0 }] })).status, 200);
     const b8 = await pol.post('/berichte', { baustelleId: BS.pitten, datum: '2027-11-08' });
-    const r = await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
+    const rp = await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
+    assert.equal(rp.status, 200, JSON.stringify(rp.daten)); // 15.11 (G2-016)
+    assert.ok(!/26-038|09\.11\.2027/.test(JSON.stringify(rp.daten)));
+    assert.equal((await pol.putV(`/berichte/${b8.daten.id}`, { personal: b8.daten.personal })).status, 200);
+    const r = await buero.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /Bericht von Baustelle 26-038 vom 09\.11\.2027/);
     assert.equal((await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '18:00', bis1: '22:00', pauseMin: 0, gast: true }] })).status, 200);

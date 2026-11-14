@@ -190,12 +190,15 @@ test('N-073, N-091: Tages-PUT entscheidet einen schon entschiedenen Antrag nicht
   const { s, c, meldungen } = await umgebung(t);
   const e = await c.mitarbeiter.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2027-04-26', code: 'U' });
   assert.equal(e.status, 201);
-  assert.equal((await c.buero.put(`/abwesenheiten/${e.daten.id}`, { status: 'genehmigt' })).status, 200);
+  // 15.11 (G2-017): der Mitarbeiter bekommt eine nicht fortlaufende Kennung; das Büro arbeitet mit der Tabellen-ID
+  const id = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND datum = '2027-04-26'", U.mitarbeiter).id;
+  assert.notEqual(e.daten.id, id);
+  assert.equal((await c.buero.put(`/abwesenheiten/${id}`, { status: 'genehmigt' })).status, 200);
   const vorher = meldungen(U.mitarbeiter).length;
-  const r = await c.buero.put(`/abwesenheiten/${e.daten.id}`, { status: 'abgelehnt' });
+  const r = await c.buero.put(`/abwesenheiten/${id}`, { status: 'abgelehnt' });
   assert.equal(r.status, 409);
   assert.match(r.daten.fehler, /schon entschieden/);
-  assert.equal(s.db.eins('SELECT status FROM abwesenheit WHERE id = ?', e.daten.id).status, 'genehmigt');
+  assert.equal(s.db.eins('SELECT status FROM abwesenheit WHERE id = ?', id).status, 'genehmigt');
   assert.equal(meldungen(U.mitarbeiter).length, vorher);
   // Bestand ohne Antrags-ID (e<id>)
   const alt = s.db.lauf("INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst, entschieden_von, entschieden) VALUES (?, '2027-04-27', 'U', 'genehmigt', ?, '2026-11-01T08:00:00Z', 101, '2026-11-02T08:00:00Z')", U.mitarbeiter, U.mitarbeiter).id;

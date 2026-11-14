@@ -141,8 +141,11 @@ const ABW = ['abwesend', 'abw. · abwesend'];
 const rund2 = (n) => Math.round(n * 100) / 100;
 export async function bericht(el, ctx) {
   const id = ctx.params[0];
-  const [b, geraeteKat, matKat, mitarbeiter, integ] = await Promise.all([
-    get(`/berichte/${id}`), get('/geraete'), get('/materialien'), get('/mitarbeiter').catch(() => []), ctx.integrationen(),
+  // 15.11 (G2-024, Regel 5): zuerst nur den Bericht – ist er gesperrt (403/404), erscheint die neutrale Seite, ohne dass
+  // Geräte-, Material- oder Mitarbeiterlisten geladen wurden
+  const b = await get(`/berichte/${id}`);
+  const [geraeteKat, matKat, mitarbeiter, integ] = await Promise.all([
+    get('/geraete'), get('/materialien'), get('/mitarbeiter').catch(() => []), ctx.integrationen(),
   ]);
   b.personal = b.personal || []; b.geraete = b.geraete || []; b.material = b.material || []; b.regie = b.regie || [];
   b.seg = b.seg || { taetigkeit: '', stunden: 0 };

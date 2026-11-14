@@ -15,7 +15,21 @@ function benutzerJson(b, mitLohngruppe) {
 }
 
 /**
- * Fehlversuch zählen (IP und Konto); bei Kontosperre Büro/GF benachrichtigen.
+ * 15.11 (G2-022): Meldung „Konto gesperrt“ nur an die, die das Konto auch entsperren können (wie pruefeKontoZuruecksetzen):
+ * Mitarbeiter/Polier (Stufe 1) → alle mit stammdaten oder benutzer; Büro/Bauleiter (Stufe 2) → nur mit Recht benutzer (GF);
+ * GF (Stufe 3) → die anderen GF, mit dem Hinweis auf den Notfall-Befehl am Server (die API entsperrt GF-Konten nie).
+ */
+function meldeKontoSperre(db, b, { zeit, grund, aufgabe, schluessel, gfZusatz = '' }) {
+  const stufe = auth.kontoStufe(db, b.id);
+  const empf = empfaengerMitRecht(db, stufe >= 2 ? 'benutzer' : 'stammdaten|benutzer', { ohne: b.id });
+  const text = stufe >= 3
+    ? `${grund} Konten der Geschäftsführung entsperrt nur der Notfall-Befehl am Server: node server/entsperren.js ${b.pnr}${gfZusatz}.`
+    : `${grund} ${aufgabe}`;
+  for (const e of empf) benachrichtige(db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text, zeit, schluessel });
+}
+
+/**
+ * Fehlversuch zählen (IP und Konto); bei Kontosperre benachrichtigen, wer entsperren kann (15.11).
  * 15.5 (F-031): `inSitzung` = PIN-/Code-Prüfung innerhalb einer Sitzung (/auth/pin, 2FA-Einstellungen) – führt sie zur
  * Kontosperre, enden zusätzlich alle Sitzungen des Kontos (wer dort rät, hat eine Sitzung, aber offenbar nicht die PIN).
  */
@@ -25,9 +39,7 @@ function fehlversuch(bt, b, ip, { inSitzung = false } = {}) {
     const zeit = bt.uhr().toISOString();
     if (inSitzung) auth.beendeAlleSitzungen(bt.db, b.id);
     bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.KONTO_MAX_FEHLVERSUCHE} Fehlversuchen in 24 Std. gesperrt (letzte IP ${ip})${inSitzung ? ' – alle Sitzungen beendet' : ''}` });
-    for (const e of empfaengerMitRecht(bt.db, 'stammdaten|benutzer', { ohne: b.id })) { // 15.3: wer entsperren kann
-      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} befristet gesperrt. Bitte prüfen und ggf. entsperren.`, zeit, schluessel: `konto:${b.id}:${zeit}` });
-    }
+    meldeKontoSperre(bt.db, b, { zeit, grund: `Nach ${auth.KONTO_MAX_FEHLVERSUCHE} falschen PIN-Eingaben in 24 Std. ist die Anmeldung von ${b.name} befristet gesperrt.`, aufgabe: 'Bitte prüfen und ggf. entsperren.', schluessel: `konto:${b.id}:${zeit}` });
     bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer
   }
   if (gesperrt) throw bt.bremse.fehler(gesperrt);
@@ -54,9 +66,7 @@ function zweiFaktorFehlversuch(bt, b, ip, { anlass = 'anmeldung', schluessel = n
   if (z.gesperrt) {
     if (inSitzung) auth.beendeAlleSitzungen(bt.db, b.id); // 15.5 (F-031)
     bt.db.protokolliere({ zeit, benutzerId: null, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `Konto ${b.name} nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. gesperrt (letzte IP ${ip})` });
-    for (const e of empfaengerMitRecht(bt.db, 'stammdaten|benutzer', { ohne: b.id })) { // 15.3: wer entsperren kann
-      benachrichtige(bt.db, { benutzerId: e.id, typ: 'sicherheit', titel: `Konto gesperrt: ${b.name}`, text: `Nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. (die PIN war jeweils richtig) ist die Anmeldung von ${b.name} befristet gesperrt. Die PIN ist vermutlich bekannt – bitte prüfen, PIN zurücksetzen und ggf. entsperren.`, zeit, schluessel: `konto-2fa:${b.id}:${zeit}` });
-    }
+    meldeKontoSperre(bt.db, b, { zeit, grund: `Nach ${auth.ZF_MAX_FEHLVERSUCHE} falschen Zwei-Faktor-Codes in 24 Std. (die PIN war jeweils richtig) ist die Anmeldung von ${b.name} befristet gesperrt.`, aufgabe: 'Die PIN ist vermutlich bekannt – bitte prüfen, PIN zurücksetzen und ggf. entsperren.', schluessel: `konto-2fa:${b.id}:${zeit}`, gfZusatz: ' (die PIN ist vermutlich bekannt: zusätzlich --pin für eine neue Start-PIN)' });
     bt.bremse.pruefeKonto(b.id); // wirft 423 mit Sperrdauer
   }
   fehlversuch(bt, b, ip, { inSitzung });

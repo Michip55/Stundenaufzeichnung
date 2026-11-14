@@ -32,7 +32,15 @@ test('Urlaub', async (t) => {
     const ma = (await c.mitarbeiter.get('/urlaub/kalender?von=2026-11-16&bis=2026-11-20')).daten;
     assert.deepEqual(ma.personen.map((p) => p.benutzerId), [U.mitarbeiter]);
     const t18 = ma.personen[0].tage['2026-11-18'];
-    assert.deepEqual(t18, { code: 'U', status: 'beantragt', id: t18.id, antragId: `e${t18.id}` }); // 12.24: Bestand ohne Antrag
+    // 12.24: Bestand ohne Antrag; 15.11 (G2-017): ohne stammdaten/lohn weder Tabellen-ID noch „e<id>“ – nicht fortlaufende Kennungen
+    assert.deepEqual(t18, { code: 'U', status: 'beantragt', id: t18.id, antragId: t18.antragId });
+    assert.match(String(t18.id), /^p[0-9a-f]{20}$/);
+    assert.match(t18.antragId, /^x[0-9a-f]{20}$/);
+    const tabId = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND datum = '2026-11-18'", U.mitarbeiter).id;
+    assert.ok(!JSON.stringify(ma).includes(`"e${tabId}"`) && t18.id !== tabId);
+    // Büro behält Tabellen-IDs und die Bestands-Antrags-ID
+    const b18 = (await c.buero.get('/urlaub/kalender?von=2026-11-16&bis=2026-11-20')).daten.personen.find((p) => p.benutzerId === U.mitarbeiter).tage['2026-11-18'];
+    assert.deepEqual([b18.id, b18.antragId], [tabId, `e${tabId}`]);
   });
 
   await t.test('Urlaubskonto: BUAK-Stand, genommen/geplant/beantragt, Rest; Rechte', async () => {

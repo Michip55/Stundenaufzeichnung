@@ -40,9 +40,19 @@ function einstellungen(db, benutzer) {
   return o;
 }
 
-/** Push-Typ einer Benachrichtigung */
-function pushTyp(n) {
-  if (n.typ === 'fuhrpark' && String(n.schluessel || '').startsWith('fp:schaden')) return 'schaden';
+/**
+ * Push-Typ einer Benachrichtigung. 15.11 (G2-033): Schadensmeldungen tragen den Schlüssel des Mangels
+ * („fp:mangel:<id>“ bzw. „fp:mangel:<id>:nein“ beim Stilllegen) – Typ „schaden“, wenn der Mangel ein Schaden ist.
+ */
+function pushTyp(n, db = null) {
+  if (n.typ !== 'fuhrpark') return n.typ;
+  const s = String(n.schluessel || '');
+  if (s.startsWith('fp:schaden')) return 'schaden';
+  const m = /^fp:mangel:(\d+)(?::|$)/.exec(s);
+  if (m && db) {
+    const x = db.eins('SELECT typ FROM mangel WHERE id = ?', Number(m[1]));
+    if (x && x.typ === 'schaden') return 'schaden';
+  }
   return n.typ;
 }
 
@@ -53,7 +63,7 @@ function ohneBetraege(text) {
 }
 
 function payload(bt, n) {
-  const typ = pushTyp(n);
+  const typ = pushTyp(n, bt.db);
   const body = typ === 'budget' ? 'Budget-Schwelle erreicht – Details in BauTag' : ohneBetraege(n.text).slice(0, 300);
   const basis = (bt.url || '').replace(/\/$/, '');
   const pfad = n.baustelle_id && ['budget', 'baustelle', 'rechnung'].includes(typ) ? `/#/baustellen/${n.baustelle_id}` : '/#/benachrichtigungen';
@@ -136,7 +146,7 @@ function pushErlaubt(db, nId) {
   if (!n) return false;
   const ctx = B.aktuellerKontext(db, n.benutzer_id);
   if (!ctx || !ctx.benutzer.aktiv || !B.darfSehen(ctx, n)) return false;
-  const typ = pushTyp(n);
+  const typ = pushTyp(n, db);
   return typenFuerRolle(ctx.benutzer.rolle).includes(typ) && einstellungen(db, ctx.benutzer)[typ] !== false;
 }
 

@@ -130,7 +130,7 @@ export default async function urlaub(el, ctx) {
       // Ein Tag, der zu einem Antrag gehört, öffnet den ganzen Antrag
       let a = antraege.find((x) => String(x.antragId) === z.dataset.antragId);
       if (!a) a = (await antraegeLaden({ benutzerId: pid, von: datum, bis: datum }).catch(() => [])).find((x) => (x.tage || []).some((t) => t.datum === datum));
-      if (!a) a = { antragId: z.dataset.antragId, benutzerId: pid, name: p.name, code: z.dataset.code, von: datum, bis: datum, arbeitstage: 1, status: z.dataset.status, tage: [{ id: Number(z.dataset.id), datum, status: z.dataset.status }] };
+      if (!a) a = { antragId: z.dataset.antragId, benutzerId: pid, name: p.name, code: z.dataset.code, von: datum, bis: datum, arbeitstage: 1, status: z.dataset.status, tage: [{ id: /^\d+$/.test(z.dataset.id) ? Number(z.dataset.id) : z.dataset.id, datum, status: z.dataset.status }] }; // 15.11: ohne stammdaten/lohn nicht fortlaufende Kennung
       if (!antraege.some((x) => x.antragId === a.antragId)) antraege.push(a);
       const dlg = dialog({ titel: `Antrag · ${a.name || p.name}`, inhalt: `<div class="stack-s" id="ur-eintrag">${antraegeHtml([a], rechte)}${selbst && a.status === 'beantragt' ? '<p class="muted sm">Eigene Anträge entscheidet immer jemand anderer (Vier-Augen-Prinzip).</p>' : ''}</div>`, fuss: '<button class="btn ghost" type="button" data-zu>Schließen</button>' });
       antraegeBinden(dlg.el, ctx, (id) => antraege.find((x) => String(x.antragId) === String(id)), () => { dlg.zu(); neu(); });

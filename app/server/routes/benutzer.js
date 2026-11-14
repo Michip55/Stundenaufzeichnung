@@ -34,11 +34,7 @@ function telefonPruefen(t) {
  * 15.5 (F-050/F-051): Verwaltungsstufe eines Kontos – 3 = Geschäftsführung (bzw. Recht „benutzer“), 2 = Büro/Bauleiter
  * (bzw. Recht „stammdaten“), 1 = alle anderen. Zählt die höhere aus Rolle und tatsächlichen Rechten.
  */
-function verwaltungsStufe(rolle, rechte) {
-  if (rolle === 'gf' || rechte.has('benutzer')) return 3;
-  if (['buero', 'bauleiter'].includes(rolle) || rechte.has('stammdaten')) return 2;
-  return 1;
-}
+const verwaltungsStufe = (rolle, rechte) => R.verwaltungsStufe(rolle, rechte); // eine Regel (server/rechte.js)
 
 /**
  * 15.5 (F-050/F-051): PIN, Zwei-Faktor-Anmeldung und Sperren eines Kontos setzt nur zurück, wer eine HÖHERE Verwaltungsstufe hat

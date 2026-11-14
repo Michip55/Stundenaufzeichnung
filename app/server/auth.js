@@ -7,7 +7,23 @@
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { ApiFehler, nichtAngemeldet } = require('./fehler');
-const { kontext } = require('./rechte');
+const { kontext, verwaltungsStufe, ladeRechteFuer } = require('./rechte');
+
+/** Verwaltungsstufe des Kontos (15.5): 1 Mitarbeiter/Polier, 2 Büro/Bauleiter, 3 GF – nach Rolle und tatsächlichen Rechten */
+function kontoStufe(db, benutzerId) {
+  const b = db.eins('SELECT * FROM benutzer WHERE id = ?', benutzerId);
+  return b ? verwaltungsStufe(b.rolle, ladeRechteFuer(db, b)) : 1;
+}
+/**
+ * 15.11 (G2-022): Wer kann ein gesperrtes Konto vorher entsperren? Wie pruefeKontoZuruecksetzen (routes/benutzer.js):
+ * Mitarbeiter/Polier → Büro, Bauleiter oder GF; Büro/Bauleiter → nur die GF; GF → nur der Notfall-Befehl am Server.
+ */
+function entsperrHinweis(db, benutzerId) {
+  const st = kontoStufe(db, benutzerId);
+  if (st >= 3) return 'Vorher entsperren lässt es sich nur mit dem Notfall-Befehl am Server (node server/entsperren.js).';
+  if (st === 2) return 'Die Geschäftsführung kann es vorher entsperren.';
+  return 'Büro, Bauleiter oder Geschäftsführung können es vorher entsperren.';
+}
 
 const scryptAsync = promisify(crypto.scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 };
@@ -322,7 +338,7 @@ class LoginBremse {
       this.db.lauf('UPDATE login_konto SET gesperrt = 0, fehlversuche = 0, erster = NULL WHERE benutzer_id = ?', benutzerId);
       return;
     }
-    const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). Büro oder Geschäftsführung können es vorher entsperren.`);
+    const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). ${entsperrHinweis(this.db, benutzerId)}`);
     f.retryAfter = Math.ceil(rest / 1000);
     throw f;
   }
@@ -390,7 +406,7 @@ class LoginBremse {
   }
 }
 
-module.exports = {
+module.exports = { kontoStufe, entsperrHinweis,
   COOKIE, BINDUNG, ERSTELLER_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,

@@ -6,6 +6,7 @@ const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag, istDatum } = r
 const { csv } = require('../export');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const DS = require('../datenschutz');
+const O = require('../oeffentlich'); // 15.11 (G2-017)
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const CODE_TEXT = { U: 'Urlaub', ZA: 'Zeitausgleich', K: 'Krank', SW: 'Schlechtwetter', BU: 'Betriebsurlaub' };
@@ -57,7 +58,9 @@ module.exports = function urlaubRouten(api, bt) {
     const map = new Map(personen.map((p) => [p.benutzerId, p]));
     for (const a of db.alle('SELECT * FROM abwesenheit WHERE datum >= ? AND datum <= ?', von, bis)) {
       const p = map.get(a.benutzer_id);
-      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: a.id, antragId: a.antrag_id || `e${a.id}`, ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
+      // 15.11 (G2-017): ohne stammdaten/lohn keine fortlaufenden Tabellen-IDs (auch nicht im Bestands-Antrag „e<id>“)
+      const tab = DS.stufe(req.ctx) === 'voll';
+      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: tab ? a.id : O.kennung(db, 'abwesenheit', a.id), antragId: a.antrag_id || (tab ? `e${a.id}` : O.kennung(db, 'antrag', a.id)), ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
     }
     res.json({ tage, personen, warnungen: warnungen(req.ctx, von, bis, ids) });
   });

@@ -9,8 +9,14 @@ export const PHASEN = {
   angebot: ['Angebot', 'st-outline'], geplant: ['Geplant', 'st-blue'], in_arbeit: ['In Arbeit', 'st-green'], pausiert: ['Pausiert', 'st-amber'],
   fertiggestellt: ['Fertiggestellt', 'st-dark'], abgenommen: ['Abgenommen', 'st-dark'], schlussrechnung: ['Schlussrechnung', 'st-orange'],
   bezahlt: ['Bezahlt', 'st-green'], archiviert: ['Archiviert', 'st-grey'], storniert: ['Storniert', 'st-red'],
+  // 15.11 (G2-001/G2-023): neutrale Phase für Rollen ohne Preis-/Kalkulationsrecht (der Server schickt dann nie Geldphasen)
+  abgeschlossen: ['Abgeschlossen', 'st-grey'],
 };
 const REIHE = ['geplant', 'in_arbeit', 'fertiggestellt', 'abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert'];
+// 15.11: ohne Zahlungsstand nur die Bauphasen – nach der Abnahme neutral „Abgeschlossen“
+const REIHE_NEUTRAL = ['geplant', 'in_arbeit', 'fertiggestellt', 'abgenommen', 'abgeschlossen'];
+/** Sieht ctx den Rechnungs-/Zahlungsstand? Wie der Server (preise_sehen oder kalk_sehen) */
+export const siehtZahlungsstand = (ctx) => ctx.kann('preise_sehen') || ctx.kann('kalk_sehen');
 const UEBERGANG = {
   angebot: ['geplant', 'storniert'], geplant: ['in_arbeit', 'pausiert', 'storniert', 'angebot'], in_arbeit: ['fertiggestellt', 'pausiert', 'storniert'], pausiert: ['in_arbeit', 'storniert'],
   fertiggestellt: ['abgenommen', 'in_arbeit'], abgenommen: ['schlussrechnung', 'fertiggestellt'], schlussrechnung: ['bezahlt', 'abgenommen'], bezahlt: ['archiviert', 'schlussrechnung'], storniert: ['archiviert', 'geplant'], archiviert: [],
@@ -82,7 +88,7 @@ export function phaseDialog(ctx, b, zielVorwahl, fertig) {
 /* ---------- Karte im Baustellen-Detail ---------- */
 export function lebenslaufHtml(b, ctx, verlauf) {
   const p = phaseVon(b), moegl = ziele(ctx, b), vor = naechster(ctx, b);
-  const reihe = p === 'angebot' ? ['angebot', ...REIHE] : REIHE;
+  const reihe = !siehtZahlungsstand(ctx) || p === 'abgeschlossen' ? REIHE_NEUTRAL : p === 'angebot' ? ['angebot', ...REIHE] : REIHE;
   const pos = reihe.indexOf(['pausiert'].includes(p) ? 'in_arbeit' : p);
   const rolle = ctx.ich.benutzer.rolle;
   const darfMelden = rolle === 'polier' && eigen(ctx, b) && p === 'in_arbeit' && !b.fertigmeldung;
@@ -101,7 +107,7 @@ export function lebenslaufHtml(b, ctx, verlauf) {
 }
 export function abschlussHtml(b, ctx) {
   const p = phaseVon(b), heute = wienHeute();
-  if (!b.abnahmeDatum && !b.gewaehrleistungBis && !b.haftruecklass && !['abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert'].includes(p)) return '';
+  if (!b.abnahmeDatum && !b.gewaehrleistungBis && !b.haftruecklass && !['abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert', 'abgeschlossen'].includes(p)) return '';
   const darf = planer(ctx), h = b.haftruecklass, hinweise = [];
   if (b.gewaehrleistungBis) { const t = tageBis(b.gewaehrleistungBis, heute); if (t < 0) hinweise.push(['info', 'Gewährleistung abgelaufen.']); else if (t <= 92) hinweise.push(['warn', `Gewährleistung endet in ${t} Tagen – Schlussbegehung einplanen.`]); }
   if (h && h.bankgarantieBis && !h.freigegeben) { const t = tageBis(h.bankgarantieBis, heute); if (t >= 0 && t <= 30) hinweise.push(['warn', `Bankgarantie läuft in ${t} Tagen ab.`]); }
@@ -156,10 +162,15 @@ export function lebenslaufBinden(el, b, ctx) {
 
 /* ---------- Tafel (Spalten je Status) ---------- */
 const TAFEL = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen', 'schlussrechnung', 'bezahlt'];
+// 15.11: ohne Zahlungsstand keine Spalten „Schlussrechnung“/„Bezahlt“ (auch keine Zähler) – stattdessen „Abgeschlossen“
+const TAFEL_NEUTRAL = ['geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen', 'abgeschlossen'];
 export function tafelHtml(liste, ctx) {
-  return `<div class="ll-tafel-scroll" data-zieh-scroll><div class="ll-tafel" id="bv-tafel">${TAFEL.map((s) => { const l = liste.filter((b) => phaseVon(b) === s); return `<section class="ll-spalte" data-spalte="${s}" aria-label="${esc(phaseText(s))}"><h3>${esc(phaseText(s))} <span class="count">${l.length}</span></h3>
+  const spalten = siehtZahlungsstand(ctx) ? TAFEL : TAFEL_NEUTRAL;
+  // 15.11 (G2-025): die Bedienanleitung nur, wenn mindestens eine Karte verschoben werden kann (Regel 5)
+  const ziehbarIrgendwo = liste.some((b) => ziele(ctx, b).length);
+  return `<div class="ll-tafel-scroll" data-zieh-scroll><div class="ll-tafel" id="bv-tafel">${spalten.map((s) => { const l = liste.filter((b) => phaseVon(b) === s); return `<section class="ll-spalte" data-spalte="${s}" aria-label="${esc(phaseText(s))}"><h3>${esc(phaseText(s))} <span class="count">${l.length}</span></h3>
     <div class="ll-karten">${l.map((b) => { const z = ziele(ctx, b); return `<article class="ll-karte" ${z.length ? 'data-zieh' : ''} data-bv="${b.id}"><a href="#/baustelle/${b.id}"><small>${esc(b.kst || '')}</small><b>${esc(b.kurz || b.name)}</b></a><span class="muted sm">${esc(b.auftraggeber || '')}</span>${b.fertigmeldung ? '<span class="chip xs st-blue">Fertigstellung gemeldet</span>' : ''}${z.length ? `<button type="button" class="btn ghost sm" data-bv-weiter="${b.id}" data-ziel="${naechster(ctx, b) || ''}">${ic('right', 'xs')}${esc(naechster(ctx, b) ? phaseText(naechster(ctx, b)) : 'Status ändern')}</button>` : ''}</article>`; }).join('') || '<p class="muted sm ll-leer">–</p>'}</div></section>`; }).join('')}</div></div>
-    <p class="muted sm">Karte in die nächste Spalte ziehen – oder den Knopf auf der Karte verwenden.</p>`;
+    ${ziehbarIrgendwo ? '<p class="muted sm" id="bv-tafel-hinweis">Karte in die nächste Spalte ziehen – oder den Knopf auf der Karte verwenden.</p>' : ''}`;
 }
 export function tafelBinden(el, ctx, holListe, fertig) {
   const finde = (id) => holListe().find((b) => Number(b.id) === Number(id));

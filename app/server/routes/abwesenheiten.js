@@ -6,6 +6,7 @@ const { wienDatum, plusTage, deDatum, istArbeitstag, feiertag, wochentag } = req
 const crypto = require('node:crypto');
 const DS = require('../datenschutz'); // R-01…R-03: Krankenstand/Notizen nur für stammdaten/lohn und die Person selbst
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung'); // 15.3: Empfänger = wer entscheidet (stammdaten|lohn)
+const O = require('../oeffentlich'); // 15.11 (G2-017): nicht fortlaufende Kennungen für Polier/Mitarbeiter
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
 const CODE_TEXT = { K: 'Krankenstand', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich' };
@@ -18,8 +19,15 @@ const ANTRAG_SQL = "COALESCE(a.antrag_id, 'e' || a.id)";
 const neueAntragId = () => `a${crypto.randomBytes(6).toString('hex')}`;
 const tagKurz = (d) => `${WT[wochentag(d)]} ${d.slice(8, 10)}.${d.slice(5, 7)}.`;
 
-function json(a) {
-  const o = { id: a.id, antragId: antragId(a), benutzerId: a.benutzer_id, name: a.name, datum: a.datum, code: a.code, status: a.status, erfasst: a.erfasst, erfasstVon: a.erfasst_von };
+/** 15.11 (G2-017): Tabellen-IDs nur für Aufrufer mit Sicht auf alle Abwesenheiten (stammdaten/lohn) */
+const mitTabellenIds = (ctx) => DS.stufe(ctx) === 'voll';
+/** Kennung eines Eintrags für ctx */
+const idFuer = (db, ctx, id) => (mitTabellenIds(ctx) ? id : O.kennung(db, 'abwesenheit', id));
+/** Antrags-ID für ctx: zufällige antrag_id unverändert; Bestand ohne antrag_id („e<id>“) ohne Tabellen-ID */
+const antragIdFuer = (db, ctx, a) => (a.antrag_id || mitTabellenIds(ctx) ? antragId(a) : O.kennung(db, 'antrag', a.id));
+
+function json(a, db = null, ctx = null) {
+  const o = { id: db && ctx ? idFuer(db, ctx, a.id) : a.id, antragId: db && ctx ? antragIdFuer(db, ctx, a) : antragId(a), benutzerId: a.benutzer_id, name: a.name, datum: a.datum, code: a.code, status: a.status, erfasst: a.erfasst, erfasstVon: a.erfasst_von };
   if (a.notiz) o.notiz = a.notiz;
   if (a.antwort) o.antwort = a.antwort;
   // Betriebsurlaub: zählt (Konto, Monat, Lohn, BUAK) als U, ist aber eigens gekennzeichnet (API.md 12.19)
@@ -31,6 +39,18 @@ function json(a) {
 module.exports = function abwesenheitsRouten(api, bt) {
   const { db } = bt;
   const darfEntscheiden = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn');
+  const jsonFuer = (ctx) => (a) => json(a, db, ctx);
+  /**
+   * 15.11 (G2-017): Pfad-ID einer Abwesenheit – Tabellen-ID wie bisher (fremde Einträge bleiben „nicht gefunden“) oder die
+   * öffentliche Kennung eines EIGENEN Eintrags (unbekannte Kennung → null = nicht gefunden)
+   */
+  function abwIdAusPfad(ctx, roh) {
+    if (!O.istKennung('abwesenheit', roh)) return v.pfadId(roh, 'ID');
+    // Büro/Lohn (sehen alle) lösen auch Kennungen auf, die eine andere Person bekommen hat – sonst nur die eigenen
+    const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id FROM abwesenheit').map((x) => x.id)
+      : db.alle('SELECT id FROM abwesenheit WHERE benutzer_id = ?', ctx.benutzer.id).map((x) => x.id);
+    return O.aufloesen(db, 'abwesenheit', roh, kandidaten);
+  }
   const ENTSCHEIDEN_TEXT = 'Anträge entscheidet, wer das Recht stammdaten oder lohn hat (Büro, Bauleiter, Lohnverrechnung, GF).';
 
   /** Personen, deren Abwesenheiten der Benutzer sehen darf (null = alle) */
@@ -79,7 +99,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
     const ids = sichtbareIds(req.ctx);
     const z = db.alle(`SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id
       ${bed.length ? 'WHERE ' + bed.join(' AND ') : ''} ORDER BY a.datum DESC, b.name LIMIT 2000`, ...p);
-    res.json(z.filter((a) => !ids || ids.has(a.benutzer_id)).map(json).map((a) => DS.abwesenheitFuer(req.ctx, a)));
+    res.json(z.filter((a) => !ids || ids.has(a.benutzer_id)).map(jsonFuer(req.ctx)).map((a) => DS.abwesenheitFuer(req.ctx, a)));
   });
 
   /** Status und Rückdatierungs-Grenze je Rolle und Code (B-07, C-09, C-13, D-09) – auch für 12.24 */
@@ -144,16 +164,17 @@ module.exports = function abwesenheitsRouten(api, bt) {
         }
       }
     });
-    res.status(vorhanden ? 200 : 201).json({ id, antragId: antragId(db.eins('SELECT id, antrag_id FROM abwesenheit WHERE id = ?', id)), benutzerId, datum, code, status });
+    res.status(vorhanden ? 200 : 201).json({ id: idFuer(db, ctx, id), antragId: antragIdFuer(db, ctx, db.eins('SELECT id, antrag_id FROM abwesenheit WHERE id = ?', id)), benutzerId, datum, code, status });
   });
 
   api.put('/abwesenheiten/:id', (req, res) => {
     const ctx = req.ctx;
-    const id = v.pfadId(req.params.id, 'ID');
-    const a = db.eins('SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
     // 15.4 (F-012): entscheiden allein mit stammdaten|lohn – auch SW; die frühere Sonderregel „Bauleiter der
     // Stamm-Baustelle“ (D-09) entfällt (Bauleiter = Büro, 13.1; bauleiterId vergibt keine Rechte)
+    // 15.11 (G2-017): Recht vor der Pfad-ID (öffentliche Kennungen anderer Form → ebenfalls 403)
     if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT);
+    const id = abwIdAusPfad(ctx, req.params.id);
+    const a = id == null ? null : db.eins('SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id);
     if (!a) throw nichtGefunden('Abwesenheit nicht gefunden.');
     if (a.benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene Anträge entscheidet eine andere Person (Vier-Augen-Prinzip).');
     // 12.24: mehrtägige Anträge nur als Ganzes entscheiden (Entscheidung 13.11.2026)
@@ -170,13 +191,13 @@ module.exports = function abwesenheitsRouten(api, bt) {
       benachrichtige(db, { benutzerId: a.benutzer_id, typ: 'abwesenheit', titel: `${CODE_TEXT[a.code]} ${status}`, text: `Ihr Antrag (${CODE_TEXT[a.code]} am ${deDatum(a.datum)}) wurde ${status}.`, zeit, schluessel: `abw:${id}:${status}:${zeit}` });
     });
     if (a.antrag_id) swAbgleich(a.antrag_id, ctx.benutzer.id);
-    res.json(DS.abwesenheitFuer(ctx, json(db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id))));
+    res.json(DS.abwesenheitFuer(ctx, json(db.eins('SELECT a.*, b.name FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.id = ?', id), db, ctx)));
   });
 
   api.delete('/abwesenheiten/:id', (req, res) => {
     const ctx = req.ctx;
-    const id = v.pfadId(req.params.id, 'ID');
-    const a = db.eins('SELECT * FROM abwesenheit WHERE id = ?', id);
+    const id = abwIdAusPfad(ctx, req.params.id);
+    const a = id == null ? null : db.eins('SELECT * FROM abwesenheit WHERE id = ?', id);
     if (!a || !DS.siehtAbwesenheit(ctx, a.benutzer_id)) throw nichtGefunden('Abwesenheit nicht gefunden.'); // nie Auskunft über fremde Einträge
     const eigen = a.benutzer_id === ctx.benutzer.id;
     // Vier-Augen-Prinzip (7, 14.3): eigene entschiedene Abwesenheiten löscht nur eine andere Person – auch für Büro/GF
@@ -292,20 +313,34 @@ module.exports = function abwesenheitsRouten(api, bt) {
       if (!gruppen.has(k)) gruppen.set(k, []);
       gruppen.get(k).push(a);
     }
-    return [...gruppen].map(([k, l]) => {
+    return [...gruppen].map(([, l]) => {
       // Status gilt für den ganzen Antrag (kein „teilweise“, Entscheidung 13.11.2026); Bestand gemischt → offen vor genehmigt vor abgelehnt
       const st = ['beantragt', 'genehmigt', 'abgelehnt'].filter((x) => l.some((a) => a.status === x));
       const erst = l.reduce((m, a) => (a.erfasst < m.erfasst ? a : m), l[0]);
       return {
-        antragId: k, benutzerId: l[0].benutzer_id, name: l[0].name, code: DS.code(ctx, l[0].benutzer_id, l[0].code),
+        antragId: antragIdFuer(db, ctx, l[0]), benutzerId: l[0].benutzer_id, name: l[0].name, code: DS.code(ctx, l[0].benutzer_id, l[0].code),
         von: l[0].datum, bis: l[l.length - 1].datum, arbeitstage: l.length, status: st[0],
         notiz: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.notiz) || {}).notiz || '') || '', antwort: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.antwort) || {}).antwort || '') || '',
         erfasst: erst.erfasst, erfasstVon: erst.erfasst_von, ...(l.some((a) => a.betriebsurlaub) ? { art: 'betriebsurlaub' } : {}),
-        tage: l.map((a) => ({ id: a.id, datum: a.datum, status: a.status }))
+        tage: l.map((a) => ({ id: idFuer(db, ctx, a.id), datum: a.datum, status: a.status }))
       };
     });
   }
   const antragPfad = (roh) => { const x = String(roh || ''); if (!/^[a-z0-9]{1,40}$/.test(x)) throw ungueltig('antragId ist ungültig.'); return x; };
+  /**
+   * 15.11 (G2-017): Antrags-ID aus dem Pfad für ctx. Ohne Tabellen-IDs wird die Kennung eines eigenen Bestandsantrags
+   * („x…“) in die interne Form „e<id>“ übersetzt (fremde/unbekannte → nicht gefunden).
+   */
+  function antragAusPfad(ctx, roh) {
+    const x = antragPfad(roh);
+    if (O.istKennung('antrag', x)) {
+      const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id FROM abwesenheit WHERE antrag_id IS NULL').map((z) => z.id)
+        : db.alle('SELECT id FROM abwesenheit WHERE benutzer_id = ? AND antrag_id IS NULL', ctx.benutzer.id).map((z) => z.id);
+      const id = O.aufloesen(db, 'antrag', x, kandidaten);
+      return id == null ? '-' : `e${id}`;
+    }
+    return x;
+  }
 
   api.get('/abwesenheiten/antraege', (req, res) => {
     const q = req.query;
@@ -322,7 +357,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
   api.put('/abwesenheiten/antraege/:antragId', (req, res) => {
     const ctx = req.ctx;
     if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT); // 15.4 (F-012), 15.7 (F-036): Rechte vor Validierung und Existenz, nie nach Rollenname
-    const aid = antragPfad(req.params.antragId);
+    const aid = antragAusPfad(ctx, req.params.antragId); // 15.11 (G2-017): auch Kennungen
     const body = v.objekt(req.body);
     const status = v.auswahl(body.status, 'status', ['genehmigt', 'abgelehnt']);
     const antwortText = body.antwort == null || body.antwort === '' ? null : v.text(body.antwort, 'antwort', { max: 300 });
@@ -345,7 +380,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
 
   api.delete('/abwesenheiten/antraege/:antragId', (req, res) => {
     const ctx = req.ctx;
-    const aid = antragPfad(req.params.antragId);
+    const aid = antragAusPfad(ctx, req.params.antragId); // 15.11 (G2-017)
     const zeilen = db.alle(`SELECT a.* FROM abwesenheit a WHERE ${ANTRAG_SQL} = ?`, aid);
     if (!zeilen.length || !DS.siehtAbwesenheit(ctx, zeilen[0].benutzer_id)) throw nichtGefunden('Antrag nicht gefunden.');
     let weg;
@@ -371,7 +406,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
   api.post('/abwesenheiten/antraege/:antragId/korrektur', (req, res) => {
     const ctx = req.ctx;
     if (!darfEntscheiden(ctx)) throw keinZugriff('Korrekturen nimmt das Büro bzw. die Lohnverrechnung vor.');
-    const aid = antragPfad(req.params.antragId);
+    const aid = antragAusPfad(ctx, req.params.antragId); // 15.11 (G2-017): auch Kennungen
     const zeilen = db.alle(`SELECT a.* FROM abwesenheit a WHERE ${ANTRAG_SQL} = ? ORDER BY a.datum`, aid);
     if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
     if (zeilen[0].benutzer_id === ctx.benutzer.id) throw keinZugriff('Eigene entschiedene Abwesenheiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
