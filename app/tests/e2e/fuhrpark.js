@@ -211,6 +211,7 @@ async function mitarbeiter(h, z) {
   // Erst die Störung einrichten, dann wieder online gehen – sonst sendet die App beim „online“-Ereignis schneller als der Test (Wettlauf)
   await context.setOffline(false);
   await h.absichtlich(async () => {
+    await h.netzDa();
     // festes Signal statt fester Wartezeit: der erste Sendeversuch ist beim Server angekommen UND seine Antwort ging verloren
     for (let i = 0; i < 60 && !verlorenFertig; i++) { await sleep(250); if (i % 8 === 3 && !verloren) await page.click('[data-sch-senden]').catch(() => {}); }
     // die App hat den Fehlschlag verarbeitet: die Meldung steht wieder sendebereit in der Warteschlange
@@ -316,6 +317,7 @@ async function pruefbericht5(h, z) {
   });
   await context.setOffline(false);
   await h.absichtlich(async () => {
+    await h.netzDa();
     // Senden anstoßen, bis A dreimal gescheitert ist (auch der Hintergrund-Abgleich darf mitzählen)
     for (let i = 0; i < 8 && !(await warteschlange()).some((x) => x.zustand === 'fehler' && x.art === 'server'); i++) {
       const knopf = page.locator('[data-sch-senden]');

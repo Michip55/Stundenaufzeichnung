@@ -119,7 +119,9 @@ async function laufe(browser, g) {
   // Servicebuch-Prüfungen (tests/e2e/fuhrpark.js): Werkzeuge dieses Laufs und gemeinsamer Zustand über die Rollen hinweg
   const dialogUeberlauf = async (wo) => { const r = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => { const b = d.querySelector('.dlg-body'); return Math.max(d.scrollWidth - d.clientWidth, b ? b.scrollWidth - b.clientWidth : 0, d.getBoundingClientRect().right - window.innerWidth); })); pruef(r.every((x) => x <= 1), `[${wo}] Dialog läuft horizontal über (${r})`); };
   const heute = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(jetzt()));
-  const h = { page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
+  // Nach „wieder online“: festes Signal, dass der Server aus der Seite wirklich wieder erreichbar ist (unter Last dauert das Umschalten)
+  const netzDa = () => page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+  const h = { netzDa, page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
   const z = {};
 
   try {
@@ -161,7 +163,7 @@ async function laufe(browser, g) {
     await absichtlich(async () => {
       await context.setOffline(false);
       // erst wenn der Server wieder antwortet, das Nachsenden anstoßen – sonst scheitert der erste Versuch unter Last und der nächste kommt erst nach 15 s
-      await page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+      await netzDa();
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
       await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length === 0, null, { timeout: 30000, polling: 200 });
     });

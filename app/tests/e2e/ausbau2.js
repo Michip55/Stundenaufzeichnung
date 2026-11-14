@@ -614,7 +614,7 @@ async function planer(h, z) {
   await h.absichtlich(async () => {
     await context.setOffline(false);
     // erst wenn der Server wieder erreichbar ist, das Netz-Ereignis auslösen (sonst scheitert das Nachsenden unter Last noch einmal)
-    await page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+    await h.netzDa();
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     // Signal: Warteschlange leer UND der Server kennt den Status – erst dann verschwindet der Hinweis
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_fuhren_warten') || '[]').length === 0, null, { timeout: 20000, polling: 200 });
