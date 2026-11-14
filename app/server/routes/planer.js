@@ -118,9 +118,10 @@ module.exports = function planerRouten(api, bt) {
       }
       // G-14: gelöschte, schon veröffentlichte Einsätze und Fuhren sind unveröffentlichte Änderungen (Meldung erst beim Veröffentlichen)
       unveroeffentlicht += db.alle('SELECT baustelle_id FROM plan_einsatz WHERE datum = ? AND geloescht = 1 AND veroeffentlicht_stand IS NOT NULL', d).filter((e) => sicht(e.baustelle_id)).length;
-      unveroeffentlicht += db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND status = 'storniert' AND veroeffentlicht_stand IS NOT NULL", d).filter((f) => fuhreRechte(ctx, f)).length;
+      // N-021/N-060: auch neue und nach der Veröffentlichung geänderte Fuhren (stornierte veröffentlichte wie bisher)
+      unveroeffentlicht += P.offeneFuhren(db, d, K).filter((f) => fuhreRechte(ctx, f)).length;
       for (const k of kt) {
-        const betrifft = liste.filter((e) => (k.einsatzIds || []).includes(e.id) || (e.id == null && ((k.benutzerId && e.personen.some((p) => p.benutzer_id === k.benutzerId)) || (k.anlageId && e.anlagen.some((a) => a.anlage_id === k.anlageId)))));
+        const betrifft = liste.filter((e) => P.konflikteBetreffen(k, e));
         if (planer || betrifft.some((e) => sicht(e.baustelle_id)) || (k.fuhreIds && !k.einsatzIds.length)) {
           konflikte.push(planer ? k : { ...k, text: betrifft.every((e) => sicht(e.baustelle_id)) ? k.text : k.text.replace(/\(([^)]*)\)/, '(andere Baustelle)') });
         }
@@ -435,9 +436,11 @@ module.exports = function planerRouten(api, bt) {
       for (let i = 0; i < 7; i++) {
         const ziel = plusTage(von, i), quelle = plusTage(ziel, -7);
         if (ziel < plusTage(heute(), -7)) continue;
-        for (const e of P.ladeEinsaetze(db, quelle, quelle)) {
-          if (nur && !nur.has(e.baustelle_id)) continue;
-          if (!darfBearbeiten(req.ctx, e.baustelle_id)) continue;
+        const kopien = P.ladeEinsaetze(db, quelle, quelle).filter((e) => (!nur || nur.has(e.baustelle_id)) && darfBearbeiten(req.ctx, e.baustelle_id));
+        // N-016 (12.8c): ein Vorschau-Tag wird zuerst GANZ gespeichert (alle Vorschau-Zellen), dann wird kopiert –
+        // so verschwinden nicht gewählte Vorschau-Zellen nicht still, und vorhandene Zellen bleiben („vorhanden“)
+        if (kopien.length) P.materialisieren(bt, ziel, req.ctx.benutzer.id);
+        for (const e of kopien) {
           const bs = K.baustellen.get(e.baustelle_id);
           if (!bs || !P.PLANBAR.includes(bs.phase)) { uebersprungen.push({ datum: ziel, typ: 'baustelle', text: `${bs ? bs.kst : '?'} nicht planbar` }); continue; }
           if (db.eins('SELECT 1 AS x FROM plan_einsatz WHERE datum = ? AND baustelle_id = ? AND geloescht = 0', ziel, e.baustelle_id)) { uebersprungen.push({ datum: ziel, typ: 'vorhanden', text: `${bs.kst}: Zelle schon belegt` }); continue; }
@@ -483,8 +486,9 @@ module.exports = function planerRouten(api, bt) {
       baustellenFilter: (bsId) => planer || eigeneBs(req.ctx, bsId),
       fuhreFilter: (f) => planer || [JSON.parse(f.von), JSON.parse(f.nach)].some((h) => h.baustelleId && eigeneBs(req.ctx, h.baustelleId))
     });
-    if (trocken) return res.json({ empfaenger: r.empfaenger.map((e) => ({ benutzerId: e.benutzerId, name: e.name, art: e.art, datum: e.datum, ...(e.baustelleId ? { baustelleId: e.baustelleId } : {}), titel: e.titel, text: e.text })), anzahl: r.anzahl });
-    res.json({ benachrichtigt: r.anzahl, einsaetze: r.einsaetze, empfaenger: r.empfaenger });
+    // anzahl/benachrichtigt = tatsächlich eingefügte Meldungen (N-005/N-014), personen = verschiedene Empfänger (N-094)
+    if (trocken) return res.json({ empfaenger: r.empfaenger.map((e) => ({ benutzerId: e.benutzerId, name: e.name, art: e.art, datum: e.datum, ...(e.baustelleId ? { baustelleId: e.baustelleId } : {}), titel: e.titel, text: e.text })), anzahl: r.anzahl, personen: r.personen });
+    res.json({ benachrichtigt: r.anzahl, personen: r.personen, einsaetze: r.einsaetze, empfaenger: r.empfaenger });
   });
 
   /* ---------- Mein Einsatz ---------- */
@@ -513,10 +517,13 @@ module.exports = function planerRouten(api, bt) {
         if (t && t.telefon) inhalt.einsatz.polier.telefon = t.telefon; // 12.8d
       }
       const fuhren = inhalt ? inhalt.fuhren.map((fx) => { const r = db.eins('SELECT status FROM plan_fuhre WHERE id = ?', fx.id); return { ...fx, status: r ? r.status : 'storniert' }; }) : [];
-      tage.push({ datum: d, wochentag: W[wochentag(d)], einsatz: inhalt ? inhalt.einsatz : null, fuhren, gelesen: Boolean(z && z.gelesen), bestaetigt: Boolean(z && z.bestaetigt), geaendert: false, wieVortag });
+      // N-083: geaendert = die zuletzt gesendete Meldung für diesen Tag war eine Änderung („Geändert: …“)
+      tage.push({ datum: d, wochentag: W[wochentag(d)], einsatz: inhalt ? inhalt.einsatz : null, fuhren, gelesen: Boolean(z && z.gelesen), bestaetigt: Boolean(z && z.bestaetigt), geaendert: Boolean(inhalt && z.art === 'geaendert'), wieVortag });
       if (z && z.inhalt && !z.gelesen) db.lauf('UPDATE plan_mitteilung SET gelesen = ? WHERE benutzer_id = ? AND datum = ?', jetzt(), ich, d);
     }
-    const morgen = P.naechsterArbeitstag(h);
+    // N-058: nächster Einsatztag – ein Sa/So/Feiertag mit veröffentlichtem Einsatz bzw. Fuhren vor dem nächsten Arbeitstag zählt
+    const hat = (x) => { const t = tage.find((y) => y.datum === x); return Boolean(t && (t.einsatz || t.fuhren.length)); };
+    const morgen = P.naechsterEinsatztag(h, hat);
     const mt = tage.find((t) => t.datum === morgen);
     res.json({ morgen: mt && (mt.einsatz || mt.fuhren.length) ? mt : null, tage });
   });
@@ -532,7 +539,16 @@ module.exports = function planerRouten(api, bt) {
   api.get('/plan/partie', (req, res) => {
     const ich = req.ctx.benutzer;
     if (!['polier', 'bauleiter'].includes(ich.rolle) && !istPlaner(req.ctx)) throw keinZugriff('„Meine Partie“ ist für Poliere.');
-    const d = req.query.datum ? v.datum(String(req.query.datum), 'datum') : P.naechsterArbeitstag(heute()); // G-05: nächster Arbeitstag
+    // G-05: nächster Arbeitstag; N-058: ein Sa/So/Feiertag davor mit veröffentlichtem Einsatz der Partie bzw. Fuhre geht vor
+    let Kx = null;
+    const meinTag = (x) => {
+      Kx = Kx || kontext(x, x);
+      return db.alle('SELECT veroeffentlicht_stand FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', x).map((e) => JSON.parse(e.veroeffentlicht_stand))
+        .some((st) => st.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, Kx.baustellen.get(st.baustelleId)))
+        || db.alle("SELECT veroeffentlicht_stand FROM plan_fuhre WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL AND status <> 'storniert'", x).map((f) => JSON.parse(f.veroeffentlicht_stand))
+          .some((st) => st.nach && st.nach.baustelleId && baustelleImBereich(ich, Kx.baustellen.get(st.nach.baustelleId)));
+    };
+    const d = req.query.datum ? v.datum(String(req.query.datum), 'datum') : P.naechsterEinsatztag(heute(), meinTag);
     const K = kontext(d, d);
     const lese = new Map(db.alle('SELECT benutzer_id, gelesen, bestaetigt FROM plan_mitteilung WHERE datum = ?', d).map((x) => [x.benutzer_id, x]));
     const S = K.S;
@@ -634,7 +650,10 @@ module.exports = function planerRouten(api, bt) {
       if (darfKalk(ctx, b)) { try { o.baustelle.leistungsstandProzent = kalkulationFuer(db, b).leistungsstandProzent; } catch (_) { /* egal */ } }
       return o;
     });
-    res.json({ bauvorhaben, filter, archivAnzahl: alle.filter((b) => b.phase === 'archiviert').length });
+    // N-114: Zähler zusätzlich als Liste – der Schlüssel „schlussrechnung“ in `filter` fällt für Rollen ohne preise_sehen dem
+    // €-Sicherheitsnetz (Schlüsselname) zum Opfer; die Phase als Wert ist kein €-Feld
+    const phasen = Object.entries(filter).map(([phase, anzahl]) => ({ phase, anzahl }));
+    res.json({ bauvorhaben, filter, phasen, archivAnzahl: alle.filter((b) => b.phase === 'archiviert').length });
   });
   function abschnittFelder(body, teil) {
     const f = {};
@@ -772,6 +791,20 @@ module.exports = function planerRouten(api, bt) {
     if (!fuhreRechte(req.ctx, { von: f.von || alt.von, nach: f.nach || alt.nach })) throw keinZugriff();
     const k = Object.keys(f);
     if (!k.length) throw ungueltig('Keine Änderungen angegeben.');
+    // N-021/N-041: Eine veröffentlichte Fuhre wird auf einen anderen Tag VERSCHOBEN = am alten Tag storniert (offene Änderung,
+    // „Fuhre entfällt“ mit der nächsten Veröffentlichung) und am neuen Tag als neue, unveröffentlichte Fuhre angelegt
+    if (f.datum && f.datum !== alt.datum && alt.veroeffentlicht_zeit) {
+      if (alt.status !== 'geplant') throw konflikt('Die Fuhre ist schon unterwegs – sie kann nicht mehr auf einen anderen Tag verschoben werden.');
+      const neuId = db.transaktion(() => {
+        db.lauf("UPDATE plan_fuhre SET status = 'storniert', version = version + 1, geaendert = ? WHERE id = ?", jetzt(), alt.id);
+        const id = fuhreKopieren(req, { ...alt, ...f }, f.datum);
+        prot(req, `fuhre:${alt.id}`, `Fuhre ${alt.id} vom ${P.de(alt.datum)} auf ${P.de(f.datum)} verschoben (neu: Fuhre ${id})`, { von: alt.datum, nach: f.datum, neu: id });
+        return id;
+      });
+      const r = fuhreAntwort(neuId);
+      r.j.ersetzt = alt.id;
+      return senden(res, r);
+    }
     db.lauf(`UPDATE plan_fuhre SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1, geaendert = ? WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), alt.id);
     senden(res, fuhreAntwort(alt.id));
   });
@@ -779,6 +812,9 @@ module.exports = function planerRouten(api, bt) {
   api.delete('/plan/fuhren/:id', (req, res) => {
     const f = fuhreLaden(req);
     if (!fuhreRechte(req.ctx, f)) throw keinZugriff();
+    // N-022/N-040: wie PUT – eine erledigte (gefahrene) Fuhre steht im Bautagesbericht bzw. als Vorschlag; Korrektur dort
+    if (f.status === 'erledigt') throw konflikt('Die Fuhre ist schon abgeladen gemeldet und kann nicht mehr storniert werden – die Menge bitte im Bautagesbericht korrigieren.');
+    if (f.status === 'storniert') throw konflikt('Die Fuhre ist schon storniert.');
     db.transaktion(() => {
       if (f.veroeffentlicht_zeit) db.lauf("UPDATE plan_fuhre SET status = 'storniert', version = version + 1, geaendert = ? WHERE id = ?", jetzt(), f.id);
       else db.lauf('DELETE FROM plan_fuhre WHERE id = ?', f.id);
@@ -796,9 +832,12 @@ module.exports = function planerRouten(api, bt) {
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', v.id(body.id, 'id'));
     if (!f) throw nichtGefunden('Fuhre nicht gefunden.');
     if (!fuhreRechte(req.ctx, f)) throw keinZugriff();
-    const tage = v.liste(body.tage, 'tage', { max: 31 }).map((d, i) => datumPruefen(d, `tage[${i}]`));
+    const alleTage = v.liste(body.tage, 'tage', { max: 31 }).map((d, i) => datumPruefen(d, `tage[${i}]`));
+    // N-092: Sa/So und Feiertage werden übersprungen und gemeldet (wie „wie Vortag“ nur Arbeitstage)
+    const tage = alleTage.filter((d) => istArbeitstag(d));
+    const uebersprungen = alleTage.filter((d) => !istArbeitstag(d)).map((d) => ({ datum: d, text: `${P.deKurz(d)}: ${feiertag(d) ? `Feiertag (${feiertag(d)})` : 'kein Arbeitstag'} – nicht kopiert` }));
     const angelegt = db.transaktion(() => tage.map((d) => fuhreKopieren(req, f, d)));
-    res.json({ angelegt });
+    res.json({ angelegt, uebersprungen });
   });
   api.post('/plan/fuhren/wie-vortag', (req, res) => {
     if (!istLeser(req.ctx)) throw keinZugriff();
@@ -824,6 +863,15 @@ module.exports = function planerRouten(api, bt) {
         if (f.status === 'erledigt') throw konflikt('Die Fuhre ist schon erledigt.');
         db.lauf("UPDATE plan_fuhre SET status = 'unterwegs', version = version + 1 WHERE id = ?", f.id);
       } else {
+        if (f.status === 'erledigt') {
+          // N-039/N-062: schon abgeladen gemeldet – dieselbe Meldung (z. B. aus der Warteschlange) ist harmlos,
+          // eine andere Menge/Einheit würde Fuhre und Berichtszeile auseinanderlaufen lassen → 409
+          const e0 = JSON.parse(f.erledigt || 'null') || {};
+          const m = body.menge !== undefined ? Math.round(v.zahl(body.menge, 'menge', { min: 0.001, max: 100000 }) * 1000) / 1000 : e0.menge;
+          const eh = body.einheit !== undefined ? v.auswahl(body.einheit, 'einheit', ['t', 'm3', 'fuhren']) : e0.einheit;
+          if (m !== e0.menge || eh !== e0.einheit) throw konflikt(`Die Fuhre ist schon abgeladen gemeldet (${String(e0.menge).replace('.', ',')} ${e0.einheit === 'm3' ? 'm³' : e0.einheit}). Eine andere Menge korrigiert das Büro im Bautagesbericht.`);
+          return;
+        }
         const erl = JSON.parse(f.erledigt || 'null') || {};
         const neu = {
           menge: body.menge !== undefined ? Math.round(v.zahl(body.menge, 'menge', { min: 0.001, max: 100000 }) * 1000) / 1000 : erl.menge ?? f.menge,
@@ -888,7 +936,7 @@ module.exports = function planerRouten(api, bt) {
     let n = 0;
     db.transaktion(() => {
       for (const id of ids) {
-        const f = db.eins("SELECT * FROM plan_fuhre WHERE id = ? AND bericht_status = 'vorschlag' AND datum = ? AND json_extract(nach, '$.baustelleId') = ?", id, b.datum, b.baustelle_id);
+        const f = db.eins("SELECT * FROM plan_fuhre WHERE id = ? AND bericht_status = 'vorschlag' AND status = 'erledigt' AND datum = ? AND json_extract(nach, '$.baustelleId') = ?", id, b.datum, b.baustelle_id); // N-023: nie stornierte
         if (!f) continue;
         F.zeileHinzufuegen(db, b.id, f.material_id, f.bericht_menge);
         db.lauf("UPDATE plan_fuhre SET bericht_status = 'uebernommen', bericht_id = ? WHERE id = ?", b.id, f.id);
@@ -982,14 +1030,15 @@ module.exports = function planerRouten(api, bt) {
       einsaetze = liste.filter((e) => sicht(e.baustelle_id)).map((e) => ({ ...P.einsatzJson(e, K, { notizen: true }), vorschau: Boolean(vorschau) }));
       for (const e of einsaetze) { const bs = K.baustellen.get(e.baustelleId) || {}; e.polier = bs.polier_id ? { id: bs.polier_id, name: (K.personen.get(bs.polier_id) || {}).name } : null; }
       fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND status <> 'storniert' ORDER BY anlage_id, reihenfolge, id", d)
-        .filter((f) => fuhreRechte(ctx, f)).map((f) => F.fuhreJson(db, f, K));
-      entwurf = Boolean(vorschau) || !einsaetze.length || einsaetze.some((e) => !e.veroeffentlicht || e.geaendertNachVeroeffentlichung)
-        || fuhren.some((f) => !f.veroeffentlicht);
+        .filter((f) => fuhreRechte(ctx, f)).map((f) => ({ ...F.fuhreJson(db, f, K), geaendertNachVeroeffentlichung: F.fuhreOffen(db, f, K) && Boolean(f.veroeffentlicht_zeit) })); // N-077
+      entwurf = Boolean(vorschau);
     }
     if (filter) {
       einsaetze = einsaetze.filter((e) => filter.has(e.baustelleId));
       fuhren = fuhren.filter((f) => [f.von, f.nach].some((h) => h && filter.has(h.baustelleId)));
     }
+    // N-079 (12.23): Wasserzeichen nur nach den GEZEIGTEN Einsätzen und Fuhren
+    if (rolle !== 'polier') entwurf = entwurf || !einsaetze.length || einsaetze.some((e) => !e.veroeffentlicht || e.geaendertNachVeroeffentlichung) || fuhren.some((f) => !f.veroeffentlicht || f.geaendertNachVeroeffentlichung);
     const zeiten = einsaetze.map((e) => e.veroeffentlichtUm).filter(Boolean).sort();
     const bloecke = einsaetze.sort((a, b) => String(a.baustelle.kst).localeCompare(String(b.baustelle.kst))).map((e) => ({
       baustelleId: e.baustelleId, kst: e.baustelle.kst, name: e.baustelle.name, adresse: e.baustelle.adresse || '',
