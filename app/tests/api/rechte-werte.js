@@ -160,6 +160,8 @@ function personVon(x, namen) {
   if (Number.isInteger(x.person)) return x.person;
   if (x.benutzer && typeof x.benutzer === 'object' && Number.isInteger(x.benutzer.id)) return x.benutzer.id;
   if (typeof x.name === 'string' && namen.has(x.name)) return namen.get(x.name);
+  // G2-005: Name in anderer Schreibweise (Nachname Vorname, Initiale, klein, ohne Akzente)
+  for (const k of ['name', 'person', 'mitarbeiter', 'wer']) if (typeof x[k] === 'string') { const id = require('./rechte-werte-g2').personAusName(x[k], namen); if (id !== undefined) return id; }
   return undefined;
 }
 
@@ -232,4 +234,4 @@ function abwesenheitText(text, o, wo, { fenster = 0 } = {}) {
   return v;
 }
 
-module.exports = { PREIS_SPALTEN, KEINE_PREIS_SPALTEN, unentschiedeneSpalten, pflanzeGeldKanarien, betragSchluessel, geldIndex, werteAus, findeGeld, abwesenheitJson, abwesenheitText, personVon, ABW_WERTE, ABW_WORT };
+module.exports = { ...require('./rechte-werte-g2'), PREIS_SPALTEN, KEINE_PREIS_SPALTEN, unentschiedeneSpalten, pflanzeGeldKanarien, betragSchluessel, geldIndex, werteAus, findeGeld, abwesenheitJson, abwesenheitText, personVon, ABW_WERTE, ABW_WORT };

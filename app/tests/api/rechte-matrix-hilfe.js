@@ -16,7 +16,7 @@ const os = require('node:os');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { starte, U, BS } = require('./hilfe');
-const { testJpeg, testPng } = require('./fuhrpark-bilder');
+const { testJpeg } = require('./fuhrpark-bilder');
 const W = require('./rechte-werte');
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
@@ -116,6 +116,8 @@ function verboteneKanarien(rolle) {
     text('planNotizGastFremd'); // F-057 (15.7): Personen-Notiz eines Gasts aus fremder Partie
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
+    // G2-008 (Regel 2): keine Lohngruppe in irgendeiner Form – ID, Name und KV jeder Person (auch der eigenen)
+    for (const l of ZUSTAND.lohn || []) k.push({ name: `Lohngruppe ${l.id} (Person ${l.person})`, formen: [l.name, l.kv, l.id] });
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
     ['smtp', 'alarmAn'].forEach(text); // SMTP-Einstellungen: nur Recht `benutzer` (GF)
   }
@@ -134,7 +136,17 @@ function ladeZustand(F) {
   for (const g of Object.keys(GELD)) for (const [k, w] of Object.entries(GELD[g])) handGeld.push({ name: `€ ${g}.${k}=${w}`, wert: w });
   ZUSTAND.kanarien = handGeld.concat(F && F.geldKanarien ? F.geldKanarien : []);
   ZUSTAND.geld = W.geldIndex(ZUSTAND.kanarien);
+  // G2-007: abgeleitete Beträge (Menge × EP, Summen, Prozente der Auftragssumme) – eigener Index, sichere Schlüssel
+  W.geldIndexAbgeleitet((F && F.abgeleitet) || [], ZUSTAND.geld);
+  ZUSTAND.prozente = (F && F.prozente) || [];
   ZUSTAND.namen = new Map(((F && F.personen) || []).map((p) => [p.name, p.id]));
+  ZUSTAND.pnr = new Map(((F && F.personen) || []).filter((p) => p.pnr).map((p) => [p.id, p.pnr]));
+  // G2-004/G2-006: Abwesenheiten, Einsätze und Stamm-Baustellen der Testdaten (Korrelation, Tageszahlen)
+  ZUSTAND.abw = (F && F.abwDaten) || null;
+  // G2-008: Lohngruppen-Kanarien (ID, Name, KV je Person)
+  ZUSTAND.lohn = (F && F.lohnKanarien) || [];
+  // G2-009: Bild-Kanarien (fremde Liefer-/Wiegescheine)
+  ZUSTAND.bilder = (F && F.bildKanarien) || [];
   ZUSTAND.geheim = (F && F.geheim) || [];
   ZUSTAND.ignorieren = (F && F.firma) ? [F.firma, require('../../server/pdf').winAnsi(F.firma)] : [];
   return ZUSTAND;
@@ -315,7 +327,9 @@ const EIGENE_ROUTEN = Object.keys(EIGENE_PFADE);
 
 /** Optionen der wertbasierten Abwesenheitsprüfung (eigene ID, Namen, Notiz-Kanarien, eigene Pfade der Route) */
 function abwOpt(rolle, k) {
-  return { ich: k.ich !== undefined ? k.ich : ID[rolle], namen: ZUSTAND.namen, texte: ABW_TEXTE.map((x) => TEXT[x]), ignorieren: ZUSTAND.ignorieren };
+  const ich = k.ich !== undefined ? k.ich : ID[rolle];
+  const K = W.abwKandidaten(ZUSTAND.abw, ich);
+  return { ich, namen: ZUSTAND.namen, pnr: ZUSTAND.pnr, abw: ZUSTAND.abw, zaehl: K ? K.zaehlText : null, texte: ABW_TEXTE.map((x) => TEXT[x]), ignorieren: ZUSTAND.ignorieren };
 }
 
 /** Darf diese Rolle (in dieser Variante) €-Schlüssel sehen? */
@@ -341,6 +355,71 @@ function ohneEigenenLieferscheinText(rolle, r, k) {
   if (!(r.status === 200 || r.status === 201) || !d || typeof d !== 'object' || Buffer.isBuffer(d) || typeof d.text !== 'string') return r;
   if (!d.foto || d.foto.art !== 'lieferschein' || !d.foto.erstelltVon || d.foto.erstelltVon.id !== ich) return r;
   return { ...r, daten: { ...d, text: '[eigener Lieferschein – OCR-Text erlaubt, N-112]', unklar: [], vorschlag: null } };
+}
+
+/** Alle Strings einer JSON-Antwort, die ein Kürzel oder Abwesenheitswort enthalten (Vorfilter für G2-005/G2-006) */
+function jsonTexte(x, pfad, f) {
+  if (typeof x === 'string') { if (x.length >= 3 && (W.CODE_TOKEN.test(x) || W.ABW_WORT_G2.test(x))) f(x, pfad); return; }
+  if (Array.isArray(x)) return x.forEach((e, i) => jsonTexte(e, `${pfad}[${i}]`, f));
+  if (x && typeof x === 'object') for (const [k, w] of Object.entries(x)) jsonTexte(w, `${pfad}.${k}`, f);
+}
+
+/** G2-005/G2-006 für Textformate: je Zeile; bei PDFs mit den folgenden Textstücken bis zum nächsten Personennamen */
+function textFormatAbwesenheit(inhalt, ao, wo, fenster) {
+  const zeilen = String(inhalt).split('\n');
+  const namen = [...ao.namen.keys()].flatMap((n) => [n, require('../../server/pdf').winAnsi(n)]);
+  const v = new Set();
+  for (let i = 0; i < zeilen.length; i++) {
+    let stueck = zeilen[i];
+    for (let j = i + 1; j <= i + fenster && j < zeilen.length; j++) { if (namen.some((n) => zeilen[j].includes(n))) break; stueck += ' ' + zeilen[j]; }
+    if (!(W.CODE_TOKEN.test(stueck) || W.ABW_WORT_G2.test(stueck))) continue;
+    for (const b of W.textAbwesenheit(stueck, ao)) v.add(`${wo}: ${b}`);
+    if (v.size >= 5) break;
+  }
+  return [...v];
+}
+
+/**
+ * G2-006: Abwesenheitswörter (Urlaub, Krank, Zeitausgleich, abwesend …) erreichen Polier/Mitarbeiter nur in EIGENEN
+ * Einträgen (Objekt mit eigener Personen-Kennung bzw. eigener Pfad der Route) und an den begründeten Stellen unten.
+ */
+const ABW_WORT_ERLAUBT = [
+  // Ablehnungstexte („Abwesenheiten anderer erfasst das Büro.“, „Urlaubskonten pflegen Büro bzw. Lohnverrechnung.“):
+  // allgemeine Begründung ohne Zahl – Namen und Zählungen darin meldet textAbwesenheit trotzdem
+  // (Feldangaben wie „personal[0].code“ zählen nicht als Zahl)
+  { route: '*', pfad: /^\$\.fehler$/, wert: (x) => !/\d/.test(x.replace(/\b\w+(?:\[\d+\])+(?:\.\w+)*/g, '')), grund: 'allgemeiner Ablehnungstext ohne Zahl' }
+];
+// Antworten, die als Ganzes Einträge des Aufrufers sind: seine Benachrichtigungen (Posteingang) und Push-Meldungen –
+// Namen und Zählungen darin prüft textAbwesenheit weiter
+const EIGENER_POSTEINGANG = /^\w+ \/api\/(benachrichtigungen|push)\b|^DB benachrichtigung$|^PUSH$/;
+function abwWortAusserhalbEigener(daten, ao, k, wo) {
+  if (EIGENER_POSTEINGANG.test(k.route)) return [];
+  const v = [];
+  const lauf = (x, pfad, eigen) => {
+    if (typeof x === 'string') {
+      if (eigen) return;
+      x = x.replace(/(?:https?:\/\/|#\/|\/api\/)[^\s"']*/g, ' '); // Adressen (#/urlaub, /api/urlaub/…) sind kein Inhalt
+      if (!W.ABW_WORT_G2.test(x)) return;
+      if (ABW_WORT_ERLAUBT.some((a) => (a.route === '*' || a.route === k.route) && a.pfad.test(pfad) && (!a.wert || a.wert(x)))) return;
+      if (process.env.BAUTAG_G2_LOG) require('node:fs').appendFileSync(process.env.BAUTAG_G2_LOG, `${k.route}\t${pfad}\t${x.slice(0, 120).replace(/\s+/g, ' ')}\n`);
+      v.push(`${wo}: Abwesenheitswort außerhalb eigener Einträge bei ${pfad}: „${x.slice(0, 100)}“`);
+      return;
+    }
+    if (Array.isArray(x)) return x.forEach((e, i) => lauf(e, `${pfad}[${i}]`, eigen));
+    if (x && typeof x === 'object') {
+      // eigen: Objekt mit eigener Personen-Kennung (vererbt an Unterobjekte ohne Kennung) oder genau ein eigener Pfad der
+      // Route (EIGENE_PFADE, z. B. $.abwesenheit in /zeit/status – nicht vererbt: $.team darunter ist nicht „eigen“)
+      const p = W.personVon(x, ao.namen);
+      const pfadEigen = Boolean(EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad));
+      const e2 = p !== undefined ? (p === ao.ich ? 'person' : false) : eigen === 'person' ? 'person' : pfadEigen ? 'pfad' : false;
+      for (const [kk, w] of Object.entries(x)) {
+        if (typeof w === 'string') lauf(w, `${pfad}.${kk}`, e2);
+        else lauf(w, `${pfad}.${kk}`, e2 === 'person' ? 'person' : false);
+      }
+    }
+  };
+  lauf(daten, '$', false);
+  return process.env.BAUTAG_G2_LOG ? [] : v;
 }
 
 /**
@@ -409,7 +488,14 @@ async function scanne(rolle, r0, k) {
       };
       aLauf(r.daten, '$');
       // F-040: wertbasiert – fremde Person (jede Kennung) + Abwesenheitswert unter beliebigem Schlüssel
-      v.push(...W.abwesenheitJson(r.daten, abwOpt(rolle, k), wo));
+      const ao = abwOpt(rolle, k);
+      v.push(...W.abwesenheitJson(r.daten, ao, wo));
+      // G2-004/G2-006: Korrelation mit den Abwesenheiten der Testdaten (ID-Listen, Merker in Personenlisten, Tageswerte)
+      v.push(...W.abwesenheitKorrelation(r.daten, ao, wo, W.personVon));
+      // G2-005/G2-006: jeder Text der Antwort – fremde Namen in jeder Schreibweise neben Kürzel/Wort, Zählungen
+      jsonTexte(r.daten, '$', (x, pfad) => { for (const b of W.textAbwesenheit(x, ao)) v.push(`${wo}: ${b} bei ${pfad}`); });
+      // G2-006: Abwesenheitswörter nur in eigenen Einträgen (und an begründeten Stellen)
+      v.push(...abwWortAusserhalbEigener(r.daten, ao, k, wo));
     }
   }
   // 2) Text: €-Beträge und Kanarienvögel (alle Formate, auch Fehlermeldungen)
@@ -421,6 +507,10 @@ async function scanne(rolle, r0, k) {
   for (const g of ZUSTAND.geheim || []) if (g.id !== ichSelbst && text.includes(g.wert)) v.push(`${wo}: ${g.art} von Person ${g.id} in der Antwort an ${ichSelbst}`);
   const geldFunde = feld ? W.findeGeld(text, ZUSTAND.geld) : [];
   for (const g of geldFunde.slice(0, 5)) v.push(`${wo}: Geld-Kanarie ${g.name} als „${g.form}“ („…${text.slice(Math.max(0, g.stelle - 50), g.stelle + g.form.length + 20).replace(/\s+/g, ' ')}…“)`);
+  // G2-007: Anteil abgeleiteter €-Summen an der Auftragssumme („… 12,34 %“)
+  if (feld) for (const g of W.findeProzent(text, ZUSTAND.prozente).slice(0, 3)) v.push(`${wo}: Prozent aus €-Beträgen (${g.name}) als „${g.form}“`);
+  // G2-009: fremde Liefer-/Wiegeschein-Bilder (Datei, Bilddaten im PDF, Pixelzeilen, Base64, Bild-Adresse)
+  if (feld) for (const b of W.findeBild(r, ZUSTAND.bilder.filter((x) => x.von !== ichSelbst))) v.push(`${wo}: Bild-Kanarie ${b.name} gefunden (${b.fund})`);
   if (k.nurKanarien) {
     for (const kan of verboteneKanarien(rolle)) for (const f of kan.formen) if (text.includes(f)) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden`); break; }
     return v;
@@ -431,7 +521,10 @@ async function scanne(rolle, r0, k) {
     // F-023: Textformate (PDF/CSV/XLSX/Text) – Name einer anderen Person neben einem Abwesenheitswert
     if (typeof r.daten === 'string' || Buffer.isBuffer(r.daten)) {
       const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
-      v.push(...W.abwesenheitText(await antwortText(r, { ohneKopf: true }), abwOpt(rolle, k), wo, { fenster: /pdf/.test(ct) ? 6 : 0 }));
+      const inhalt = await antwortText(r, { ohneKopf: true });
+      v.push(...W.abwesenheitText(inhalt, abwOpt(rolle, k), wo, { fenster: /pdf/.test(ct) ? 6 : 0 }));
+      // G2-005/G2-006: Zeile (PDF: Textstück + folgende bis zum nächsten Namen) – jede Schreibweise, Kürzel, Zählungen
+      if (!/^image\//.test(ct)) v.push(...textFormatAbwesenheit(inhalt, abwOpt(rolle, k), wo, /pdf/.test(ct) ? 6 : 0));
     }
     v.push(...W.abwesenheitText(kopfText(r.headers), abwOpt(rolle, k), `${wo} (Kopfzeilen)`));
   }
@@ -781,7 +874,8 @@ async function erstelleBasis() {
     F.anfrage.bs3 = (await erwarte(await pol13.post('/plan/anfragen', { datum: morgen, einsatzId: e3.id, text: 'Bitte Bagger tauschen' }), 201, 'Anfrage BS3')).id;
     F.fuhreFoto = {};
     // N-112 (15.7): Wiegeschein der Fuhre BS1 lädt der eingeteilte Fahrer (Mitarbeiter 2) selbst hoch, den der Fuhre BS3 die GF
-    for (const k of ['bs1', 'bs3']) F.fuhreFoto[k] = (await erwarte(await (k === 'bs1' ? c.mitarbeiter : gf).post(`/plan/fuhren/${F.fuhre[k]}/foto`, { bildBase64: b64(testJpeg()), dateiname: 'ls.jpg' }), 201, 'Fuhren-Foto')).id;
+    // G2-009: der Wiegeschein der GF trägt ein eindeutiges Pixelmuster (Bild-Kanarie)
+    for (const k of ['bs1', 'bs3']) F.fuhreFoto[k] = (await erwarte(await (k === 'bs1' ? c.mitarbeiter : gf).post(`/plan/fuhren/${F.fuhre[k]}/foto`, { bildBase64: b64(k === 'bs1' ? testJpeg() : W.musterPng('fuhre-bs3-gf')), dateiname: k === 'bs1' ? 'ls.jpg' : 'ws.png' }), 201, 'Fuhren-Foto')).id;
 
     // --- Berichte: je Baustelle ein Entwurf von heute (für Schreibproben) + bestehende (unterschrieben/freigegeben)
     F.bericht = {};
@@ -791,9 +885,10 @@ async function erstelleBasis() {
       F.bericht[`${kk}Alt`] = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status <> 'entwurf' ORDER BY datum DESC", bs).id;
       const foto = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/fotos`, { bildBase64: b64(testJpeg()), dateiname: 'foto.jpg', beschreibung: 'Foto' }), 201, 'Berichtsfoto');
       F.bericht[`${kk}Foto`] = foto.id;
-      if (kk === 'bs1') { // N-112 (15.7): Lieferschein der GF (Preis im OCR-Text, Kanarie in der Beschreibung) – vor dem Fern-Link (Version)
+      { // N-112 (15.7): Lieferschein der GF (Preis im OCR-Text, Kanarie in der Beschreibung) – vor dem Fern-Link (Version)
+        // G2-009: je Baustelle ein eigenes, eindeutiges Pixelmuster (Bild-Kanarie), damit das BILD auch ohne Text erkannt wird
         await erwarte(await gf.post('/test/ocr', { text: `${TEXT.lieferschein}\nKies 16/32 12,5 t Preis 12,50 EUR/t` }), 200, 'OCR-Attrappe');
-        F.bericht.bs1Lieferschein = (await erwarte(await gf.post(`/berichte/${F.bericht.bs1}/lieferschein`, { bildBase64: b64(testPng()), dateiname: 'ls.png', beschreibung: TEXT.lieferschein }), 201, 'Lieferschein')).foto.id;
+        F.bericht[`${kk}Lieferschein`] = (await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/lieferschein`, { bildBase64: b64(W.musterPng(`lieferschein-${kk}-gf`)), dateiname: 'ls.png', beschreibung: TEXT.lieferschein }), 201, 'Lieferschein')).foto.id;
         await erwarte(await gf.post('/test/ocr', { text: null }), 200, 'OCR-Attrappe zurück');
       }
       const link = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/unterschrift-link`, { rolle: 'bh', name: 'Bauherr' }), 201, 'Fern-Link');
@@ -842,11 +937,17 @@ async function erstelleBasis() {
       s.db.lauf('UPDATE benutzer SET pin_hash = (SELECT pin_hash FROM benutzer WHERE id = ?), muss_pin_aendern = 0 WHERE id = ?', U.buero, F.peer[rolle]);
     }
     await Promise.allSettled(s.app.bt.laufend || []);
+    // G2-008: je Person eine eigene Lohngruppe mit Kanarien-ID/-Name/-KV (vor den Geld-Kanarien: Sätze werden Kanarien)
+    F.lohnKanarien = W.pflanzeLohnKanarien(s.db);
     // F-022: Kanarien-Beträge in JEDER Preis-Spalte (Positionen-EP, Kostensätze, Rechnungen, Zahlungen, Reparaturkosten, Budget …)
     const hand = [];
     for (const g of Object.keys(GELD)) hand.push(...Object.values(GELD[g]));
     F.geldKanarien = W.pflanzeGeldKanarien(s.db, hand);
-    F.personen = s.db.alle('SELECT id, name FROM benutzer ORDER BY id');
+    // G2-007: Beträge, die sich aus den Kanarien-Preisen und den Mengen/Stunden der Testdaten ergeben
+    const abg = W.abgeleiteteBetraege(s.db);
+    F.abgeleitet = abg.betraege;
+    F.prozente = abg.prozente;
+    F.personen = s.db.alle('SELECT id, name, pnr FROM benutzer ORDER BY id');
     F.firma = s.db.einstellung('firma', { name: 'BauTag' }).name;
     // Sitzungen in der Basis: jede Kopie hat sie schon (keine Anmeldung je Probe, spart Laufzeit)
     F.cookie = {};
@@ -861,6 +962,18 @@ async function erstelleBasis() {
       F.geheim.push({ id: Number(id), art: 'Geräteschlüssel', wert: gs.daten.schluessel });
     }
     for (const r of ROLLEN) F.geheim.push({ id: ID[r], art: 'Push-Endpunkt', wert: `https://push.example.invalid/abo/${r}` });
+    // G2-004/G2-006: Abwesenheiten, Einsätze, Stamm-Baustellen (Korrelation mit Antworten an Polier/Mitarbeiter)
+    F.abwDaten = W.abwesenheitsDaten(s.db);
+    // G2-009: Bild-Kanarien aus den GESPEICHERTEN Dateien (nach Bereinigung durch den Server)
+    F.bildKanarien = [];
+    const dateiIn = (unter, datei) => fs.readFileSync(path.join(s.app.bt.uploads, unter, datei));
+    for (const f of s.db.alle("SELECT f.id, f.bericht_id AS b, f.datei, f.erstellt_von AS von FROM bericht_foto f WHERE f.art = 'lieferschein'")) {
+      F.bildKanarien.push(W.bildKanarie(`Lieferschein-Foto ${f.id} (Bericht ${f.b}, von ${f.von})`, dateiIn('berichte', f.datei), { von: f.von, lieferscheinId: f.id, urls: [`/berichte/${f.b}/fotos/${f.id}(?![0-9])`] }));
+    }
+    for (const f of s.db.alle('SELECT id, fuhre_id AS fu, datei, erstellt_von AS von FROM plan_fuhre_foto WHERE id = ?', F.fuhreFoto.bs3)) {
+      F.bildKanarien.push(W.bildKanarie(`Wiegeschein-Foto ${f.id} (Fuhre ${f.fu}, von ${f.von})`, dateiIn('fuhren', f.datei), { von: f.von, urls: [`/plan/fuhren/${f.fu}/foto/${f.id}(?![0-9])`] }));
+    }
+    if (F.bildKanarien.length < 3) throw new Error(`Vorbereitung Bild-Kanarien: nur ${F.bildKanarien.length}`);
   } finally {
     await s.stop();
   }

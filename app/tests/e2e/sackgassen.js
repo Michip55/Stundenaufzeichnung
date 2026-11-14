@@ -17,6 +17,8 @@
  *     „mit Wirkung“ wie Drucken/PDF/Export), Kacheln, Karten, Tabellenzeilen, Benachrichtigungen – führt nie zu einer
  *     gesperrten Seite, einer 401/403-Antwort oder einer gesperrten Datei. Knöpfe mit Wirkung im Trockenlauf
  *     (bedienelemente.js: Schreib-Anfragen werden abgebrochen, Dialoge abgelehnt, window.open abgefangen).
+ *  6. G2-010: dasselbe für JEDES Bedienelement außerhalb von #view – Kopfleiste, Seitenleiste, untere Leiste, Hinweise,
+ *     Glocke und Benachrichtigungs-Panel – ohne Grenze der Anzahl (Startseite und „Mehr“).
  */
 const { chromium } = require('playwright');
 const { starte, U, START } = require('../api/hilfe');
@@ -141,7 +143,9 @@ async function laufe(browser, g) {
           else if (/^\/api\//.test(z.ziel)) { const st = await BE.urlStatus(page, z.ziel); pruef(![401, 403].includes(st), `${wo}: ${h}: Link „${z.name}“ auf gesperrte Datei ${z.ziel} (${st})`); }
         }
         const kurzRuhe = async () => { await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {}); await page.waitForTimeout(80); };
-        for (const k of await BE.trockenKlicks(page, s.basis, { max: p.feld ? 30 : 15, ruhe: kurzRuhe })) {
+        const klicks = await BE.trockenKlicks(page, s.basis, { max: p.feld ? 30 : 15, ruhe: kurzRuhe });
+        if (klicks.ausgelassen > 0 && process.env.BAUTAG_E2E_LOG) console.log(`      Hinweis: ${h}: ${klicks.ausgelassen} weitere Bedienelemente in #view nicht geklickt (Grenze ${p.feld ? 30 : 15})`);
+        for (const k of klicks) {
           schritte++;
           if (k.hash && !/^#\/(login)?$/.test(k.hash) && await istGesperrt(k.hash)) pruef(false, `${wo}: ${h}: Knopf/Element „${k.name}“ führt zu gesperrter Seite ${k.hash}`);
           if (k.hash) merke(k.hash, `${h} › „${k.name}“`);
@@ -149,6 +153,24 @@ async function laufe(browser, g) {
           pruef(!k.gesperrt.length, `${wo}: ${h}: „${k.name}“ löst gesperrte Anfrage aus (${k.gesperrt.join(', ')})`);
         }
       };
+      // G2-010: Rahmen (alles außerhalb von #view) auf der Startseite und auf „Mehr“ – jedes Element, ohne Grenze
+      const rahmenPruefen = async (wo2) => {
+        for (const k of await BE.rahmenKlicks(page, s.basis, { ruhe: kurzRuheRahmen })) {
+          schritte++;
+          if (k.hash && !/^#\/(login)?$/.test(k.hash) && await istGesperrt(k.hash)) pruef(false, `${wo}: ${wo2}: Element im Rahmen „${k.name}“ führt zu gesperrter Seite ${k.hash}`);
+          if (k.hash) merke(k.hash, `Rahmen › „${k.name}“`);
+          for (const u of [...k.geoeffnet, ...k.downloads]) { const st = await BE.urlStatus(page, u); pruef(![401, 403].includes(st), `${wo}: ${wo2}: Element im Rahmen „${k.name}“ öffnet gesperrte Adresse ${u} (${st})`); }
+          pruef(!k.gesperrt.length, `${wo}: ${wo2}: Element im Rahmen „${k.name}“ löst gesperrte Anfrage aus (${k.gesperrt.join(', ')})`);
+        }
+      };
+      const kurzRuheRahmen = async () => { await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {}); await page.waitForTimeout(80); };
+      const startHash = await page.evaluate(() => location.hash);
+      ort = 'Rahmen (Startseite)';
+      await rahmenPruefen('Startseite');
+      ort = 'Rahmen (Mehr)';
+      await page.evaluate(() => { location.hash = '/mehr'; }); await ruhe();
+      await rahmenPruefen('Mehr');
+      await page.evaluate((h) => { location.hash = h; }, startHash); await ruhe();
       merke(await page.evaluate(() => location.hash), 'Startseite');
       if (g.name === 'handy') merke('#/mehr', 'untere Leiste „Mehr“');
       await sammle('Navigation');

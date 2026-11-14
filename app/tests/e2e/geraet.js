@@ -18,6 +18,7 @@
 const { chromium } = require('playwright');
 const { starte, U, BS, START } = require('../api/hilfe');
 const { pngGrau } = require('../../server/png');
+const W2 = require('../api/rechte-werte-g2');
 
 const GROESSEN = [
   { name: 'handy', width: 390, height: 844, mobil: true },
@@ -106,8 +107,21 @@ async function laufe(browser, g) {
     const lager = () => page.evaluate(async () => {
       const ls = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); ls[k] = localStorage.getItem(k); }
       const idb = await new Promise((ok) => { const r = indexedDB.open('bautag-schaden', 1); r.onupgradeneeded = () => r.result.createObjectStore('meldungen', { keyPath: 'clientId' }); r.onsuccess = () => { const t = r.result.transaction('meldungen', 'readonly'); const q = t.objectStore('meldungen').getAll(); q.onsuccess = () => { ok(q.result); r.result.close(); }; }; r.onerror = () => ok(null); });
-      return { ls, idb, cookie: document.cookie };
+      // G2-011: auch sessionStorage, jede andere IndexedDB-Datenbank und Cache Storage (Inhalt)
+      const ss = {}; for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k); }
+      const weitere = {};
+      try {
+        for (const d of (indexedDB.databases ? await indexedDB.databases() : []).filter((x) => x.name !== 'bautag-schaden')) {
+          weitere[d.name] = await new Promise((ok) => { const r = indexedDB.open(d.name); r.onsuccess = () => { const db = r.result; const st = [...db.objectStoreNames]; if (!st.length) { db.close(); return ok({}); } const t = db.transaction(st, 'readonly'); const out = {}; let n = st.length; for (const x of st) { const g = t.objectStore(x).getAll(); g.onsuccess = () => { out[x] = g.result; if (!--n) { db.close(); ok(out); } }; } }; r.onerror = () => ok(null); });
+        }
+      } catch (e) { weitere.__fehler = String(e); }
+      const cache = {};
+      try { for (const n of await caches.keys()) { const c = await caches.open(n); for (const q of await c.keys()) cache[`${n} ${q.url}`] = (await (await c.match(q)).text()).slice(0, 200000); } } catch (e) { cache.__fehler = String(e); }
+      return { ls, idb, ss, weitere, cache, cookie: document.cookie };
     });
+    // G2-011: Name des Poliers in jeder Schreibweise (Nachname Vorname, Initiale, klein, ohne Akzente …), Pnr. 1001
+    const polierFormen = W2.namensVarianten(NAME[U.polier], 1001).map((x) => x.form);
+    const polierName = (wert) => { const t = W2.vergleich(JSON.stringify(wert)); return polierFormen.find((f) => new RegExp(`(?<![\\p{L}\\p{N}])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu').test(t)); };
     const versiegeltOk = (wo, l, angemeldet = null) => {
       for (const k of ['bt_stempel_queue', 'bt_stempel_abgelehnt']) {
         const roh = l.ls[k] || '[]';
@@ -120,6 +134,9 @@ async function laufe(browser, g) {
       pruef(!/Hydraulik|Bagger|data:image|benutzerId|e2e-schaden-1/.test(idb), `${wo}: Schadensmeldung/Foto des Poliers in IndexedDB lesbar`);
       const ichJ = JSON.parse(l.ls.bt_ich || 'null'), tresor = JSON.parse(l.ls.bt_tresor || 'null');
       pruef((angemeldet ? (!ichJ || ichJ.benutzer.id === angemeldet) && (!tresor || tresor.benutzerId === angemeldet) : !ichJ && !tresor) && !Object.values(l.ls).some((w) => /Haidbauer/.test(w)), `${wo}: Benutzerdaten oder Schlüssel des Poliers im Gerätespeicher (${Object.keys(l.ls).join(',')})`);
+      // G2-011: jeder Speicher (auch sessionStorage, andere IndexedDB, Cache Storage) ohne Namen des Poliers in jeder Schreibweise
+      if (angemeldet !== U.polier) { const f = polierName({ ls: l.ls, ss: l.ss, idb: l.idb, weitere: l.weitere, cache: l.cache, cookie: l.cookie }); pruef(!f, `${wo}: Name des Poliers („${f}“) im Gerätespeicher (localStorage/sessionStorage/IndexedDB/Cache)`); }
+      pruef(!Object.keys(l.ss || {}).length || angemeldet, `${wo}: sessionStorage nach dem Abmelden nicht leer (${Object.keys(l.ss || {}).join(',')})`);
     };
     const abo = async () => JSON.parse(await page.evaluate(() => localStorage.getItem('e2e_abo')));
 

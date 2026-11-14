@@ -17,6 +17,24 @@ const KLICKBAR = [
 // nie klicken: beendet die Sitzung bzw. den Rundgang
 const NIE = /abmeld|logout|abmelden|\bkommen\b|\bgehen\b|pause|stempel/i;
 
+// G2-010: Bedienelemente AUSSERHALB von #view (Kopfleiste, Seitenleiste, untere Leiste, Hinweise, Glocke) – ohne Grenze
+const RAHMEN_ROH = ['button', '[role="button"]', '[role="link"]', '[role="menuitem"]', 'a[href]', '[data-href]', '[data-link]', '[data-ziel]', '[data-nav]', '[data-auf]', '[onclick]', 'summary', '[tabindex]:not([tabindex="-1"])', 'input[type="checkbox"]', 'select'].join(', ');
+const RAHMEN = '[data-bt-rahmen]:visible';
+
+/** Markiert jedes sichtbare Bedienelement außerhalb von #view und offener Dialoge (data-bt-rahmen); liefert die Anzahl */
+async function rahmenMarkieren(page) {
+  return page.evaluate((sel) => {
+    document.querySelectorAll('[data-bt-rahmen]').forEach((e) => e.removeAttribute('data-bt-rahmen'));
+    let n = 0;
+    for (const e of document.querySelectorAll(sel)) {
+      if (e.closest('#view') || e.closest('dialog')) continue;
+      if (!(e.offsetParent !== null || e.getClientRects().length)) continue;
+      e.setAttribute('data-bt-rahmen', String(n++));
+    }
+    return n;
+  }, RAHMEN_ROH);
+}
+
 /** Ausdrückliche Ziele (Links, data-href/-link/-ziel, Menü) der sichtbaren Seite */
 async function ausdrueckliche(page) {
   return page.evaluate(() => [...document.querySelectorAll('a[href], [data-href], [data-link], [data-ziel], [data-nav]')]
@@ -39,7 +57,7 @@ async function vorbereiten(ctx) {
  * Klickt jedes klickbare Element der aktuellen Seite im Trockenlauf und meldet, wohin es führt.
  * @returns {Promise<{name:string, hash:string|null, geoeffnet:string[], downloads:string[], gesperrt:string[]}[]>}
  */
-async function trockenKlicks(page, basis, { max = 30, ruhe } = {}) {
+async function trockenKlicks(page, basis, { max = 30, ruhe, selektor = KLICKBAR, vorKlick } = {}) {
   const start = await page.evaluate(() => location.hash);
   const out = [];
   const gesperrt = [], downloads = [];
@@ -53,9 +71,13 @@ async function trockenKlicks(page, basis, { max = 30, ruhe } = {}) {
   page.on('download', aufDownload);
   page.on('dialog', aufDialog);
   try {
-    const anzahl = Math.min(await page.locator(KLICKBAR).count(), max);
+    const gesamt = await page.locator(selektor).count();
+    const anzahl = Math.min(gesamt, max);
+    // G2-010: wird die Grenze erreicht, steht es im Ergebnis (out.ausgelassen) – nie still
+    out.ausgelassen = gesamt - anzahl;
     for (let i = 0; i < anzahl; i++) {
-      const el = page.locator(KLICKBAR).nth(i);
+      if (vorKlick) await vorKlick();
+      const el = page.locator(selektor).nth(i);
       if (!(await el.count())) break;
       const name = ((await el.innerText().catch(() => '')) || (await el.getAttribute('aria-label').catch(() => '')) || (await el.getAttribute('title').catch(() => '')) || '').replace(/\s+/g, ' ').trim().slice(0, 50);
       const id = (await el.getAttribute('id').catch(() => '')) || '';
@@ -98,4 +120,22 @@ async function urlStatus(page, url) {
   return page.evaluate(async (u) => { try { return (await fetch(u, { method: 'GET' })).status; } catch (_) { return 0; } }, url);
 }
 
-module.exports = { KLICKBAR, NIE, ausdrueckliche, vorbereiten, trockenKlicks, zielGesperrt, urlStatus };
+/**
+ * G2-010: Trockenlauf über den ganzen Rahmen (alles außerhalb von #view, ohne Grenze) und – nach dem Öffnen der Glocke –
+ * über jedes Bedienelement des Benachrichtigungs-Panels.
+ */
+async function rahmenKlicks(page, basis, { ruhe } = {}) {
+  const out = [];
+  if (await rahmenMarkieren(page)) out.push(...await trockenKlicks(page, basis, { max: Infinity, ruhe, selektor: RAHMEN }));
+  await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  if (await page.locator('#glocke:visible').count()) {
+    const auf = async () => { if (!(await page.locator('#notif-panel[open]').count())) { await page.click('#glocke', { timeout: 2000 }).catch(() => {}); if (ruhe) await ruhe(); else await page.waitForTimeout(400); } };
+    await auf();
+    const panel = await trockenKlicks(page, basis, { max: Infinity, ruhe, selektor: '#notif-panel[open] button:visible, #notif-panel[open] a[href]:visible, #notif-panel[open] [data-auf]:visible', vorKlick: auf });
+    out.push(...panel.map((k) => ({ ...k, name: `Glocke › ${k.name}` })));
+    await page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+  }
+  return out;
+}
+
+module.exports = { KLICKBAR, NIE, RAHMEN, ausdrueckliche, vorbereiten, trockenKlicks, rahmenKlicks, rahmenMarkieren, zielGesperrt, urlStatus };

@@ -110,6 +110,51 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
+  await t.test('G2 (API.md 15.13): Testdaten und Scanner erkennen Abwesenheit ohne Wort, andere Schreibweisen, Zählungen, abgeleitete Beträge, Lohngruppen und Lieferschein-Bilder', async () => {
+    const v = [];
+    const scan = (rolle, daten, ct, extra = {}) => H.scanne(rolle, { status: 200, daten, headers: new Map(ct ? [['content-type', ct]] : []) }, { route: 'SELBSTTEST G2', url: 'Selbsttest', ...extra });
+    const muss = async (was, r) => { if (!(await r).length) v.push(`Scanner erkennt nicht: ${was}`); };
+    const nicht = async (was, r) => { const x = await r; if (x.length) v.push(`Scanner meldet fälschlich: ${was} – ${x[0]}`); };
+    const abw = s.db.alle("SELECT benutzer_id AS id FROM abwesenheit WHERE datum = '2026-11-13' AND benutzer_id NOT IN (?, ?) AND (code IN ('K','U','ZA') OR betriebsurlaub = 1) ORDER BY benutzer_id", U.polier, U.mitarbeiter).map((x) => x.id);
+    if (abw.length < 5) v.push(`Testdaten: nur ${abw.length} fremde Abwesende am 13.11.`);
+    const partie = [U.polier, U.mitarbeiter, ...abw];
+    // G2-004
+    await muss('ID-Liste der Abwesenden', scan('polier', { datum: '2026-11-13', einsaetze: [{ ersatzNoetig: abw }] }));
+    await muss('Merker verfuegbar=false', scan('polier', { datum: '2026-11-13', personen: partie.map((id) => ({ benutzerId: id, verfuegbar: !abw.includes(id) })) }));
+    await nicht('Personen eines Einsatzes (Plan)', scan('polier', { datum: '2026-11-13', personen: partie.map((id) => ({ benutzerId: id, gelesen: false })) }));
+    // G2-005
+    const n3 = s.db.eins('SELECT name FROM benutzer WHERE id = ?', ANDERER_MA).name.split(' ');
+    for (const t2 of [`${n3[1]} ${n3[0]} (K)`, `${n3[0][0]}. ${n3[1]} – U`, `${n3[1].toLowerCase()}, ${n3[0].toLowerCase()}: ZA`]) await muss(`Schreibweise „${t2}“`, scan('polier', { hinweis: t2 }));
+    await muss('Schreibweise im PDF-Text', scan('polier', Buffer.from(`%PDF-1.4\nstream\nBT (${n3[1]} ${n3[0]}) Tj (U) Tj ET\nendstream\n`, 'latin1'), 'application/pdf'));
+    await nicht('eigener Name mit Kürzel', scan('mitarbeiter', { hinweis: 'Lukas Brandstätter – U' }));
+    // G2-006
+    await muss('„schon 2 Kollegen auf Urlaub“', scan('mitarbeiter', { benutzerId: U.mitarbeiter, hinweis: 'In Ihrer Partie sind schon 2 Kollegen auf Urlaub.' }));
+    await muss('Tageszahl neben Abwesenheitswort', scan('polier', { info: `${abw.length} heute im Urlaub oder krank` }));
+    await muss('Abwesenheitswort außerhalb eigener Einträge', scan('polier', { team: { meldung: 'Heute fehlen Kollegen wegen Urlaub.' } }));
+    await nicht('eigener Urlaub', scan('mitarbeiter', { benutzerId: U.mitarbeiter, code: 'U', text: 'Urlaub 03.12.–04.12. (2 Tage)' }));
+    // G2-007
+    const summe = F.abgeleitet.find((x) => x.name === `Positionen Baustelle ${BS.pitten} [aktuell]`);
+    if (!summe) v.push('Testdaten: keine abgeleitete Summe Menge × EP für Baustelle 1');
+    else await muss('Summe Menge × EP ohne € unter neutralem Schlüssel', scan('mitarbeiter', { fortschritt: { stand: summe.wert } }));
+    if (F.abgeleitet.length < 500) v.push(`Testdaten: nur ${F.abgeleitet.length} abgeleitete Beträge`);
+    // G2-008
+    const lg = F.lohnKanarien.find((x) => x.person === U.mitarbeiter);
+    if (!lg || F.lohnKanarien.length < 30) v.push(`Testdaten: Lohngruppen-Kanarien fehlen (${F.lohnKanarien.length})`);
+    else for (const w of [lg.name, lg.id, lg.kv]) await muss(`eigene Lohngruppe „${w}“`, scan('mitarbeiter', { einstufung: w }));
+    // G2-009
+    const bild = F.bildKanarien.find((x) => x.lieferscheinId === F.bericht.bs1Lieferschein);
+    if (!bild || F.bildKanarien.length < 3) v.push('Testdaten: Bild-Kanarien fehlen');
+    else {
+      const datei = s.db.eins('SELECT datei FROM bericht_foto WHERE id = ?', bild.lieferscheinId).datei;
+      const roh = fs.readFileSync(path.join(s.app.bt.uploads, 'berichte', datei));
+      await muss('Lieferschein-Datei', scan('polier', roh, 'image/png'));
+      await muss('Bild-Adresse im JSON', scan('polier', { bild: `/api/berichte/${F.bericht.bs1}/fotos/${bild.lieferscheinId}` }));
+      await nicht('eigener Lieferschein des Hochladenden (N-112)', scan('polier', roh, 'image/png', { ich: bild.von }));
+    }
+    v.forEach(melde);
+    assert.deepEqual(v, [], `\n${v.join('\n')}`);
+  });
+
   await t.test('Lesen: jede GET-Route × Rolle × Variante × Query-Variante – Status und Inhalt; jeder gelesene Query-Parameter geprüft', async () => {
     const v = [];
     // F-043: welche Query-Parameter liest eine Route wirklich? (Mitschnitt am Request-Objekt der App)
@@ -177,7 +222,8 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
       if (!['mitarbeiter', 'polier'].includes(rolle)) continue;
       if (n.typ === 'budget') v.push(`Budget-Benachrichtigung an ${rolle} ${n.benutzer_id}: ${n.titel}`);
       const fuhrpark = H.hatRecht(s.db, n.benutzer_id, 'fuhrpark');
-      v.push(...await H.scanne(rolle, { status: 200, daten: { titel: n.titel, text: n.text }, headers: new Map() }, { route: 'DB benachrichtigung', url: `benachrichtigung ${n.id} an ${n.benutzer_id}`, erlaubteKanarien: fuhrpark ? ['Text schadenFremd'] : [] }));
+      // G2-013: „eigen“ ist der EMPFÄNGER der Mitteilung (nicht Mitarbeiter 2/Polier 1 für jede Mitteilung dieser Rolle)
+      v.push(...await H.scanne(rolle, { status: 200, daten: { titel: n.titel, text: n.text, link: n.link }, headers: new Map() }, { route: 'DB benachrichtigung', url: `benachrichtigung ${n.id} an ${n.benutzer_id}`, ich: n.benutzer_id, erlaubteKanarien: fuhrpark ? ['Text schadenFremd'] : [] }));
     }
     // Ereignisse auf diesem Server auslösen, damit Push und E-Mail hier entstehen (der Ausgang ist je Server im Speicher)
     const e1 = (await c.gf.get(`/plan/woche?von=${F.datumMorgen}`)).daten.einsaetze.find((x) => x.id === F.einsatz.bs1);
@@ -219,11 +265,13 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
             const erlaubt = erw === 'J' || erw === 'O' || erw === 'T' || (erw === 'E' && variante !== 'fremd');
             if (erlaubt) continue;
             const a = anfrage(schluessel, e, F, rolle, variante);
+            await k.ruhe();
             const vorher = H.dbHash(k);
             // Body der Matrix, aber veraltete version: ein 409 (mit aktueller version/Zustand) vor der Rechteprüfung wäre eine Auskunft an Unberechtigte.
             // 400 ist hingenommen, wenn das Ziel (z. B. baustelleId) erst aus dem Body kommt – der Scanner prüft den Fehlertext.
             const r = await kc[rolle].anfrage(methode, a.pfad, { ...(a.body && typeof a.body === 'object' ? a.body : {}), version: 999999 });
             if (![...VERWEIGERT, 400].includes(r.status)) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit veralteter version → ${r.status} ${JSON.stringify(r.daten).slice(0, 140)} (Zustand vor Rechten geprüft)`);
+            await k.ruhe();
             const diff = H.dbUnterschied(vorher, H.dbHash(k));
             if (diff.length) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit veralteter version: DB geändert (${diff.join(', ')})`);
             v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: `${a.pfad} (veraltete version)` }));
@@ -253,7 +301,9 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
           for (const variante of brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne']) {
             const a = anfrage(schluessel, e, F, rolle, variante);
             const gueltig = a.body === undefined ? {} : a.body;
-            const vorher = H.dbHash(k.db);
+            // G2-014: vollständiger Zustand – Tabellen, Upload-Dateien und Push/Mail/KI-Ausgang (nach der Hintergrund-Arbeit)
+            await k.ruhe();
+            const vorher = H.dbHash(k);
             const soll = await kc[rolle].anfrage(methode, a.pfad, gueltig);
             // zusätzlich: nicht vorhandene ID im Pfad (gültiger Body) – ein 404 vor der Rechteprüfung wäre eine Existenzauskunft
             const pfadFremd = a.pfad.replace(/\/\d+(?=\/|\?|$)/g, '/999999');
@@ -266,8 +316,9 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
               else if (r.status !== soll.status) v.push(`${wo} → ${r.status}, mit gültigem Body ${soll.status} (Antwort hängt vom Body ab)`);
               v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: `${a.pfad} (Body ${art})` }));
             }
-            const diff = H.dbUnterschied(vorher, H.dbHash(k.db));
-            if (diff.length) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit ungültigem Body: DB geändert (${diff.join(', ')})`);
+            await k.ruhe();
+            const diff = H.dbUnterschied(vorher, H.dbHash(k));
+            if (diff.length) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit ungültigem Body: Zustand geändert (${diff.join(', ')})`);
           }
         }
       }
