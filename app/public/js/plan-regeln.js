@@ -11,9 +11,13 @@ const istWochenende = (iso) => [0, 6].includes(dt(iso).getDay());
  * Fuhren-Warteschlange (N-017): vorläufig = später erneut senden. Wie die Stempel-Warteschlange (M-04) bleiben
  * auch 401/403 (Sitzung abgelaufen, PIN ändern) gemerkt – nach der Anmeldung wird nachgesendet.
  */
-export const fuhreVorlaeufig = (x) => !!x && (x.netz || x.status >= 500 || x.status === 429 || x.status === 408 || x.status === 401 || x.status === 403);
+// 15.7 (N-017 Rest): ein 403 KEIN_ZUGRIFF ist eine endgültige Ablehnung (z. B. „Den Status meldet der eingeteilte Fahrer.“
+// nach einem Fahrerwechsel) – nicht gemerkt, sondern „nicht übernommen“. Vorläufig bleiben nur 401 (Sitzung) und 403 der
+// Anmeldung (PIN_AENDERN, 2FA_EINRICHTEN bzw. ohne Code).
+const sitzung403 = (x) => x.status === 403 && x.code !== 'KEIN_ZUGRIFF';
+export const fuhreVorlaeufig = (x) => !!x && (x.netz || x.status >= 500 || x.status === 429 || x.status === 408 || x.status === 401 || sitzung403(x));
 /** Anmeldung nötig → Nachsenden abbrechen (nicht weiter probieren) */
-export const fuhreAnmeldungNoetig = (x) => !!x && (x.status === 401 || x.status === 403);
+export const fuhreAnmeldungNoetig = (x) => !!x && (x.status === 401 || sitzung403(x));
 
 /** Zuletzt gemerkte Meldung je Fuhre (N-039: „Losgefahren“ und danach „Abgeladen“ ohne Netz → es zählt „Abgeladen“) */
 export const letzteMeldung = (warten, fuhreId) => { let w = null; for (const x of warten || []) if (Number(x.fuhreId) === Number(fuhreId)) w = x; return w; };
@@ -33,6 +37,29 @@ export function kopieTage(iso, n, frei) {
 export function pubAnzahl(d, darfBs = () => true) {
   const vorschau = ((d && d.einsaetze) || []).filter((e) => e.vorschau && darfBs(e.baustelleId)).length;
   return ((d && d.unveroeffentlicht) || 0) + vorschau;
+}
+
+/**
+ * Beschriftung des Knopfs „Plan veröffentlichen“ (15.7): die Zahl nennt nur ECHTE unveröffentlichte Änderungen
+ * (d.unveroeffentlicht); fortgeschriebene Vorschau-Tage stehen getrennt als „Di–Fr vorbereitet“ (aufeinanderfolgende
+ * Tage als Spanne, sonst „Di, Do“). Ob der Knopf aktiv ist, bestimmt weiter pubAnzahl (N-049).
+ * @returns {{text:string, aenderungen:number, vorbereitet:string[]}}
+ */
+export function pubBeschriftung(d, darfBs = () => true) {
+  const aenderungen = (d && d.unveroeffentlicht) || 0;
+  const tage = [...new Set(((d && d.einsaetze) || []).filter((e) => e.vorschau && darfBs(e.baustelleId)).map((e) => e.datum))].sort();
+  const teile = [];
+  let i = 0;
+  while (i < tage.length) {
+    let j = i;
+    // Spanne über Arbeitstage: der nächste Vorschau-Tag ist der nächste Werktag (Wochenende dazwischen zählt nicht)
+    while (j + 1 < tage.length) { let n = plusTage(tage[j], 1); while (istWochenende(n)) n = plusTage(n, 1); if (n !== tage[j + 1]) break; j += 1; }
+    const a = WTK[dt(tage[i]).getDay()], b = WTK[dt(tage[j]).getDay()];
+    teile.push(j > i ? `${a}–${b}` : a);
+    i = j + 1;
+  }
+  const text = `Plan veröffentlichen${aenderungen ? ` · ${aenderungen} Änderung${aenderungen === 1 ? '' : 'en'}` : ''}${teile.length ? ` · ${teile.join(', ')} vorbereitet` : ''}`;
+  return { text, aenderungen, vorbereitet: tage };
 }
 
 /** Beschriftung „Notizen von … übernehmen“ (N-098) – die Quelle ist der Tag, aus dem die Vorschau stammt */

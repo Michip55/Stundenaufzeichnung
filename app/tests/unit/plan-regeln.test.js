@@ -9,10 +9,18 @@ const laden = () => import(pathToFileURL(path.join(__dirname, '..', '..', 'publi
 
 test('N-017: Fuhren-Warteschlange behält 401/403 (wie die Stempel-Warteschlange), verwirft nur endgültige Ablehnungen', async () => {
   const R = await laden();
-  for (const x of [{ netz: true }, { status: 500 }, { status: 503 }, { status: 429 }, { status: 408 }, { status: 401 }, { status: 403 }]) assert.equal(R.fuhreVorlaeufig(x), true, JSON.stringify(x));
+  for (const x of [{ netz: true }, { status: 500 }, { status: 503 }, { status: 429 }, { status: 408 }, { status: 401 }, { status: 403, code: 'PIN_AENDERN' }, { status: 403, code: '2FA_EINRICHTEN' }, { status: 403 }]) assert.equal(R.fuhreVorlaeufig(x), true, JSON.stringify(x));
   for (const x of [{ status: 400 }, { status: 404 }, { status: 409 }, { status: 422 }]) assert.equal(R.fuhreVorlaeufig(x), false, JSON.stringify(x));
   assert.equal(R.fuhreAnmeldungNoetig({ status: 401 }), true);
   assert.equal(R.fuhreAnmeldungNoetig({ netz: true }), false);
+});
+
+test('15.7 (N-017 Rest): 403 KEIN_ZUGRIFF (z. B. nach Fahrerwechsel) ist endgültig – nicht gemerkt, keine Anmelde-Meldung', async () => {
+  const R = await laden();
+  const x = { status: 403, code: 'KEIN_ZUGRIFF', message: 'Den Status meldet der eingeteilte Fahrer.' };
+  assert.equal(R.fuhreVorlaeufig(x), false);
+  assert.equal(R.fuhreAnmeldungNoetig(x), false);
+  assert.equal(R.fuhreAnmeldungNoetig({ status: 403, code: 'PIN_AENDERN' }), true);
 });
 
 test('N-039: die zuletzt gemerkte Meldung je Fuhre zählt', async () => {
@@ -83,4 +91,21 @@ test('N-058: Reiter „Meine Partie“ mit Samstagseinsatz vor dem Montag', asyn
   assert.deepEqual(R.partieReiter('2026-11-13', '2026-11-14', '2026-11-16'), ['2026-11-13', '2026-11-14', '2026-11-16']);
   assert.deepEqual(R.partieReiter('2026-11-13', '2026-11-16', '2026-11-16'), ['2026-11-13', '2026-11-16']);
   assert.deepEqual(R.partieReiter('2026-11-12', '2026-11-13', '2026-11-13'), ['2026-11-12', '2026-11-13']);
+});
+
+test('15.7: „Plan veröffentlichen“ zählt nur echte Änderungen, Vorschau-Tage stehen getrennt', async () => {
+  const R = await laden();
+  // nach dem Veröffentlichen von Mo: Di–Fr nur Vorschau (je zwei Zellen) – früher „· 8 Änderungen“
+  const vor = ['2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20'].flatMap((datum) => [1, 2].map((bs) => ({ datum, baustelleId: bs, vorschau: true })));
+  const d = { unveroeffentlicht: 0, einsaetze: [{ datum: '2026-11-16', baustelleId: 1 }, ...vor] };
+  assert.equal(R.pubBeschriftung(d).text, 'Plan veröffentlichen · Di–Fr vorbereitet');
+  assert.equal(R.pubBeschriftung(d).aenderungen, 0);
+  assert.equal(R.pubAnzahl(d), 8, 'Knopf bleibt aktiv (N-049)');
+  assert.equal(R.pubBeschriftung({ ...d, unveroeffentlicht: 2 }).text, 'Plan veröffentlichen · 2 Änderungen · Di–Fr vorbereitet');
+  assert.equal(R.pubBeschriftung({ unveroeffentlicht: 1, einsaetze: [] }).text, 'Plan veröffentlichen · 1 Änderung');
+  assert.equal(R.pubBeschriftung({ unveroeffentlicht: 0, einsaetze: [{ datum: '2026-11-17', baustelleId: 1, vorschau: true }, { datum: '2026-11-19', baustelleId: 1, vorschau: true }] }).text, 'Plan veröffentlichen · Di, Do vorbereitet');
+  // über das Wochenende: Fr und Mo sind aufeinanderfolgende Arbeitstage
+  assert.equal(R.pubBeschriftung({ unveroeffentlicht: 0, einsaetze: [{ datum: '2026-11-20', baustelleId: 1, vorschau: true }, { datum: '2026-11-23', baustelleId: 1, vorschau: true }] }).text, 'Plan veröffentlichen · Fr–Mo vorbereitet');
+  // Vorschau fremder Baustellen zählt nicht
+  assert.equal(R.pubBeschriftung(d, (id) => id === 3).text, 'Plan veröffentlichen');
 });

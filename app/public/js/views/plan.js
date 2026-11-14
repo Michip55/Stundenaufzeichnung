@@ -7,7 +7,7 @@ import { ic, esc, fmt, leer, banner, dialog, bestaetigen, toast, rolleText, spei
 import { wienHeute, wienLokal } from '../zahl.js';
 import { ziehbar } from '../ziehen.js';
 import { feiertage, naechsterArbeitstag, tagName } from '../arbeitstag.js';
-import { pubAnzahl, vortagNotizenText, vortagNotizenToast, pubToast, wochenLeerText, einsatzLeerText, partieReiter } from '../plan-regeln.js';
+import { pubAnzahl, pubBeschriftung, vortagNotizenText, vortagNotizenToast, pubToast, wochenLeerText, einsatzLeerText, partieReiter } from '../plan-regeln.js';
 import { zeitplanHtml, zeitplanLaden, zeitplanBinden } from './zeitplan.js';
 import { fuhrenLaden, fuhrenBahn, fuhrenZone, fuhreDialog, stammVergessen, meineFuhrenHtml, meineFuhrenBinden, fuhrenNachsenden, fuhrenWartend, partieFuhrenHtml } from './fuhren.js';
 
@@ -344,9 +344,10 @@ export default async function plan(el, ctx) {
 
   function zeichne() {
     const n = pubAnzahl(d, darfBs); // N-049: Vorschau-Tage sind auch noch nicht veröffentlicht
+    const pb = pubBeschriftung(d, darfBs); // 15.7: Zahl nur für echte Änderungen, Vorschau-Tage getrennt („Di–Fr vorbereitet“)
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
-        ${(ansicht === 'woche' || ansicht === 'tag') && planer ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
+        ${(ansicht === 'woche' || ansicht === 'tag') && planer ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" data-aenderungen="${pb.aenderungen}" data-vorbereitet="${pb.vorbereitet.length}" ${n ? '' : 'disabled'}>${ic('send')}${esc(pb.text)}</button></div>` : ''}</header>
       <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', morgen === kalMorgen ? 'Morgen' : tagKurz(morgen)], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
       ${fehler ? banner('err', esc(fehler)) : ''}
       <div id="wp-inhalt">${ansicht === 'woche' ? wocheHtml() : ansicht === 'tag' ? tagHtml() : ansicht === 'geraete' ? geraeteHtml() : zp ? zeitplanHtml(zp, ctx) : '<div class="state">Lädt …</div>'}</div>
