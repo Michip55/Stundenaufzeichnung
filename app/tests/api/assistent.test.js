@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const Anthropic = require('@anthropic-ai/sdk').default;
-const { starte, U, BS } = require('./hilfe');
+const { starte, U, BS, sofficeVorhanden } = require('./hilfe');
 const { pngGrau, demoUnterschrift } = require('../../server/png');
 const { wienDatum, plusTage } = require('../../server/datum');
 
@@ -119,12 +119,15 @@ test('Assistent und KI', async (t) => {
     await gf.put('/einstellungen/ki', { aktiv: false });
   });
 
-  await t.test('Lieferschein: Foto (art lieferschein) + echte OCR (Deutsch, offline) → Vorschlag', async (tt) => {
+  // N-090: übersprungen wird nur, wenn LibreOffice gar nicht installiert ist; scheitert die Konvertierung, schlägt der Test fehl.
+  await t.test('Lieferschein: Foto (art lieferschein) + echte OCR (Deutsch, offline) → Vorschlag', { skip: !sofficeVorhanden() && 'LibreOffice nicht installiert' }, async (tt) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-ls-'));
     tt.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     fs.writeFileSync(path.join(dir, 'ls.txt'), 'Kieswerk Mustermann GmbH\nLieferschein Nr. 4711\nDatum: 12.11.2026\nBaustelle: 26-041 WHA Pitten\n\nFrostschutz 0/63      24,50 t\nSplitt 2/4            8,0 t\n');
-    const r0 = spawnSync('soffice', ['--headless', '--convert-to', 'png', path.join(dir, 'ls.txt'), '--outdir', dir], { timeout: 120000 });
-    if (r0.status !== 0 || !fs.existsSync(path.join(dir, 'ls.png'))) { tt.skip('LibreOffice fehlt – Testbild nicht erzeugbar'); return; }
+    // eigenes LibreOffice-Profil: parallel laufende soffice-Prozesse (z. B. positionen.test.js) sperren sonst das gemeinsame Profil
+    const r0 = spawnSync('soffice', ['--headless', `-env:UserInstallation=file://${dir}/profil`, '--convert-to', 'png', path.join(dir, 'ls.txt'), '--outdir', dir], { encoding: 'utf8', timeout: 120000 });
+    assert.equal(r0.status, 0, `soffice-Konvertierung fehlgeschlagen: ${r0.error || ''} ${r0.stderr || ''}`);
+    assert.ok(fs.existsSync(path.join(dir, 'ls.png')), `soffice hat kein PNG erzeugt: ${r0.stdout || ''} ${r0.stderr || ''}`);
     const bild = fs.readFileSync(path.join(dir, 'ls.png')).toString('base64');
     assert.equal((await ma.post(`/berichte/${b.id}/lieferschein`, { bildBase64: bild, dateiname: 'ls.png' })).status, 403);
     const r = await pol.post(`/berichte/${b.id}/lieferschein`, { bildBase64: bild, dateiname: 'ls.png' });

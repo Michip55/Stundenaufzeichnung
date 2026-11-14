@@ -4,8 +4,8 @@
   --ink: #15181c; --graphite: #1d2126; --graphite-2: #2a2f36; --graphite-3: #3a4049;
   --text: #171a1e; --muted: #5a636e; --faint: #8a929c;
   --line: #e2e5e9; --line-2: #eef0f3; --bg: #f2f3f5; --card: #fff;
-  --green: #14803c; --green-bg: #e3f5e9; --green-strong: #16a34a;
-  --amber: #a85a06; --amber-bg: #fdf0cf; --amber-strong: #f0a020;
+  --green: #127538; --green-bg: #e3f5e9; --green-strong: #16a34a;
+  --amber: #9a5205; --amber-bg: #fdf0cf; --amber-strong: #f0a020;
   --blue: #1f55c4; --blue-bg: #e6eefc;
   --c-lohn: #3b6fd4; --c-ger: #e08a1e; --c-mat: #2a9d8f; --c-fremd: #8b5fbf;
   --r: 14px; --r-sm: 10px; --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
@@ -592,7 +592,7 @@ a.switch-row.link > .ic { color: #b3bac3; } a.switch-row.link:hover { background
 #pin-pflicht .link-back { margin-top: 10px; align-self: center; }
 
 /* B-07 Abwesenheiten, M-03 Storno */
-.abw-akt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; } [data-abw] { flex-wrap: wrap; }
+.abw-akt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; } [data-abw] { flex-wrap: wrap; } .abw-akt [data-zum-antrag] { white-space: normal; height: auto; min-height: 36px; padding-block: 6px; text-align: center; line-height: 1.3; } /* langer Verweis bricht auf dem Handy um statt überzulaufen */
 .pick-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 12px; max-height: 240px; overflow-y: auto; border: 1.5px solid var(--line); border-radius: 10px; padding: 6px 12px; }
 .code-badge.offen { background: #fff; box-shadow: inset 0 0 0 1.5px currentColor; opacity: .75; border-style: dashed; } .c-offen { background: var(--red-bg); color: var(--red-d); }
 details.einzeln { margin-top: 12px; border-top: 1px solid var(--line-2); } details.einzeln summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-size: 13.5px; font-weight: 600; color: var(--muted); } details.einzeln .plain.rows > li { padding: 8px 0; min-height: 48px; }

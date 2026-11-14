@@ -192,9 +192,43 @@ test('Baustellenplaner', async (t) => {
     assert.equal(r.status, 201);
     assert.equal((await c.mitarbeiter.get('/zeit/status')).daten.geplant, null);
     await c.buero.post('/plan/veroeffentlichen', { von: HEUTE });
-    assert.deepEqual((await c.mitarbeiter.get('/zeit/status')).daten.geplant, { baustelleId: BS.kogler, kst: '26-038', name: 'Zufahrt Kogler'.length ? (await c.mitarbeiter.get('/zeit/status')).daten.geplant.name : '', beginn: '07:00', treffpunkt: '' });
-    const k = (await c.polier.get(`/zeit/kolonne?baustelleId=${BS.kogler}&plan=1`));
-    if (k.status === 200) assert.ok(k.daten.some((x) => x.benutzerId === U.mitarbeiter && x.geplant === true));
+    assert.deepEqual((await c.mitarbeiter.get('/zeit/status')).daten.geplant, { baustelleId: BS.kogler, kst: '26-038', name: 'Zufahrt Kogler', beginn: '07:00', treffpunkt: '' });
+    // Fremde Baustelle: der Polier aus Pitten sieht die Kolonne von Kogler nicht
+    assert.equal((await c.polier.get(`/zeit/kolonne?baustelleId=${BS.kogler}&plan=1`)).status, 403);
+  });
+
+  await t.test('Kolonne (12.8): eingeplante Person aus anderer Partie – geplant:true, Stempeln ohne gast', async () => {
+    // U.mitarbeiter gehört zur Partie Pitten und ist heute (veröffentlicht) auf Kogler eingeplant; Polier von Kogler ist U.polier2.
+    const p2 = await s.login(U.polier2);
+    const k = await p2.get(`/zeit/kolonne?baustelleId=${BS.kogler}&plan=1`);
+    assert.equal(k.status, 200);
+    const ma = k.daten.find((x) => x.benutzerId === U.mitarbeiter);
+    assert.ok(ma, 'eingeplante Person aus anderer Partie fehlt in der Kolonne');
+    assert.equal(ma.geplant, true);
+    assert.equal(ma.partie, false);
+    assert.ok(k.daten.filter((x) => x.partie).every((x) => x.geplant === false), 'eigene, nicht eingeplante Partie ist nicht geplant');
+    // ohne plan=1: keine eingeplante Fremdperson und kein Feld geplant
+    const ohne = await p2.get(`/zeit/kolonne?baustelleId=${BS.kogler}`);
+    assert.equal(ohne.status, 200);
+    assert.ok(!ohne.daten.some((x) => x.benutzerId === U.mitarbeiter));
+    assert.ok(ohne.daten.every((x) => !('geplant' in x)));
+    // nicht eingeplante fremde Person (Partie Pitten) ohne gast → Fehler, ohne Buchung
+    const n3 = s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = 3').n;
+    const f = await p2.post('/zeit/kolonne', { typ: 'kommen', baustelleId: BS.kogler, benutzerIds: [3] });
+    assert.equal(f.status, 200);
+    assert.equal(f.daten.ergebnisse[0].ok, false);
+    assert.match(f.daten.ergebnisse[0].fehler, /gehört nicht zu Ihrer Partie/);
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = 3').n, n3);
+    // eingeplante Person ohne gast → ok:true, Buchung auf Kogler
+    const vorher = s.db.eins('SELECT MAX(id) AS m FROM buchung').m || 0;
+    const r = await p2.post('/zeit/kolonne', { typ: 'kommen', baustelleId: BS.kogler, benutzerIds: [U.mitarbeiter] });
+    assert.equal(r.status, 200);
+    assert.equal(r.daten.ergebnisse.length, 1);
+    assert.equal(r.daten.ergebnisse[0].ok, true, JSON.stringify(r.daten));
+    const b = s.db.alle('SELECT benutzer_id, baustelle_id, typ FROM buchung WHERE id > ?', vorher);
+    assert.deepEqual(b.map((x) => [x.benutzer_id, x.baustelle_id, x.typ]), [[U.mitarbeiter, BS.kogler, 'kommen']]);
+    // Ausgangsstand für die folgenden Tests wiederherstellen
+    s.db.lauf('DELETE FROM buchung WHERE id > ?', vorher);
   });
 
   await t.test('Nie automatisch veröffentlichen – auch nicht über Mitternacht; Erinnerung 17:00 einmal je Tag', async () => {
@@ -221,6 +255,14 @@ test('Baustellenplaner', async (t) => {
     assert.equal((await c.polier.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } })).status, 403); // Bauleiter wie Büro (13.11.2026)
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: 27, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } })).status, 400); // Walze ist kein Fahrzeug
     assert.equal((await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'adresse', text: 'X', link: 'https://maps.google.com/@95.1,16' } })).status, 400);
+    // N-096: Fehlermeldungen ohne technische Feldnamen (materialId, anlageId) und mit deutschem Zahlenformat
+    const fm = async (b) => (await c.buero.post('/plan/fuhren', { datum: HEUTE, anlageId: LKW, materialId: 4, menge: 10, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten }, ...b })).daten.fehler;
+    assert.equal(await fm({ materialId: 99999 }), 'Material nicht gefunden oder inaktiv.');
+    assert.equal(await fm({ anlageId: 27 }), 'Fuhren nur mit Fahrzeugen (LKW).');
+    assert.equal(await fm({ anlageId: 99999 }), 'Fahrzeug nicht gefunden oder ausgeschieden.');
+    assert.equal(await fm({ menge: 200000 }), 'Menge muss zwischen 0,001 und 100.000 liegen.');
+    assert.equal(await fm({ beginn: '25:00' }), 'Beginn: Uhrzeit im Format HH:MM.');
+    assert.equal(await fm({ materialId: undefined }), 'Material auswählen oder als Freitext angeben.');
     // Bericht (Entwurf) für heute auf Pitten
     s.db.lauf('DELETE FROM bericht WHERE baustelle_id = ? AND datum = ?', BS.pitten, HEUTE);
     const b = (await c.polier.post('/berichte', { baustelleId: BS.pitten, datum: HEUTE })).daten;
