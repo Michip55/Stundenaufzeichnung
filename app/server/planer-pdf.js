@@ -86,17 +86,12 @@ function hoeheZeilen(doc, zeilen, breite) {
   return h;
 }
 
-function zeichneZeilen(doc, zeilen, x, y, breite, texte) {
-  for (const z of zeilen) {
-    y += z.abstand || 0;
-    const s = winAnsi(z.text);
-    texte.push(s);
-    doc.font(z.fett ? 'Helvetica-Bold' : 'Helvetica').fontSize(z.gr || GR.text).fillColor('#000');
-    const h = doc.heightOfString(s, { width: breite - (z.einzug || 0) });
-    doc.text(s, x + (z.einzug || 0), y, { width: breite - (z.einzug || 0) });
-    y += h + 2;
-  }
-  return y;
+/** N-038: Text auf eine Zeile der Breite kürzen (eigene Ellipse – pdfkit bricht trotz lineBreak:false um) */
+function kuerze(doc, s, breite) {
+  if (doc.widthOfString(s) <= breite) return s;
+  let lo = 0, hi = s.length;
+  while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (doc.widthOfString(`${s.slice(0, mid).trimEnd()}…`) <= breite) lo = mid; else hi = mid - 1; }
+  return `${s.slice(0, lo).trimEnd()}…`;
 }
 
 /**
@@ -113,19 +108,44 @@ function tagesplanPdf(m, opt = {}) {
     doc.font('Helvetica').fontSize(GR.text).text(winAnsi('Für diesen Tag sind keine Einsätze eingeteilt.'), RAND, y);
     y += 24;
   }
+  // Kopfzeile eines Blocks (auch als Fortsetzung auf der Folgeseite): Name/Adresse vorab auf die Breite gekürzt
+  const blockKopf = (b, forts) => {
+    doc.rect(RAND, y, BREITE, KOPF_H).fill(GRAU);
+    doc.font('Helvetica').fontSize(GR.klein);
+    const adresse = b.adresse ? kuerze(doc, winAnsi(b.adresse), BREITE * 0.4 - 10) : '';
+    const adrB = adresse ? doc.widthOfString(adresse) + 4 : 0;
+    doc.fillColor('#000').font('Helvetica-Bold').fontSize(GR.kopf);
+    const zusatz = forts ? winAnsi(' (Fortsetzung)') : '';
+    const kopfText = kuerze(doc, winAnsi(`${b.kst}  ${b.name}`), BREITE - 16 - adrB - 12 - doc.widthOfString(zusatz)) + zusatz;
+    texte.push(kopfText);
+    doc.text(kopfText, RAND + 8, y + 5, { width: BREITE - 16 - adrB - 8, lineBreak: false });
+    if (adresse) doc.font('Helvetica').fontSize(GR.klein).text(adresse, RAND + BREITE - 8 - adrB, y + 7, { width: adrB, align: 'right', lineBreak: false });
+    y += KOPF_H + 5;
+  };
+  const rahmen = (von) => doc.rect(RAND, von, BREITE, y - von + 4).lineWidth(0.8).strokeColor('#777').stroke();
   for (const b of m.bloecke) {
     const zeilen = blockZeilen(b);
     const h = KOPF_H + hoeheZeilen(doc, zeilen, BREITE - 16) + 14;
-    // nie teilen: passt der Block nicht mehr, neue Seite (nur ein Block, der größer als eine ganze Seite ist, wird umbrochen)
+    // nie teilen: passt der Block nicht mehr, neue Seite. N-036: nur ein Block, der größer als eine ganze Seite ist,
+    // wird umbrochen – Zeile für Zeile, mit Seitenkopf und Block-Kopf „(Fortsetzung)“, Rahmen je Seitenteil
     if (y + h > UNTEN && y > RAND + 60) neueSeite();
-    doc.rect(RAND, y, BREITE, KOPF_H).fill(GRAU);
-    const kopfText = winAnsi(`${b.kst}  ${b.name}`);
-    texte.push(kopfText);
-    doc.fillColor('#000').font('Helvetica-Bold').fontSize(GR.kopf).text(kopfText, RAND + 8, y + 5, { width: BREITE * 0.55, lineBreak: false, ellipsis: true });
-    if (b.adresse) doc.font('Helvetica').fontSize(GR.klein).text(winAnsi(b.adresse), RAND + BREITE * 0.55, y + 7, { width: BREITE * 0.45 - 8, align: 'right', lineBreak: false, ellipsis: true });
-    const yEnde = zeichneZeilen(doc, zeilen, RAND + 8, y + KOPF_H + 5, BREITE - 16, texte);
-    doc.rect(RAND, y, BREITE, yEnde - y + 4).lineWidth(0.8).strokeColor('#777').stroke();
-    y = yEnde + 14;
+    let start = y;
+    blockKopf(b, false);
+    for (const z of zeilen) {
+      const s = winAnsi(z.text);
+      texte.push(s);
+      const breite = BREITE - 16 - (z.einzug || 0);
+      doc.font(z.fett ? 'Helvetica-Bold' : 'Helvetica').fontSize(z.gr || GR.text);
+      // eine einzelne Zeile höher als eine ganze Seite wird abgeschnitten (sonst Autoumbruch von pdfkit ohne Kopf)
+      const maxH = UNTEN - (RAND + GR.kopf + 16 + KOPF_H + 5) - 8;
+      const h1 = Math.min(doc.heightOfString(s, { width: breite }), maxH);
+      if (y + (z.abstand || 0) + h1 + 6 > UNTEN) { rahmen(start); neueSeite(); start = y; blockKopf(b, true); } else y += z.abstand || 0;
+      doc.font(z.fett ? 'Helvetica-Bold' : 'Helvetica').fontSize(z.gr || GR.text).fillColor('#000');
+      doc.text(s, RAND + 8 + (z.einzug || 0), y, { width: breite, ...(h1 >= maxH ? { height: h1, ellipsis: true } : {}) });
+      y += h1 + 2;
+    }
+    rahmen(start);
+    y += 14;
   }
 
   // Fuhren je LKW (Tabelle)
@@ -202,20 +222,44 @@ function wochenplanPdf(m, opt = {}) {
   };
   kopfZeile();
   if (!m.zeilen.length) doc.font('Helvetica').fontSize(GR.text).text(winAnsi('Keine Einsätze in dieser Woche.'), RAND, y + 8);
+  const neueSeite = () => { doc.addPage(); y = kopf(doc, m, true); kopfZeile(); };
+  const OBEN = y; // y unter dem Tabellenkopf der ersten Seite (Folgeseiten: kleinerer Kopf)
+  const hoehe = (s, w) => doc.heightOfString(winAnsi(s || ' '), { width: w });
   for (const z of m.zeilen) {
     doc.font('Helvetica').fontSize(GR.klein);
-    const zell = m.tage.map((t) => (z.zellen[t.datum] || []).join('\n'));
     const kopfText = `${z.kst}\n${z.name}`;
-    const h = Math.max(doc.heightOfString(winAnsi(kopfText), { width: ERSTE - 8 }), ...zell.map((s) => doc.heightOfString(winAnsi(s || ' '), { width: spB - 8 }))) + 10;
-    if (y + h > UNTEN) { doc.addPage(); y = kopf(doc, m, true); kopfZeile(); }
-    const k = winAnsi(kopfText);
-    texte.push(k);
-    doc.fillColor('#000').font('Helvetica-Bold').fontSize(GR.klein).text(k, RAND + 4, y + 5, { width: ERSTE - 8 });
-    doc.font('Helvetica').fontSize(GR.klein);
-    zell.forEach((s, i) => { const w = winAnsi(s); if (w) texte.push(w); doc.text(w, RAND + ERSTE + i * spB + 4, y + 5, { width: spB - 8 }); });
-    doc.rect(RAND, y, BREITE, h).lineWidth(0.5).strokeColor('#888').stroke();
-    for (let i = 0; i <= m.tage.length; i++) doc.moveTo(RAND + ERSTE + i * spB, y).lineTo(RAND + ERSTE + i * spB, y + h).stroke();
-    y += h;
+    let rest = m.tage.map((t) => [...(z.zellen[t.datum] || [])]);
+    const zeilenH = (zellen, kt) => Math.max(hoehe(kt, ERSTE - 8), ...zellen.map((e) => hoehe(e.join('\n'), spB - 8))) + 10;
+    let h = zeilenH(rest, kopfText);
+    if (y + h > UNTEN && y > OBEN + 1) neueSeite();
+    let forts = false;
+    // N-080: eine Zeile höher als eine Seite wird auf Folgeseiten verteilt (je Zelle so viele Einträge, wie passen)
+    for (;;) {
+      const kt = forts ? `${z.kst} (Forts.)\n${z.name}` : kopfText;
+      const platz = UNTEN - y;
+      let teil = rest, weiter = null;
+      if (zeilenH(rest, kt) > platz) {
+        teil = rest.map((e) => {
+          let n = 0;
+          while (n < e.length && hoehe(e.slice(0, n + 1).join('\n'), spB - 8) + 10 <= platz) n += 1;
+          return e.slice(0, Math.max(n, e.length ? 1 : 0));
+        });
+        weiter = rest.map((e, i) => e.slice(teil[i].length));
+        if (!weiter.some((e) => e.length)) weiter = null;
+      }
+      h = Math.min(zeilenH(teil, kt), platz);
+      const k = winAnsi(kt);
+      texte.push(k);
+      doc.fillColor('#000').font('Helvetica-Bold').fontSize(GR.klein).text(k, RAND + 4, y + 5, { width: ERSTE - 8, height: h - 6, ellipsis: true });
+      doc.font('Helvetica').fontSize(GR.klein);
+      teil.forEach((e, i) => { const w = winAnsi(e.join('\n')); if (w) texte.push(w); doc.text(w, RAND + ERSTE + i * spB + 4, y + 5, { width: spB - 8, height: h - 6, ellipsis: true }); });
+      doc.rect(RAND, y, BREITE, h).lineWidth(0.5).strokeColor('#888').stroke();
+      for (let i = 0; i <= m.tage.length; i++) doc.moveTo(RAND + ERSTE + i * spB, y).lineTo(RAND + ERSTE + i * spB, y + h).stroke();
+      y += h;
+      if (!weiter) break;
+      rest = weiter; forts = true;
+      neueSeite();
+    }
   }
   if (m.tage.some((t) => t.entwurf)) {
     doc.font('Helvetica').fontSize(10).fillColor('#444').text(winAnsi('* nicht oder nicht aktuell veröffentlicht'), RAND, Math.min(y + 6, UNTEN - 12));
