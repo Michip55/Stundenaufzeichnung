@@ -145,10 +145,13 @@ module.exports = function authRouten(api, bt) {
   /**
    * 15.5 (F-046): Geräteschlüssel der angemeldeten Person (AES-256, Base64). Die App versiegelt damit beim Abmelden und beim
    * Benutzerwechsel die noch wartenden Einträge dieser Person; ohne ihre Anmeldung sind sie am Gerät nicht lesbar.
+   * `?benutzerId=` muss die angemeldete Person sein (sonst 403).
    */
   api.get('/auth/geraet-schluessel', (req, res) => {
     if (!req.ctx) throw nichtAngemeldet();
     const id = req.ctx.benutzer.id;
+    // nur der eigene Schlüssel – auch die GF erhält nie den einer anderen Person
+    if (v.pfadId(String(req.query.benutzerId ?? ''), 'benutzerId') !== id) throw require('../fehler').keinZugriff('Nur der eigene Geräteschlüssel.');
     let z = db.eins('SELECT schluessel FROM geraet_schluessel WHERE benutzer_id = ?', id);
     if (!z) {
       db.lauf('INSERT INTO geraet_schluessel (benutzer_id, schluessel, erstellt) VALUES (?, ?, ?) ON CONFLICT(benutzer_id) DO NOTHING', id, require('node:crypto').randomBytes(32).toString('base64'), bt.uhr().toISOString());

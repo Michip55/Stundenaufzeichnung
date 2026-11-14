@@ -157,10 +157,13 @@ test('15.5 F-029: Sitzungsbindung, Rotation, Sperre nach Untätigkeit', async (t
   });
 
   await t.test('Geräteschlüssel: nur angemeldet, je Person fest, für andere verschieden', async () => {
-    assert.equal((await s.client().get('/auth/geraet-schluessel')).status, 401);
-    const a = (await (await s.login(U.polier)).get('/auth/geraet-schluessel')).daten;
-    const b = (await (await s.login(U.polier)).get('/auth/geraet-schluessel')).daten;
-    const m = (await (await s.login(U.mitarbeiter)).get('/auth/geraet-schluessel')).daten;
+    assert.equal((await s.client().get(`/auth/geraet-schluessel?benutzerId=${U.polier}`)).status, 401);
+    const a = (await (await s.login(U.polier)).get(`/auth/geraet-schluessel?benutzerId=${U.polier}`)).daten;
+    const b = (await (await s.login(U.polier)).get(`/auth/geraet-schluessel?benutzerId=${U.polier}`)).daten;
+    const m = (await (await s.login(U.mitarbeiter)).get(`/auth/geraet-schluessel?benutzerId=${U.mitarbeiter}`)).daten;
+    // fremder Schlüssel nie – auch nicht für die GF
+    assert.equal((await (await s.login(U.gf)).get(`/auth/geraet-schluessel?benutzerId=${U.polier}`)).status, 403);
+    assert.equal((await (await s.login(U.mitarbeiter)).get(`/auth/geraet-schluessel?benutzerId=${U.polier}`)).status, 403);
     assert.equal(a.benutzerId, U.polier);
     assert.equal(Buffer.from(a.schluessel, 'base64').length, 32);
     assert.equal(a.schluessel, b.schluessel);

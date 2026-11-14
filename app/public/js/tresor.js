@@ -41,7 +41,7 @@ export const schluesselDa = (benutzerId) => { const t = lies(SCHL, null); return
 export async function schluesselHolen(benutzerId) {
   if (schluesselDa(benutzerId)) return true;
   try {
-    const r = await get('/auth/geraet-schluessel');
+    const r = await get(`/auth/geraet-schluessel?benutzerId=${encodeURIComponent(benutzerId)}`);
     if (r && r.benutzerId === benutzerId && r.schluessel) return schreib(SCHL, { benutzerId, k: r.schluessel });
   } catch (e) { /* ohne Netz: beim nächsten Mal */ }
   return false;
