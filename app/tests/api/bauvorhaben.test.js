@@ -2,8 +2,35 @@
 /** Bauvorhaben: Lebenslauf und Archiv (API.md 12.15) */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { starte, U, BS, euroFelder } = require('./hilfe');
+const { starte, U, BS, START, euroFelder } = require('./hilfe');
 const { wienDatum, plusTage } = require('../../server/datum');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { oeffneDatenbank } = require('../../server/db');
+const { createApp } = require('../../server/index');
+
+test('Migration 12: Phase aus dem alten Status einer Bestands-Datenbank (Release 1, bisVersion 10)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-phase-'));
+  const datei = path.join(dir, 'alt.db');
+  try {
+    const alt = oeffneDatenbank(datei, { bisVersion: 10 });
+    assert.equal(alt.eins('SELECT MAX(version) AS v FROM schema_version').v, 10);
+    assert.ok(!alt.alle('PRAGMA table_info(baustelle)').some((c) => c.name === 'phase'));
+    const t0 = '2026-03-02T08:00:00.000Z';
+    alt.lauf("INSERT INTO baustelle (id, kst, name, status, erstellt) VALUES (1, '25-100', 'Fertig', 'abgeschlossen', ?), (2, '25-101', 'Kommt noch', 'geplant', ?), (3, '25-102', 'Läuft', 'aktiv', ?)", t0, t0, t0);
+    alt.schliessen();
+    const app = createApp({ dbPath: datei, uhr: () => new Date(START), seed: false, demo: false, loginListe: false });
+    const { db } = app.locals.bt;
+    try {
+      assert.deepEqual(db.alle('SELECT id, status, phase, phase_seit FROM baustelle WHERE id IN (1, 2, 3) ORDER BY id').map((b) => ({ ...b })), [
+        { id: 1, status: 'abgeschlossen', phase: 'fertiggestellt', phase_seit: '2026-03-02' },
+        { id: 2, status: 'geplant', phase: 'geplant', phase_seit: '2026-03-02' },
+        { id: 3, status: 'aktiv', phase: 'in_arbeit', phase_seit: '2026-03-02' },
+      ]);
+    } finally { db.schliessen(); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
   const s = await starte({ sitzung: { feldMin: 60 * 24 * 60, bueroMin: 60 * 24 * 60, maxH: 24 * 90 } });
@@ -21,8 +48,7 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal(d.status, 'aktiv');
     assert.equal(d.archiviert, false);
     assert.equal(bs().bauleiter_id, U.bauleiter);
-    const ab = s.db.eins("SELECT id, phase, status FROM baustelle WHERE status = 'abgeschlossen' LIMIT 1");
-    if (ab) assert.equal(ab.phase, 'fertiggestellt');
+    // Migration abgeschlossen → fertiggestellt: eigener Test auf einer Datenbank im Stand von Release 1 (siehe unten, N-089)
   });
 
   await t.test('Rechte und Übergänge', async () => {
