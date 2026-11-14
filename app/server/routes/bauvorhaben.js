@@ -5,7 +5,7 @@ const { ungueltig, keinZugriff, konflikt } = require('../fehler');
 const { baustelleAusPfad } = require('./hilfe');
 const { darfPreise, baustelleImBereich } = require('../rechte');
 const { parseJson } = require('../daten');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const BV = require('../bauvorhaben');
 
 module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }) {
@@ -39,7 +39,7 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
     db.transaktion(() => {
       db.lauf('UPDATE baustelle SET fertigmeldung = ?, version = version + 1 WHERE id = ?', JSON.stringify(fm), bs.id);
       db.protokolliere({ zeit: fm.zeit, benutzerId: ich.id, art: 'baustelle_phase', objekt: `baustelle:${bs.id}`, neu: { fertigmeldung: notiz }, text: `Bauvorhaben ${bs.kst}: Fertigstellung gemeldet von ${ich.name}` });
-      const empf = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND (rolle = 'buero' OR id = ?) AND id <> ?", bs.bauleiter_id || -1, ich.id);
+      const empf = empfaengerMitRecht(db, 'stammdaten', { ohne: ich.id }); // 15.3: Büro und Bauleiter (= Büro) über das Recht
       for (const e of empf) {
         benachrichtige(db, { benutzerId: e.id, typ: 'baustelle', titel: `Fertigstellung gemeldet: ${bs.kurz || bs.name}`, text: `${ich.name} meldet die Baustelle ${bs.kst} als fertiggestellt${notiz ? ` – „${notiz.slice(0, 120)}“` : ''}. Bitte prüfen und bestätigen.`, zeit: fm.zeit, baustelleId: bs.id, schluessel: `bv:fm:${bs.id}:${fm.zeit}` });
       }

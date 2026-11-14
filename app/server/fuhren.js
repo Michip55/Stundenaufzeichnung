@@ -4,7 +4,7 @@
  * Übernahme erledigter Fuhren in den Bautagesbericht (genau einmal). Keine €-Felder.
  */
 const { ungueltig } = require('./fehler');
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
 const r3 = (x) => Math.round((x + Number.EPSILON) * 1000) / 1000;
 
@@ -120,7 +120,7 @@ function inBericht(bt, f, benutzerId) {
   const zeit = bt.uhr().toISOString();
   const pruefen = (hinweis) => {
     db.lauf("UPDATE plan_fuhre SET bericht_status = 'pruefen', bericht_hinweis = ? WHERE id = ?", hinweis, f.id);
-    for (const b of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'buero'")) {
+    for (const b of empfaengerMitRecht(db, 'stammdaten')) { // 15.3: Büro/Bauleiter/GF über das Recht
       benachrichtige(db, { benutzerId: b.id, typ: 'plan', titel: 'Fuhre prüfen: Menge nicht übernommen', text: `Fuhre ${f.id} (${f.datum.split('-').reverse().join('.')}): ${hinweis}`, zeit, baustelleId: nach.baustelleId, schluessel: `fuhre:pruefen:${f.id}` });
     }
   };

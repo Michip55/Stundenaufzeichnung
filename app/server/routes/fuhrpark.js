@@ -939,7 +939,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       E.meldeSperre(db, A2, { titel, text, textStandort, zeit: z0, schluessel: `fp:mangel:${m.id}`, buero: m.typ === 'schaden' });
     } else {
       const empf = new Set([...E.fuhrparkBenutzer(db), ...(m.typ === 'schaden' ? E.buroGf(db) : [])]);
-      for (const uid of empf) E.melde(db, { benutzerId: uid, titel, text, zeit: z0, anlageId: A ? A.row.id : null, schluessel: `fp:mangel:${m.id}` });
+      for (const uid of empf) E.melde(db, { benutzerId: uid, titel, text, zeit: z0, anlageId: A ? A.row.id : null, schluessel: `fp:mangel:${m.id}`, erfordert: ['fuhrpark|stammdaten'] }); // 15.3: über das Recht
     }
   }
 

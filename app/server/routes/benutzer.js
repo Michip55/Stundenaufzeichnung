@@ -10,7 +10,7 @@ const { wienDatum } = require('../datum');
 /** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
 /** Rollenwechsel, die das Büro vornehmen darf (D-02) */
 const BUERO_ROLLENWECHSEL = ['mitarbeiter', 'polier'];
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 
 const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm', 'katalog', 'nachkalkulation'];
 
@@ -225,7 +225,7 @@ module.exports = function benutzerRouten(api, bt) {
         }
         // D-02: Rollenwechsel durch das Büro → GF informieren
         if (!req.ctx.hat('benutzer')) {
-          for (const g of db.alle("SELECT id FROM benutzer WHERE rolle = 'gf' AND aktiv = 1")) {
+          for (const g of empfaengerMitRecht(db, 'benutzer')) { // 15.3: GF über ihr Recht
             benachrichtige(db, { benutzerId: g.id, typ: 'sicherheit', titel: `Rollenwechsel: ${alt.name}`, text: `${req.ctx.benutzer.name} hat ${alt.name} von ${R.ROLLEN_NAMEN[alt.rolle]} zu ${R.ROLLEN_NAMEN[f.rolle]} geändert.`, zeit: jetzt(), schluessel: `rolle:${id}:${jetzt()}` });
           }
         }

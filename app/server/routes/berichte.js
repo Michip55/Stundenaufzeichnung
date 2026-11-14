@@ -5,7 +5,8 @@ const { baustelleImBereich, darfPreise, bereich } = require('../rechte');
 const { ladeBaustelle, personalVorschlag, kostenTagFuer, parseJson, schichtenAmTag } = require('../daten');
 const { stundenAusBloecken, blockZeitleiste, bloeckeAlsZeitpunkte } = require('../stempel');
 const { wienDatum, wienZeit, plusTage } = require('../datum');
-const { pruefeBudget, benachrichtige } = require('../budget');
+const { pruefeBudget } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const { erzeugeBerichtPdf } = require('../pdf');
 const { bildHash } = require('../db');
 const DS = require('../datenschutz');
@@ -576,7 +577,7 @@ module.exports = function berichtRouten(api, bt) {
         db.lauf("UPDATE bericht SET status = 'unterschrieben', geaendert = ?, version = version + 1 WHERE id = ?", zeit, b.id);
         db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, alt: 'entwurf', neu: 'unterschrieben', text: `Bericht ${b.baustelle.kst} ${b.datum} unterschrieben${protokollZusatz}` });
         // Hinweis an alle, die freigeben dürfen (Bauleiter der Baustelle, Büro, GF)
-        const empf = db.alle("SELECT id, rolle FROM benutzer WHERE aktiv = 1 AND (rolle IN ('buero','gf') OR id = ?)", b.baustelle.bauleiter_id || -1);
+        const empf = empfaengerMitRecht(db, 'bericht_freigeben', { baustelleId: b.baustelle_id }); // 15.3: über das Recht (Bauleiter = Büro)
         for (const e of empf) {
           benachrichtige(db, {
             benutzerId: e.id, typ: 'bericht', titel: `Bericht zur Freigabe: ${b.baustelle.kurz || b.baustelle.name}`,

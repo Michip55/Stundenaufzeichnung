@@ -6,7 +6,7 @@ const { pruefeBuchung, schichten, plausibilisieren, ungueltigeUebergaenge, TYPEN
 const { azgWarnungen } = require('../azg');
 const { wienDatum, wienZeit, wienZuDate, plusTage, deDatum } = require('../datum');
 const { ladeBaustelle, aktuellerStatus, buchungenSeit, letzteBuchungen } = require('../daten');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const { woche } = require('../auswertung');
 const { brauche } = require('./hilfe');
 const DS = require('../datenschutz');
@@ -115,7 +115,7 @@ function azgNachGehen(bt, benutzerId, jetzt) {
   const w = azgWarnungen(sch, { jetzt }).filter((x) => x.datum === letzte.datum && x.typ !== 'offen');
   if (!w.length) return;
   const b = db.eins('SELECT id, name FROM benutzer WHERE id = ?', benutzerId);
-  const buero = db.alle("SELECT id FROM benutzer WHERE rolle IN ('buero','gf') AND aktiv = 1");
+  const buero = empfaengerMitRecht(db, 'lohn', { ohne: benutzerId }); // 15.3: AZG anderer nur für die Lohnverrechnung (Recht lohn)
   for (const x of w) {
     const titel = `AZG-Hinweis: ${b.name}`;
     for (const e of [{ id: b.id }, ...buero]) {
@@ -129,15 +129,12 @@ function eingetrageneAbwesenheit(db, benutzerId, datum) {
   return db.eins("SELECT code, betriebsurlaub FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U','ZA')", benutzerId, datum) || null;
 }
 
-/** Wer erfährt von einer Stempelung trotz Abwesenheit: Büro/GF und alle mit stammdaten oder lohn – nie Polier/Mitarbeiter. */
+/**
+ * Wer erfährt von einer Stempelung trotz Abwesenheit: alle aktiven Benutzer mit stammdaten oder lohn (15.2/15.3, über Rechte,
+ * nie über Rollennamen – Bauleiter = Büro); nie Polier/Mitarbeiter (Sicherheitsnetz, beide Rechte sind für sie gesperrt).
+ */
 function klaerungsEmpfaenger(db) {
-  const { ladeRechteFuer } = require('../rechte');
-  return db.alle('SELECT * FROM benutzer WHERE aktiv = 1 ORDER BY id').filter((b) => {
-    if (['polier', 'mitarbeiter'].includes(b.rolle)) return false;
-    if (['buero', 'gf'].includes(b.rolle)) return true;
-    const r = ladeRechteFuer(db, b);
-    return r.has('stammdaten') || r.has('lohn');
-  });
+  return empfaengerMitRecht(db, 'stammdaten|lohn').filter((b) => !['polier', 'mitarbeiter'].includes(b.rolle));
 }
 
 /** API.md 15.2: Kolonne hat jemanden trotz eingetragener Abwesenheit gestempelt → Hinweis an das Büro (einmal je Person und Tag). */

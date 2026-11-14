@@ -6,7 +6,7 @@ const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, deDatum, istArbeitstag, feiertag, wochentag } = require('../datum');
 const crypto = require('node:crypto');
 const DS = require('../datenschutz'); // R-01…R-03: Krankenstand/Notizen nur für stammdaten/lohn und die Person selbst
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung'); // 15.3: Empfänger = wer entscheidet (stammdaten|lohn)
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
 const CODE_TEXT = { K: 'Krankenstand', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich' };
@@ -146,7 +146,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, alt: vorhanden ? { datum, code: vorhanden.code, status: vorhanden.status } : null, neu: { datum, code, status } });
       ersetztMelden(ersetzt, { text: `${CODE_TEXT[code]} am ${tagKurz(datum)}, ${status}` }, zeit);
       if (status === 'beantragt') {
-        for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", benutzerId)) {
+        for (const e of empfaengerMitRecht(db, 'stammdaten|lohn', { ohne: benutzerId })) {
           benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Antrag: ${CODE_TEXT[code]} – ${ziel.name}`, text: `${ziel.name} beantragt ${CODE_TEXT[code]} am ${deDatum(datum)}.`, zeit, schluessel: `abw:${id}:${zeit}` });
         }
       }
@@ -278,7 +278,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${benutzerId}`, neu: { antragId: aid, von, bis, code, status, tage: tage.length, uebersprungen: uebersprungen.length, ersetzt: ersetzen.length, ersetzteAntraege: ersetzt.map((g) => g.antragId) }, text: `${titelCode(code)} ${ziel.name}: ${zeitText(tage[0], tage[tage.length - 1])} (${tage.length} Arbeitstage, ${status})` });
       if (status === 'beantragt') {
         const text = `${titelCode(code)} ${ziel.name}: ${zeitText(tage[0], tage[tage.length - 1])} (${tage.length} ${tage.length === 1 ? 'Arbeitstag' : 'Arbeitstage'})${notiz ? ` – ${notiz}` : ''}`;
-        for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", benutzerId)) {
+        for (const e of empfaengerMitRecht(db, 'stammdaten|lohn', { ohne: benutzerId })) {
           benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `${titelCode(code)}: ${ziel.name}`, text, zeit, schluessel: `abw:antrag:${aid}` });
         }
       }
@@ -431,7 +431,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
       }
       meldungId = db.lauf('INSERT INTO sw_meldung (polier_id, benutzer_id, von, bis, antrag_id, notiz, erstellt) VALUES (?, ?, ?, ?, ?, ?, ?)', ich.id, ziel.id, von, bis, aid, notiz, zeit).id;
       db.protokolliere({ zeit, benutzerId: ich.id, art: 'abwesenheit', objekt: `benutzer:${ziel.id}`, neu: { swMeldung: meldungId, antragId: aid, von, bis }, text: `Schlechtwetter gemeldet von ${ich.name} für ${ziel.name}: ${zeitText(von, bis)}` });
-      for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", ziel.id)) {
+      for (const e of empfaengerMitRecht(db, 'stammdaten|lohn', { ohne: ziel.id })) {
         benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Schlechtwetter gemeldet: ${ziel.name}`, text: `${ich.name} meldet Schlechtwetter für ${ziel.name}: ${zeitText(von, bis)}. Bitte bestätigen.`, zeit, schluessel: `sw:${meldungId}` });
       }
     });

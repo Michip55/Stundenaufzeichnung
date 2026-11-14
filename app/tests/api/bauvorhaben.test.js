@@ -72,7 +72,9 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal(r.status, 201);
     assert.equal((await meldungen('buero', /Fertigstellung gemeldet/)).length, 1);
     assert.equal((await meldungen('bauleiter', /Fertigstellung gemeldet/)).length, 1);
-    assert.equal((await meldungen('gf', /Fertigstellung gemeldet/)).length, 0);
+    // 15.3: Empfänger über das Recht stammdaten (Bauleiter = Büro) – die GF hat es ebenfalls; der Polier nie
+    assert.equal((await meldungen('gf', /Fertigstellung gemeldet/)).length, 1);
+    assert.equal((await meldungen('polier', /Fertigstellung gemeldet/)).length, 0);
     const d = (await c.buero.get(`/baustellen/${BS.pitten}`)).daten;
     assert.equal(d.fertigmeldung.von.id, U.polier);
     assert.equal((await c.buero.get('/baustellen-kennzahlen')).daten.fertigmeldungenOffen >= 1, true);
@@ -138,7 +140,10 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     await phase('buero', { phase: 'abgenommen', abnahmeDatum: plusTage(heute, -20), gewaehrleistungBis: plusTage(heute, 60) }, id);
     s.app.bt.stuendlich();
     assert.equal((await meldungen('buero', /Schlussrechnung fehlt/)).length, 1);
-    assert.equal((await meldungen('gf', /Schlussrechnung fehlt/)).length, 0);
+    // 15.3: „Schlussrechnung fehlt“ an alle mit preise_sehen (Bauleiter = Büro, auch GF); nie an Polier
+    assert.equal((await meldungen('gf', /Schlussrechnung fehlt/)).length, 1);
+    assert.equal((await meldungen('bauleiter', /Schlussrechnung fehlt/)).length, 1);
+    assert.equal((await meldungen('polier', /Schlussrechnung fehlt/)).length, 0);
     assert.equal((await meldungen('gf', /Gewährleistung endet/)).length, 1);
     s.app.bt.stuendlich();
     assert.equal((await meldungen('buero', /Schlussrechnung fehlt/)).length, 1);

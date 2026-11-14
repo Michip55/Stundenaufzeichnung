@@ -4,7 +4,7 @@
  * (Einstellung `sicherung`) und alarmiert die Geschäftsführung (In-App + E-Mail), wenn ein Schritt
  * gescheitert ist oder die letzte erfolgreiche Sicherung zu alt ist.
  */
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 const { wienDatum } = require('./datum');
 
 const GRENZEN_STUNDEN = { lokal: 26, offsite: 26, test: 8 * 24 };
@@ -43,7 +43,7 @@ function pruefeSicherung(bt) {
   const schluessel = `sicherung:${tag}:${[...new Set(st.warnungen.map((w) => w.art))].sort().join('+')}`;
   const text = st.warnungen.map((w) => w.text).join(' ');
   let neu = false;
-  for (const g of bt.db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'gf'")) {
+  for (const g of empfaengerMitRecht(bt.db, 'benutzer')) { // 15.3: Geschäftsführung über ihr Recht
     if (benachrichtige(bt.db, { benutzerId: g.id, typ: 'sicherheit', titel: 'Datensicherung: bitte prüfen', text, zeit, schluessel })) neu = true;
   }
   if (neu) {

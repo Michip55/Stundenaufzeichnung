@@ -5,7 +5,7 @@
 const { ungueltig, konflikt, keinZugriff } = require('./fehler');
 const { wienDatum, plusTage, istDatum } = require('./datum');
 const { parseJson } = require('./daten');
-const { benachrichtige } = require('./budget');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 
 const PHASEN = ['angebot', 'geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert', 'storniert'];
 const PHASE_NAMEN = {
@@ -140,8 +140,9 @@ function pruefeBauvorhaben(bt) {
   const { db } = bt;
   const heute = wienDatum(bt.uhr());
   const zeit = bt.uhr().toISOString();
-  const buero = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'buero'");
-  const bueroGf = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')");
+  // 15.3: Empfänger über Rechte (Bauleiter = Büro); Rechnungs-/Haftrücklass-Themen nur mit preise_sehen
+  const preise = empfaengerMitRecht(db, 'preise_sehen');
+  const stamm = empfaengerMitRecht(db, 'stammdaten');
   const melde = (empf, bs, titel, text, schluessel) => {
     for (const e of empf) benachrichtige(db, { benutzerId: e.id, typ: 'baustelle', titel, text, zeit, baustelleId: bs.id, schluessel });
   };
@@ -150,18 +151,18 @@ function pruefeBauvorhaben(bt) {
     const name = `${bs.kst} ${bs.kurz || bs.name}`;
     if (bs.phase === 'abgenommen' && bs.abnahme_datum && plusTage(bs.abnahme_datum, 14) < heute) {
       const sr = db.eins("SELECT name FROM sqlite_master WHERE name = 'rechnung'") ? db.eins("SELECT 1 AS x FROM rechnung WHERE baustelle_id = ? AND typ = 'schluss' AND storniert IS NULL", bs.id) : null;
-      if (!sr) melde(buero, bs, `Schlussrechnung fehlt: ${name}`, `Abnahme am ${de(bs.abnahme_datum)} – seit über 14 Tagen ohne Schlussrechnung.`, `bv:sr:${bs.id}:${bs.abnahme_datum}`);
+      if (!sr) melde(preise, bs, `Schlussrechnung fehlt: ${name}`, `Abnahme am ${de(bs.abnahme_datum)} – seit über 14 Tagen ohne Schlussrechnung.`, `bv:sr:${bs.id}:${bs.abnahme_datum}`);
     }
     if (bs.gewaehrleistung_bis && plusTage(heute, 92) >= bs.gewaehrleistung_bis && heute <= bs.gewaehrleistung_bis) {
-      melde(bueroGf, bs, `Gewährleistung endet: ${name}`, `Gewährleistungsfrist endet am ${de(bs.gewaehrleistung_bis)} – Mängel vorher prüfen/begehen.`, `bv:gw:${bs.id}:${bs.gewaehrleistung_bis}`);
+      melde(stamm, bs, `Gewährleistung endet: ${name}`, `Gewährleistungsfrist endet am ${de(bs.gewaehrleistung_bis)} – Mängel vorher prüfen/begehen.`, `bv:gw:${bs.id}:${bs.gewaehrleistung_bis}`);
     }
     const hr = parseJson(bs.haftruecklass, null);
     if (hr && !hr.freigegeben) {
       if (hr.bankgarantieBis && plusTage(heute, 30) >= hr.bankgarantieBis && heute <= hr.bankgarantieBis) {
-        melde(bueroGf, bs, `Bankgarantie läuft ab: ${name}`, `Bankgarantie für den Haftrücklass läuft am ${de(hr.bankgarantieBis)} ab.`, `bv:bg:${bs.id}:${hr.bankgarantieBis}`);
+        melde(preise, bs, `Bankgarantie läuft ab: ${name}`, `Bankgarantie für den Haftrücklass läuft am ${de(hr.bankgarantieBis)} ab.`, `bv:bg:${bs.id}:${hr.bankgarantieBis}`);
       }
       if (hr.freigabeAm && hr.freigabeAm <= heute) {
-        melde(bueroGf, bs, `Haftrücklass freigeben lassen: ${name}`, `Ab ${de(hr.freigabeAm)} kann die Freigabe des Haftrücklasses beim Auftraggeber angefordert werden.`, `bv:hr:${bs.id}:${hr.freigabeAm}`);
+        melde(preise, bs, `Haftrücklass freigeben lassen: ${name}`, `Ab ${de(hr.freigabeAm)} kann die Freigabe des Haftrücklasses beim Auftraggeber angefordert werden.`, `bv:hr:${bs.id}:${hr.freigabeAm}`);
       }
     }
   }

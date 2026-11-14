@@ -6,23 +6,26 @@
  */
 const F = require('./fuhrpark');
 const { ladeStand } = require('./fuhrpark-daten');
-const { ladeRechteFuer } = require('./rechte');
+const { benachrichtige, empfaengerMitRecht } = require('./benachrichtigung');
 const { wienDatum, wienMinuten, wochentag, plusTage, deDatum, tageZwischen } = require('./datum');
 
 const STUFEN = ['bald', 'faellig', 'ueberfaellig'];
 const STUFE_WORT = { bald: 'bald', faellig: 'fällig', ueberfaellig: 'überfällig' };
 const ART_WORT = { gesetzlich: 'Prüfung', hersteller: 'Service', intern: 'Kontrolle', vertrag: 'Frist' };
 
-function melde(db, { benutzerId, titel, text, zeit, anlageId = null, baustelleId = null, schluessel }) {
-  return db.lauf(`INSERT INTO benachrichtigung (benutzer_id, typ, titel, text, zeit, gelesen, baustelle_id, schluessel, anlage_id)
-    VALUES (?, 'fuhrpark', ?, ?, ?, 0, ?, ?, ?) ON CONFLICT(benutzer_id, schluessel) DO NOTHING`, benutzerId, titel, text, zeit, baustelleId, schluessel, anlageId).changes > 0;
+/** Fuhrpark-Benachrichtigung (typ fuhrpark) – über die zentrale Stelle (15.3); erfordert: Rechte je Empfänger */
+function melde(db, { benutzerId, titel, text, zeit, anlageId = null, baustelleId = null, schluessel, erfordert = [] }) {
+  return benachrichtige(db, { benutzerId, typ: 'fuhrpark', titel, text, zeit, baustelleId, schluessel, anlageId, erfordert });
 }
 
 /** Aktive Benutzer mit Recht fuhrpark */
 function fuhrparkBenutzer(db) {
-  return db.alle('SELECT * FROM benutzer WHERE aktiv = 1').filter((b) => ladeRechteFuer(db, b).has('fuhrpark')).map((b) => b.id);
+  return empfaengerMitRecht(db, 'fuhrpark').map((b) => b.id);
 }
-const buroGf = (db) => db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')").map((b) => b.id);
+/** „Büro/GF“ über Rechte (Bauleiter = Büro, 15.3): Stammdaten-Recht */
+const buroGf = (db) => empfaengerMitRecht(db, 'stammdaten').map((b) => b.id);
+/** Wer eine Meldung mit vollem Text (Ursache) über das Recht erhält, sieht sie nur, solange er es hat */
+const VERWALTUNG = ['fuhrpark|stammdaten'];
 const aktiv = (db, id) => (id && db.eins('SELECT id FROM benutzer WHERE id = ? AND aktiv = 1', id) ? [id] : []);
 
 /** Polier und Bauleiter des Standorts */
@@ -83,13 +86,17 @@ function zaehlerAbfrage(S, benutzerId) {
  * @param {{buero?: boolean}} opt  buero: zusätzlich Büro/GF (Schäden)
  */
 function meldeSperre(db, A, { titel, text, textStandort, zeit, schluessel, buero = false }) {
-  const voll = new Set([...fuhrparkBenutzer(db), ...aktiv(db, A.row.verantwortlich_id), ...(buero ? buroGf(db) : [])]);
+  const verantwortlich = aktiv(db, A.row.verantwortlich_id);
+  const ueberRecht = new Set([...fuhrparkBenutzer(db), ...(buero ? buroGf(db) : [])]);
+  const voll = new Set([...ueberRecht, ...verantwortlich]);
   const empf = eindeutig([...voll, ...standortLeute(db, A)]);
   let n = 0;
   for (const id of empf) {
     // F-13: Polier/Bauleiter des Standorts ohne Fuhrpark-Recht erhalten bei Schäden keinen Ursachentext
     const t = textStandort && !voll.has(id) ? textStandort : text;
-    n += melde(db, { benutzerId: id, titel, text: t, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel }) ? 1 : 0;
+    // 15.3: wer den vollen Text nur über das Recht erhält, sieht ihn nur, solange er das Recht hat
+    const erfordert = ueberRecht.has(id) && !verantwortlich.includes(id) ? VERWALTUNG : [];
+    n += melde(db, { benutzerId: id, titel, text: t, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel, erfordert }) ? 1 : 0;
   }
   return n;
 }
@@ -117,12 +124,15 @@ function pruefeFuhrpark(db, jetzt) {
         const idx = STUFEN.indexOf(stufe);
         if (erreicht.some((i) => i >= idx)) continue;
         for (let i = 0; i <= idx; i++) db.lauf('INSERT OR IGNORE INTO fuhrpark_erinnerung (planposition_id, zyklus, stufe, zeit) VALUES (?, ?, ?, ?)', P.row.id, zyklus, STUFEN[i], zeit);
-        const empf = [...fp, ...aktiv(db, A.row.verantwortlich_id)];
-        if (stufe === 'ueberfaellig' && (P.calc.sperrt || A.status.gesperrt)) empf.push(...standortLeute(db, A));
+        const selbst = [...aktiv(db, A.row.verantwortlich_id)];
+        if (stufe === 'ueberfaellig' && (P.calc.sperrt || A.status.gesperrt)) selbst.push(...standortLeute(db, A));
+        const empf = [...fp, ...selbst];
         const titel = `${ART_WORT[P.row.art] || 'Termin'} ${STUFE_WORT[stufe]}: ${A.row.bezeichnung}`;
         const text = erinnerungText(A, P, stufe);
         for (const id of eindeutig(empf)) {
-          neu += melde(db, { benutzerId: id, titel, text, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel: `fp:${P.row.id}:${zyklus}:${stufe}` }) ? 1 : 0;
+          // 15.3: nur über das Recht fuhrpark Benachrichtigte sehen die Erinnerung, solange sie das Recht haben
+          const erfordert = selbst.includes(id) ? [] : ['fuhrpark'];
+          neu += melde(db, { benutzerId: id, titel, text, zeit, anlageId: A.row.id, baustelleId: A.standortBaustelle ? A.standortBaustelle.id : null, schluessel: `fp:${P.row.id}:${zyklus}:${stufe}`, erfordert }) ? 1 : 0;
         }
       }
     }

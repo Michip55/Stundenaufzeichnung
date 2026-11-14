@@ -5,7 +5,7 @@ const { ungueltig, keinZugriff } = require('../fehler');
 const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag, istDatum } = require('../datum');
 const { csv } = require('../export');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const DS = require('../datenschutz');
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
@@ -227,7 +227,7 @@ module.exports = function urlaubRouten(api, bt) {
           }
           if (!x.eigen && typeof bt.antragErsetztMelden === 'function') bt.antragErsetztMelden(x.ersetzt, { text: `${art} ${x.anlegen[0].split('-').reverse().join('.')}–${x.anlegen[x.anlegen.length - 1].split('-').reverse().join('.')}, genehmigt` }, zeit);
           if (x.eigen) {
-            for (const e of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf') AND id <> ?", ich.id)) {
+            for (const e of empfaengerMitRecht(db, 'stammdaten|lohn', { ohne: ich.id })) { // 15.3: wer entscheidet (Vier-Augen-Prinzip, Bauleiter = Büro)
               benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: `Antrag ${art}: ${x.p.name}`, text: `${x.p.name} hat ${art} für sich selbst eingetragen (${x.anlegen.length} ${x.anlegen.length === 1 ? 'Arbeitstag' : 'Arbeitstage'}) – bitte den Antrag entscheiden (Vier-Augen-Prinzip).`, zeit, schluessel: `abw:antrag:${aid}` });
             }
           }
@@ -366,7 +366,7 @@ function offeneAntraege(db, bt) {
 }
 module.exports.pruefeAntraege = (bt) => {
   const { db } = bt;
-  const buero = db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle = 'buero'");
+  const buero = empfaengerMitRecht(db, 'stammdaten|lohn'); // 15.3: wer entscheidet (Bauleiter = Büro)
   const de = (d) => d.split('-').reverse().join('.');
   for (const a of offeneAntraege(db, bt)) {
     // einmal je Antrag (Bestand: Schlüssel wie bisher je Eintrag)

@@ -6,7 +6,7 @@ const { ungueltig, nichtAngemeldet, keinZugriff, konflikt, nichtGefunden } = req
 const auth = require('../auth');
 const T = require('../totp');
 const G = require('../geheim');
-const { benachrichtige } = require('../budget');
+const { benachrichtige } = require('../benachrichtigung'); // 15.3: eine Stelle
 
 const ROLLEN = ['bauleiter', 'buero', 'gf'];
 const VORGANG_MIN = 5;
