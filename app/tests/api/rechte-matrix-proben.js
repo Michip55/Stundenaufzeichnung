@@ -9,6 +9,14 @@ const { BS } = require('./hilfe');
 const { testJpeg } = require('./fuhrpark-bilder');
 const { ROLLEN, ID, ANDERER_MA, FREMDER_MA } = H;
 
+/** Test-JPEG mit anderem Bildinhalt (andere Prüfsumme auch nach dem Entfernen der Metadaten) */
+function jpegVariante(n) {
+  const b = Buffer.from(testJpeg());
+  const i = b.indexOf(Buffer.from([0x12, 0xff, 0x00, 0x34]));
+  b[i] = 0x12 + n;
+  return b.toString('base64');
+}
+
 /** Erwartung je Rolle aus dem Matrix-Eintrag */
 function erwartung(eintrag, rolle) {
   const teile = eintrag.r.split(/\s+/);
@@ -63,6 +71,9 @@ function platzhalter(F, rolle, variante, ueber = {}) {
     swMeldung: F.swMeldung,
     dummy: F.dummyBenutzer, buchungAnderer: F.buchung.anderer, schichtAnderer: F.schicht.anderer, token: F.bericht.bs1Token,
     jpeg: testJpeg().toString('base64'), pdf: H.kleinesPdf('Probe').toString('base64'),
+    // F-025: weitere, vom Basis-Foto verschiedene Bilder (gleiches Bild unter anderer Art → 409) und eine gültige Unterschrift
+    jpegZwei: jpegVariante(1), jpegDrei: jpegVariante(2),
+    png: require('../../server/png').demoUnterschrift('Probe Unterschrift'),
     ...ueber
   };
 }
@@ -90,4 +101,19 @@ function anfrage(schluessel, eintrag, F, rolle, variante, ueber) {
   const body = eintrag.body === undefined ? undefined : ersetze(eintrag.body, P);
   return { methode, pfad: pfad.replace(/^\/api/, ''), body };
 }
-module.exports = { erwartung, platzhalter, brauchtVarianten, ersetze, anfrage, BEREICHS_PLATZHALTER };
+/**
+ * F-043: Hauptprobe und alle Query-/Pfad-Varianten (`varianten` in der Matrix) einer GET-Route, je mit Erwartung
+ * (Variante.r, sonst die der Route).
+ * @returns {{a:{methode,pfad,body}, eintrag:object, name:string}[]}
+ */
+function leseProben(schluessel, eintrag, F, rolle, variante) {
+  const out = [{ a: anfrage(schluessel, eintrag, F, rolle, variante), eintrag, name: 'Probe' }];
+  for (const [i, x] of (eintrag.varianten || []).entries()) {
+    const e2 = { ...eintrag, r: x.r || eintrag.r, pfad: x.pfad || eintrag.pfad, query: x.query !== undefined ? x.query : (x.pfad ? '' : eintrag.query) };
+    out.push({ a: anfrage(schluessel, e2, F, rolle, variante), eintrag: e2, name: `Variante ${i + 1}` });
+  }
+  return out;
+}
+const brauchtVariantenAlle = (e) => brauchtVarianten(e) || (e.varianten || []).some((x) => brauchtVarianten({ pfad: x.pfad, query: x.query }));
+
+module.exports = { erwartung, platzhalter, brauchtVarianten: brauchtVariantenAlle, ersetze, anfrage, leseProben, BEREICHS_PLATZHALTER };

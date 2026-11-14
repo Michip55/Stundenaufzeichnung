@@ -13,9 +13,14 @@
  *     Lohngruppe, Budget, Auftragssumme) und keine Abwesenheiten anderer.
  *  4. Direkt eingetippte gesperrte Adressen: neutrale Seite „Seite nicht verfügbar“ – ohne Titel der Seite und ohne
  *     dass vorher gesperrte Daten angefragt werden (keine 401/403-Antwort, keine Fach-Anfrage).
+ *  5. F-042: JEDES sichtbare Bedienelement mit Ziel – Links, data-href/-link/-ziel/-nav, Knöpfe mit Klick-Handler (auch
+ *     „mit Wirkung“ wie Drucken/PDF/Export), Kacheln, Karten, Tabellenzeilen, Benachrichtigungen – führt nie zu einer
+ *     gesperrten Seite, einer 401/403-Antwort oder einer gesperrten Datei. Knöpfe mit Wirkung im Trockenlauf
+ *     (bedienelemente.js: Schreib-Anfragen werden abgebrochen, Dialoge abgelehnt, window.open abgefangen).
  */
 const { chromium } = require('playwright');
 const { starte, U, START } = require('../api/hilfe');
+const BE = require('./bedienelemente');
 
 const GROESSEN = [
   { name: 'handy', width: 390, height: 844, mobil: true },
@@ -46,7 +51,7 @@ const PERSONEN = [
   { schluessel: 'mitarbeiterPlus', id: 3, feld: true, ausnahmen: ['kolonne', 'bericht_erstellen'] }
 ];
 // Gesperrte Begriffe für Polier und Mitarbeiter (sichtbarer Text der ganzen Seite)
-const VERBOTEN = /Nachkalkulation|Preis|€|Rechnung|Lohngruppe|Budget|Auftragssumme|Abwesenheiten (meiner|der) Partie|\babwesend\b|\babw\./;
+const VERBOTEN = /Nachkalkulation|Kalkulation|Preis|€|Rechnung|Lohngruppe|\bLohn\b|Budget|Auftragssumme|Stundensatz|(?<!keine )\bKosten\b|Kostenübersicht|\bEP\b|Zahlung|Offene Posten|Abwesenheiten (meiner|der) Partie|\babwesend\b|\babw\./;
 // Direkt eingetippte Adressen (alle Routen der SPA mit Rechteprüfung)
 const DIREKT = ['/dashboard', '/kolonne', '/berichte', '/bericht/1', '/baustellen', '/baustellen/archiv', '/baustelle/1', '/plan', '/partie', '/offene-posten', '/preise', '/lohn-vorlagen',
   '/kalkulation', '/kalkulation/1', '/kalkulation/1/positionen', '/monat', '/benutzer', '/korrektur'];
@@ -69,10 +74,12 @@ async function laufe(browser, g) {
     await gf.post('/auth/login', { benutzerId: U.gf, pin: '1234' });
     for (const p of PERSONEN) for (const recht of p.ausnahmen || []) { const r = await gf.put('/rechte/ausnahme', { benutzerId: p.id, recht, wert: true }); if (r.status >= 300) throw new Error(`Ausnahme ${recht} für ${p.id}: ${r.status} ${JSON.stringify(r.daten)}`); }
 
-    for (const p of PERSONEN) {
+    // nur zur Fehlersuche: SACKGASSEN_NUR=<RegExp> beschränkt die Personen (z. B. „mitarbeiterPlus“)
+    for (const p of PERSONEN.filter((x) => !process.env.SACKGASSEN_NUR || new RegExp(process.env.SACKGASSEN_NUR).test(x.schluessel))) {
       const wo = `Sackgassen ${p.schluessel}/${g.name}`;
       const ctx = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, serviceWorkers: 'block' });
       await ctx.clock.install({ time: new Date(START) });
+      await BE.vorbereiten(ctx);
       const page = await ctx.newPage();
       let ort = 'Anmeldung';
       const befunde = new Set();
@@ -84,8 +91,10 @@ async function laufe(browser, g) {
         if ([401, 403].includes(r.status())) gesperrteAntworten.push(pfad.split('?')[0]);
         if ([401, 403].includes(r.status())) befunde.add(`${ort}: ${r.request().method()} ${pfad.split('?')[0]} → ${r.status()}`);
       });
-      page.on('console', (m) => { if (m.type() === 'error') befunde.add(`${ort}: Konsolenfehler „${m.text().slice(0, 140)}“`); });
-      page.on('pageerror', (e) => befunde.add(`${ort}: Skriptfehler „${String(e.message).slice(0, 140)}“`));
+      let letzteAntwort = '';
+      page.on('response', (r) => { if (r.status() >= 400) letzteAntwort = `${r.request().method()} ${r.url().slice(s.basis.length)} → ${r.status()}`; });
+      page.on('console', (m) => { if (m.type() === 'error' && !page.__bt_trocken) befunde.add(`${ort}: Konsolenfehler „${m.text().slice(0, 140)}“${/Failed to load resource/.test(m.text()) ? ` [${letzteAntwort}]` : ''}`); });
+      page.on('pageerror', (e) => { if (!page.__bt_trocken) befunde.add(`${ort}: Skriptfehler „${String(e.message).slice(0, 140)}“`); });
       const ruhe = async () => { await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {}); await page.waitForTimeout(120); };
 
       await page.goto(s.basis + '/#/login', { waitUntil: 'domcontentloaded' });
@@ -123,6 +132,23 @@ async function laufe(browser, g) {
         pruef(!/\bKein Zugriff\b/.test(zustand.text), `${wo}: ${h} zeigt „Kein Zugriff“ in einem Teilbereich (von ${von})`);
         if (p.feld) { const m = VERBOTEN.exec(zustand.text); pruef(!m, `${wo}: ${h} zeigt gesperrten Begriff „${m && zustand.text.slice(Math.max(0, m.index - 40), m.index + 30).replace(/\s+/g, ' ')}“`); }
       };
+      // F-042: Ziele von Bedienelementen gegen gesperrte Seiten prüfen (Ergebnis je Adresse zwischengespeichert)
+      const gesperrtCache = new Map();
+      const istGesperrt = async (hash) => { const m = muster(hash); if (!gesperrtCache.has(m)) gesperrtCache.set(m, await BE.zielGesperrt(page, hash, ruhe)); return gesperrtCache.get(m); };
+      const zielePruefen = async (h) => {
+        for (const z of await BE.ausdrueckliche(page)) {
+          if (z.ziel.startsWith('#/') && !/^#\/(login)?$/.test(z.ziel) && await istGesperrt(z.ziel)) pruef(false, `${wo}: ${h}: Bedienelement „${z.name}“ zeigt auf gesperrte Seite ${z.ziel}`);
+          else if (/^\/api\//.test(z.ziel)) { const st = await BE.urlStatus(page, z.ziel); pruef(![401, 403].includes(st), `${wo}: ${h}: Link „${z.name}“ auf gesperrte Datei ${z.ziel} (${st})`); }
+        }
+        const kurzRuhe = async () => { await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {}); await page.waitForTimeout(80); };
+        for (const k of await BE.trockenKlicks(page, s.basis, { max: p.feld ? 30 : 15, ruhe: kurzRuhe })) {
+          schritte++;
+          if (k.hash && !/^#\/(login)?$/.test(k.hash) && await istGesperrt(k.hash)) pruef(false, `${wo}: ${h}: Knopf/Element „${k.name}“ führt zu gesperrter Seite ${k.hash}`);
+          if (k.hash) merke(k.hash, `${h} › „${k.name}“`);
+          for (const u of [...k.geoeffnet, ...k.downloads]) { const st = await BE.urlStatus(page, u); pruef(![401, 403].includes(st), `${wo}: ${h}: „${k.name}“ öffnet gesperrte Adresse ${u} (${st})`); }
+          pruef(!k.gesperrt.length, `${wo}: ${h}: „${k.name}“ löst gesperrte Anfrage aus (${k.gesperrt.join(', ')})`);
+        }
+      };
       merke(await page.evaluate(() => location.hash), 'Startseite');
       if (g.name === 'handy') merke('#/mehr', 'untere Leiste „Mehr“');
       await sammle('Navigation');
@@ -135,6 +161,7 @@ async function laufe(browser, g) {
         seiten++;
         await pruefSeite(h, von);
         await sammle(h);
+        if (!knopfSeiten.has(muster(h))) await zielePruefen(h);
         // Knöpfe, die nur etwas öffnen (Dialog, Auswahl, Assistent): anklicken, auf 401/403 achten, wieder schließen.
         // Nichts, was bucht, sendet, löscht oder abmeldet.
         if (!knopfSeiten.has(muster(h))) {
@@ -171,7 +198,30 @@ async function laufe(browser, g) {
       }
       // Glocke: Verweise in den Benachrichtigungen
       ort = 'Glocke';
-      if (await page.locator('#glocke:visible').count()) { await page.click('#glocke').catch(() => {}); await ruhe(); await sammle('Benachrichtigung'); await page.keyboard.press('Escape').catch(() => {}); }
+      if (await page.locator('#glocke:visible').count()) {
+        await page.click('#glocke').catch(() => {}); await ruhe(); await sammle('Benachrichtigung');
+        // F-042: jede Benachrichtigung anklicken (Trockenlauf) – ihr Ziel darf keine gesperrte Seite sein
+        let n = 0;
+        for (let i = 0; i < 20; i++) {
+          if (!(await page.locator('#notif-panel [data-auf]').count())) { await page.click('#glocke').catch(() => {}); await ruhe(); }
+          const b = page.locator('#notif-panel [data-auf]').nth(i);
+          if (!(await b.count())) break;
+          const name = (await b.innerText().catch(() => '')).replace(/\s+/g, ' ').trim().slice(0, 60);
+          const vor = await page.evaluate(() => location.hash);
+          page.__bt_trocken = true;
+          await page.route(`${s.basis}/api/**`, (route) => (route.request().method() === 'GET' ? route.continue() : route.fulfill({ status: 400, contentType: 'application/json', body: '{"fehler":"Trockenlauf (Test)","code":"UNGUELTIG"}' })));
+          await b.click({ timeout: 2000 }).catch(() => {});
+          await ruhe();
+          await page.unroute(`${s.basis}/api/**`);
+          await page.waitForTimeout(200);
+          page.__bt_trocken = false;
+          n++;
+          const nach = await page.evaluate(() => location.hash);
+          if (nach !== vor) { if (await istGesperrt(nach)) pruef(false, `${wo}: Benachrichtigung „${name}“ führt zu gesperrter Seite ${nach}`); merke(nach, `Benachrichtigung „${name}“`); await page.evaluate((x) => { location.hash = x; }, vor); await ruhe(); }
+        }
+        schritte += n;
+        await page.keyboard.press('Escape').catch(() => {});
+      }
       while (schlange.length && seiten < MAX_SEITEN + 10) {
         const [h, von] = schlange.shift();
         ort = `${h} (von ${von})`;

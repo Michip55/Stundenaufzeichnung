@@ -5,14 +5,15 @@
  * 1. Abdeckung: Die Routen werden aus dem Express-Router gelesen. Fehlt eine Route in
  *    rechte-matrix.json (oder steht dort eine, die es nicht gibt), scheitert der Test – keine neue
  *    Route ohne Rechte-Entscheidung.
- * 2. Lesen: jede GET-Route × Rolle × Variante (eigenes/fremdes Objekt) → Status wie in der Matrix,
- *    Inhalt (JSON, CSV, PDF, XLSX, auch Fehlertexte) ohne verbotene Schlüssel, €-Beträge und Kanarienvögel.
- * 3. Schreiben: jede schreibende Route × verweigerte Rolle → 401/403/404 UND Datenbank unverändert;
- *    erlaubte Rollen werden nicht abgewiesen (eigene DB-Kopie je Probe).
+ * 2. Lesen: jede GET-Route × Rolle × Variante (eigenes/fremdes Objekt) × Query-Variante (F-043) → Status wie in der
+ *    Matrix, Inhalt (JSON, CSV, PDF inkl. Metadaten/Anhänge, XLSX, Kopfzeilen, Fehlertexte) ohne verbotene Schlüssel,
+ *    Beträge (Geld-Kanarien in jeder Schreibweise), Kanarienvögel und fremde Abwesenheiten (wertbasiert).
+ *    Jeder Query-Parameter, den eine Route liest (zur Laufzeit mitgeschnitten), braucht eine Probe.
+ * 3. Schreiben: in rechte-matrix-schreiben-<n>.test.js (parallel), Ausnahmen in rechte-matrix-ausnahmen.test.js.
  * 4. Ohne Anmeldung: jede nicht öffentliche Route → 401. Test-Schnittstellen ohne Token → 403.
  * 5. Benachrichtigungen (DB) und Push-Ausgang für Mitarbeiter/Polier ohne € und ohne Kanarienvögel.
- * 6. Ausnahmen: GF erteilt Polier/Mitarbeiter/Bauleiter alle Rechte als Ausnahme über die offizielle API –
- *    gesperrte Rechte werden abgelehnt, und alle Lese-Routen bleiben für sie €-frei.
+ * 6. Testdaten-Selbstprüfung (F-024, F-022): fremde Abwesenheiten aller Arten an den geprüften Planer-Tagen in
+ *    veröffentlichten Einsätzen, Kanarien-Beträge in jeder Preis-Spalte.
  *
  * Läuft mit dem echten Server (Sicherheitsnetz für €-Felder AN, wie im Betrieb).
  */
@@ -32,7 +33,7 @@ const { ROLLEN, ID, ANDERER_MA, FREMDER_MA } = H;
 const VERWEIGERT = [401, 403, 404];
 
 // Proben je Route × Rolle × Variante (Platzhalter, Erwartung): gemeinsam mit rechte-matrix-paritaet.test.js (15.4)
-const { erwartung, platzhalter, brauchtVarianten, anfrage } = require('./rechte-matrix-proben');
+const { erwartung, platzhalter, brauchtVarianten, anfrage, leseProben } = require('./rechte-matrix-proben');
 const istSchreibend = (m) => m !== 'GET';
 
 test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 * 60 * 1000 }, async (t) => {
@@ -58,26 +59,90 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
     const doppelt = routen.filter((r, i) => routen.indexOf(r) !== i);
     assert.deepEqual(doppelt, [], `doppelt registriert: ${doppelt.join(', ')}`);
     for (const [k, e] of Object.entries(MATRIX_ALLE)) for (const r of ROLLEN) assert.ok(['J', 'N', 'E', 'O', 'T'].includes(erwartung(e, r)), `${k}: ungültiger Wert für ${r}`);
+    // F-025: jede Ausnahme vom Erfolgszwang für Polier/Mitarbeiter ist begründet
+    for (const [k, e] of Object.entries(MATRIX_ALLE)) if (e.erfolg && e.erfolg.ok) assert.ok(e.erfolg.okGrund, `${k}: erfolg.ok ohne okGrund`);
   });
 
-  await t.test('Lesen: jede GET-Route × Rolle × Variante – Status und Inhalt', async () => {
+  await t.test('Testdaten: Kanarien-Beträge in jeder Preis-Spalte, fremde Abwesenheiten aller Arten an den geprüften Planer-Tagen (F-022, F-024)', async () => {
     const v = [];
+    // jede REAL-Spalte ist als Preis (Kanarie) oder Nicht-Preis entschieden
+    const offen = H.W.unentschiedeneSpalten(s.db);
+    if (offen.length) v.push(`Zahl-Spalten ohne Entscheidung (Preis → Kanarie in rechte-werte.PREIS_SPALTEN, sonst KEINE_PREIS_SPALTEN): ${offen.join(', ')}`);
+    for (const [tab, spalten] of Object.entries(H.W.PREIS_SPALTEN)) {
+      for (const sp of spalten) {
+        const ohne = s.db.alle(`SELECT "${sp}" AS w FROM "${tab}" WHERE "${sp}" IS NOT NULL`).filter((z) => !H.ZUSTAND.geld.has(`c:${Math.round(z.w * 100)}`));
+        if (ohne.length) v.push(`${tab}.${sp}: ${ohne.length} Werte ohne Kanarie (z. B. ${ohne[0].w})`);
+      }
+    }
+    if (s.db.eins('SELECT COUNT(*) AS n FROM projektposition').n < 10) v.push('Testdaten ohne Projektpositionen – Kanarien-Prüfung wirkungslos');
+    // fremde Abwesenheiten je geprüftem Planer-Tag: veröffentlichter Einsatz Pitten mit Polier, darin je Art eine andere Person
+    const ARTEN = [['K', 'genehmigt', 0], ['U', 'genehmigt', 0], ['U', 'beantragt', 0], ['ZA', 'genehmigt', 0], ['ZA', 'beantragt', 0], ['U', 'genehmigt', 1]];
+    for (const tag of H.PLAN_TAGE) {
+      const e = s.db.eins('SELECT id FROM plan_einsatz WHERE datum = ? AND baustelle_id = ? AND geloescht = 0 AND veroeffentlicht_stand IS NOT NULL', tag, BS.pitten);
+      if (!e) { v.push(`${tag}: kein veröffentlichter Einsatz Pitten`); continue; }
+      const personen = new Set(s.db.alle('SELECT benutzer_id FROM plan_person WHERE einsatz_id = ?', e.id).map((x) => x.benutzer_id));
+      for (const id of [U.polier, U.mitarbeiter]) if (!personen.has(id)) v.push(`${tag}: ${id} nicht im Einsatz`);
+      for (const [code, status, bu] of ARTEN) {
+        const a = s.db.alle('SELECT benutzer_id FROM abwesenheit WHERE datum = ? AND code = ? AND status = ? AND betriebsurlaub = ? AND benutzer_id NOT IN (?, ?)', tag, code, status, bu, U.polier, U.mitarbeiter).filter((x) => personen.has(x.benutzer_id));
+        if (!a.length) v.push(`${tag}: keine fremde Abwesenheit ${bu ? 'BU' : code} (${status}) einer Person im Einsatz`);
+      }
+      // und die Proben sehen den Tag wirklich (nicht leer)
+      const pa = await c.polier.get(`/plan/partie?datum=${tag}`);
+      const n = pa.status === 200 ? pa.daten.einsaetze.reduce((x, y) => x + y.personen.length, 0) : 0;
+      if (n < 8) v.push(`${tag}: /plan/partie liefert dem Polier ${pa.status} mit ${n} Personen – Abwesenheits-Proben laufen ins Leere`);
+      for (const pdf of [`/plan/tag.pdf?datum=${tag}`]) { const r = await c.polier.get(pdf); if (r.status !== 200) v.push(`${tag}: Polier ${pdf} → ${r.status}`); }
+      const ich = await c.mitarbeiter.get('/plan/ich?von=2026-11-12&bis=2026-11-20');
+      if (!(ich.daten.tage || []).some((x) => x.datum === tag && x.einsatz)) v.push(`${tag}: /plan/ich des Mitarbeiters ohne Einsatz`);
+    }
+    // Probe-Tage der Matrix liegen auf diesen Tagen
+    for (const [k, tag] of [['GET /api/plan/partie', '2026-11-13'], ['GET /api/plan/tag.pdf', '2026-11-13'], ['GET /api/plan/woche.pdf', '2026-11-09']]) if (!(MATRIX_ALLE[k].query || '').includes(tag)) v.push(`${k}: Probe nicht auf ${tag}`);
+    // heute (Kolonne): K, U genehmigt und U/ZA beantragt in der Partie Pitten
+    for (const [code, status] of [['K', 'genehmigt'], ['U', 'genehmigt'], ['U', 'beantragt'], ['ZA', 'beantragt']]) {
+      if (!s.db.eins("SELECT 1 AS x FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE a.datum = '2026-11-12' AND a.code = ? AND a.status = ? AND b.baustelle_id = ? AND a.benutzer_id NOT IN (?, ?)", code, status, BS.pitten, U.polier, U.mitarbeiter)) v.push(`12.11.: keine fremde Abwesenheit ${code} (${status}) in der Partie Pitten`);
+    }
+    v.forEach(melde);
+    assert.deepEqual(v, [], `\n${v.join('\n')}`);
+  });
+
+  await t.test('Lesen: jede GET-Route × Rolle × Variante × Query-Variante – Status und Inhalt; jeder gelesene Query-Parameter geprüft', async () => {
+    const v = [];
+    // F-043: welche Query-Parameter liest eine Route wirklich? (Mitschnitt am Request-Objekt der App)
+    const gelesen = new Map();
+    const basisReq = Object.getPrototypeOf(s.app.request);
+    const orig = Object.getOwnPropertyDescriptor(basisReq, 'query') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(basisReq), 'query');
+    Object.defineProperty(s.app.request, 'query', { configurable: true, get() {
+      const q = orig.get.call(this);
+      const req = this;
+      return new Proxy(q || {}, { get(z, k) { if (typeof k === 'string' && req.route) { const sch = `${req.method} ${req.baseUrl}${req.route.path}`; if (!gelesen.has(sch)) gelesen.set(sch, new Set()); gelesen.get(sch).add(k); } return z[k]; } });
+    } });
+    const geprueft = new Map();
     for (const [schluessel, e] of Object.entries(MATRIX)) {
       if (!schluessel.startsWith('GET ') || e.spezial) continue;
       for (const rolle of ROLLEN) {
-        const erw = erwartung(e, rolle);
         for (const variante of brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne']) {
-          const a = anfrage(schluessel, e, F, rolle, variante);
-          const kopf = erw === 'T' ? { 'x-bautag-test-token': '' } : undefined;
-          const r = await c[rolle].anfrage('GET', a.pfad, undefined, kopf);
-          const wo = `${rolle} GET ${a.pfad} [${variante}]`;
-          const erlaubt = erw === 'J' || erw === 'O' || (erw === 'E' && variante !== 'fremd');
-          if (erw === 'T') { if (r.status !== 403) v.push(`${wo}: Test-Schnittstelle ohne Token → ${r.status} (erwartet 403)`); }
-          else if (erlaubt) { const ok = e.ok || [200]; if (!ok.includes(r.status)) v.push(`${wo}: erlaubt laut Matrix, aber ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`); }
-          else if (!VERWEIGERT.includes(r.status)) v.push(`${wo}: LECK – verweigert laut Matrix (${e.grund}), aber ${r.status}`);
-          v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: a.pfad }));
+          for (const { a, eintrag, name } of leseProben(schluessel, e, F, rolle, variante)) {
+            const erw = erwartung(eintrag, rolle);
+            const kopf = erw === 'T' ? { 'x-bautag-test-token': '' } : undefined;
+            const r = await c[rolle].anfrage('GET', a.pfad, undefined, kopf);
+            const wo = `${rolle} GET ${a.pfad} [${variante}${name === 'Probe' ? '' : `, ${name}`}]`;
+            const erlaubt = erw === 'J' || erw === 'O' || (erw === 'E' && variante !== 'fremd');
+            if (erw === 'T') { if (r.status !== 403) v.push(`${wo}: Test-Schnittstelle ohne Token → ${r.status} (erwartet 403)`); }
+            else if (erlaubt) { const ok = e.ok || [200]; if (!ok.includes(r.status)) v.push(`${wo}: erlaubt laut Matrix, aber ${r.status} ${JSON.stringify(r.daten).slice(0, 160)}`); }
+            else if (!VERWEIGERT.includes(r.status)) v.push(`${wo}: LECK – verweigert laut Matrix (${e.grund}), aber ${r.status}`);
+            v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: a.pfad }));
+            const qs = new URLSearchParams(a.pfad.split('?')[1] || '');
+            if (!geprueft.has(schluessel)) geprueft.set(schluessel, new Set());
+            for (const k of qs.keys()) geprueft.get(schluessel).add(k);
+          }
         }
       }
+    }
+    Object.defineProperty(s.app.request, 'query', orig);
+    // Abdeckung der Query-Parameter (Parameter, die eine Route liest, aber keine Probe setzt)
+    for (const [sch, keys] of gelesen) {
+      if (!MATRIX[sch] || !sch.startsWith('GET ') || MATRIX[sch].spezial) continue;
+      const fehlt = [...keys].filter((k) => !(geprueft.get(sch) || new Set()).has(k) && !(MATRIX[sch].queryOhneProbe || []).includes(k));
+      if (fehlt.length) v.push(`${sch}: liest Query-Parameter ${fehlt.join(', ')} – keine Probe in der Matrix („varianten“ ergänzen, F-043)`);
     }
     v.forEach(melde);
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
@@ -126,52 +191,10 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
       if (rolle === 'buero' || rolle === 'gf') continue;
       v.push(...await H.scanne(rolle, { status: 200, daten: p, headers: new Map() }, { route: 'PUSH', url: `push an ${p.benutzerId}`, variante: rolle === 'bauleiter' ? 'fremd' : undefined }));
     }
-    // E-Mails (Ausgang): gehen an Auftraggeber (extern) → strengste Prüfung wie Mitarbeiter
-    for (const m of aus.mails) v.push(...await H.scanne('mitarbeiter', { status: 200, daten: { an: m.an, betreff: m.betreff, text: m.text, anhaenge: m.anhaenge }, headers: new Map() }, { route: 'MAIL', url: `Mail an ${m.an}` }));
-    v.forEach(melde);
-    assert.deepEqual(v, [], `\n${v.join('\n')}`);
-  });
-
-  await t.test('Schreiben: verweigerte Rollen werden abgewiesen und ändern nichts; erlaubte werden nicht abgewiesen', async () => {
-    const v = [];
-    const schreib = Object.entries(MATRIX).filter(([k, e]) => istSchreibend(k.split(' ')[0]) && !e.spezial);
-    for (const [schluessel, e] of schreib) {
-      const varianten = brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne'];
-      const proben = [];
-      for (const rolle of ROLLEN) for (const variante of varianten) {
-        const erw = erwartung(e, rolle);
-        const erlaubt = erw === 'J' || erw === 'O' || (erw === 'E' && variante !== 'fremd');
-        proben.push({ rolle, variante, erw, erlaubt });
-      }
-      // 1) alle verweigerten Proben auf einer Kopie, DB-Fingerabdruck vor/nach jeder Probe
-      let k = await H.starteKopie(basis);
-      let kc = Object.fromEntries(await Promise.all(ROLLEN.map(async (r) => [r, await k.login(ID[r])])));
-      for (const p of proben.filter((x) => !x.erlaubt)) {
-        const a = anfrage(schluessel, e, F, p.rolle, p.variante);
-        const vorher = H.dbHash(k.db);
-        const r = await kc[p.rolle].anfrage(a.methode, a.pfad, a.body === undefined ? {} : a.body, p.erw === 'T' ? { 'x-bautag-test-token': '' } : undefined);
-        const nachher = H.dbHash(k.db);
-        const wo = `${p.rolle} ${a.methode} ${a.pfad} [${p.variante}]`;
-        const ok = p.erw === 'T' ? [403] : e.nein400 ? [...VERWEIGERT, 400] : VERWEIGERT;
-        if (!ok.includes(r.status)) v.push(`${wo}: LECK – verweigert laut Matrix (${e.grund}), aber ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
-        const diff = H.dbUnterschied(vorher, nachher);
-        if (diff.length) v.push(`${wo}: Datenbank geändert trotz Ablehnung (${r.status}): Tabellen ${diff.join(', ')}`);
-        v.push(...await H.scanne(p.rolle, r, { route: schluessel, variante: p.variante, url: a.pfad }));
-      }
-      // 2) erlaubte Proben: je Probe eine frische Kopie (die erste nutzt die unveränderte Kopie von oben)
-      let erste = true;
-      for (const p of proben.filter((x) => x.erlaubt)) {
-        if (!erste) { await k.stop(); k = await H.starteKopie(basis); kc = Object.fromEntries(await Promise.all(ROLLEN.map(async (r) => [r, await k.login(ID[r])]))); }
-        erste = false;
-        const a = anfrage(schluessel, e, F, p.rolle, p.variante);
-        const r = await kc[p.rolle].anfrage(a.methode, a.pfad, a.body === undefined ? {} : a.body);
-        const wo = `${p.rolle} ${a.methode} ${a.pfad} [${p.variante}]`;
-        const ok = e.ok ? e.ok.includes(r.status) : !VERWEIGERT.includes(r.status) && r.status < 500;
-        if (!ok) v.push(`${wo}: erlaubt laut Matrix, aber ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
-        v.push(...await H.scanne(p.rolle, r, { route: schluessel, variante: p.variante, url: a.pfad }));
-      }
-      await k.stop();
-    }
+    // E-Mails (Ausgang) samt Anhang-INHALT (F-039): gehen an Auftraggeber (extern) → strengste Prüfung wie Mitarbeiter
+    s.__ausgang = { benachrichtigung: Number.MAX_SAFE_INTEGER, push: aus.push.length, mails: 0 };
+    v.push(...await H.pruefeAusgaenge(s, 'Ausgang'));
+    if (!aus.mails.some((m) => (m.anhaenge || []).length && H.ANHAENGE.has(m.anhaenge[0].groesse))) v.push('keine Mail mit mitgeschnittenem Anhang – Prüfung der Anhänge wirkungslos');
     v.forEach(melde);
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
@@ -190,12 +213,12 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
             const erlaubt = erw === 'J' || erw === 'O' || erw === 'T' || (erw === 'E' && variante !== 'fremd');
             if (erlaubt) continue;
             const a = anfrage(schluessel, e, F, rolle, variante);
-            const vorher = H.dbHash(k.db);
+            const vorher = H.dbHash(k);
             // Body der Matrix, aber veraltete version: ein 409 (mit aktueller version/Zustand) vor der Rechteprüfung wäre eine Auskunft an Unberechtigte.
             // 400 ist hingenommen, wenn das Ziel (z. B. baustelleId) erst aus dem Body kommt – der Scanner prüft den Fehlertext.
             const r = await kc[rolle].anfrage(methode, a.pfad, { ...(a.body && typeof a.body === 'object' ? a.body : {}), version: 999999 });
             if (![...VERWEIGERT, 400].includes(r.status)) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit veralteter version → ${r.status} ${JSON.stringify(r.daten).slice(0, 140)} (Zustand vor Rechten geprüft)`);
-            const diff = H.dbUnterschied(vorher, H.dbHash(k.db));
+            const diff = H.dbUnterschied(vorher, H.dbHash(k));
             if (diff.length) v.push(`${rolle} ${methode} ${a.pfad} [${variante}] mit veralteter version: DB geändert (${diff.join(', ')})`);
             v.push(...await H.scanne(rolle, r, { route: schluessel, variante, url: `${a.pfad} (veraltete version)` }));
           }
@@ -243,88 +266,6 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
         }
       }
       if (!NUR && geprueft < 300) v.push(`nur ${geprueft} Proben mit ungültigem Body – Probe wirkungslos?`);
-    } finally { await k.stop(); }
-    v.forEach(melde);
-    assert.deepEqual(v, [], `\n${v.join('\n')}`);
-  });
-
-  await t.test('Ausnahmen: gesperrte Rechte lassen sich nicht vergeben; mit allen übrigen Ausnahmen bleiben MA/Polier €-frei und der Bauleiter (= Büro) ohne GF-Vorbehalte', async () => {
-    const v = [];
-    const k = await H.starteKopie(basis);
-    try {
-      const gf = await k.login(U.gf);
-      const rechte = (await gf.get('/rechte')).daten;
-      const alle = rechte.rechte.map((x) => x.schluessel);
-      for (const [rolle, id] of [['mitarbeiter', U.mitarbeiter], ['polier', U.polier], ['bauleiter', U.bauleiter]]) {
-        for (const recht of alle) {
-          const r = await gf.put('/rechte/ausnahme', { benutzerId: id, recht, wert: true });
-          const gesperrt = rechte.gesperrt[rolle].includes(recht);
-          if (gesperrt && r.status !== 400) v.push(`Ausnahme ${recht} für ${rolle} → ${r.status} (gesperrt, erwartet 400)`);
-          if (!gesperrt && r.status !== 200) v.push(`Ausnahme ${recht} für ${rolle} → ${r.status} (erwartet 200)`);
-        }
-        // auch über die Rollen-Matrix nicht
-        for (const recht of rechte.gesperrt[rolle]) {
-          const r = await gf.put('/rechte/matrix', { rolle, recht, wert: true });
-          if (r.status !== 400) v.push(`Matrix ${rolle}.${recht}=true → ${r.status} (gesperrt, erwartet 400)`);
-        }
-        const ich = (await (await k.login(id)).get('/auth/ich')).daten.rechte;
-        for (const g of rechte.gesperrt[rolle]) if (ich.includes(g)) v.push(`${rolle} hat trotz Sperre das Recht ${g}`);
-      }
-      // alle GET-Routen erneut mit maximalen Ausnahmen: Inhalt prüfen (Status darf jetzt 200 sein)
-      const kc = {};
-      for (const r of ['mitarbeiter', 'polier', 'bauleiter']) kc[r] = await k.login(ID[r]);
-      for (const [schluessel, e] of Object.entries(MATRIX)) {
-        if (!schluessel.startsWith('GET ') || e.spezial || erwartung(e, 'gf') === 'T') continue;
-        for (const rolle of ['mitarbeiter', 'polier', 'bauleiter']) {
-          for (const variante of brauchtVarianten(e) ? ['eigen', 'fremd'] : ['ohne']) {
-            const a = anfrage(schluessel, e, F, rolle, variante);
-            const r = await kc[rolle].get(a.pfad);
-            if (r.status >= 500) v.push(`${rolle} (alle Ausnahmen) GET ${a.pfad}: ${r.status}`);
-            // Ausnahme `fuhrpark` (für alle Rollen vergebbar, API.md 11.1) zeigt alle Schadensmeldungen – nur dieser Kanarienvogel ist dann erlaubt
-            v.push(...(await H.scanne(rolle, r, { route: schluessel, variante, url: `${a.pfad} (mit allen Ausnahmen)`, mitAusnahmen: true, erlaubteKanarien: ['Text schadenFremd'] })));
-          }
-        }
-      }
-      // API.md 15.1 (Regel 3, „auch mit jeder vergebbaren Ausnahme“): jeder Bericht, den Polier/Mitarbeiter mit allen Ausnahmen
-      // sehen – Liste = Detail (personalAnzahl), JSON ohne verborgene Abwesende, interne UND AG-Fassung ohne fremde Abwesenheiten
-      for (const rolle of ['mitarbeiter', 'polier']) {
-        const ich = ID[rolle];
-        const liste = await kc[rolle].get('/berichte');
-        if (liste.status !== 200 || !liste.daten.length) { v.push(`${rolle} (alle Ausnahmen) GET /berichte → ${liste.status}, ${Array.isArray(liste.daten) ? liste.daten.length : '?'} Berichte – Prüfung wirkungslos`); continue; }
-        let pdfs = 0;
-        for (const z of liste.daten) {
-          const d = await kc[rolle].get(`/berichte/${z.id}`);
-          if (z.personalAnzahl !== d.daten.personal.length) v.push(`${rolle} (alle Ausnahmen) GET /berichte: personalAnzahl ${z.personalAnzahl} ≠ Detail ${d.daten.personal.length} bei Bericht ${z.id} (verborgene Abwesende gezählt)`);
-          v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, d.daten, `${rolle} (alle Ausnahmen) GET /berichte/${z.id}`));
-          for (const fassung of ['intern', 'ag']) {
-            const url = `/berichte/${z.id}/pdf?fassung=${fassung}`;
-            const r = await kc[rolle].get(url);
-            if (r.status !== 200) { v.push(`${rolle} (alle Ausnahmen) GET ${url} → ${r.status}`); continue; }
-            pdfs++;
-            v.push(...H.berichtPdfAbwesenheitVerstoesse(k.db, z.id, ich, await H.antwortText(r), `${rolle} (alle Ausnahmen) GET ${url}`));
-          }
-        }
-        if (!pdfs) v.push(`${rolle} (alle Ausnahmen): kein Bericht-PDF geprüft`);
-        // Schreibantworten: Entwurf so speichern, wie er ankommt → 200, Antwort ohne Leck, verborgene Zeilen unverändert
-        const bid = F.bericht.bs1;
-        const verborgen = () => JSON.stringify(k.db.alle(`SELECT benutzer_id, code, stunden, gast FROM bericht_personal WHERE bericht_id = ? AND benutzer_id <> ? AND code IN ('K','U','ZA') ORDER BY benutzer_id`, bid, ich));
-        const vorher = verborgen();
-        if (vorher === '[]') v.push('Vorbereitung: Entwurf ohne verborgene Abwesenheits-Zeile – Schreibprobe wirkungslos');
-        const b = (await kc[rolle].get(`/berichte/${bid}`)).daten;
-        const w = await kc[rolle].put(`/berichte/${bid}`, { version: b.version, personal: b.personal.map((p) => ({ benutzerId: p.benutzerId, von1: p.von1, bis1: p.bis1, von2: p.von2, bis2: p.bis2, pauseMin: p.pauseMin, code: p.code, segStunden: p.segStunden, ...(p.gast ? { gast: true } : {}) })), arbeitsleistung: 'Ausnahmen-Probe' });
-        if (w.status !== 200) v.push(`${rolle} (alle Ausnahmen) PUT /berichte/${bid} wie erhalten → ${w.status} ${JSON.stringify(w.daten).slice(0, 200)}`);
-        if (verborgen() !== vorher) v.push(`${rolle} (alle Ausnahmen) PUT /berichte/${bid}: verborgene Abwesenheits-Zeilen verändert`);
-        v.push(...await H.scanne(rolle, w, { route: 'PUT /api/berichte/:id', url: `/berichte/${bid} (PUT mit allen Ausnahmen)`, mitAusnahmen: true, erlaubteKanarien: ['Text schadenFremd'] }));
-        v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, w.daten, `${rolle} (alle Ausnahmen) PUT /berichte/${bid}`));
-        const pa = await kc[rolle].post(`/berichte/${bid}/personal-aktualisieren`, { version: w.daten.version });
-        v.push(...await H.scanne(rolle, pa, { route: 'POST /api/berichte/:id/personal-aktualisieren', url: `/berichte/${bid}/personal-aktualisieren (mit allen Ausnahmen)`, mitAusnahmen: true, erlaubteKanarien: ['Text schadenFremd'] }));
-        v.push(...H.berichtJsonAbwesenheitVerstoesse(k.db, ich, pa.daten, `${rolle} (alle Ausnahmen) POST personal-aktualisieren`));
-      }
-      // Bauleiter (= Büro, Owner-Entscheidung 13.11.2026): GF-Vorbehalte bleiben aus, auch mit allen Ausnahmen
-      for (const [m, p, b] of [['GET', '/rechte', undefined], ['PUT', '/rechte/matrix', { rolle: 'polier', recht: 'kolonne', wert: true }], ['PUT', '/rechte/ausnahme', { benutzerId: ID.mitarbeiter, recht: 'kolonne', wert: true }], ['PUT', `/benutzer/${ID.gf}`, { name: 'X' }], ['PUT', `/benutzer/${ID.buero}`, { name: 'X' }]]) {
-        const r = await kc.bauleiter.anfrage(m, p, b);
-        if (r.status !== 403) v.push(`Bauleiter mit allen Ausnahmen ${m} ${p} → ${r.status} (erwartet 403)`);
-      }
     } finally { await k.stop(); }
     v.forEach(melde);
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
