@@ -354,7 +354,7 @@ async function planer(h, z) {
   const frei = woche0.frei[morgen];
   const andere = frei.personen.filter((p) => p.status === 'frei' && p.rolle === 'mitarbeiter' && p.benutzerId !== L);
   const [P2, P3, P4, P5] = andere;
-  const lkw = frei.anlagen.find((a) => !a.gesperrt && a.kennzeichen);
+  const lkw = frei.anlagen.find((a) => !a.gesperrt && a.kennzeichen && /^LKW\b/.test(a.bezeichnung || '')); // N-102: Fuhren nur mit LKW (kein Anhänger/PKW)
   pruef(!!(P2 && P3 && P4 && P5 && lkw), 'A2-Plan: zu wenige freie Personen oder kein freier LKW in den Testdaten');
   const pushVorher = (await ausgang()).push.filter((p) => p.benutzerId === L).length;
 
@@ -1754,5 +1754,5 @@ async function intern(h) {
 }
 
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern, planerKorr: (h) => require('./planer-korrektur').planerKorrektur(h) };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

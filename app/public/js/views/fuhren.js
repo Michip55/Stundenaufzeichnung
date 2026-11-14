@@ -3,6 +3,8 @@
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, banner, dialog, bestaetigen, toast, speicher, $ } from '../ui.js';
 import { bildVerkleinern } from '../schaden-offline.js';
+import { feiertage } from '../arbeitstag.js';
+import { fuhreVorlaeufig, fuhreAnmeldungNoetig, letzteMeldung, istLkw, lkwText, kopieTage } from '../plan-regeln.js';
 
 export const F_STATUS = { geplant: ['geplant', 'st-blue'], unterwegs: ['unterwegs', 'st-amber'], erledigt: ['abgeladen', 'st-green'], storniert: ['storniert', 'st-grey'] };
 const EH = { t: 't', m3: 'm³', fuhren: 'Fuhren' };
@@ -12,7 +14,6 @@ const mengeText = (f) => `${fmt.zahl(f.menge, 2)} ${EH[f.einheit] || f.einheit |
 const ort = (o) => (o && (o.text || (o.art === 'grube' ? 'Grube' : ''))) || '–';
 export const fuhrText = (f) => [f.beginn, f.anzahlFuhren ? `${f.anzahlFuhren} Fuhre${f.anzahlFuhren === 1 ? '' : 'n'}` : '', matName(f), mengeText(f), `${ort(f.von)} → ${ort(f.nach)}`].filter(Boolean).join(' · ');
 export const fuhrenLaden = (von, bis) => get(`/plan/fuhren?von=${von}&bis=${bis}`);
-const istFahrzeug = (a) => !!a.kennzeichen || /lkw|fahrzeug/i.test(`${a.klasse || ''}`);
 
 export function fuhrKarte(f, schreib) {
   const pruefen = f.berichtZeile && f.berichtZeile.status === 'pruefen';
@@ -34,20 +35,24 @@ export function fuhrenBahn(fuhren, tage, schreib, tagWahl) {
 export const fuhrenZone = (fuhren, tag, bsId, schreib) => `<div class="fu-zone" data-fuhr-ablage data-datum="${tag}" data-nach="${bsId}"><h4 class="sub-h">Fuhren <span class="count">${fuhren.length}</span>${schreib ? `<button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}" data-nach="${bsId}">${ic('plus', 'xs')}Fuhre</button>` : ''}</h4>${fuhren.map((f) => `<div class="fu-mit-lkw"><small>${esc((f.anlage && f.anlage.bezeichnung) || 'LKW')}</small>${fuhrKarte(f, schreib)}</div>`).join('') || `<p class="muted sm">${schreib ? 'LKW hierher ziehen oder „+ Fuhre“.' : 'Keine Fuhre.'}</p>`}</div>`;
 
 /* ---------- Formular ---------- */
+// N-048: Stammdaten (LKW, Fahrer, Material, Baustellen) werden bei jedem Öffnen des Formulars frisch geladen –
+// deaktiviertes Material wird so nicht mehr angeboten, neues steht gleich zur Wahl
 let stamm = null;
 async function ladeStamm() {
   if (stamm) return stamm;
   const [anl, leute, mat, bs, ein] = await Promise.all([get('/fuhrpark/anlagen').catch(() => []), get('/mitarbeiter').catch(() => []), get('/materialien').catch(() => []), get('/baustellen').catch(() => []), get('/einstellungen/plan').catch(() => ({}))]);
-  stamm = { anlagen: (Array.isArray(anl) ? anl : anl.anlagen || []).filter((a) => a.status !== 'ausgeschieden' && istFahrzeug(a)), leute: leute.filter((m) => m.aktiv !== false && ['mitarbeiter', 'polier', 'bauleiter'].includes(m.rolle)), mat, bs: bs.filter((b) => !b.intern && b.kostenstelle !== 'intern'), grube: (ein && ein.grube) || { text: 'Grube Breitenau' } };
+  stamm = { anlagen: (Array.isArray(anl) ? anl : anl.anlagen || []).filter(istLkw), alleAnlagen: Array.isArray(anl) ? anl : anl.anlagen || [], leute: leute.filter((m) => m.aktiv !== false && ['mitarbeiter', 'polier', 'bauleiter'].includes(m.rolle)), mat, bs: bs.filter((b) => !b.intern && b.kostenstelle !== 'intern'), grube: (ein && ein.grube) || { text: 'Grube Breitenau' } };
   return stamm;
 }
 export function stammVergessen() { stamm = null; }
-const naechsteTage = (iso, n) => { const l = []; let t = iso; while (l.length < n) { t = fmt.addTage(t, 1); if (![0, 6].includes(fmt.dt(t).getDay())) l.push(t); } return l; };
 
 export async function fuhreDialog(ctx, vor, fertig) {
-  let s; try { s = await ladeStamm(); } catch (x) { toast(x.message, 'warn'); return; }
+  stammVergessen(); // N-048
+  let s, frei; try { s = await ladeStamm(); frei = await feiertage((vor.fuhre || vor).datum || fmt.iso(new Date())); } catch (x) { toast(x.message, 'warn'); return; }
   const f = vor.fuhre || null;
   const datum = f ? f.datum : vor.datum;
+  // N-102: nur LKW; die LKW-Zeile einer bestehenden Fuhre bleibt wählbar, auch wenn sie kein LKW mehr ist
+  const lkwListe = f && !s.anlagen.some((a) => Number(a.id) === Number(f.anlageId)) ? [...s.anlagen, ...s.alleAnlagen.filter((a) => Number(a.id) === Number(f.anlageId))] : s.anlagen;
   const nachBs = f ? (f.nach && f.nach.baustelleId) : vor.nachBaustelleId;
   const vonArt = f ? (f.von && f.von.art) || 'grube' : 'grube';
   const nachArt = f ? (f.nach && f.nach.art) || 'baustelle' : 'baustelle';
@@ -58,7 +63,7 @@ export async function fuhreDialog(ctx, vor, fertig) {
     ${f && f.berichtZeile && f.berichtZeile.status === 'pruefen' ? `<div class="full" id="fu-pruefen">${banner('warn', `Nicht automatisch im Bautagesbericht: ${esc(f.berichtZeile.hinweis || 'bitte prüfen und im Bericht händisch eintragen.')}`)}${f.materialId && f.einheit === 'm3' ? `<div class="btn-row"><label class="field"><span class="field-label">Dichte des Materials (t/m³)</span><input class="input num" id="fu-dichte" inputmode="decimal" placeholder="z. B. 1,8"></label><button type="button" class="btn ghost" id="fu-dichte-ok">Dichte speichern</button></div>` : ''}</div>` : ''}
     <label class="field"><span class="field-label">Tag</span><input class="input lg" type="date" name="datum" required value="${esc(datum)}"></label>
     <label class="field"><span class="field-label">Beginn</span><input class="input lg" type="time" name="beginn" value="${esc((f && f.beginn) || '')}"></label>
-    <label class="field"><span class="field-label">LKW</span><select class="input lg" name="anlageId" required><option value="">– wählen –</option>${s.anlagen.map((a) => `<option value="${a.id}" ${Number(a.id) === Number(f ? f.anlageId : vor.anlageId) ? 'selected' : ''}>${esc(a.bezeichnung || a.nummer)}${a.kennzeichen ? ' · ' + esc(a.kennzeichen) : ''}</option>`).join('')}</select></label>
+    <label class="field"><span class="field-label">LKW</span><select class="input lg" name="anlageId" required><option value="">– wählen –</option>${lkwListe.map((a) => `<option value="${a.id}" ${a.gesperrt || a.status === 'gesperrt' ? 'data-gesperrt' : ''} ${Number(a.id) === Number(f ? f.anlageId : vor.anlageId) ? 'selected' : ''}>${esc(lkwText(a))}</option>`).join('')}</select></label>
     <label class="field"><span class="field-label">Fahrer</span><select class="input lg" name="fahrerId"><option value="">– noch offen –</option>${s.leute.map((m) => `<option value="${m.id}" ${f && f.fahrer && Number(f.fahrer.benutzerId) === Number(m.id) ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
     <label class="field full"><span class="field-label">Material (aus dem Katalog suchen oder frei eintragen)</span><input class="input lg" name="material" list="fu-mat" required maxlength="120" autocomplete="off" value="${esc(f ? matName(f) : '')}" placeholder="z. B. Rollschotter RK 16/63"><datalist id="fu-mat">${s.mat.map((m) => `<option value="${esc(m.name)}">${esc(m.code || '')}</option>`).join('')}</datalist><small class="muted" id="fu-mat-hinweis"></small></label>
     <label class="field"><span class="field-label">Menge</span><input class="input lg num" name="menge" inputmode="decimal" required value="${f ? esc(fmt.zahl(f.menge, 3)) : ''}" placeholder="z. B. 45"></label>
@@ -74,9 +79,9 @@ export async function fuhreDialog(ctx, vor, fertig) {
       <label class="field"><span class="field-label">Google-Maps-Link oder Koordinaten (optional)</span><input class="input lg" name="nachLink" maxlength="500" placeholder="Link einfügen oder 47.62, 16.05"></label></div>
       ${f && f.mapsLink ? `<small><a href="${esc(f.mapsLink)}" target="_blank" rel="noopener noreferrer" id="fu-maps">Route in Google Maps ansehen</a></small>` : '<small class="muted">Der Link wird nur gelesen (Koordinaten), nie aufgerufen.</small>'}</fieldset>
     <label class="field full"><span class="field-label">Notiz für den Fahrer</span><input class="input lg" name="notiz" maxlength="300" value="${esc((f && f.notiz) || '')}"></label>
-    ${f ? '' : `<fieldset class="field full"><legend class="field-label">Für weitere Tage kopieren</legend><div class="chk-row" id="fu-kopie">${naechsteTage(datum, 5).map((t) => `<label class="check-inline"><input type="checkbox" name="kopie" value="${t}"> ${esc(fmt.datumKurz(t))}</label>`).join('')}</div></fieldset>`}
+    ${f ? '' : `<fieldset class="field full"><legend class="field-label">Für weitere Tage kopieren</legend><div class="chk-row" id="fu-kopie">${kopieTage(datum, 5, frei).map((t) => `<label class="check-inline"><input type="checkbox" name="kopie" value="${t}"> ${esc(fmt.datumKurz(t))}</label>`).join('')}</div></fieldset>`}
     <p class="form-err full" role="alert" hidden></p></form>`,
-    fuss: `${f ? `<button class="btn danger" type="button" id="fu-weg">${f.veroeffentlicht ? 'Stornieren' : 'Löschen'}</button><span class="grow"></span>` : ''}<button class="btn ghost" type="button" data-zu>Abbrechen</button>${fertigStatus ? '' : `<button class="btn primary" type="submit" form="fuf" id="fu-ok">${f ? 'Speichern' : 'Fuhre anlegen'}</button>`}` });
+    fuss: `${f && !fertigStatus ? `<button class="btn danger" type="button" id="fu-weg">${f.veroeffentlicht ? 'Stornieren' : 'Löschen'}</button><span class="grow"></span>` : ''}<button class="btn ghost" type="button" data-zu>Abbrechen</button>${fertigStatus ? '' : `<button class="btn primary" type="submit" form="fuf" id="fu-ok">${f ? 'Speichern' : 'Fuhre anlegen'}</button>`}` });
   const form = $('#fuf', dlg.el);
   const mat = () => s.mat.find((m) => m.name.toLowerCase() === String(form.elements.material.value).trim().toLowerCase());
   function zeig() {
@@ -105,8 +110,10 @@ export async function fuhreDialog(ctx, vor, fertig) {
     try {
       const r = f ? await put(`/plan/fuhren/${f.id}`, { ...body, version: f.version }) : await post('/plan/fuhren', body);
       const tage = fd.getAll('kopie'); let kop = 0;
-      if (!f && tage.length && r && r.id) { try { kop = ((await post('/plan/fuhren/kopieren', { id: r.id, tage })).angelegt || []).length; } catch (x) { toast(`Kopieren nicht möglich: ${x.message}`, 'warn'); } }
-      dlg.zu(); toast(f ? 'Fuhre gespeichert.' : `Fuhre angelegt${kop ? ` und auf ${kop} weitere${kop === 1 ? 'n Tag' : ' Tage'} kopiert` : ''}.`); fertig();
+      let weg = [];
+      if (!f && tage.length && r && r.id) { try { const k = await post('/plan/fuhren/kopieren', { id: r.id, tage }); kop = (k.angelegt || []).length; weg = k.uebersprungen || []; } catch (x) { toast(`Kopieren nicht möglich: ${x.message}`, 'warn'); } }
+      // N-021: eine veröffentlichte Fuhre auf einen anderen Tag verschoben → am alten Tag storniert, am neuen neu angelegt
+      dlg.zu(); toast(f ? (r && r.ersetzt ? 'Fuhre verschoben – am alten Tag storniert; bitte beide Tage veröffentlichen, damit der Fahrer es erfährt.' : 'Fuhre gespeichert.') : `Fuhre angelegt${kop ? ` und auf ${kop} weitere${kop === 1 ? 'n Tag' : ' Tage'} kopiert` : ''}.${weg.length ? ` Nicht kopiert: ${weg.map((x) => x.text).join(' · ')}` : ''}`, f && r && r.ersetzt ? 'warn' : 'ok'); fertig();
     } catch (x) { $('#fu-ok', dlg.el).disabled = false; zeigF(x.status === 409 ? 'Inzwischen von jemand anderem geändert – bitte schließen und erneut öffnen.' : x.message); }
   });
   const weg = $('#fu-weg', dlg.el);
@@ -117,10 +124,14 @@ export async function fuhreDialog(ctx, vor, fertig) {
 
 /* ---------- Fahrer: „Meine Fuhren“ mit Warteschlange ohne Netz ---------- */
 const KEY = 'bt_fuhren_warten';
+const KEY_AB = 'bt_fuhren_abgelehnt'; // N-017: endgültig abgelehnte Meldungen (mit Menge und Foto), bis der Fahrer sie bestätigt
 const wartend = () => speicher.lies(KEY, []);
-const merke = (l) => { try { speicher.setz(KEY, l); return true; } catch (e) { return false; } };
+const merke = (l) => { try { localStorage.setItem(KEY, JSON.stringify(l)); return true; } catch (e) { return false; } };
+const abgelehntAlle = () => speicher.lies(KEY_AB, []);
+const merkeAbgelehnt = (l) => { try { localStorage.setItem(KEY_AB, JSON.stringify(l)); } catch (e) { speicher.setz(KEY_AB, l.map((x) => ({ ...x, foto: null, fotoWeg: !!x.foto }))); } };
 export const fuhrenWartend = (benutzerId) => wartend().filter((w) => w.benutzerId === benutzerId);
-const vorlaeufig = (x) => !!x && (x.netz || x.status >= 500 || x.status === 429 || x.status === 408);
+export const fuhrenAbgelehnt = (benutzerId) => abgelehntAlle().filter((w) => w.benutzerId === benutzerId);
+const vorlaeufig = fuhreVorlaeufig; // N-017: auch 401/403 bleiben gemerkt (wie die Stempel-Warteschlange)
 async function sende(w) {
   if (!w.statusFertig) { await post(`/plan/fuhren/${w.fuhreId}/status`, w.body); w.statusFertig = true; }
   if (w.foto) { await post(`/plan/fuhren/${w.fuhreId}/foto`, w.foto); w.foto = null; }
@@ -131,7 +142,12 @@ export async function fuhrenNachsenden(benutzerId) {
   try {
     for (const w of fuhrenWartend(benutzerId)) {
       try { await sende(w); ok += 1; merke(wartend().filter((x) => x.nr !== w.nr)); }
-      catch (x) { if (vorlaeufig(x)) { merke(wartend().map((y) => (y.nr === w.nr ? w : y))); break; } merke(wartend().filter((y) => y.nr !== w.nr)); toast(`Fuhre nicht übernommen: ${x.message}`, 'warn'); }
+      catch (x) {
+        if (vorlaeufig(x)) { merke(wartend().map((y) => (y.nr === w.nr ? w : y))); if (fuhreAnmeldungNoetig(x)) toast('Fuhren-Meldung gespeichert – nach dem Anmelden wird sie gesendet.', 'warn'); break; }
+        // endgültig abgelehnt (z. B. storniert, schon abgeladen): erst sichtbar sichern, dann aus der Warteschlange nehmen
+        merkeAbgelehnt([...abgelehntAlle(), { ...w, grund: x.message || 'abgelehnt', abgelehnt: new Date().toISOString() }]);
+        merke(wartend().filter((y) => y.nr !== w.nr)); toast(`Fuhre nicht übernommen: ${x.message}`, 'warn');
+      }
     }
   } finally { sendet = false; }
   return ok;
@@ -148,12 +164,15 @@ async function melde(benutzerId, fuhreId, body, foto) {
 }
 export function meineFuhrenHtml(tage, heute, benutzerId) {
   const mit = tage.filter((t) => (t.fuhren || []).length);
-  if (!mit.length) return '';
+  const ab = fuhrenAbgelehnt(benutzerId);
+  if (!mit.length && !ab.length) return '';
   const warten = fuhrenWartend(benutzerId);
+  const abText = (w) => `${w.body && w.body.status === 'erledigt' ? `Abgeladen${w.body.menge != null ? ` ${fmt.zahl(w.body.menge, 3)} ${EH[w.body.einheit] || w.body.einheit || ''}` : ''}` : 'Losgefahren'} · Fuhre ${w.fuhreId} · gemeldet ${fmt.uhr(w.zeit)}${w.foto ? ' · mit Foto' : w.fotoWeg ? ' · Foto zu groß für den Speicher' : ''}`;
   return `<section class="stack" id="meine-fuhren" aria-labelledby="h-mf"><h2 class="me-h" id="h-mf">Meine Fuhren</h2>
     ${warten.length ? `<div id="fuhren-warten">${banner('warn', `${warten.length} Meldung${warten.length === 1 ? '' : 'en'} gespeichert – wird gesendet, sobald Verbindung besteht.`)}</div>` : ''}
+    ${ab.length ? `<section class="card pad" id="fuhren-abgelehnt" aria-label="Nicht übernommene Meldungen">${banner('warn', `${ab.length} Meldung${ab.length === 1 ? ' wurde' : 'en wurden'} nicht übernommen – bitte dem Büro Bescheid geben (Menge und Foto stehen hier).`)}<ul class="plain rows">${ab.map((w) => `<li data-fuhr-abgelehnt="${esc(w.nr)}"><span class="grow"><b>${esc(abText(w))}</b><small>${esc(w.grund || '')}</small>${w.foto && w.foto.bildBase64 ? `<img class="fu-ab-foto" alt="Liefer-/Wiegeschein" src="${esc(String(w.foto.bildBase64).startsWith('data:') ? w.foto.bildBase64 : `data:image/jpeg;base64,${w.foto.bildBase64}`)}">` : ''}</span><button type="button" class="btn ghost sm" data-fuhr-abgelehnt-ok="${esc(w.nr)}">Verstanden</button></li>`).join('')}</ul></section>` : ''}
     ${mit.map((t) => `<h3 class="sub-h">${t.datum === heute ? 'Heute' : t.datum === fmt.addTage(heute, 1) ? 'Morgen' : esc(fmt.datumKurz(t.datum))} · ${t.fuhren.length} Fuhre${t.fuhren.length === 1 ? '' : 'n'}</h3>
-      <ol class="plain fu-liste" data-fuhren-tag="${t.datum}">${t.fuhren.slice().sort((a, b) => (a.reihenfolge || 0) - (b.reihenfolge || 0)).map((f, i) => { const w = warten.find((x) => x.fuhreId === f.id); const status = w ? w.body.status : f.status; const nach = f.nach || {};
+      <ol class="plain fu-liste" data-fuhren-tag="${t.datum}">${t.fuhren.slice().sort((a, b) => (a.reihenfolge || 0) - (b.reihenfolge || 0)).map((f, i) => { const w = letzteMeldung(warten, f.id); /* N-039: die zuletzt gemerkte Meldung zählt */ const status = w ? w.body.status : f.status; const nach = f.nach || {};
         return `<li class="card fu-meine" data-fuhre="${f.id}" data-status="${esc(status)}"><div class="fu-nr">${i + 1}</div><div class="fu-inhalt">
           <div class="fu-top">${fStatus({ status })}${w ? '<span class="chip xs st-amber">wartet auf Verbindung</span>' : ''}${f.beginn ? `<b>${esc(f.beginn)} Uhr</b>` : ''}${f.anlage ? `<small>${esc(f.anlage.bezeichnung || '')}${f.anlage.kennzeichen ? ' · ' + esc(f.anlage.kennzeichen) : ''}</small>` : ''}</div>
           <b class="fu-mat">${esc(matName(f))}</b><b class="fu-menge">${esc(mengeText(f))}${f.anzahlFuhren ? ` · ${f.anzahlFuhren} Fuhre${f.anzahlFuhren === 1 ? '' : 'n'}` : ''}</b>
@@ -165,6 +184,8 @@ export function meineFuhrenBinden(el, tage, benutzerId, fertig) {
   const finde = (id) => { for (const t of tage) { const f = (t.fuhren || []).find((x) => Number(x.id) === Number(id)); if (f) return f; } return null; };
   const ergebnis = (r) => { toast(r === 'gesendet' ? 'Gemeldet.' : r === 'gemerkt-ohne-foto' ? 'Keine Verbindung – Meldung gespeichert (Foto bitte später nachreichen).' : 'Keine Verbindung – Meldung gespeichert, wird nachgesendet.', r === 'gesendet' ? 'ok' : 'warn'); fertig(r); };
   el.addEventListener('click', async (e) => {
+    const quitt = e.target.closest('[data-fuhr-abgelehnt-ok]');
+    if (quitt) { merkeAbgelehnt(abgelehntAlle().filter((w) => w.nr !== quitt.dataset.fuhrAbgelehntOk)); fertig('quittiert'); return; }
     const los = e.target.closest('[data-fuhr-los]');
     if (los) { los.disabled = true; try { ergebnis(await melde(benutzerId, Number(los.dataset.fuhrLos), { status: 'unterwegs' })); } catch (x) { los.disabled = false; toast(x.message, 'warn'); } return; }
     const ab = e.target.closest('[data-fuhr-ab]'); if (!ab) return;

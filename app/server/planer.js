@@ -61,10 +61,24 @@ function ladeEinsatz(db, id) {
   return ladeEinsaetze(db, e.datum, e.datum).find((x) => x.id === id);
 }
 
-/** Letzter früherer Tag mit gespeicherten Einsätzen (höchstens 60 Tage zurück) */
+/**
+ * Letzter früherer ARBEITSTAG mit gespeicherten Einsätzen (höchstens 60 Tage zurück, 12.8c).
+ * Samstags-, Sonntags- und Feiertagsschichten sind nie Quelle der Vorschau (N-015/N-020).
+ */
 function quelleTag(db, datum) {
-  const z = db.eins('SELECT MAX(datum) AS d FROM plan_einsatz WHERE geloescht = 0 AND datum < ? AND datum >= ?', datum, plusTage(datum, -60));
-  return z && z.d ? z.d : null;
+  for (const z of db.alle('SELECT DISTINCT datum AS d FROM plan_einsatz WHERE geloescht = 0 AND datum < ? AND datum >= ? ORDER BY datum DESC', datum, plusTage(datum, -60))) {
+    if (istArbeitstag(z.d)) return z.d;
+  }
+  return null;
+}
+/**
+ * Beim Übernehmen eines Vorschau-Tags nur wegen Abwesenheit ausgelassene Personen (N-006): Sie fehlen nur an diesem Tag
+ * und werden für die Folgetage wieder aus der Quelle vorgeschlagen → [{baustelleId, benutzerId, kolonnePolierId, fahrerAnlagen}]
+ */
+function gemerkteAbwesende(db, datum) {
+  const z = db.eins('SELECT uebersprungen FROM plan_tag WHERE datum = ?', datum);
+  if (!z || !z.uebersprungen) return [];
+  try { const l = JSON.parse(z.uebersprungen); return Array.isArray(l) ? l : []; } catch (_) { return []; }
 }
 
 /**
@@ -81,7 +95,11 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
   if (!q) return null;
   const einsaetze = [];
   const tagUebersprungen = [];
-  for (const s of ladeEinsaetze(db, q, q)) {
+  const quelle = ladeEinsaetze(db, q, q);
+  const amQuelltag = new Set(quelle.flatMap((s) => s.personen.map((p) => p.benutzer_id)));
+  // N-006: am Quelltag nur wegen Abwesenheit fehlende Personen (sofern dort nicht anders eingeteilt) wieder vorschlagen
+  const gemerkt = gemerkteAbwesende(db, q).filter((g) => g && g.benutzerId && !amQuelltag.has(g.benutzerId));
+  for (const s of quelle) {
     const bs = K.baustellen.get(s.baustelle_id);
     if (!bs || !PLANBAR.includes(bs.phase)) {
       tagUebersprungen.push({ typ: 'baustelle', text: `${bs ? bs.kst : '?'}: Baustelle nicht mehr planbar (${bs ? bs.phase : 'fehlt'})`, baustelleId: s.baustelle_id });
@@ -89,12 +107,20 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
     }
     const uebersprungen = [];
     const personen = [];
-    for (const p of s.personen) {
+    const abwesend = []; // intern (nicht im JSON): für materialisieren → plan_tag.uebersprungen
+    const zusatz = [];
+    for (const g of gemerkt) if (g.baustelleId === s.baustelle_id && !zusatz.some((x) => x.benutzer_id === g.benutzerId)) zusatz.push({ benutzer_id: g.benutzerId, kolonne_polier_id: g.kolonnePolierId || null, notiz: null, fahrerAnlagen: g.fahrerAnlagen || [] });
+    const fahrerVon = (pid) => [...s.anlagen.filter((a) => a.fahrer_id === pid).map((a) => a.anlage_id), ...((zusatz.find((z) => z.benutzer_id === pid) || {}).fahrerAnlagen || [])];
+    for (const p of [...s.personen, ...zusatz]) {
       const b = K.personen.get(p.benutzer_id);
       if (!b || !b.aktiv) { uebersprungen.push({ typ: 'inaktiv', text: `${b ? b.name : '?'}: nicht mehr aktiv`, benutzerId: p.benutzer_id }); continue; }
       if (!['mitarbeiter', 'polier'].includes(b.rolle)) { uebersprungen.push({ typ: 'rolle', text: `${b.name}: wird nicht eingeplant (${b.rolle === 'bauleiter' ? 'Bauleiter' : 'Büro'})`, benutzerId: p.benutzer_id }); continue; } // 12.25
       const a = K.abw.get(`${p.benutzer_id}|${datum}`);
-      if (a) { uebersprungen.push({ typ: 'abwesenheit', text: `${b.name}: ${abwText(a, voll)}`, benutzerId: p.benutzer_id }); continue; }
+      if (a) {
+        uebersprungen.push({ typ: 'abwesenheit', text: `${b.name}: ${abwText(a, voll)}`, benutzerId: p.benutzer_id });
+        abwesend.push({ baustelleId: s.baustelle_id, benutzerId: p.benutzer_id, kolonnePolierId: p.kolonne_polier_id || null, fahrerAnlagen: fahrerVon(p.benutzer_id) });
+        continue;
+      }
       personen.push({ benutzer_id: p.benutzer_id, kolonne_polier_id: p.kolonne_polier_id, notiz: null });
     }
     const da = new Set(personen.map((p) => p.benutzer_id));
@@ -102,11 +128,13 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
     for (const a of s.anlagen) {
       const st = anlageStatus(K, a.anlage_id);
       if (!st || st.gesperrt || st.ausgeschieden) { uebersprungen.push({ typ: 'anlage_gesperrt', text: `${st ? st.bezeichnung : '?'}: ${st && st.ausgeschieden ? 'ausgeschieden' : 'gesperrt'}`, anlageId: a.anlage_id }); continue; }
-      anlagen.push({ anlage_id: a.anlage_id, notiz: null, fahrer_id: a.fahrer_id && da.has(a.fahrer_id) ? a.fahrer_id : null });
+      let fahrer = a.fahrer_id && da.has(a.fahrer_id) ? a.fahrer_id : null;
+      if (!fahrer) { const z = zusatz.find((x) => da.has(x.benutzer_id) && x.fahrerAnlagen.includes(a.anlage_id)); if (z) fahrer = z.benutzer_id; }
+      anlagen.push({ anlage_id: a.anlage_id, notiz: null, fahrer_id: fahrer });
     }
     einsaetze.push({
       id: null, vorschau: true, quelleDatum: q, datum, baustelle_id: s.baustelle_id, beginn: s.beginn, treffpunkt: s.treffpunkt,
-      fahrzeug_anlage_id: s.fahrzeug_anlage_id, fahrzeug_text: s.fahrzeug_text, arbeit: s.arbeit, notiz: null, benoetigt: null, personen, anlagen, uebersprungen,
+      fahrzeug_anlage_id: s.fahrzeug_anlage_id, fahrzeug_text: s.fahrzeug_text, arbeit: s.arbeit, notiz: null, benoetigt: null, personen, anlagen, uebersprungen, abwesend,
       vortagNotizen: {
         notiz: s.notiz || null, benoetigt: s.benoetigt || null,
         personen: Object.fromEntries(s.personen.filter((p) => p.notiz).map((p) => [p.benutzer_id, p.notiz])),
@@ -131,6 +159,9 @@ function materialisieren(bt, datum, benutzerId) {
     for (const p of e.personen) db.lauf('INSERT INTO plan_person (einsatz_id, benutzer_id, kolonne_polier_id) VALUES (?, ?, ?)', id, p.benutzer_id, p.kolonne_polier_id);
     for (const a of e.anlagen) db.lauf('INSERT INTO plan_anlage (einsatz_id, anlage_id, fahrer_id) VALUES (?, ?, ?)', id, a.anlage_id, a.fahrer_id);
   }
+  // N-006: nur wegen Abwesenheit ausgelassene Personen merken – die Folgetage schlagen sie wieder vor
+  const weg = v.einsaetze.flatMap((e) => e.abwesend || []);
+  if (weg.length) db.lauf('UPDATE plan_tag SET uebersprungen = ? WHERE datum = ?', JSON.stringify(weg), datum);
   db.protokolliere({ zeit: t, benutzerId, art: 'plan', objekt: `plan:${datum}`, neu: { quelleDatum: v.quelleDatum, einsaetze: v.einsaetze.length }, text: `Einteilung ${de(datum)} aus ${de(v.quelleDatum)} übernommen (${v.einsaetze.length} Einsätze)` });
   return v.einsaetze.length;
 }
@@ -222,14 +253,20 @@ function konflikteTag(datum, einsaetze, fuhren, K, { voll = false, wetter = new 
   for (const [aid, fids] of fuhrAnlagen) anlageKonflikt(aid, [], fids);
   for (const e of einsaetze) {
     const w = wetter.get(`${e.baustelle_id}|${datum}`);
-    if (w && w.vorschlag) out.push({ datum, typ: 'wetter', text: `${bsName(e)}: ${w.gruende[0] || 'Schlechtwetter möglich'} – Schlechtwetter prüfen.`, einsatzIds: ids([e]) });
+    if (w && w.vorschlag) out.push({ datum, typ: 'wetter', text: `${bsName(e)}: ${w.gruende[0] || 'Schlechtwetter möglich'} – Schlechtwetter prüfen.`, einsatzIds: ids([e]), baustelleId: e.baustelle_id }); // N-043: auch Vorschau-Zellen (ohne id)
   }
   return out;
 }
 
 /** Konflikte, die einen bestimmten Einsatz betreffen (anonymisiert für fremde Baustellen) */
+function konflikteBetreffen(k, e) {
+  if (e.id != null) return (k.einsatzIds || []).includes(e.id);
+  // Vorschau-Zelle (ohne id): über Person, Anlage bzw. – beim Wetter – über die Baustelle (N-043)
+  return Boolean((k.benutzerId && e.personen.some((p) => p.benutzer_id === k.benutzerId)) || (k.anlageId && e.anlagen.some((a) => a.anlage_id === k.anlageId))
+    || (k.typ === 'wetter' && k.baustelleId === e.baustelle_id));
+}
 function konflikteFuer(e, liste, sichtbar) {
-  return liste.filter((k) => (e.id != null ? (k.einsatzIds || []).includes(e.id) : (k.benutzerId && e.personen.some((p) => p.benutzer_id === k.benutzerId)) || (k.anlageId && e.anlagen.some((a) => a.anlage_id === k.anlageId))))
+  return liste.filter((k) => konflikteBetreffen(k, e))
     .map((k) => ({ typ: k.typ, text: sichtbar ? k.text : k.text.replace(/\(([^)]*)\)/, '(andere Baustelle)') }));
 }
 
@@ -291,21 +328,51 @@ function kurzText(inhalt, datum, heute) {
 }
 
 /**
+ * Probelauf: fn läuft wie echt (inkl. Speichern des Vorschau-Tags und Einfügen der Meldungen) und wird danach ganz
+ * zurückgerollt. So ist die Vorschau der Veröffentlichung per Bauart gleich dem Versand (N-006, G-12) – auch über mehrere Tage.
+ * Innere db.transaktion()-Aufrufe werden Teil des Probelaufs (tiefe > 0).
+ */
+function probelauf(db, fn) {
+  db.db.exec('SAVEPOINT plan_probelauf');
+  db.tiefe++;
+  try { return fn(); } finally {
+    db.tiefe--;
+    db.db.exec('ROLLBACK TO plan_probelauf');
+    db.db.exec('RELEASE plan_probelauf');
+  }
+}
+
+/** Vergleichs-Hash des Personen-Inhalts – ohne interne Einsatz-ID (N-082: gelöscht und gleich neu angelegt = unverändert) */
+function personHash(neu) {
+  if (!neu) return null;
+  return hash({ ...neu, einsatz: neu.einsatz ? { ...neu.einsatz, einsatzId: undefined } : null });
+}
+
+/**
  * Veröffentlichen (oder Vorschau ohne Versand) für Tage `von`…`bis`.
+ * Vorschau (`trocken`) = derselbe Lauf, danach zurückgerollt → Liste, Titel und Texte genau wie beim Versand.
+ * `empfaenger`/`anzahl` zählen nur tatsächlich eingefügte Meldungen (N-005/N-014), `personen` die verschiedenen Empfänger (N-094).
  * @param {{ctx, von, bis, trocken, baustellenFilter:(bsId)=>bool, fuhreFilter:(f)=>bool}} o
  */
 function veroeffentlichen(bt, o) {
+  if (o.trocken) return probelauf(bt.db, () => veroeffentlichenLauf(bt, o));
+  return bt.db.transaktion(() => veroeffentlichenLauf(bt, o));
+}
+
+function veroeffentlichenLauf(bt, o) {
   const { db } = bt;
   const heute = wienDatum(bt.uhr());
   const zeit = bt.uhr().toISOString();
+  // eindeutig je Veröffentlichung: Doppelmeldungen verhindert schon der Vergleich mit plan_mitteilung bzw. veroeffentlicht_stand;
+  // ein Schlüssel ohne diesen Teil würde die Rückkehr zu einem früher gemeldeten Stand verschlucken (A→B→A, N-005/N-014)
+  const lauf = crypto.randomUUID();
   const empfaenger = [];
   let einsaetzeAnzahl = 0;
   const F = require('./fuhren');
   for (let d = o.von; d <= o.bis; d = plusTage(d, 1)) {
+    materialisieren(bt, d, o.ctx.benutzer.id);
     const K = kontextDaten(db, heute, d, d);
-    if (!o.trocken) materialisieren(bt, d, o.ctx.benutzer.id);
-    const vs = o.trocken ? vorschauTag(db, d, K) : null;
-    const roh = vs ? vs.einsaetze : ladeEinsaetze(db, d, d, { mitGeloeschten: true });
+    const roh = ladeEinsaetze(db, d, d, { mitGeloeschten: true });
     const imBereich = (e) => o.baustellenFilter(e.baustelle_id);
     // künftige Stände: im Bereich neu, sonst der bisher veröffentlichte Stand
     const staende = [];
@@ -316,16 +383,17 @@ function veroeffentlichen(bt, o) {
         const st = staendeJson(e, K);
         staende.push(st);
         neueStaende.push({ e, st });
-      } else if (e.veroeffentlicht_stand && !e.geloescht) staende.push(JSON.parse(e.veroeffentlicht_stand));
-      else if (e.veroeffentlicht_stand && e.geloescht) staende.push(JSON.parse(e.veroeffentlicht_stand)); // fremd gelöscht, noch nicht veröffentlicht
+      } else if (e.veroeffentlicht_stand) staende.push(JSON.parse(e.veroeffentlicht_stand)); // fremd (auch fremd gelöscht, noch nicht veröffentlicht)
     }
+    // im Bereich gelöschte, schon veröffentlichte Einsätze (Meldung „entfällt“ an Personen und Poliere, N-059/N-084)
+    const geloescht = roh.filter((e) => e.geloescht && imBereich(e) && e.veroeffentlicht_stand);
     const fuhrenRoh = db.alle('SELECT * FROM plan_fuhre WHERE datum = ?', d);
     const fuhrStaende = [];
     const neueFuhren = [];
     for (const f of fuhrenRoh) {
       if (o.fuhreFilter(f)) { const st = F.fuhreJson(db, f, K); if (f.status !== 'storniert') fuhrStaende.push(st); neueFuhren.push({ f, st }); } else if (f.veroeffentlicht_stand) fuhrStaende.push(JSON.parse(f.veroeffentlicht_stand));
     }
-    // G-14: veröffentlichte Fuhren, die inzwischen storniert (gelöscht) sind
+    // G-14: veröffentlichte Fuhren, die inzwischen storniert (gelöscht bzw. verschoben) sind
     const stornoFuhren = neueFuhren.filter(({ f }) => f.status === 'storniert' && f.veroeffentlicht_stand).map(({ f }) => JSON.parse(f.veroeffentlicht_stand));
     // betroffene Personen
     const pids = new Set();
@@ -333,12 +401,17 @@ function veroeffentlichen(bt, o) {
     for (const f of fuhrStaende) if (f.fahrer) pids.add(f.fahrer.benutzerId);
     for (const m of db.alle('SELECT benutzer_id FROM plan_mitteilung WHERE datum = ? AND inhalt IS NOT NULL', d)) pids.add(m.benutzer_id);
     const meldungen = [];
+    const stilleUpdates = [];
     for (const pid of pids) {
       const neu = personInhalt(pid, d, staende, fuhrStaende);
       const alt = db.eins('SELECT * FROM plan_mitteilung WHERE benutzer_id = ? AND datum = ?', pid, d);
-      const h = neu ? hash(neu) : null;
-      if (alt && alt.hash === h) continue;
+      const h = personHash(neu);
       if (!alt && !neu) continue;
+      // unverändert (auch nach dem früheren Hash mit Einsatz-ID) → keine Meldung; nur die gespeicherte Fassung angleichen
+      if (alt && (alt.hash === h || (neu && alt.inhalt && alt.hash === hash(neu)))) {
+        if (neu && (alt.hash !== h || alt.inhalt !== JSON.stringify(neu))) stilleUpdates.push({ pid, neu, h });
+        continue;
+      }
       const art = !alt || !alt.inhalt ? 'neu' : neu ? 'geaendert' : 'entfaellt';
       if (!neu && art === 'neu') continue;
       // G-14: stornierte, schon veröffentlichte Fuhren dieser Person ausdrücklich nennen
@@ -359,45 +432,67 @@ function veroeffentlichen(bt, o) {
         titel = `${art === 'geaendert' ? 'Geändert: ' : ''}Einsatz ${tagLabel(d, heute)}: ${ziel}`;
         text = `${weg.map((x) => `Fuhre ${x} entfällt`).join(' · ')}${weg.length ? ' · ' : ''}${k.text}`;
       }
-      meldungen.push({ pid, neu, h, art, alt, titel, text });
-      empfaenger.push({ benutzerId: pid, name: (K.personen.get(pid) || {}).name, art, datum: d, titel, text });
+      meldungen.push({ pid, neu, h, art, titel, text });
     }
     // Poliere: je Einsatz nur bei für die Partie relevanten Änderungen (G-12: reine Personen-Notizen nicht –
     // die betroffene Person bekommt ihre eigene Meldung); erscheinen auch in der Vorschau (art "partie")
     const polierMeldungen = [];
+    const partieTitel = (st, wegText) => `Ihre Partie ${tagLabel(d, heute)}: ${st.baustelle.kurz || st.baustelle.name}${wegText ? ' entfällt' : ''}`;
     for (const { e, st } of neueStaende) {
       const h = partieHash(st);
-      const alt = e.veroeffentlicht_stand ? JSON.parse(e.veroeffentlicht_stand) : null;
+      // N-082: eine gelöschte und gleich neu angelegte Zelle derselben Baustelle vergleicht mit dem bisher veröffentlichten Stand
+      const ersetzt = !e.veroeffentlicht_stand ? geloescht.find((g) => g.baustelle_id === e.baustelle_id) : null;
+      const altStand = e.veroeffentlicht_stand || (ersetzt && ersetzt.veroeffentlicht_stand);
+      const alt = altStand ? JSON.parse(altStand) : null;
       if (alt && partieHash(alt) === h) continue;
       const bs = K.baustellen.get(e.baustelle_id) || {};
       const poliere = new Set([...(bs.polier_id ? [bs.polier_id] : []), ...e.personen.filter((p) => p.kolonne_polier_id).map((p) => p.kolonne_polier_id)]);
-      const titel = `Ihre Partie ${tagLabel(d, heute)}: ${st.baustelle.kurz || st.baustelle.name}`;
-      const text = `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`;
+      const leer = !st.personen.length && !st.anlagen.length; // N-084: geleerte Zelle = entfällt
+      if (leer && !alt) continue; // nie veröffentlicht und leer → nichts zu melden
+      const titel = partieTitel(st, leer);
+      const text = leer
+        ? `Der Einsatz ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name} ${tagLabel(d, heute)} entfällt – niemand mehr eingeteilt.`
+        : `${st.personen.length} Person${st.personen.length === 1 ? '' : 'en'}, ${st.anlagen.length} Gerät${st.anlagen.length === 1 ? '' : 'e'} – ${st.baustelle.kst} ${st.baustelle.kurz || st.baustelle.name}${st.beginn ? `, Beginn ${st.beginn}` : ''}.`;
+      for (const pol of poliere) polierMeldungen.push({ pol, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}:${lauf}`, titel, text });
+    }
+    // N-059/N-084: gelöschter veröffentlichter Einsatz (nicht neu angelegt) → Partie-Meldung „entfällt“ an Baustellen- und
+    // Kolonnen-Poliere; wer selbst in dem Einsatz eingeteilt war, bekommt schon seine eigene „Einsatz entfällt“-Meldung
+    for (const g of geloescht) {
+      if (neueStaende.some(({ e }) => e.baustelle_id === g.baustelle_id)) continue;
+      const alt = JSON.parse(g.veroeffentlicht_stand);
+      const bs = K.baustellen.get(g.baustelle_id) || {};
+      const poliere = new Set([...(bs.polier_id ? [bs.polier_id] : []), ...alt.personen.filter((p) => p.kolonnePolierId).map((p) => p.kolonnePolierId)]);
+      const titel = partieTitel(alt, true);
+      const text = `Der Einsatz ${alt.baustelle.kst} ${alt.baustelle.kurz || alt.baustelle.name} ${tagLabel(d, heute)} entfällt.`;
       for (const pol of poliere) {
-        polierMeldungen.push({ pol, e, st, h, titel, text });
-        empfaenger.push({ benutzerId: pol, name: (K.personen.get(pol) || {}).name, art: 'partie', datum: d, baustelleId: e.baustelle_id, titel, text });
+        if (alt.personen.some((p) => p.benutzerId === pol)) continue;
+        polierMeldungen.push({ pol, baustelleId: g.baustelle_id, schluessel: `plan:polier:${g.id}:weg:${lauf}`, titel, text });
       }
     }
-    if (o.trocken) continue;
     einsaetzeAnzahl += neueStaende.length;
-    db.transaktion(() => {
-      for (const { e, st } of neueStaende) db.lauf('UPDATE plan_einsatz SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', JSON.stringify(st), inhaltsHash(e), zeit, e.id);
-      for (const e of roh) if (e.geloescht && imBereich(e)) db.lauf('DELETE FROM plan_einsatz WHERE id = ?', e.id);
-      for (const { f, st } of neueFuhren) db.lauf('UPDATE plan_fuhre SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', f.status === 'storniert' ? null : JSON.stringify(st), f.status === 'storniert' ? null : F.fuhreHash(st), zeit, f.id);
-      for (const m of meldungen) {
-        db.lauf(`INSERT INTO plan_mitteilung (benutzer_id, datum, inhalt, hash, zeit, gelesen, bestaetigt) VALUES (?, ?, ?, ?, ?, NULL, NULL)
-          ON CONFLICT(benutzer_id, datum) DO UPDATE SET inhalt = excluded.inhalt, hash = excluded.hash, zeit = excluded.zeit, gelesen = NULL, bestaetigt = NULL`, m.pid, d, m.neu ? JSON.stringify(m.neu) : null, m.h, zeit);
-        // Titel/Text wie in der Vorschau (G-12/G-14: Vorschau = Versand)
-        if (m.art === 'entfaellt') benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, schluessel: `plan:${d}:weg:${zeit}` });
-        else benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}` });
+    for (const { e, st } of neueStaende) db.lauf('UPDATE plan_einsatz SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', JSON.stringify(st), inhaltsHash(e), zeit, e.id);
+    for (const e of roh) if (e.geloescht && imBereich(e)) db.lauf('DELETE FROM plan_einsatz WHERE id = ?', e.id);
+    for (const { f, st } of neueFuhren) db.lauf('UPDATE plan_fuhre SET veroeffentlicht_stand = ?, veroeffentlicht_hash = ?, veroeffentlicht_zeit = ? WHERE id = ?', f.status === 'storniert' ? null : JSON.stringify(st), f.status === 'storniert' ? null : F.fuhreHash(st), zeit, f.id);
+    for (const u of stilleUpdates) db.lauf('UPDATE plan_mitteilung SET inhalt = ?, hash = ? WHERE benutzer_id = ? AND datum = ?', JSON.stringify(u.neu), u.h, u.pid, d);
+    let gesendet = 0;
+    for (const m of meldungen) {
+      db.lauf(`INSERT INTO plan_mitteilung (benutzer_id, datum, inhalt, hash, zeit, gelesen, bestaetigt, art) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)
+        ON CONFLICT(benutzer_id, datum) DO UPDATE SET inhalt = excluded.inhalt, hash = excluded.hash, zeit = excluded.zeit, gelesen = NULL, bestaetigt = NULL, art = excluded.art`, m.pid, d, m.neu ? JSON.stringify(m.neu) : null, m.h, zeit, m.art);
+      // Titel/Text wie in der Vorschau (G-12/G-14: Vorschau = Versand)
+      const ok = m.art === 'entfaellt'
+        ? benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, schluessel: `plan:${d}:weg:${lauf}` })
+        : benachrichtige(db, { benutzerId: m.pid, typ: 'plan', titel: m.titel, text: m.text, zeit, baustelleId: m.neu.einsatz ? m.neu.einsatz.baustelle.id : null, schluessel: `plan:${d}:${m.h}:${lauf}` });
+      if (ok) { gesendet++; empfaenger.push({ benutzerId: m.pid, name: (K.personen.get(m.pid) || {}).name, art: m.art, datum: d, titel: m.titel, text: m.text }); }
+    }
+    for (const m of polierMeldungen) {
+      if (benachrichtige(db, { benutzerId: m.pol, typ: 'plan', titel: m.titel, text: m.text, zeit, baustelleId: m.baustelleId, schluessel: m.schluessel })) {
+        empfaenger.push({ benutzerId: m.pol, name: (K.personen.get(m.pol) || {}).name, art: 'partie', datum: d, baustelleId: m.baustelleId, titel: m.titel, text: m.text });
       }
-      for (const { pol, e, h, titel, text } of polierMeldungen) {
-        benachrichtige(db, { benutzerId: pol, typ: 'plan', titel, text, zeit, baustelleId: e.baustelle_id, schluessel: `plan:polier:${e.id}:${h}` });
-      }
-      db.protokolliere({ zeit, benutzerId: o.ctx.benutzer.id, art: 'plan', objekt: `plan:${d}`, neu: { einsaetze: neueStaende.length, fuhren: neueFuhren.length, meldungen: meldungen.length }, text: `Einteilung ${de(d)} veröffentlicht (${meldungen.length} Personen benachrichtigt)` });
-    });
+    }
+    const personenTag = new Set(empfaenger.filter((x) => x.datum === d).map((x) => x.benutzerId)).size;
+    db.protokolliere({ zeit, benutzerId: o.ctx.benutzer.id, art: 'plan', objekt: `plan:${d}`, neu: { einsaetze: neueStaende.length, fuhren: neueFuhren.length, meldungen: gesendet, personen: personenTag }, text: `Einteilung ${de(d)} veröffentlicht (${personenTag} Person${personenTag === 1 ? '' : 'en'} benachrichtigt)` });
   }
-  return { empfaenger, anzahl: empfaenger.length, einsaetze: einsaetzeAnzahl };
+  return { empfaenger, anzahl: empfaenger.length, personen: new Set(empfaenger.map((x) => x.benutzerId)).size, einsaetze: einsaetzeAnzahl };
 }
 
 /** Veröffentlichter Stand eines Einsatzes (mit Polier der Baustelle) */
@@ -410,7 +505,16 @@ function staendeJson(e, K) {
   return st;
 }
 
-/** Erinnerung an die Planer (12.8a, geändert 13.11.2026): einmal je Tag ab planErinnerung, veröffentlicht nichts */
+/** Offene (unveröffentlichte) Fuhren eines Tages: neu, nach der Veröffentlichung geändert oder storniert (N-060) */
+function offeneFuhren(db, d, K) {
+  const F = require('./fuhren');
+  return db.alle('SELECT * FROM plan_fuhre WHERE datum = ?', d).filter((f) => F.fuhreOffen(db, f, K));
+}
+
+/**
+ * Erinnerung an die Planer (12.8a, geändert 13.11.2026): einmal je Tag ab planErinnerung, veröffentlicht nichts.
+ * Geprüft werden der nächste Arbeitstag und – N-058 – gespeicherte Sa/So/Feiertage davor; Fuhren zählen mit (N-060).
+ */
 function pruefeErinnerung(bt) {
   const { db } = bt;
   const E = einstellungen(db);
@@ -421,25 +525,37 @@ function pruefeErinnerung(bt) {
   if (uhrzeit < E.planErinnerung || db.einstellung('plan_erinnerung_tag', null) === heute) return;
   db.setzeEinstellung('plan_erinnerung_tag', heute);
   const n = naechsterArbeitstag(heute);
-  const K = kontextDaten(db, heute, n, n);
-  const vs = vorschauTag(db, n, K);
-  let offen = []; // [{baustelleId, text}]
-  if (vs) {
-    offen = vs.einsaetze.map((e) => ({ baustelleId: e.baustelle_id, text: '' }));
-    if (!offen.length) return;
-  } else {
-    const roh = ladeEinsaetze(db, n, n, { mitGeloeschten: true });
-    offen = roh.filter((e) => e.geloescht ? e.veroeffentlicht_stand : (!e.veroeffentlicht_zeit || e.veroeffentlicht_hash !== inhaltsHash(e))).map((e) => ({ baustelleId: e.baustelle_id }));
-    if (!offen.length) return;
+  let vs = null, vsDatum = null;
+  const offen = []; // [{datum, baustelleId}] – Einsätze
+  const fuhrenOffen = []; // [{datum, f}]
+  let K = null;
+  for (let d = plusTage(heute, 1); d <= n; d = plusTage(d, 1)) {
+    K = kontextDaten(db, heute, d, d);
+    const v = vorschauTag(db, d, K); // nur an Arbeitstagen möglich
+    if (v && v.einsaetze.length) { vs = v; vsDatum = d; offen.push(...v.einsaetze.map((e) => ({ datum: d, baustelleId: e.baustelle_id }))); }
+    else {
+      const roh = ladeEinsaetze(db, d, d, { mitGeloeschten: true });
+      offen.push(...roh.filter((e) => e.geloescht ? e.veroeffentlicht_stand : (!e.veroeffentlicht_zeit || e.veroeffentlicht_hash !== inhaltsHash(e))).map((e) => ({ datum: d, baustelleId: e.baustelle_id })));
+    }
+    fuhrenOffen.push(...offeneFuhren(db, d, K).map((f) => ({ datum: d, f })));
   }
+  if (!offen.length && !fuhrenOffen.length) return;
   const abw = vs ? vs.uebersprungen.map((u) => u.text) : [];
-  const text = vs
-    ? `Die Einteilung für ${deKurz(n)} ist nur als Vorschau (wie ${de(vs.quelleDatum)}) vorhanden.${abw.length ? ` Abweichungen: ${abw.join('; ')}.` : ''} Bitte prüfen und veröffentlichen.`
-    : `${offen.length} Einsatz/Einsätze für ${deKurz(n)} sind geändert, aber noch nicht veröffentlicht.`;
+  const teile = [];
+  const tage = [...new Set([...offen.map((x) => x.datum), ...fuhrenOffen.map((x) => x.datum)])].sort();
+  for (const d of tage) {
+    const ein = offen.filter((x) => x.datum === d).length;
+    const fu = fuhrenOffen.filter((x) => x.datum === d).length;
+    if (vs && d === vsDatum) teile.push(`Die Einteilung für ${deKurz(d)} ist nur als Vorschau (wie ${de(vs.quelleDatum)}) vorhanden.${abw.length ? ` Abweichungen: ${abw.join('; ')}.` : ''} Bitte prüfen und veröffentlichen.`);
+    else if (ein) teile.push(`${ein} Einsatz/Einsätze für ${deKurz(d)} sind geändert, aber noch nicht veröffentlicht.`);
+    if (fu) teile.push(`${fu} Fuhre${fu === 1 ? '' : 'n'} für ${deKurz(d)} ${fu === 1 ? 'ist' : 'sind'} neu, geändert oder storniert, aber noch nicht veröffentlicht.`);
+  }
+  const text = teile.join(' ');
   const zeit = jetzt.toISOString();
-  // G-05: Freitag/vor Feiertagen ist „morgen“ der nächste Arbeitstag – im Titel ausdrücklich benennen
+  // G-05: Freitag/vor Feiertagen ist „morgen“ der nächste Arbeitstag – im Titel ausdrücklich benennen (bzw. der erste offene Tag davor)
   const WT_LANG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
-  const fuer = n === plusTage(heute, 1) ? 'morgen' : `${WT_LANG[wochentag(n)]} ${n.slice(8, 10)}.${n.slice(5, 7)}.`;
+  const t0 = tage[0];
+  const fuer = t0 === plusTage(heute, 1) ? 'morgen' : `${WT_LANG[wochentag(t0)]} ${t0.slice(8, 10)}.${t0.slice(5, 7)}.`;
   const titel = `Einteilung für ${fuer} noch nicht veröffentlicht`;
   for (const b of db.alle("SELECT id FROM benutzer WHERE aktiv = 1 AND rolle IN ('buero','gf')")) {
     benachrichtige(db, { benutzerId: b.id, typ: 'plan', titel, text, zeit, schluessel: `plan:erinnerung:${heute}` });
@@ -454,8 +570,18 @@ function pruefeErinnerung(bt) {
   }
 }
 
+/**
+ * Nächster Einsatztag ab morgen (N-058): ein Sa/So/Feiertag vor dem nächsten Arbeitstag, an dem `hat(datum)` zutrifft,
+ * sonst der nächste Arbeitstag.
+ */
+function naechsterEinsatztag(heute, hat) {
+  const n = naechsterArbeitstag(heute);
+  for (let d = plusTage(heute, 1); d < n; d = plusTage(d, 1)) if (hat(d)) return d;
+  return n;
+}
+
 module.exports = {
   PLANBAR, CODE_TEXT, hash, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
   ladeEinsaetze, ladeEinsatz, vorschauTag, materialisieren, einsatzJson, inhaltsHash, konflikteTag, konflikteFuer, personInhalt, kurzText,
-  veroeffentlichen, staendeJson, pruefeErinnerung, feiertag, tagLabel, partieHash
+  veroeffentlichen, staendeJson, pruefeErinnerung, feiertag, tagLabel, partieHash, quelleTag, konflikteBetreffen, offeneFuhren, naechsterEinsatztag, personHash
 };

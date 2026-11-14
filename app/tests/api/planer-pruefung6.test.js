@@ -72,10 +72,11 @@ test('G-01/G-14: einen von mehreren Einsätzen bzw. eine Fuhre löschen → nur 
   assert.equal(tagVon(w, FR).vorschau, false);
   assert.equal(w.unveroeffentlicht, 1);
   dry = (await gf.post('/plan/veroeffentlichen', { von: FR, vorschau: true })).daten;
-  assert.deepEqual(dry.empfaenger.map((e) => [e.benutzerId, e.art]), [[9, 'entfaellt']]);
+  // N-059 (14.1): der Baustellen-Polier (8, selbst nicht eingeteilt) erfährt, dass der Einsatz seiner Baustelle entfällt
+  assert.deepEqual(dry.empfaenger.map((e) => [e.benutzerId, e.art]), [[9, 'entfaellt'], [U.polier2, 'partie']]);
   vor = letzteId(s);
   await gf.post('/plan/veroeffentlichen', { von: FR });
-  assert.deepEqual(planMeldungen(s, vor).map((x) => [x.benutzer_id, x.titel]), [[9, 'Einsatz entfällt am Fr 13.11.']]);
+  assert.deepEqual(planMeldungen(s, vor).map((x) => [x.benutzer_id, x.titel]), [[9, 'Einsatz entfällt am Fr 13.11.'], [U.polier2, 'Ihre Partie morgen: Zufahrt Kogler entfällt']]);
   assert.equal((await gf.get(`/plan/woche?von=${FR}`)).daten.unveroeffentlicht, 0);
 });
 

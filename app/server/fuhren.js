@@ -92,6 +92,13 @@ function fuhreHash(st) {
   return hash([st.datum, st.anlageId, st.fahrer && st.fahrer.benutzerId, st.reihenfolge, st.beginn, st.materialId, st.materialText, st.menge, st.einheit, st.anzahlFuhren, st.von, st.nach, st.notiz]);
 }
 
+/** Unveröffentlichte Änderung? neu, nach der Veröffentlichung geändert oder veröffentlicht und storniert (N-021/N-060) */
+function fuhreOffen(db, f, K) {
+  if (f.status === 'storniert') return Boolean(f.veroeffentlicht_stand);
+  if (!f.veroeffentlicht_zeit) return true;
+  return f.veroeffentlicht_hash !== fuhreHash(fuhreJson(db, f, K));
+}
+
 /** Fahrer-Sicht (Mein Einsatz) – ohne Status (der wird beim Abruf aktuell ergänzt) */
 function fuhreFuerFahrer(f) {
   return {
@@ -146,11 +153,11 @@ function zeileHinzufuegen(db, berichtId, materialId, menge) {
   else db.lauf('INSERT INTO bericht_material (bericht_id, material_id, menge) VALUES (?, ?, ?)', berichtId, materialId, menge);
 }
 
-/** Vorschläge (Fuhren) für einen Bericht */
+/** Vorschläge (Fuhren) für einen Bericht – nur erledigte, nie stornierte Fuhren (N-023/N-040) */
 function vorschlaegeFuer(db, b) {
   return db.alle(`SELECT f.*, m.name AS mname, m.einheit AS meinheit, u.name AS fname FROM plan_fuhre f LEFT JOIN material m ON m.id = f.material_id LEFT JOIN benutzer u ON u.id = f.fahrer_id
-    WHERE f.datum = ? AND f.bericht_status = 'vorschlag' AND json_extract(f.nach, '$.baustelleId') = ?`, b.datum, b.baustelle_id)
+    WHERE f.datum = ? AND f.bericht_status = 'vorschlag' AND f.status = 'erledigt' AND json_extract(f.nach, '$.baustelleId') = ?`, b.datum, b.baustelle_id)
     .map((f) => ({ fuhreId: f.id, materialId: f.material_id, name: f.mname, menge: f.bericht_menge, einheit: f.meinheit, fahrer: f.fname || null, zeit: (JSON.parse(f.erledigt || '{}')).zeit || null }));
 }
 
-module.exports = { koordinatenAus, mapsLink, haltPruefen, fuhreJson, fuhreHash, fuhreFuerFahrer, inBericht, zeileHinzufuegen, vorschlaegeFuer };
+module.exports = { koordinatenAus, mapsLink, haltPruefen, fuhreJson, fuhreHash, fuhreOffen, fuhreFuerFahrer, inBericht, zeileHinzufuegen, vorschlaegeFuer };
