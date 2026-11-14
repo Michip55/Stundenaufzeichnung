@@ -15,6 +15,15 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 > **Testdaten nur zur Vorführung:** `npm run seed` läuft nur mit `BAUTAG_DEMO=1`. Alle Testdaten-Benutzer haben die
 > PIN `1234` ohne Änderungspflicht – **nie im Echtbetrieb verwenden**, die Daten sind frei erfunden.
 
+## Testversion aktualisieren
+
+1. Server bzw. Startfenster beenden.
+2. Neuen Programmstand holen (`git pull` oder Dateien über den alten Ordner kopieren; `app/data` bleibt).
+3. `cd app && npm install` – neue oder geänderte Pakete laden. Die Startskripte (`BauTag-starten-*.bat/.command`) machen das selbst, sobald `node server/abhaengigkeiten.js` meldet, dass ein Paket fehlt oder nicht zur `package-lock.json` passt (Exit-Code 1).
+4. `BAUTAG_DEMO=1 npm start` – die Datenbank wird beim Start auf den neuen Stand migriert.
+
+`server/index.js` prüft **vor** dem Öffnen der Datenbank, ob alle Pakete aus `package.json` installiert sind. Fehlt eines, startet der Server nicht („START VERWEIGERT: Programmteile sind nicht vollständig installiert …“) und die Datenbank bleibt unverändert; eine abweichende Version ergibt nur eine Warnung. Im Echtbetrieb (Docker, `npm ci`) übernimmt das `deploy/update.sh`.
+
 ## Inbetriebnahme (Echtbetrieb)
 
 1. `cd app && npm install`
