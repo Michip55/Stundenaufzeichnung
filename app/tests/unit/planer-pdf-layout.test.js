@@ -83,3 +83,27 @@ test('N-080: Wochenplan-Zeile höher als eine Seite wird auf Folgeseiten verteil
   assert.ok(st.slice(1).some((p) => p.alles.includes('26-041 (Forts.)')), 'Fortsetzungs-Kennzeichen');
   st.forEach((p, i) => assert.ok(p.alles.includes('Baustelle'), `Tabellenkopf auf Seite ${i + 1}`));
 });
+
+test('15.7 (Rest N-036): ein Block größer als eine Seite beginnt auf der laufenden Seite, sie bleibt nicht fast leer', async () => {
+  const buf = await tagesplanPdf(modell([block('26-038', 3), block('26-041', 30, 6)]), { unkomprimiert: true });
+  const st = seiten(buf);
+  pruefeSeiten(st, 'Einteilung Test');
+  assert.ok(st[0].texte.some((t) => t.text.startsWith('26-041  Baustelle 26-041') && !t.text.includes('Fortsetzung')), 'großer Block beginnt auf Seite 1');
+  assert.ok(st[0].alles.includes('Person 26-041-0 (Mitarbeiter)'), 'erste Personen auf Seite 1');
+  const alle = st.map((p) => p.alles).join('\n');
+  for (let j = 0; j < 30; j++) assert.ok(alle.includes(`Person 26-041-${j} (Mitarbeiter)`), `Person ${j}`);
+  assert.ok(alle.includes('ENDE-BLOCK-26-041') && alle.includes('ENDE-BLOCK-26-038'));
+});
+
+test('15.7 (Rest N-080): Wochenplan misst Zellen nach dem Seitenwechsel mit der Zellenschrift (nicht mit der Kopfschrift)', async () => {
+  const tage = ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].map((d) => ({ datum: d, label: d.slice(8), entwurf: false }));
+  const m = { titel: 'Wochenplan Test', gedruckt: 'jetzt', veroeffentlichtUm: '06:00', entwurf: false, tage,
+    zeilen: [{ kst: '26-001', name: 'Vorher', zellen: { '2026-11-09': ['A'] } }, { kst: '26-041', name: 'Pitten', zellen: { '2026-11-10': Array.from({ length: 60 }, (_, j) => `Mitarbeiter ${j}`) } }, { kst: '26-002', name: 'MARKER-NACHHER', zellen: { '2026-11-09': ['B'] } }] };
+  const st = seiten(await wochenplanPdf(m, { unkomprimiert: true }));
+  pruefeSeiten(st, 'Wochenplan Test');
+  // 60 einzeilige Einträge passen auf zwei Seiten (früher 4: zu früher Umbruch und fast leere erste Seite)
+  assert.equal(st.length, 2, `Seiten ${st.length}`);
+  const alle = st.map((p) => p.alles).join('\n');
+  for (let j = 0; j < 60; j++) assert.ok(alle.includes(`Mitarbeiter ${j}`), `Eintrag ${j}`);
+  assert.ok(alle.includes('MARKER-NACHHER'));
+});
