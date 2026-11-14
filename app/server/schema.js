@@ -1316,6 +1316,20 @@ UPDATE benachrichtigung SET erfordert = CASE
 END;
 -- Offene Push-Meldungen des Bestands prüft der Versand ohnehin gegen die aktuellen Rechte (15.3).
 `
+  },
+  {
+    version: 41,
+    name: '15.5: Sitzungsbindung ans Gerät (bt_bindung) und Geräteschlüssel je Benutzer für wartende Einträge',
+    // bindung_hash: SHA-256 des Bindungs-Cookies einer App-Sitzung; ohne passendes Cookie gilt die Sitzung nicht (F-029).
+    // geraet_schluessel: zufälliger AES-Schlüssel je Benutzer, mit dem die App wartende Einträge beim Abmelden versiegelt (F-046).
+    sql: `
+ALTER TABLE sitzung ADD COLUMN bindung_hash TEXT;
+CREATE TABLE geraet_schluessel (
+  benutzer_id INTEGER PRIMARY KEY REFERENCES benutzer(id) ON DELETE CASCADE,
+  schluessel TEXT NOT NULL,
+  erstellt TEXT NOT NULL
+);
+`
   }
 ];
 

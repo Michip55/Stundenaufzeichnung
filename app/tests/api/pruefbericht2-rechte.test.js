@@ -129,7 +129,7 @@ test('C-07, C-09, C-12, C-13, C-14: Konto-Sperre, Vier-Augen-Prinzip, Personalnu
     assert.equal((await buero2.put('/benutzer/103', { name: 'Stefan Aigner' })).status, 200);
     assert.equal((await buero2.get('/benutzer')).status, 200);
     assert.equal((await buero2.get('/rechte')).status, 403);
-    assert.equal((await buero2.post(`/benutzer/${U.gf}/entsperren`)).status, 200); // D-01: Büro darf GF entsperren (nur entsperren)
+    assert.equal((await buero2.post(`/benutzer/${U.gf}/entsperren`)).status, 403); // 15.5 (F-051): GF-Konten nur über entsperren.js
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art IN ('benutzer','rolle') AND benutzer_id = ?", U.buero).n >= 4);
   });
 });

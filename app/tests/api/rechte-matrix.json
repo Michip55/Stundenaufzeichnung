@@ -30,6 +30,7 @@
     "DELETE /api/benutzer/:id/2fa": { "r": "N N N N J", "pfad": "/api/benutzer/{dummy}/2fa", "grund": "12.7 Recht benutzer" },
     "POST /api/auth/logout": { "r": "J J J J J", "body": {}, "grund": "4 Auth" },
     "GET /api/auth/ich": { "r": "J J J J J", "grund": "4 Auth (eigene Lohngruppe erlaubt, 12.22)" },
+    "GET /api/auth/geraet-schluessel": { "r": "J J J J J", "grund": "15.5 eigener Geräteschlüssel (nur angemeldet)" },
     "PUT /api/auth/telefon": { "r": "J J J J J", "body": { "telefon": "+43 660 1234567" }, "grund": "12.8d eigene Nummer" },
     "POST /api/auth/pin": { "r": "J J J J J", "body": { "alt": "1234", "neu": "583920" }, "grund": "7 eigene PIN" },
     "GET /api/fern/:token": { "r": "O O O O O", "pfad": "/api/fern/{token}", "grund": "12.9 öffentlich mit Token (AG-Fassung ohne €)" },
