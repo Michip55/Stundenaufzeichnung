@@ -1,5 +1,8 @@
 'use strict';
-/** Prüfbericht 6 – Betrieb: G-06 (Docker erzwingt Produktion ohne Test), G-09 (Größengrenzen), G-10 (Probe lesbar für uid 1000), G-17 (Token nicht im Log) */
+/**
+ * Prüfbericht 6 – Betrieb: G-06 (Docker erzwingt Produktion ohne Test), G-09 (Größengrenzen), G-10 (Probe lesbar für uid 1000),
+ * G-17 (Token nicht im Log); Nachprüfung N-032 (Caddy-Grenzen je Pfad, Speichergrenze des App-Containers, API.md 14.8)
+ */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,18 +25,64 @@ test('G-06: Container läuft immer mit NODE_ENV=production und ohne BAUTAG_TEST'
   assert.ok(!/^BAUTAG_TEST=1/m.test(lies('.env.beispiel')));
 });
 
-test('G-09: Caddy-Grenze liegt über der größten App-Grenze; Tabelle in ANLEITUNG.md', () => {
+test('G-09/N-032: Caddy erlaubt 40 MB nur für POST auf die Upload-/Import-Pfade der App, sonst 13 MB; Tabelle in ANLEITUNG.md', () => {
   const index = fs.readFileSync(path.join(SERVER, 'index.js'), 'utf8');
   const app = [...index.matchAll(/express\.json\(\{ limit: '(\d+)mb'/g)].map((m) => Number(m[1]));
   assert.ok(app.length >= 4);
   const max = Math.max(...app);
-  const caddy = Number(/request_body \{\s*max_size (\d+)MB/.exec(lies('Caddyfile'))[1]);
-  assert.ok(caddy >= max + 2, `Caddy ${caddy} MB vs. App ${max} MB`);
+  const grenze = (name) => Number(new RegExp(`const ${name} = express\\.json\\(\\{ limit: '(\\d+)mb'`).exec(index)[1]);
+  assert.equal(grenze('jsonDokumente'), max, 'größte App-Grenze = Dokumente/Importe');
+  const uebrige = Math.max(grenze('jsonKlein'), grenze('jsonImport'), grenze('jsonFotos'));
   const dok = require(path.join(SERVER, 'dokument-pruefung')).MAX_BYTES;
   assert.ok(Math.ceil((dok * 4) / 3 / 1024 / 1024) + 1 <= max, 'größtes Dokument passt als Base64 in die JSON-Grenze');
+
+  const c = lies('Caddyfile');
+  // genau zwei request_body, jede mit Matcher – ohne Matcher gälte sie zusätzlich für alle (dann die kleinere Grenze)
+  const rb = [...c.matchAll(/request_body(?: (@\w+))? \{\s*max_size (\d+)MB\s*\}/g)];
+  assert.equal(rb.length, 2, 'zwei request_body');
+  assert.equal((c.match(/request_body/g) || []).length, 2);
+  assert.ok(rb.every((m) => m[1]), 'jede request_body mit Matcher');
+  const caddy = Object.fromEntries(rb.map((m) => [m[1].slice(1), Number(m[2])]));
+  assert.ok(caddy.gross >= max + 2, `Caddy groß ${caddy.gross} MB vs. App ${max} MB`);
+  assert.ok(caddy.klein >= uebrige + 1 && caddy.klein <= 13, `Caddy klein ${caddy.klein} MB vs. übrige App-Grenzen ${uebrige} MB`);
+  // die Matcher schließen sich aus: @klein = nicht (@gross)
+  const gross = /@gross \{\s*method POST\s*path_regexp \w+ (\S+)\s*\}/.exec(c);
+  const klein = /@klein \{\s*not \{\s*method POST\s*path_regexp \w+ (\S+)\s*\}\s*\}/.exec(c);
+  assert.ok(gross && klein, 'Matcher @gross und @klein');
+  assert.equal(klein[1], gross[1], '@klein ist genau die Umkehrung von @gross');
+  // Go-Regexp → JavaScript ((?i) als Flag); gleiche Pfade wie dokumentPfad der App (unter /api)
+  const caddyRe = gross[1].startsWith('(?i)') ? new RegExp(gross[1].slice(4), 'i') : new RegExp(gross[1]);
+  const appRe = new Function(`return ${/const dokumentPfad = (\/.+\/i);/.exec(index)[1]}`)(); // eslint-disable-line no-new-func
+  const pfade = {
+    '/baustellen/5/dokumente': true, '/baustellen/5/dokumente/': true, '/Baustellen/12/DOKUMENTE': true, '/baustellen/5/dokumente/7/versionen': true,
+    '/baustellen/5/lv-import': true, '/import/bmd-op': true, '/stammdaten/geraete/import': true, '/stammdaten/materialien/import/': true,
+    '/baustellen/x/dokumente': false, '/baustellen/5/dokumente/7': false, '/baustellen/5/dokumente/7/versionen/1': false, '/baustellen/5': false,
+    '/stammdaten/geraete/import/x': false, '/positionen/katalog/import': false, '/berichte/5/fotos': false, '/fuhrpark/schaeden': false,
+    '/fern/abc': false, '/auth/login': false, '/baustellen/5/dokumente-x': false, '/import/bmd-op/x': false
+  };
+  for (const [p, soll] of Object.entries(pfade)) {
+    assert.equal(appRe.test(p), soll, `App ${p}`);
+    assert.equal(caddyRe.test(`/api${p}`), soll, `Caddy /api${p}`);
+  }
+  assert.equal(caddyRe.test('/baustellen/5/dokumente'), false, 'nur unter /api');
+
   const anl = lies('ANLEITUNG.md');
   assert.match(anl, /## Größengrenzen beim Hochladen/);
-  assert.ok(anl.includes(`**${caddy} MB**`) && anl.includes(`| ${max} MB |`));
+  const zeile = (wort) => anl.split('\n').find((z) => z.startsWith('|') && z.includes(wort)) || '';
+  assert.ok(zeile('Upload/Import').includes(`**${caddy.gross} MB**`), zeile('Upload/Import'));
+  assert.ok(zeile('alle anderen Anfragen**').includes(`**${caddy.klein} MB**`), zeile('alle anderen Anfragen**'));
+  assert.ok(anl.includes(`| ${max} MB |`) && anl.includes(`| ${grenze('jsonFotos')} MB |`) && anl.includes(`| ${grenze('jsonKlein')} MB |`));
+});
+
+test('N-032: App-Container mit Speichergrenze (mem_limit), gleicher Wert in ANLEITUNG.md', () => {
+  const compose = lies('docker-compose.yml');
+  const app = compose.slice(compose.indexOf('  app:'), compose.indexOf('  caddy:'));
+  const m = /^ {4}mem_limit: (\d+)m$/m.exec(app);
+  assert.ok(m, 'mem_limit im Dienst app');
+  const mb = Number(m[1]);
+  assert.ok(mb >= 1024 && mb <= 2048, `${mb} MB`); // genug für 35-MB-Anfragen samt PDF-Prüfung, Rest des 4-GB-Servers bleibt frei
+  assert.match(app, new RegExp(`^ {4}memswap_limit: ${mb}m$`, 'm'), 'ohne zusätzlichen Swap');
+  assert.ok(lies('ANLEITUNG.md').includes(`**${mb} MB** Arbeitsspeicher`));
 });
 
 test('G-17: Fernunterschrift-Token werden im Caddy-Zugriffsprotokoll maskiert', () => {
