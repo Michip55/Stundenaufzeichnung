@@ -15,6 +15,8 @@
  *  6. 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – in „Mehr“ gewählt oder vom Vorbenutzer auf
  *     der Anmeldeseite voreingestellt: die nächste andere Person ist auf „Geteiltes Gerät“ (deutlicher Hinweis, 30-min-Sperre);
  *     dieselbe Person behält ihre Wahl.
+ *  7. 15.12: Eigenes Handy mit Push – die Sitzung läuft ab (Abo weg), dieselbe Person meldet sich an: Push ist ohne Klick wieder
+ *     da (neues Abo an der neuen Sitzung). Eine andere Person am selben Gerät bekommt kein Abo, bis sie selbst einschaltet.
  * Die Untätigkeit wird wie in tests/e2e/geraet.js über die gemerkte letzte Bedienung (bt_aktiv) simuliert; Browser- und
  * Server-Uhr laufen gemeinsam (ctx.clock).
  */
@@ -33,9 +35,13 @@ function pushAttrappe(ep) {
   const setz = (v) => localStorage.setItem('e2e_abo', JSON.stringify(v));
   if (!lies()) setz({ endpoint: ep, aktiv: true, abgemeldet: 0 });
   const sub = { get endpoint() { return lies().endpoint; }, async unsubscribe() { const a = lies(); a.aktiv = false; a.abgemeldet += 1; setz(a); return true; }, toJSON() { return { endpoint: lies().endpoint, keys: { p256dh: 'BPx', auth: 'aa' } }; } };
-  const reg = { pushManager: { getSubscription: async () => (lies() && lies().aktiv ? sub : null), subscribe: async () => sub } };
+  const reg = { pushManager: { getSubscription: async () => (lies() && lies().aktiv ? sub : null), subscribe: async () => { const a = lies(); a.aktiv = true; a.angemeldet = (a.angemeldet || 0) + 1; setz(a); return sub; } } };
   const fake = { getRegistration: async () => reg, register: async () => reg, ready: Promise.resolve(reg), addEventListener() {}, controller: null };
   Object.defineProperty(Navigator.prototype, 'serviceWorker', { configurable: true, get: () => fake });
+  // 15.12: Erlaubnis des Browsers als Attrappe (headless meldet immer „denied“) – e2e_erlaubnis, Standard „default“
+  const erlaubnis = () => localStorage.getItem('e2e_erlaubnis') || 'default';
+  Object.defineProperty(Notification, 'permission', { configurable: true, get: erlaubnis });
+  Notification.requestPermission = async () => erlaubnis();
 }
 
 async function laufe(browser, g) {
@@ -254,6 +260,41 @@ async function laufe(browser, g) {
     pruef(await ls('bt_geraet_art') === 'eigen' && await page.locator('#geraet-hinweis').isHidden(), 'dieselbe Person verliert ihre Wahl „Eigenes Handy“');
     await untaetig(31);
     pruef(await angemeldet(), 'dieselbe Person: „Eigenes Handy“ meldet nach 31 min ab');
+
+    /* ---- 7) 15.12: Push kommt auf dem eigenen Handy nach der Anmeldung derselben Person ohne Klick zurück ---- */
+    const aboE = async () => JSON.parse(await ls('e2e_abo'));
+    const aboAmServer = (id) => db.eins('SELECT * FROM push_abo WHERE endpoint = ? AND benutzer_id = ?', EP, id);
+    const warteAuf = async (f) => { for (let i = 0; i < 60 && !f(); i++) await sleep(100); return f(); };
+    // ohne Erlaubnis des Browsers geschieht nach der Anmeldung nichts (siehe unten: Mitarbeiter); jetzt erlaubt der Polier
+    await page.evaluate(() => localStorage.setItem('e2e_erlaubnis', 'granted'));
+    pruef(await page.evaluate(() => Notification.permission) === 'granted', 'Vorbedingung: Benachrichtigungen im Browser erlaubt');
+    await page.evaluate((ep) => localStorage.setItem('e2e_abo', JSON.stringify({ endpoint: ep, aktiv: false, abgemeldet: 0, angemeldet: 0 })), EP);
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Vorbedingung: eigenes Handy des Poliers');
+    await geh('/push');
+    await page.click('#push-an');
+    pruef(await warteAuf(() => !!aboAmServer(U.polier)), 'Push einschalten: kein Abo am Server');
+    pruef(JSON.parse(await ls('bt_push_wunsch') || '[]').includes(U.polier), 'Push-Wunsch des Poliers am Gerät nicht gemerkt');
+    db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', U.polier); // Sitzung am Server abgelaufen
+    pruef(!aboAmServer(U.polier), 'Abo überlebt das Ende der Sitzung');
+    await page.evaluate(() => { location.hash = '#/woche'; });
+    await page.waitForSelector('#login-card .login-user', { timeout: 15000 });
+    for (let i = 0; i < 20 && (await aboE()).aktiv; i++) await sleep(100);
+    pruef(!(await aboE()).aktiv, 'Abo im Browser nach dem Sitzungsablauf noch aktiv');
+    const klicksVorher = (await aboE()).angemeldet;
+    await anmelden(U.polier, { laden: false });
+    pruef(await warteAuf(() => !!aboAmServer(U.polier)), 'eigenes Handy: Push kommt nach der Anmeldung derselben Person nicht von selbst zurück');
+    const neueSitzung = db.eins('SELECT token_hash FROM sitzung WHERE benutzer_id = ? AND bindung_hash IS NOT NULL', U.polier);
+    pruef(neueSitzung && (aboAmServer(U.polier) || {}).sitzung_hash === neueSitzung.token_hash, 'wiederhergestelltes Abo gehört nicht zur neuen Sitzung');
+    pruef((await aboE()).aktiv && (await aboE()).angemeldet === klicksVorher + 1, 'Abo im Browser nicht (still) neu angelegt');
+    pruef(await page.locator('dialog[open]').count() === 0, 'stilles Einschalten zeigt eine Rückfrage');
+    // eine andere Person am selben Gerät: kein Abo, bis sie selbst einschaltet
+    await abmelden();
+    pruef(!db.eins('SELECT 1 AS x FROM push_abo WHERE endpoint = ?', EP), 'Abo nach dem Abmelden noch am Server');
+    await anmelden(U.mitarbeiter, { laden: false });
+    await sleep(1500);
+    pruef(!db.eins('SELECT 1 AS x FROM push_abo WHERE endpoint = ?', EP) && !(await aboE()).aktiv, 'andere Person: Push-Wunsch des Poliers wurde für den Mitarbeiter eingeschaltet');
+    pruef(!JSON.parse(await ls('bt_push_wunsch') || '[]').includes(U.mitarbeiter), 'Push-Wunsch dem Mitarbeiter zugeschrieben');
+    await abmelden();
 
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);
   } finally {

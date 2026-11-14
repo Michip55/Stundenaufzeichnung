@@ -1,6 +1,6 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, bindungLoeschen, geraetArt, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel } from './api.js';
+import { get, post, abmeldenVormerken, bindungLoeschen, geraetArt, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, pushNachAnmeldung } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, GERAET_TEXT, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import login from './views/login.js';
@@ -21,7 +21,7 @@ import monat from './views/monat.js';
 import benutzer from './views/benutzer.js';
 import mehr from './views/mehr.js';
 import hilfe from './views/hilfe.js';
-import push, { geraetPushAbo } from './views/push.js';
+import push, { geraetPushAbo, pushStillEinschalten } from './views/push.js';
 import zweifaktor, { zweiFaktorErzwungen } from './views/zweifaktor.js';
 import { installStatus } from './installieren.js';
 import pin, { pinErzwungen } from './views/pin.js';
@@ -406,6 +406,8 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     // 15.5 (F-046): eigene versiegelte Einträge öffnen (Schlüssel nur mit Anmeldung)
     await schluesselHolen(ich.benutzer.id);
     await entsiegeln(ich.benutzer.id, { frisch }).catch(() => {});
+    // 15.12: das Abo endet mit der Sitzung – nach der Anmeldung derselben Person auf ihrem eigenen Handy still wieder einschalten
+    if (frisch && pushNachAnmeldung(ich.benutzer.id, typeof Notification === 'undefined' ? 'default' : Notification.permission)) pushStillEinschalten().catch(() => {}); // ohne die Oberfläche aufzuhalten
   } catch (e) {
     if (e.veraltet) return; // 15.12 (G2-018): inzwischen ab- bzw. neu angemeldet – der neuere Lauf übernimmt
     if (e.netz) { ich = speicher.lies('bt_ich'); setzOnline(false); }

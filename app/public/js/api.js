@@ -89,6 +89,31 @@ export function geraetArtBeiAnmeldung(benutzerId, letzterBenutzer = null) {
   if (gespeichert && inhaber !== Number(benutzerId)) setzGeraetArt(art, benutzerId); // die Wahl gehört ab jetzt dieser Person
   return { art, zurueckgesetzt: false };
 }
+// 15.12: „Push auf diesem Gerät gewünscht“ – je Person, nur am Gerät (Liste von Benutzer-IDs), bleibt beim Abmelden erhalten.
+// Mit der Sitzung endet das Abo (G2-019); nach der nächsten Anmeldung DERSELBEN Person auf ihrem eigenen Handy schaltet die App
+// Push still wieder ein – nie für eine andere Person, nie ohne Erlaubnis des Browsers, nie auf einem geteilten Gerät.
+export const PUSH_WUNSCH = 'bt_push_wunsch';
+function pushWunschListe() {
+  try { const v = JSON.parse(localStorage.getItem(PUSH_WUNSCH) || '[]'); return Array.isArray(v) ? v.filter((x) => Number.isInteger(x)) : []; } catch (e) { return []; }
+}
+export const pushGewuenscht = (benutzerId) => benutzerId != null && pushWunschListe().includes(Number(benutzerId));
+/** Push auf diesem Gerät für `benutzerId` gewünscht (eingeschaltet) bzw. nicht mehr (ausgeschaltet) */
+export function setzPushWunsch(benutzerId, an) {
+  const id = Number(benutzerId);
+  if (!Number.isInteger(id)) return;
+  const liste = pushWunschListe().filter((x) => x !== id);
+  if (an) liste.push(id);
+  try { if (liste.length) localStorage.setItem(PUSH_WUNSCH, JSON.stringify(liste.slice(-20))); else localStorage.removeItem(PUSH_WUNSCH); } catch (e) { /* gesperrt */ }
+}
+/**
+ * Nach der Anmeldung von `benutzerId` Push still wieder einschalten? Nur wenn (1) der Browser es schon erlaubt hat
+ * (`erlaubnis === 'granted'`), (2) genau diese Person Push an diesem Gerät eingeschaltet hatte und (3) das Gerät für diese
+ * Person ein „Eigenes Handy“ ist (nach geraetArtBeiAnmeldung: Wahl dieser Person). Sonst nichts – die Person entscheidet selbst.
+ */
+export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArt()) {
+  return erlaubnis === 'granted' && art === 'eigen' && geraetArtInhaber() === Number(benutzerId) && pushGewuenscht(benutzerId);
+}
+
 /**
  * Minuten ohne Bedienung, nach denen die App am Gerät abmeldet (15.5/15.8). „geteilt“: `sperreMinuten` des Servers
  * (Mitarbeiter/Polier 30, Büro/Bauleiter/GF wie die Sitzung). „eigen“: die Sitzungsdauer des Servers (`sitzungMinuten`) –

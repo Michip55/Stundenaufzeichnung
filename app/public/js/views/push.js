@@ -1,5 +1,5 @@
 // Push-Benachrichtigungen (API.md 12.3): auf diesem Gerät einschalten, Kategorien wählen, Test senden, Geräte verwalten.
-import { get, post, put, del, api } from '../api.js';
+import { get, post, put, del, api, setzPushWunsch } from '../api.js';
 import { ic, esc, fmt, banner, toast, bestaetigen, $ } from '../ui.js';
 import { installStatus } from '../installieren.js';
 
@@ -19,6 +19,21 @@ export async function geraetPushAbo() {
   } catch (e) { return null; }
 }
 const geraetName = () => { const ua = navigator.userAgent; return `${/iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android-Gerät' : /Windows/.test(ua) ? 'Windows-PC' : /Mac/.test(ua) ? 'Mac' : 'Gerät'} · ${/Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser'}`; };
+
+/**
+ * 15.12: Push nach der Anmeldung still wieder einschalten (ohne Rückfrage – der Browser hat schon erlaubt). Das neue Abo gehört
+ * zur neuen Sitzung (POST /push/abo). Ob überhaupt, entscheidet pushNachAnmeldung (api.js). → true, wenn eingeschaltet
+ */
+export async function pushStillEinschalten() {
+  if (!pushMoeglich() || Notification.permission !== 'granted') return false;
+  const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((ok) => setTimeout(() => ok(null), 3000))]);
+  if (!reg || !reg.pushManager) return false;
+  const { publicKey } = await get('/push/schluessel');
+  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) }));
+  const j = sub.toJSON();
+  await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName() });
+  return true;
+}
 
 export default async function push(el, ctx) {
   const integ = await ctx.integrationen();
@@ -68,6 +83,7 @@ export default async function push(el, ctx) {
       const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) }));
       const j = sub.toJSON();
       await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName() });
+      setzPushWunsch(ctx.ich.benutzer.id, true); // 15.12: nach der nächsten eigenen Anmeldung (eigenes Handy) still wieder ein
       toast('Push ist auf diesem Gerät eingeschaltet.');
     } catch (e) { toast(e.status ? e.message : 'Push konnte auf diesem Gerät nicht eingeschaltet werden. Bitte später erneut versuchen.', 'warn'); }
     neu();
@@ -75,6 +91,7 @@ export default async function push(el, ctx) {
   el.addEventListener('click', async (e) => {
     if (e.target.closest('#push-an')) return einschalten();
     if (e.target.closest('#push-aus')) {
+      setzPushWunsch(ctx.ich.benutzer.id, false); // 15.12: bewusst ausgeschaltet – nach der Anmeldung nicht wieder einschalten
       try { const ep = hier && hier.endpoint; if (hier) await hier.unsubscribe(); if (ep) await api('DELETE', '/push/abo', { endpoint: ep }); toast('Push ist auf diesem Gerät ausgeschaltet.'); } catch (x) { toast(x.message || 'Ausschalten nicht möglich.', 'warn'); }
       return neu();
     }

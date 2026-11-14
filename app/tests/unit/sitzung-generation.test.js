@@ -144,3 +144,44 @@ test('15.12 G2-021: Inhaber der Gerätewahl übersteht das Aufräumen beim Abmel
     } finally { delete globalThis.sessionStorage; }
   });
 });
+
+test('15.12: Push nach der Anmeldung still wieder einschalten – nur dieselbe Person, eigenes Handy, Browser hat erlaubt', async () => {
+  const A = await modul('api.js');
+  const U = await modul('ui.js');
+  await mitUmgebung(async () => {
+    globalThis.sessionStorage = new Lager();
+    try {
+      // Person 1: eigenes Handy (in „Mehr“ gewählt) und Push eingeschaltet
+      A.setzGeraetArt('eigen', 1);
+      A.setzPushWunsch(1, true);
+      assert.equal(A.pushGewuenscht(1), true);
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), true, 'dieselbe Person, erlaubt, eigenes Handy');
+      // Erlaubnis des Browsers fehlt oder wurde verweigert → nichts (keine Rückfrage)
+      assert.equal(A.pushNachAnmeldung(1, 'default'), false);
+      assert.equal(A.pushNachAnmeldung(1, 'denied'), false);
+      assert.equal(A.pushNachAnmeldung(1, undefined), false);
+      // der Wunsch übersteht das Aufräumen beim Abmelden (R-08), enthält nur die ID
+      U.speicher.raeumeBenutzer();
+      assert.equal(localStorage.getItem(A.PUSH_WUNSCH), '[1]');
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), true);
+      // Benutzerwechsel: Person 2 bekommt den Wunsch von Person 1 nie – auch nicht auf „eigen“
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), false, 'nie der Wunsch einer anderen Person');
+      A.geraetArtBeiAnmeldung(2, 1); // Wechsel → „geteilt“, Inhaber 2
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), false, 'Wahl gehört jetzt Person 2 – auch Person 1 nicht ohne eigene Wahl');
+      // geteiltes Gerät: auch derselben Person nie automatisch (dort schaltet sie Push nach jeder Anmeldung selbst ein)
+      A.setzGeraetArt('geteilt', 1);
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), false);
+      // Person 2 schaltet selbst ein und wählt „eigen“ → nur für sie
+      A.setzGeraetArt('eigen', 2); A.setzPushWunsch(2, true);
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), true);
+      assert.deepEqual(JSON.parse(localStorage.getItem(A.PUSH_WUNSCH)), [1, 2]);
+      // bewusst ausgeschaltet → nicht wieder ein
+      A.setzPushWunsch(2, false);
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
+      // kaputter Speicher → sicher „nein“
+      localStorage.setItem(A.PUSH_WUNSCH, '{"x":1}');
+      assert.equal(A.pushGewuenscht(1), false);
+    } finally { delete globalThis.sessionStorage; }
+  });
+});

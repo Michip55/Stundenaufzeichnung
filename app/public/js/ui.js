@@ -174,8 +174,9 @@ export const speicher = {
   raeumeBenutzer() {
     // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
     // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
-    // 15.12 (G2-021): bt_geraet_art_benutzer = wer die Gerätewahl getroffen hat (sie gilt nur für diese Person)
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer'];
+    // 15.12 (G2-021): bt_geraet_art_benutzer = wer die Gerätewahl getroffen hat (sie gilt nur für diese Person);
+    // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
