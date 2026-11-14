@@ -107,7 +107,7 @@ module.exports = function planerRouten(api, bt) {
     for (let d = von; d <= bis; d = plusTage(d, 1)) {
       const { einsaetze: liste, vorschau } = tagEinsaetze(d, K, voll);
       const wetter = wetterKarte(liste, K);
-      const kt = P.konflikteTag(d, liste, fuhrenAlle.filter((f) => f.datum === d), K, { voll, wetter });
+      const kt = P.konflikteTag(d, liste, fuhrenAlle.filter((f) => f.datum === d), K, { voll, wetter, ausgelassen: vorschau ? [] : P.gemerkteAbwesende(db, d) }); // 15.10
       const sichtbarVeroeff = liste.filter((e) => e.veroeffentlicht_zeit && sicht(e.baustelle_id)).map((e) => e.veroeffentlicht_zeit).sort();
       tage.push({ datum: d, wochentag: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][wochentag(d)], ...(feiertag(d) ? { feiertag: feiertag(d) } : {}), vorschau: Boolean(vorschau), veroeffentlichtUm: sichtbarVeroeff.length ? sichtbarVeroeff[sichtbarVeroeff.length - 1] : null, ...(vorschau ? { quelleDatum: vorschau.quelleDatum, uebersprungen: vorschau.uebersprungen.filter((u) => !u.baustelleId || sicht(u.baustelleId)) } : {}) });
       const lese = new Map(db.alle('SELECT benutzer_id, gelesen, bestaetigt FROM plan_mitteilung WHERE datum = ?', d).map((x) => [x.benutzer_id, x]));
@@ -184,7 +184,7 @@ module.exports = function planerRouten(api, bt) {
     const K = kontext(e.datum, e.datum);
     const fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND status <> 'storniert'", e.datum);
     const alle = P.ladeEinsaetze(db, e.datum, e.datum);
-    const kt = P.konflikteTag(e.datum, alle, fuhren, K, { voll: zeigtAbwesenheit(req.ctx) });
+    const kt = P.konflikteTag(e.datum, alle, fuhren, K, { voll: zeigtAbwesenheit(req.ctx), ausgelassen: P.gemerkteAbwesende(db, e.datum) }); // 15.10
     const j = P.einsatzJson(e, K, { notizen: true });
     j.konflikte = P.konflikteFuer(e, kt, true);
     j.konflikteTag = istPlaner(req.ctx) ? kt : [];
@@ -444,6 +444,7 @@ module.exports = function planerRouten(api, bt) {
         // N-016 (12.8c): ein Vorschau-Tag wird zuerst GANZ gespeichert (alle Vorschau-Zellen), dann wird kopiert –
         // so verschwinden nicht gewählte Vorschau-Zellen nicht still, und vorhandene Zellen bleiben („vorhanden“)
         if (kopien.length) P.materialisieren(bt, ziel, req.ctx.benutzer.id);
+        const weg = [];
         for (const e of kopien) {
           const bs = K.baustellen.get(e.baustelle_id);
           if (!bs || !P.PLANBAR.includes(bs.phase)) { uebersprungen.push({ datum: ziel, typ: 'baustelle', text: `${bs ? bs.kst : '?'} nicht planbar` }); continue; }
@@ -457,7 +458,12 @@ module.exports = function planerRouten(api, bt) {
             const a = K.abw.get(`${p.benutzer_id}|${ziel}`);
             if (!b || !b.aktiv) { uebersprungen.push({ datum: ziel, typ: 'inaktiv', text: `${b ? b.name : '?'} inaktiv`, benutzerId: p.benutzer_id }); continue; }
             if (!['mitarbeiter', 'polier'].includes(b.rolle)) { uebersprungen.push({ datum: ziel, typ: 'rolle', text: `${b.name} wird nicht eingeplant`, benutzerId: p.benutzer_id }); continue; } // 12.25
-            if (a) { uebersprungen.push({ datum: ziel, typ: 'abwesenheit', text: `${b.name}: ${P.abwText(a, zeigtAbwesenheit(req.ctx))}`, benutzerId: p.benutzer_id }); continue; }
+            if (a) {
+              uebersprungen.push({ datum: ziel, typ: 'abwesenheit', text: `${b.name}: ${P.abwText(a, zeigtAbwesenheit(req.ctx))}`, benutzerId: p.benutzer_id });
+              // 15.10 (G2-029): wie beim Fortschreiben merken (plan_tag.uebersprungen) – Warnung für den Planer, Folgetage schlagen sie wieder vor
+              weg.push({ baustelleId: e.baustelle_id, benutzerId: p.benutzer_id, kolonnePolierId: p.kolonne_polier_id || null, fahrerAnlagen: e.anlagen.filter((x) => x.fahrer_id === p.benutzer_id).map((x) => x.anlage_id) });
+              continue;
+            }
             if (schonPers.has(p.benutzer_id)) { uebersprungen.push({ datum: ziel, typ: 'person_doppelt', text: `${b.name} ist schon eingeteilt`, benutzerId: p.benutzer_id }); continue; }
             db.lauf('INSERT INTO plan_person (einsatz_id, benutzer_id, kolonne_polier_id) VALUES (?, ?, ?)', r.id, p.benutzer_id, p.kolonne_polier_id);
           }
@@ -466,9 +472,14 @@ module.exports = function planerRouten(api, bt) {
             if (!st || st.gesperrt || st.ausgeschieden) { uebersprungen.push({ datum: ziel, typ: 'anlage_gesperrt', text: `${st ? st.bezeichnung : '?'} gesperrt`, anlageId: a.anlage_id }); continue; }
             if (schonAnl.has(a.anlage_id)) { uebersprungen.push({ datum: ziel, typ: 'anlage_doppelt', text: `${st.bezeichnung} schon eingeteilt`, anlageId: a.anlage_id }); continue; }
             const fahrerDa = a.fahrer_id && db.eins('SELECT 1 AS x FROM plan_person WHERE einsatz_id = ? AND benutzer_id = ?', r.id, a.fahrer_id);
+            if (a.fahrer_id && !fahrerDa) uebersprungen.push({ datum: ziel, typ: 'fahrer_fehlt', text: P.fahrerFehltText(st, K.personen.get(a.fahrer_id)), anlageId: a.anlage_id, benutzerId: a.fahrer_id }); // 15.10
             db.lauf('INSERT INTO plan_anlage (einsatz_id, anlage_id, fahrer_id) VALUES (?, ?, ?)', r.id, a.anlage_id, fahrerDa ? a.fahrer_id : null);
           }
           angelegt.push(r.id);
+        }
+        if (weg.length) { // ergänzend zu schon gemerkten (z. B. aus dem Fortschreiben desselben Tages)
+          const alt = P.gemerkteAbwesende(db, ziel);
+          db.lauf('UPDATE plan_tag SET uebersprungen = ? WHERE datum = ?', JSON.stringify([...alt, ...weg.filter((w) => !alt.some((x) => x.benutzerId === w.benutzerId && x.baustelleId === w.baustelleId))]), ziel);
         }
       }
       prot(req, `plan:${von}`, `Vorwoche in die Woche ab ${P.de(von)} übernommen (${angelegt.length} Einsätze)`, { uebersprungen: uebersprungen.length });
@@ -539,33 +550,30 @@ module.exports = function planerRouten(api, bt) {
   });
 
   /**
-   * 15.7 (F-055/F-057): Sicht des Poliers (ohne Recht stammdaten) auf einen veröffentlichten Stand – EINE Regel für
-   * /plan/partie (JSON, #/partie) und das Polier-PDF (druckTag):
+   * 15.7 (F-057) / 15.10 (G2): Sicht des Poliers (ohne Recht stammdaten) auf einen veröffentlichten Stand – EINE Regel für
+   * /plan/partie (JSON, #/partie), das Polier-Tages- und -Wochenplan-PDF (druckTag) und die Kolonne (plan=1):
+   *  - Personen: GENAU der veröffentlichte Plan (wer eingeteilt ist, welche Geräte, welcher Fahrer). Nicht eingeteilt sein ist
+   *    eine Planungstatsache ohne Grund – wegen Abwesenheit beim Fortschreiben ausgelassene Personen erscheinen nicht.
+   *  - Reihenfolge stabil nach Name (dann ID), Kolonnen nach Name, ohne Zählung: keine Einfüge-Reihenfolge, die verriete, wer
+   *    ausgelassen bzw. am Folgetag wieder vorgeschlagen wurde. Ohne `version` (Bearbeitungszähler).
    *  - Notizen: Baustellen- und Geräte-Notiz nur auf eigenen Baustellen (Bereich), Personen-Notiz nur eigene, Partie, Kolonne.
-   *  - Fortgeschriebene Tage (12.8c): wegen Abwesenheit still ausgelassene Personen (plan_tag.uebersprungen) bleiben in der
-   *    Liste (wie am Quelltag, auch als Fahrer ihres Geräts), sofern sie an dem Tag nicht anders eingeteilt sind. Liste, Anzahl
-   *    und Kolonnen hängen so nie von fremden Abwesenheiten ab. Wer stammdaten hat (Planer), sieht den echten Stand.
+   * Kein Zugriff auf Abwesenheiten oder plan_tag.uebersprungen: Zustand und Laufzeit sind für „ausgelassen wegen Abwesenheit“
+   * und „vom Büro entfernt“ gleich. Wer stammdaten hat (Planer), sieht den echten Stand samt Warnungen (12.8c, 15.10).
    */
-  function polierStand(ich, K, st, { partie, eingeteilt, gemerkt }) {
+  const nachName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'de') || a.benutzerId - b.benutzerId;
+  function polierStand(ich, K, st, { partie }) {
     const eigen = baustelleImBereich(ich, K.baustellen.get(st.baustelleId));
-    const dazu = gemerkt.filter((g) => g.baustelleId === st.baustelleId && g.benutzerId !== ich.id && !eingeteilt.has(g.benutzerId) && !st.personen.some((p) => p.benutzerId === g.benutzerId))
-      .filter((g, i, l) => l.findIndex((x) => x.benutzerId === g.benutzerId) === i)
-      .map((g) => { const b = K.personen.get(g.benutzerId) || { name: '?', rolle: null }; return { benutzerId: g.benutzerId, name: b.name, rolle: b.rolle, ...(g.kolonnePolierId ? { kolonnePolierId: g.kolonnePolierId } : {}), notiz: '', fahrerAnlagen: g.fahrerAnlagen || [] }; });
-    const personen = [...st.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })), ...dazu.map(({ fahrerAnlagen, ...p }) => p)];
-    const kol = new Map();
-    for (const p of personen) if (p.kolonnePolierId) kol.set(p.kolonnePolierId, (kol.get(p.kolonnePolierId) || 0) + 1);
+    const personen = st.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })).sort(nachName);
+    const kol = new Set(personen.filter((p) => p.kolonnePolierId).map((p) => p.kolonnePolierId));
+    const ohneVersion = { ...st };
+    delete ohneVersion.version;
     return {
-      ...st, notiz: eigen ? st.notiz : '',
+      ...ohneVersion, notiz: eigen ? st.notiz : '',
       personen,
-      anlagen: st.anlagen.map((a) => {
-        const z = !a.fahrer ? dazu.find((p) => p.fahrerAnlagen.includes(a.anlageId)) : null;
-        return { ...a, notiz: eigen ? a.notiz : '', ...(z ? { fahrer: { benutzerId: z.benutzerId, name: z.name } } : {}) };
-      }),
-      kolonnen: [...kol].map(([polierId, anzahl]) => ({ polierId, name: (K.personen.get(polierId) || {}).name || '?', anzahl }))
+      anlagen: st.anlagen.map((a) => ({ ...a, notiz: eigen ? a.notiz : '' })),
+      kolonnen: [...kol].map((polierId) => ({ polierId, name: (K.personen.get(polierId) || {}).name || '?' })).sort((a, b) => nachName({ ...a, benutzerId: a.polierId }, { ...b, benutzerId: b.polierId }))
     };
   }
-  /** Für polierStand: am Tag eingeteilte Personen (alle veröffentlichten Stände) und gemerkte Abwesende */
-  const polierTagDaten = (staende, d) => ({ eingeteilt: new Set(staende.flatMap((x) => x.personen.map((p) => p.benutzerId))), gemerkt: P.gemerkteAbwesende(db, d) });
 
   /* ---------- Meine Partie (Polier) ---------- */
   api.get('/plan/partie', (req, res) => {
@@ -586,10 +594,10 @@ module.exports = function planerRouten(api, bt) {
     const S = K.S;
     const alleStaende = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => JSON.parse(e.veroeffentlicht_stand));
     const planer = istPlaner(req.ctx);
-    const td = planer ? null : { partie: partieVon(ich, K), ...polierTagDaten(alleStaende, d) };
+    const td = planer ? null : { partie: partieVon(ich, K) };
     const einsaetze = alleStaende
       .filter((st) => st.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(st.baustelleId)))
-      .map((st0) => (planer ? st0 : polierStand(ich, K, st0, td))) // 15.7 (F-055/F-057): dieselbe Regel wie das Polier-PDF
+      .map((st0) => (planer ? st0 : polierStand(ich, K, st0, td))) // 15.7 (F-057), 15.10: dieselbe Regel wie das Polier-PDF
       .map((st) => ({
         ...st,
         personen: st.personen.map((p) => { const l = lese.get(p.benutzerId); const tel = (db.eins('SELECT telefon FROM benutzer WHERE id = ?', p.benutzerId) || {}).telefon; return { ...p, gelesen: Boolean(l && l.gelesen), bestaetigt: Boolean(l && l.bestaetigt), ...(tel ? { telefon: tel } : {}) }; }),
@@ -1079,8 +1087,8 @@ module.exports = function planerRouten(api, bt) {
       partie = partieVon(ich, K);
       const st = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => ({ e, st: JSON.parse(e.veroeffentlicht_stand) }));
       eingeteilt = new Set(st.flatMap(({ st: x }) => x.personen.map((p) => p.benutzerId)));
-      const td = { partie, ...polierTagDaten(st.map((x) => x.st), d) };
-      // 15.7 (F-055/F-057): dieselbe Polier-Sicht wie /plan/partie (polierStand)
+      const td = { partie };
+      // 15.7 (F-057), 15.10: dieselbe Polier-Sicht wie /plan/partie (polierStand) – nur tatsächlich eingeteilte Personen, nach Name
       einsaetze = st.filter(({ st: x }) => x.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(x.baustelleId)))
         .map(({ e, st: x }) => ({ ...polierStand(ich, K, x, td), veroeffentlichtUm: e.veroeffentlicht_zeit }));
       fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL AND status <> 'storniert'", d).map((f) => JSON.parse(f.veroeffentlicht_stand))
@@ -1185,6 +1193,11 @@ module.exports.geplantHeute = (db, benutzerId, heute) => {
   if (!i.einsatz) return null;
   return { baustelleId: i.einsatz.baustelle.id, kst: i.einsatz.baustelle.kst, name: i.einsatz.baustelle.name, beginn: i.einsatz.beginn, treffpunkt: i.einsatz.treffpunkt };
 };
-/** Heute veröffentlichte eingeplante Personen einer Baustelle */
-module.exports.geplantAufBaustelle = (db, baustelleId, heute) => db.alle('SELECT benutzer_id, inhalt FROM plan_mitteilung WHERE datum = ? AND inhalt IS NOT NULL', heute)
-  .filter((z) => { const i = JSON.parse(z.inhalt); return i.einsatz && i.einsatz.baustelle.id === baustelleId; }).map((z) => z.benutzer_id);
+/**
+ * Heute veröffentlicht eingeplante Personen einer Baustelle (Kolonne `plan=1` und „eingeplant“ beim Stempeln, 12.8/15.2).
+ * 15.10 (G2-026): dieselbe Quelle wie die Polier-Sicht (/plan/partie, polierStand) – die veröffentlichten Stände des Tages –,
+ * nicht plan_mitteilung. So markiert `geplant` genau die Personen, die der Polier in „Meine Partie“ sieht, unabhängig von
+ * Abwesenheiten und davon, ob jemand beim Fortschreiben ausgelassen oder vom Büro entfernt wurde. Sortiert nach ID.
+ */
+module.exports.geplantAufBaustelle = (db, baustelleId, heute) => [...new Set(db.alle('SELECT veroeffentlicht_stand FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', heute)
+  .map((e) => JSON.parse(e.veroeffentlicht_stand)).filter((st) => st.baustelleId === baustelleId).flatMap((st) => st.personen.map((p) => p.benutzerId)))].sort((a, b) => a - b);

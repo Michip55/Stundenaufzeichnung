@@ -81,6 +81,11 @@ function gemerkteAbwesende(db, datum) {
   try { const l = JSON.parse(z.uebersprungen); return Array.isArray(l) ? l : []; } catch (_) { return []; }
 }
 
+/** 15.10: Warnung „Gerät ohne Fahrer“ für den Planer (stammdaten) – nie in einer Polier-/Mitarbeiter-Sicht */
+function fahrerFehltText(st, fahrer) {
+  return `${st.bezeichnung}${st.kennzeichen ? ` (${st.kennzeichen})` : ''}: ohne Fahrer – ${fahrer ? fahrer.name : 'Fahrer'} ist nicht eingeteilt`;
+}
+
 /**
  * Vorschau-Tag (12.8c) oder null. Liefert Roh-Einsätze ohne id mit uebersprungen/vortagNotizen.
  */
@@ -131,6 +136,9 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
       if (!st || st.gesperrt || st.ausgeschieden) { uebersprungen.push({ typ: 'anlage_gesperrt', text: `${st ? st.bezeichnung : '?'}: ${st && st.ausgeschieden ? 'ausgeschieden' : 'gesperrt'}`, anlageId: a.anlage_id }); continue; }
       let fahrer = a.fahrer_id && da.has(a.fahrer_id) ? a.fahrer_id : null;
       if (!fahrer) { const z = zusatz.find((x) => da.has(x.benutzer_id) && x.fahrerAnlagen.includes(a.anlage_id)); if (z) fahrer = z.benutzer_id; }
+      // 15.10 (G2): Fahrer ausgelassen (Abwesenheit, inaktiv …) → Gerät ohne Fahrer – Warnung nur für den Planer (stammdaten)
+      const soll = a.fahrer_id || (zusatz.find((x) => x.fahrerAnlagen.includes(a.anlage_id)) || {}).benutzer_id;
+      if (soll && !fahrer) uebersprungen.push({ typ: 'fahrer_fehlt', text: fahrerFehltText(st, K.personen.get(soll)), anlageId: a.anlage_id, benutzerId: soll });
       anlagen.push({ anlage_id: a.anlage_id, notiz: null, fahrer_id: fahrer });
     }
     einsaetze.push({
@@ -216,7 +224,7 @@ function inhaltsHash(e) {
 }
 
 /** Konflikte eines Tages über alle Einsätze (und Fuhren) */
-function konflikteTag(datum, einsaetze, fuhren, K, { voll = false, wetter = new Map() } = {}) {
+function konflikteTag(datum, einsaetze, fuhren, K, { voll = false, wetter = new Map(), ausgelassen = [] } = {}) {
   const out = [];
   const jePerson = new Map(), jeAnlage = new Map();
   for (const e of einsaetze) {
@@ -252,6 +260,24 @@ function konflikteTag(datum, einsaetze, fuhren, K, { voll = false, wetter = new 
     }
   }
   for (const [aid, fids] of fuhrAnlagen) anlageKonflikt(aid, [], fids);
+  // 15.10 (G2): beim Übernehmen (Fortschreiben, „Tag übernehmen“, „Vorwoche übernehmen“) wegen Abwesenheit ausgelassene
+  // Personen (plan_tag.uebersprungen) – Warnung für den Planer (stammdaten), solange die Person an dem Tag abwesend und nirgends
+  // eingeteilt ist; dazu „Gerät ohne Fahrer“, solange ihr Gerät in der Zelle keinen Fahrer hat. Die Polier-Sicht kennt das nie.
+  const gemeldet = new Set();
+  for (const g of ausgelassen || []) {
+    if (!g || !g.benutzerId || jePerson.has(g.benutzerId) || gemeldet.has(g.benutzerId)) continue;
+    const a = K.abw.get(`${g.benutzerId}|${datum}`);
+    const e = einsaetze.find((x) => x.id != null && x.baustelle_id === g.baustelleId);
+    if (!a || !e) continue;
+    gemeldet.add(g.benutzerId);
+    const b = K.personen.get(g.benutzerId) || { name: '?' };
+    out.push({ datum, typ: 'ausgelassen', text: `${b.name}: ${abwText(a, voll)} – beim Übernehmen in ${bsName(e)} ausgelassen, Ersatz einteilen.`, einsatzIds: [e.id], ausgelassenId: g.benutzerId });
+    for (const aid of g.fahrerAnlagen || []) {
+      const x = e.anlagen.find((y) => y.anlage_id === aid);
+      const st = x && !x.fahrer_id ? anlageStatus(K, aid) : null;
+      if (st) out.push({ datum, typ: 'fahrer_fehlt', text: `${fahrerFehltText(st, b)} (${bsName(e)}).`, einsatzIds: [e.id], anlageId: aid });
+    }
+  }
   for (const e of einsaetze) {
     const w = wetter.get(`${e.baustelle_id}|${datum}`);
     if (w && w.vorschlag) out.push({ datum, typ: 'wetter', text: `${bsName(e)}: ${w.gruende[0] || 'Schlechtwetter möglich'} – Schlechtwetter prüfen.`, einsatzIds: ids([e]), baustelleId: e.baustelle_id }); // N-043: auch Vorschau-Zellen (ohne id)
@@ -581,7 +607,7 @@ function naechsterEinsatztag(heute, hat) {
 }
 
 module.exports = {
-  PLANBAR, CODE_TEXT, hash, gemerkteAbwesende, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
+  PLANBAR, CODE_TEXT, hash, gemerkteAbwesende, fahrerFehltText, de, deKurz, naechsterArbeitstag, vorigerArbeitstag, einstellungen, kontextDaten, anlageStatus, abwText,
   ladeEinsaetze, ladeEinsatz, vorschauTag, materialisieren, einsatzJson, inhaltsHash, konflikteTag, konflikteFuer, personInhalt, kurzText,
   veroeffentlichen, staendeJson, pruefeErinnerung, feiertag, tagLabel, partieHash, quelleTag, konflikteBetreffen, offeneFuhren, naechsterEinsatztag, personHash
 };
