@@ -564,6 +564,7 @@ export async function einsatz(el, ctx) {
       <span class="me-wann">${wannGross}${esc(fmt.WT[fmt.dt(t.datum).getDay()])} ${esc(tagKurz(t.datum).slice(3))}${t.geaendert ? ' · geändert' : ''}${t.wieVortag ? ' <i class="me-wie" data-wie-vortag>wie heute</i>' : ''}</span>
       <div class="me-haupt"><b class="me-zeit">${e.beginn ? esc(e.beginn) + ' Uhr' : 'Beginn wie üblich'}</b><b class="me-bs">${esc(b.name || 'Baustelle')}</b><span>${esc(b.adresse || '')}</span></div>
       <div class="me-felder">${feld('Treffpunkt', e.treffpunkt)}${feld('Polier', e.polier && e.polier.name)}${feld('Fahrzeug', fz)}${feld('Arbeit', e.arbeit)}</div>
+      ${(e.kollegen || []).length ? `<p class="me-notiz me-kollegen" id="me-kollegen"><b>Mit dir eingeteilt:</b> ${e.kollegen.map((k) => esc(k.name)).join(', ')}</p>` : ''}
       ${e.meineNotiz ? `<p class="me-meine" id="me-meine-notiz"><small>Notiz für mich</small>${esc(e.meineNotiz)}</p>` : ''}
       ${e.benoetigt ? `<p class="me-notiz" id="me-benoetigt"><b>Benötigt / Mitnehmen:</b> ${esc(e.benoetigt)}</p>` : ''}
       ${e.meinFahrzeug ? `<p class="me-notiz" id="me-fahrzeug"><b>Mein Fahrzeug:</b> ${esc(e.meinFahrzeug.bezeichnung || '')}${e.meinFahrzeug.kennzeichen ? ' (' + esc(e.meinFahrzeug.kennzeichen) + ')' : ''}${e.meinFahrzeug.notiz ? `<span class="me-zeile-notiz">${esc(e.meinFahrzeug.notiz)}</span>` : ''}</p>` : ''}

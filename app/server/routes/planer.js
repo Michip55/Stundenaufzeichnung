@@ -531,6 +531,8 @@ module.exports = function planerRouten(api, bt) {
         if (t && t.telefon) inhalt.einsatz.polier.telefon = t.telefon; // 12.8d
       }
       const fuhren = inhalt ? inhalt.fuhren.map((fx) => { const r = db.eins('SELECT status FROM plan_fuhre WHERE id = ?', fx.id); return { ...fx, status: r ? r.status : 'storniert' }; }) : [];
+      // 15.14: Kollegen im eigenen veröffentlichten Einsatz – aus denselben veröffentlichten Ständen wie die Polier-Sicht (15.10)
+      if (inhalt && inhalt.einsatz) inhalt.einsatz.kollegen = kollegenImStand(veroeffentlichteStaende(d), ich, inhalt.einsatz.einsatzId);
       // N-083: geaendert = die zuletzt gesendete Meldung für diesen Tag war eine Änderung („Geändert: …“)
       tage.push({ datum: d, wochentag: W[wochentag(d)], einsatz: inhalt ? inhalt.einsatz : null, fuhren, gelesen: Boolean(z && z.gelesen), bestaetigt: Boolean(z && z.bestaetigt), geaendert: Boolean(inhalt && z.art === 'geaendert'), wieVortag });
       if (z && z.inhalt && !z.gelesen) db.lauf('UPDATE plan_mitteilung SET gelesen = ? WHERE benutzer_id = ? AND datum = ?', jetzt(), ich, d);
@@ -561,6 +563,19 @@ module.exports = function planerRouten(api, bt) {
    * und „vom Büro entfernt“ gleich. Wer stammdaten hat (Planer), sieht den echten Stand samt Warnungen (12.8c, 15.10).
    */
   const nachName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'de') || a.benutzerId - b.benutzerId;
+  /** 15.10/15.14: die veröffentlichten Stände eines Tages – EINE Quelle für die Polier-Sicht und „Mein Einsatz“ (`kollegen`) */
+  const veroeffentlichteStaende = (d) => db.alle('SELECT veroeffentlicht_stand FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => JSON.parse(e.veroeffentlicht_stand));
+  /**
+   * 15.14 (Inhaber 14.11.2026): die anderen Personen des eigenen veröffentlichten Einsatzes (gleiche Baustelle, gleicher Tag) –
+   * nur `{name}`, nach Name sortiert; ohne IDs, Notizen, Telefon, Lesestand, Rolle. Genau der veröffentlichte Plan wie in
+   * polierStand: kein Zugriff auf Abwesenheiten oder plan_tag.uebersprungen, daher gleich für „wegen Abwesenheit ausgelassen“
+   * und „vom Büro entfernt“. Gäste aus anderen Partien und Fahrer stehen im Stand wie alle anderen.
+   */
+  function kollegenImStand(staende, ich, einsatzId) {
+    const hatMich = (x) => x.personen.some((p) => p.benutzerId === ich);
+    const st = staende.find((x) => x.id === einsatzId && hatMich(x)) || staende.find(hatMich); // der in „Mein Einsatz“ gezeigte
+    return st ? st.personen.filter((p) => p.benutzerId !== ich).sort(nachName).map((p) => ({ name: p.name })) : [];
+  }
   function polierStand(ich, K, st, { partie }) {
     const eigen = baustelleImBereich(ich, K.baustellen.get(st.baustelleId));
     const personen = st.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })).sort(nachName);
@@ -592,7 +607,7 @@ module.exports = function planerRouten(api, bt) {
     const K = kontext(d, d);
     const lese = new Map(db.alle('SELECT benutzer_id, gelesen, bestaetigt FROM plan_mitteilung WHERE datum = ?', d).map((x) => [x.benutzer_id, x]));
     const S = K.S;
-    const alleStaende = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => JSON.parse(e.veroeffentlicht_stand));
+    const alleStaende = veroeffentlichteStaende(d);
     const planer = istPlaner(req.ctx);
     const td = planer ? null : { partie: partieVon(ich, K) };
     const einsaetze = alleStaende

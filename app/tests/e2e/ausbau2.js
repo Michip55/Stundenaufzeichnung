@@ -616,6 +616,15 @@ async function planer(h, z) {
   pruef(/06:30/.test(et) && /Bauhof/.test(et) && /Pflaster verlegen/.test(et), `A2-Plan: Karte „Morgen“ unvollständig (${et.replace(/\s+/g, ' ').slice(0, 120)})`);
   pruef(/Fahrerkarte/.test(await page.locator('#me-meine-notiz').innerText()) && /Rüttelplatte/.test(await page.locator('#me-benoetigt').innerText()) && /Vorher tanken/.test(await page.locator('#me-fahrzeug').innerText()), 'A2-Plan: Meine Notiz, Benötigt oder Mein Fahrzeug fehlen');
   pruef(!(await h.text()).includes(`NUR-FUER-P2-${k}`), 'A2-Plan: Mitarbeiter sieht die Notiz einer anderen Person');
+  // 15.14: „Mit dir eingeteilt“ – die Kollegen des veröffentlichten Einsatzes (nur Namen, nach Name, ohne mich), bricht am Handy um
+  const meinPlan = (await api('GET', `/plan/ich?von=${morgen}&bis=${morgen}`)).json.tage.find((t) => t.datum === morgen).einsatz;
+  const kolNamen = (meinPlan.kollegen || []).map((x) => x.name);
+  const ichName = (await api('GET', '/auth/ich')).json.benutzer.name;
+  pruef(kolNamen.includes(P2.name) && !kolNamen.includes(ichName) && (meinPlan.kollegen || []).every((x) => Object.keys(x).join() === 'name')
+    && kolNamen.join('|') === [...kolNamen].sort((a, b) => a.localeCompare(b, 'de')).join('|'), `A2-Plan: kollegen in /plan/ich falsch (${JSON.stringify(meinPlan.kollegen)})`);
+  const kolText = (await page.locator('#me-kollegen').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+  pruef(kolText === `Mit dir eingeteilt: ${kolNamen.join(', ')}`, `A2-Plan: „Mit dir eingeteilt“ fehlt oder falsch („${kolText}“)`);
+  pruef(await page.locator('#me-kollegen').evaluate((x) => x.scrollWidth <= x.clientWidth + 1), 'A2-Plan: „Mit dir eingeteilt“ läuft über');
   pruef(await page.locator('#me-route').count() === 1 && /^https:\/\/www\.google\.com\/maps\/dir\//.test(await page.locator('#me-route').getAttribute('href')), 'A2-Plan: „Route öffnen“ fehlt');
   pruef(await page.locator('#wp-druck, #partie-druck').count() === 0 && (await h.absichtlich(() => api('GET', `/plan/tag.pdf?datum=${morgen}`))).status === 403, 'A2-Druck: Mitarbeiter hat einen Druck-Knopf oder Zugriff auf das PDF');
   await keinEuro('mein einsatz'); await ueberlauf('mein einsatz'); await shot('mein-einsatz');

@@ -125,6 +125,15 @@ for (const weg of ['fortschreiben', 'tag', 'vorwoche']) {
     assert.match(post[9].fehler || '', /^Bereits eingestempelt/);
     for (const id of [10, 16]) assert.match(post[id].fehler, /gehört nicht zu Ihrer Partie \(als Gast stempeln: gast:true\)\.$/);
     assert.equal(a['ich 3'].tage.find((x) => x.datum === MO).einsatz, null);
+    // 15.14: „Mein Einsatz“ nennt die Kollegen – genau die Eingeteilten der Polier-Sicht ohne mich, nur Namen, nach Name.
+    // Mitarbeiter 2 und Gast/Kolonnen-Mitglied 9: am übernommenen Tag mit abwesendem X identisch mit „vom Büro entfernt“
+    for (const id of [2, 9]) {
+      const kol = a[`ich ${id}`].tage.find((x) => x.datum === MO).einsatz.kollegen;
+      assert.deepEqual(kol, b[`ich ${id}`].tage.find((x) => x.datum === MO).einsatz.kollegen, `${weg}: kollegen von ${id} unterscheiden sich`);
+      assert.deepEqual(kol, pit.personen.filter((p) => p.benutzerId !== id).map((p) => ({ name: p.name })), `${weg}: kollegen von ${id} = Polier-Sicht ohne ${id}`);
+      assert.ok(kol.every((k) => Object.keys(k).join() === 'name'), 'nur Namen');
+      for (const n of ['Daniel Schwarz', 'Günter Scherz', 'Patrick Hofer']) assert.ok(!JSON.stringify(a[`ich ${id}`].tage.find((x) => x.datum === MO)).includes(n), `„Mein Einsatz“ von ${id} nennt am Mo ${n}`);
+    }
 
     // Planer: Ausgelassene mit Grund und „Gerät ohne Fahrer“ als Warnung (nur auf dem System-Weg A)
     const wA = (await A.buero.get(`/plan/woche?von=${MO}`)).daten.konflikte.filter((k) => k.datum === MO);
@@ -172,4 +181,51 @@ test('15.10 (G2-002/G2-028): Folgetag mit wieder vorgeschlagener Person – Poli
   // Wochenplan-PDF: Spalten nach Name (Mo ohne, Di mit Daniel Schwarz)
   const w = pdfText((await pol.get(`/plan/woche.pdf?von=${MO}`)).daten);
   assert.ok(w.includes('Daniel Schwarz'));
+});
+
+/* ---------------- 15.14 Kollegen in „Mein Einsatz“ (Inhaber-Entscheidung 14.11.2026) ---------------- */
+
+test('15.14: kollegen nur aus veröffentlichten Einsätzen – nur Namen, nach Name, mit Gast und Fahrer, ohne mich', async (t) => {
+  const s = await starte({ test: true, sitzung: LANG });
+  t.after(() => s.stop());
+  const buero = await s.login(U.buero);
+  assert.equal((await buero.put('/einstellungen/plan', { planFortschreiben: false })).status, 200); // nur von Hand geplante Tage
+  const name = (id) => s.db.eins('SELECT name FROM benutzer WHERE id = ?', id).name;
+  const erwartet = (ids) => ids.map((id) => ({ name: name(id) })).sort((x, y) => x.name.localeCompare(y.name, 'de'));
+  const ich = async (id) => (await (await s.login(id)).get(`/plan/ich?von=${FR}&bis=${DI}`)).daten;
+  const tag = (d, x) => x.tage.find((y) => y.datum === d);
+  // Fr: Pitten mit Polier 1, Mitarbeiter 2, Fahrer 3 (LKW 4), 4 und Gast 16 aus der Partie Breitenau
+  const e = await buero.post('/plan/einsaetze', { datum: FR, baustelleId: BS.pitten, beginn: '06:30', benutzerIds: [U.polier, 2, 3, 4, 16], anlageIds: [4], fahrer: { 4: 3 }, notizen: { 4: 'NOTIZ-VIER' } });
+  assert.equal(e.status, 201, JSON.stringify(e.daten));
+  const eid = e.daten.id || (e.daten.einsatz && e.daten.einsatz.id) || s.db.eins('SELECT id FROM plan_einsatz WHERE datum = ? AND baustelle_id = ? AND geloescht = 0', FR, BS.pitten).id;
+  // noch nicht veröffentlicht: kein Einsatz, keine Kollegen
+  assert.equal(tag(FR, await ich(2)).einsatz, null);
+  assert.ok(!JSON.stringify(await ich(2)).includes('kollegen'));
+  assert.equal((await buero.post('/plan/veroeffentlichen', { von: FR })).status, 200);
+  const ma = tag(FR, await ich(2)).einsatz;
+  assert.deepEqual(ma.kollegen, erwartet([U.polier, 3, 4, 16]), 'Mitarbeiter: alle anderen des Einsatzes, Gast wie jeder andere');
+  assert.ok(ma.kollegen.every((k) => Object.keys(k).join() === 'name'), 'nur {name} – keine ID, Notiz, Telefon, Lesestand, Rolle');
+  assert.ok(!JSON.stringify(ma.kollegen).includes('NOTIZ-VIER'));
+  assert.deepEqual(tag(FR, await ich(3)).einsatz.kollegen, erwartet([U.polier, 2, 4, 16]), 'Fahrer (LKW 4) bekommt dieselbe Liste');
+  assert.deepEqual(tag(FR, await ich(16)).einsatz.kollegen, erwartet([U.polier, 2, 3, 4]), 'Gast aus anderer Partie');
+  // Änderungen des Büros ohne Veröffentlichung ändern nichts: 5 dazu, 4 entfernt
+  assert.equal((await buero.post(`/plan/einsaetze/${eid}/personen`, { benutzerIds: [5] })).status, 200);
+  assert.equal((await buero.del(`/plan/einsaetze/${eid}/personen/4`)).status, 200);
+  assert.deepEqual(tag(FR, await ich(2)).einsatz.kollegen, erwartet([U.polier, 3, 4, 16]), 'unveröffentlichte Änderung sichtbar');
+  // ein nicht veröffentlichter Einsatz (Di) erzeugt keine Kollegen
+  assert.equal((await buero.post('/plan/einsaetze', { datum: DI, baustelleId: BS.kogler, beginn: '07:00', benutzerIds: [2, 6] })).status, 201);
+  const di = await ich(2);
+  assert.equal(tag(DI, di).einsatz, null);
+  assert.ok(!JSON.stringify(di).includes(name(6)), 'Kollege aus unveröffentlichtem Einsatz');
+  // nach dem Veröffentlichen: neuer Stand
+  assert.equal((await buero.post('/plan/veroeffentlichen', { von: FR })).status, 200);
+  assert.deepEqual(tag(FR, await ich(2)).einsatz.kollegen, erwartet([U.polier, 3, 5, 16]));
+  assert.equal(tag(FR, await ich(4)).einsatz, null, 'entfernte Person hat keinen Einsatz mehr');
+  assert.equal((await buero.post('/plan/veroeffentlichen', { von: DI })).status, 200);
+  assert.deepEqual(tag(DI, await ich(2)).einsatz.kollegen, erwartet([6]));
+  // allein eingeteilt: leere Liste
+  assert.equal((await buero.post('/plan/einsaetze', { datum: MO, baustelleId: BS.reisinger, beginn: '07:00', benutzerIds: [2] })).status, 201);
+  assert.equal((await buero.post('/plan/veroeffentlichen', { von: MO })).status, 200);
+  const mo = (await (await s.login(2)).get(`/plan/ich?von=${MO}&bis=${MO}`)).daten;
+  assert.deepEqual(tag(MO, mo).einsatz.kollegen, []);
 });
