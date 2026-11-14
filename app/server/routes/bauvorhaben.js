@@ -73,7 +73,7 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
 
   api.put('/baustellen/:id/abschluss', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!BV.istPlaner(req.ctx)) throw keinZugriff('Gewährleistung und Haftrücklass pflegen Büro bzw. GF.');
+    if (!BV.istPlaner(req.ctx)) throw keinZugriff('Gewährleistung und Haftrücklass pflegt, wer das Recht stammdaten hat.');
     const body = v.objekt(req.body);
     version(body, bs);
     const set = {};
@@ -103,12 +103,9 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   });
 
   api.get('/baustellen-kennzahlen', (req, res) => {
-    const ich = req.ctx.benutzer;
-    let liste = db.alle('SELECT * FROM baustelle WHERE intern = 0');
-    if (!BV.istPlaner(req.ctx)) {
-      if (ich.rolle !== 'bauleiter') throw keinZugriff();
-      liste = liste.filter((b) => b.bauleiter_id === ich.id);
-    }
+    // 15.4 (F-019/F-021): allein das Recht stammdaten – kein Teilumfang „eigene Baustellen“ über bauleiterId
+    if (!BV.istPlaner(req.ctx)) throw keinZugriff('Kennzahlen der Bauvorhaben sieht, wer das Recht stammdaten hat.');
+    const liste = db.alle('SELECT * FROM baustelle WHERE intern = 0');
     const phasen = Object.fromEntries(BV.PHASEN.map((p) => [p, 0]));
     for (const b of liste) phasen[b.phase]++;
     const heute = require('../datum').wienDatum(bt.uhr());

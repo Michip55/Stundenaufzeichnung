@@ -1,7 +1,7 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
 import { get, post } from './api.js';
-import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, wieBuero, dialog, speicher, toast, $, $$ } from './ui.js';
+import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden } from './offline.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
@@ -54,11 +54,12 @@ let schadenWartet = 0;     // eigene Schadensmeldungen, die noch auf Verbindung 
 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
-// C-14: Das Büro pflegt Benutzer (Mitarbeiter, Polier, Bauleiter) – laut API eine Regel der Rolle, kein eigenes Recht
-const darfBenutzerPflegen = () => !!ich && ['buero', 'bauleiter'].includes(ich.benutzer.rolle);
+// C-14/15.4: Benutzer (Mitarbeiter, Polier, Bauleiter) pflegt, wer das Recht stammdaten hat – wie der Server, nie nach Rollenname
+const darfBenutzerPflegen = () => kann('stammdaten');
 const rolle = (...r) => () => !!ich && r.includes(ich.benutzer.rolle);
-// Baustellenplaner: Büro/GF (bzw. Recht „stammdaten“) und Bauleiter planen; Polier sieht seine Partie, alle Eingeteilten „Mein Einsatz“
-const darfPlanen = () => !!ich && (wieBuero(ich.benutzer.rolle) || kann('stammdaten'));
+// Baustellenplaner (15.4): planen allein mit dem Recht „stammdaten“ (Büro = Bauleiter = GF laut Matrix); Polier sieht seine Partie,
+// alle Eingeteilten „Mein Einsatz“
+const darfPlanen = () => kann('stammdaten');
 const siehtBaustellen = () => eines('stammdaten', 'kalk_sehen', 'bericht_freigeben')() || rolle('polier')();
 
 const NAV = [
@@ -105,7 +106,7 @@ const ROUTEN = [
   { muster: /^\/baustellen\/archiv$/, nav: 'baustellen', titel: 'Abgeschlossene Bauvorhaben', view: archiv, darf: siehtBaustellen },
   { muster: /^\/baustelle\/(\d+)$/, nav: 'baustellen', titel: 'Baustelle', view: baustelle, darf: siehtBaustellen },
   { muster: /^\/plan$/, nav: 'plan', titel: 'Baustellenplaner', view: plan, darf: darfPlanen },
-  { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier', 'bauleiter') },
+  { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier') }, // eingeplant werden nur sie (12.25); Bauleiter wie Büro
   { muster: /^\/partie$/, nav: 'partie', titel: 'Meine Partie', view: partie, darf: rolle('polier') },
   { muster: /^\/offene-posten$/, nav: 'offeneposten', titel: 'Offene Posten', view: offenePosten, darf: eines('preise_sehen') },
   { muster: /^\/preise$/, nav: 'preise', titel: 'Stammdaten & Preise', view: preise, darf: eines('preise_sehen', 'stammdaten') },
@@ -214,7 +215,7 @@ async function holeMeldungen() {
   holeSchadenZahl();
 }
 /* ---------- Schäden: Zahl am Menüpunkt, Nachsenden wartender Meldungen ---------- */
-const bearbeitetSchaeden = () => !!ich && (kann('fuhrpark') || wieBuero(ich.benutzer.rolle));
+const bearbeitetSchaeden = () => kann('fuhrpark'); // 15.4: wie der Server (Schäden bearbeiten = Recht fuhrpark)
 function zeigeBadge() {
   const n = schadenNeu + schadenWartet;
   const text = [schadenNeu ? `${schadenNeu} neue Schadensmeldung${schadenNeu > 1 ? 'en' : ''}` : '', schadenWartet ? `${schadenWartet} Schadensmeldung${schadenWartet > 1 ? 'en warten' : ' wartet'} auf Verbindung` : ''].filter(Boolean).join(', ');

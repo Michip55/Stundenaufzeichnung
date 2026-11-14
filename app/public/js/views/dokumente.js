@@ -16,7 +16,7 @@ const dateiUrl = (bsId, d, nr) => d.url && !nr ? d.url : `/api/baustellen/${bsId
 
 export async function dokumenteTab(box, b, ctx) {
   const rolle = ctx.ich.benutzer.rolle;
-  const planer = ['buero', 'bauleiter', 'gf'].includes(rolle) || ctx.kann('stammdaten'); // Bauleiter wie Büro
+  const planer = ctx.kann('stammdaten'); // 15.4: wie der Server allein nach dem Recht (Bauleiter = Büro)
   const eigen = (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
   const darfSchreiben = planer;
   const darfKat = (k) => darfSchreiben && (!k.finanziell || ctx.kann('preise_bearbeiten'));

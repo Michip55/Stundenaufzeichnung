@@ -215,9 +215,9 @@ module.exports = function benutzerRouten(api, bt) {
       if (rollenwechsel) {
         for (const r of R.GESPERRT[f.rolle]) db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', id, r);
         // D-11: unpassende Zuordnungen räumen
-        if (!['bauleiter', 'gf'].includes(f.rolle)) {
-          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE bauleiter_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'bauleiterId' });
-          db.lauf('UPDATE baustelle SET bauleiter_id = NULL, version = version + 1 WHERE bauleiter_id = ?', id);
+        if (!['bauleiter', 'gf'].includes(f.rolle)) { // rolle-ok: Datenpflege der ZIEL-Person: wer nicht mehr Bauleiter/GF ist, verliert die Zuordnung bauleiterId (Routing)
+          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE bauleiter_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'bauleiterId' }); // rolle-ok: Zuordnungen der Ziel-Person ermitteln (Datenpflege)
+          db.lauf('UPDATE baustelle SET bauleiter_id = NULL, version = version + 1 WHERE bauleiter_id = ?', id); // rolle-ok: Zuordnungen der Ziel-Person lösen (Datenpflege)
         }
         if (f.rolle !== 'polier') {
           for (const b of db.alle('SELECT id, kst FROM baustelle WHERE polier_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'polierId' });

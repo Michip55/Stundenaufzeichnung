@@ -5,18 +5,19 @@
  * Neue Routen, die Abwesenheiten ausgeben, müssen diese Funktionen verwenden.
  */
 /*
- * EINE Rollenregel (Entscheidungen des Inhabers 13.11.2026):
- *   „sieht Abwesenheiten anderer“ = Recht stammdaten ODER Recht lohn ODER Rolle bauleiter
- *  - 'voll'     Büro/Lohn/GF (stammdaten|lohn) und Bauleiter (alle Personen, echte Codes K/U/ZA/SW/BU, Notiz, Antwort) –
- *               nur LESEN; Entscheidungsrechte bleiben getrennt (darfEntscheiden: stammdaten|lohn; Bauleiter nur SW)
- *  - 'maskiert' Verwaltungsrollen ohne stammdaten/lohn (Sonderfall): sichtbar, K → „abwesend“, ohne Notiz
- *  - 'keine'    Polier und Mitarbeiter: Abwesenheiten ANDERER gar nicht (nicht einmal „abwesend“)
- * Die eigenen Abwesenheiten sieht jede Person immer vollständig.
+ * EINE Regel, allein nach RECHTEN (15.4, Befunde F-008/F-016/F-019/F-020 – nie nach dem Rollennamen, nie nach bauleiterId):
+ *   „sieht Abwesenheiten anderer“ = Recht stammdaten ODER Recht lohn
+ *  - 'voll'     wer stammdaten|lohn hat (Büro, Bauleiter, Lohnverrechnung, GF laut Matrix): alle Personen, echte Codes
+ *               K/U/ZA/SW/BU, Notiz, Antwort – nur LESEN; entscheiden ebenfalls mit stammdaten|lohn (darfEntscheiden)
+ *  - 'keine'    alle anderen (Polier, Mitarbeiter und jede Rolle, der die GF beide Rechte entzogen hat): Abwesenheiten
+ *               ANDERER gar nicht (nicht einmal „abwesend“), keine Aggregate. Die frühere Stufe 'maskiert' (Büro/GF
+ *               per Rollenname) entfällt – sie hätte Büro und Bauleiter bei gleicher Matrix verschieden behandelt.
+ * Die eigenen Abwesenheiten sieht jede Person immer vollständig. Eine Matrix-Änderung der GF wirkt sofort und für
+ * jeden Inhaber des Rechts gleich (Rechte werden je Anfrage geladen).
  */
 function stufe(ctx) {
   if (!ctx || !ctx.benutzer) return 'keine';
-  if ((typeof ctx.hat === 'function' && (ctx.hat('stammdaten') || ctx.hat('lohn'))) || ctx.benutzer.rolle === 'bauleiter') return 'voll';
-  return ['buero', 'gf'].includes(ctx.benutzer.rolle) ? 'maskiert' : 'keine'; // Verwaltungsrolle ohne stammdaten/lohn (per Matrix entzogen)
+  return typeof ctx.hat === 'function' && (ctx.hat('stammdaten') || ctx.hat('lohn')) ? 'voll' : 'keine';
 }
 /** Sieht ctx überhaupt Abwesenheiten der Person? (eigene immer) */
 function siehtAbwesenheit(ctx, benutzerId) {

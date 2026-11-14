@@ -20,7 +20,7 @@ module.exports = function rechnungRouten(api, bt) {
     const r = db.eins('SELECT * FROM rechnung WHERE id = ?', v.pfadId(req.params.id, 'Rechnungs-ID'));
     if (!r) throw nichtGefunden('Rechnung nicht gefunden.');
     const bs = db.eins('SELECT * FROM baustelle WHERE id = ?', r.baustelle_id);
-    if (!sichtbar(req.ctx, bs)) throw keinZugriff('Rechnungen sehen Büro, GF und der Bauleiter der Baustelle.');
+    if (!sichtbar(req.ctx, bs)) throw keinZugriff('Rechnungen sieht, wer das Recht preise_sehen hat.');
     if (schreiben && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.');
     return r;
   }

@@ -113,10 +113,10 @@ module.exports = function berichtFotoRouten(api, bt) {
     const b0 = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b0) throw nichtGefunden('Bericht nicht gefunden.');
     const f0 = db.eins('SELECT * FROM bericht_foto WHERE id = ? AND bericht_id = ?', v.pfadId(req.params.fid, 'Foto-ID'), b0.id);
-    // Papierbericht-Seiten löschen nur Büro/GF (Archiv, 12.12)
+    // Papierbericht-Seiten (Archiv, 12.12) löschen allein mit dem Recht stammdaten (15.4) – nie nach Rollenname
     let b, f;
     if (f0 && f0.art === 'papier') {
-      if (!require('../rechte').BUERO_ROLLEN.includes(req.ctx.benutzer.rolle)) throw require('../fehler').keinZugriff('Archivierte Papierberichte löschen nur Büro bzw. GF.');
+      if (!req.ctx.hat('stammdaten')) throw require('../fehler').keinZugriff('Archivierte Papierberichte löscht, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
       b = b0; f = f0;
     } else { b = bericht(req, true); f = foto(req, b); }
     db.transaktion(() => {

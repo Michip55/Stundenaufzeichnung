@@ -156,8 +156,8 @@ export async function bericht(el, ctx) {
   // M-02: Sobald eine Unterschrift vorliegt, ist der Inhalt gesperrt (der Server lehnt Änderungen mit 409 ab)
   const editierbar = () => signierbar() && !signiert();
   const ungueltig = () => b.personal.some((p) => personalFehler(p));
-  // C-06: Die Unterschrift des Bauherrn zieht nur Büro/GF zurück (der Server prüft das ebenfalls)
-  const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) : signierbar());
+  // C-06/15.4: Die Unterschrift des Bauherrn zieht zurück, wer das Recht stammdaten hat (der Server prüft das ebenfalls)
+  const darfZurueckziehen = (rolle) => b.status === 'entwurf' && (rolle === 'bh' ? ctx.kann('stammdaten') : signierbar());
   const dis = () => (editierbar() ? '' : 'disabled');
   const gStd = (gid) => (b.geraete.find((g) => g.geraetId === gid) || {}).stunden || 0;
   // Servicebuch 7.2: konkrete Anlage je Gerätezeile (Auswahl bei mehreren, Warnung bei gesperrten)

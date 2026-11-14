@@ -114,6 +114,7 @@ function vorschauTag(db, datum, K, { voll = false } = {}) {
     for (const p of [...s.personen, ...zusatz]) {
       const b = K.personen.get(p.benutzer_id);
       if (!b || !b.aktiv) { uebersprungen.push({ typ: 'inaktiv', text: `${b ? b.name : '?'}: nicht mehr aktiv`, benutzerId: p.benutzer_id }); continue; }
+      // rolle-ok: Anzeigetext über die übersprungene Person
       if (!['mitarbeiter', 'polier'].includes(b.rolle)) { uebersprungen.push({ typ: 'rolle', text: `${b.name}: wird nicht eingeplant (${b.rolle === 'bauleiter' ? 'Bauleiter' : 'Büro'})`, benutzerId: p.benutzer_id }); continue; } // 12.25
       const a = K.abw.get(`${p.benutzer_id}|${datum}`);
       if (a) {

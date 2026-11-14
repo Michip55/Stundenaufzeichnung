@@ -12,8 +12,8 @@ const badge = (c) => `<span class="code-badge c-${esc(c)}">${c === 'abwesend' ? 
 export default async function abwesenheiten(el, ctx) {
   const ich = ctx.ich.benutzer;
   const darfEntscheiden = ctx.kann('stammdaten') || ctx.kann('lohn');
-  const istBauleiter = !darfEntscheiden && ich.rolle === 'bauleiter';
-  const istPolier = !darfEntscheiden && !istBauleiter && ctx.kann('kolonne');
+  // 15.4: entscheiden allein mit stammdaten|lohn (wie der Server) – kein Sonderweg „Bauleiter der Baustelle“ mehr
+  const istPolier = !darfEntscheiden && ctx.kann('kolonne');
   const heute = fmt.iso();
   const von = fmt.addTage(heute, -62), bis = fmt.addTage(heute, 366);
   let liste = [], leute = [];
@@ -35,10 +35,9 @@ export default async function abwesenheiten(el, ctx) {
 
   function zeichne() {
     const eigene = liste.filter((a) => a.benutzerId === ich.id);
-    // D-09: der Bauleiter bestätigt Schlechtwetter-Meldungen seiner Baustellen (der Server liefert ihm nur diese)
     // 12.24: Tage eines mehrtägigen Antrags werden nur als Ganzes entschieden (unter „Urlaub“)
     const mehrtaegig = (a) => { const n = a.antragId ? liste.filter((x) => x.antragId === a.antragId).length : 1; return n > 1 ? n : 0; };
-    const offen = liste.filter((a) => a.status === 'beantragt' && (darfEntscheiden || (istBauleiter && a.code === 'SW' && a.benutzerId !== ich.id))).sort((a, b) => (a.datum > b.datum ? 1 : -1));
+    const offen = liste.filter((a) => a.status === 'beantragt' && darfEntscheiden).sort((a, b) => (a.datum > b.datum ? 1 : -1));
     const andere = liste.filter((a) => a.benutzerId !== ich.id && (!darfEntscheiden || a.status !== 'beantragt') && !offen.includes(a));
     // Inhaber 13.11.2026: zurückgezogen wird immer der ganze Antrag – ein Knopf je Antrag (beim ersten Tag der Liste)
     const offenTage = (aid) => eigene.filter((x) => x.antragId === aid && x.status === 'beantragt');
@@ -52,7 +51,7 @@ export default async function abwesenheiten(el, ctx) {
     };
     el.innerHTML = `
     <div class="page narrow wide-md">
-      ${darfEntscheiden || (istBauleiter && offen.length) ? `
+      ${darfEntscheiden ? `
       <section class="card" id="abw-offen" aria-labelledby="h-offen">
         <div class="card-h pad-h"><h3 id="h-offen">${ic('calendar')}Anträge zur Genehmigung <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3></div>
         ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: a.benutzerId === ich.id ? '<span class="muted sm" data-eigener>Eigener Antrag – entscheidet eine andere Person</span>' : mehrtaegig(a) ? `<a class="btn ghost sm" data-zum-antrag href="#/urlaub?monat=${a.datum.slice(0, 7)}">Teil eines Antrags (${mehrtaegig(a)} Tage) – als Ganzes entscheiden</a>` : `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}

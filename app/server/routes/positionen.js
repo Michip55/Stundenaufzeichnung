@@ -80,16 +80,14 @@ module.exports = function positionenRouten(api, bt) {
   }
 
   function lesen(req, bs) {
-    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Die Nachkalkulation sehen Büro, GF und der Bauleiter der Baustelle.');
+    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Die Nachkalkulation sieht, wer das Recht kalk_sehen hat.');
   }
   function schreibenPreise(req) {
     if (!req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Positionen und Preise ändern Büro bzw. Geschäftsführung.');
   }
-  function schreibenMengen(req, bs) {
-    const ich = req.ctx.benutzer;
-    if (!(req.ctx.hat('preise_bearbeiten') || (ich.rolle === 'bauleiter' && bs.bauleiter_id === ich.id && darfKalk(req.ctx, bs)))) {
-      throw keinZugriff('Mengen erfassen Büro, GF und der Bauleiter der Baustelle.');
-    }
+  /** 15.4 (F-012/F-016/F-019): Mengen allein mit preise_bearbeiten – nie Rollenname oder bauleiterId (Bauleiter = Büro, 13.1) */
+  function schreibenMengen(req) {
+    if (!req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Mengen erfasst, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
   }
   function position(bs, pidText) {
     const pid = v.pfadId(pidText, 'Positions-ID');
@@ -357,7 +355,7 @@ module.exports = function positionenRouten(api, bt) {
 
   api.post('/baustellen/:id/positionen/:pid/mengen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenMengen(req, bs);
+    lesen(req, bs); schreibenMengen(req);
     const p = position(bs, req.params.pid);
     const body = v.objekt(req.body);
     const datum = v.datum(body.datum, 'datum');
@@ -377,12 +375,12 @@ module.exports = function positionenRouten(api, bt) {
 
   api.delete('/baustellen/:id/positionen/:pid/mengen/:mid', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    lesen(req, bs); schreibenMengen(req, bs);
+    lesen(req, bs); schreibenMengen(req);
     const p = position(bs, req.params.pid);
     const mid = v.pfadId(req.params.mid, 'Mengen-ID');
     const m = db.eins('SELECT * FROM projektposition_menge WHERE id = ? AND position_id = ?', mid, p.id);
     if (!m) throw nichtGefunden('Mengeneintrag nicht gefunden.');
-    // E-07: Bauleiter storniert nur selbst erfasste Einträge
+    // E-07 (Sicherheitsnetz): ohne preise_bearbeiten nur selbst erfasste Einträge – schreibenMengen verlangt das Recht ohnehin (15.4)
     if (!req.ctx.hat('preise_bearbeiten') && m.erstellt_von !== req.ctx.benutzer.id) {
       throw keinZugriff('Einträge anderer Personen (z. B. Rechnungen des Büros) storniert nur das Büro bzw. die Geschäftsführung.');
     }
@@ -410,7 +408,7 @@ module.exports = function positionenRouten(api, bt) {
   api.get('/baustellen/:id/positionen/:pid/verlauf', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
     lesen(req, bs);
-    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Preise sehen Büro, GF und der Bauleiter der Baustelle.');
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Preise sieht, wer das Recht preise_sehen hat.');
     const p = position(bs, req.params.pid);
     res.json(PV.verlaufJson(db, 'projektposition', p.id).map(verlaufKatalog('ep')));
   });

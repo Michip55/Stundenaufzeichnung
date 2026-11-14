@@ -2,7 +2,6 @@
 /** Urlaubsübersicht, Urlaubskonto, Betriebsurlaub, Warnungen (API.md 12.19) – keine €-Felder */
 const v = require('../validierung');
 const { ungueltig, keinZugriff } = require('../fehler');
-const { bereich, baustelleImBereich } = require('../rechte');
 const { wienDatum, plusTage, feiertage, istArbeitstag, wochentag, istDatum } = require('../datum');
 const { csv } = require('../export');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
@@ -25,16 +24,8 @@ module.exports = function urlaubRouten(api, bt) {
   const einst = () => ({ partieGrenze: 2, partieGrenzeProzent: 30, urlaubsjahrBeginn: '01-01', ...(db.einstellung('urlaub', {}) || {}) });
 
   function sichtbareIds(ctx) {
-    // eine Regel (server/datenschutz.js): Büro/Lohn/GF und Bauleiter alle; Polier/Mitarbeiter nur sich
-    if (DS.stufe(ctx) === 'voll') return null;
-    if (DS.stufe(ctx) === 'keine') return new Set([ctx.benutzer.id]);
-    const ich = ctx.benutzer;
-    const ids = new Set([ich.id]);
-    if (bereich(ich) === 'bauleiter' || ich.rolle === 'polier') {
-      const bs = db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').filter((b) => baustelleImBereich(ich, b)).map((b) => b.id);
-      for (const b of db.alle('SELECT id, baustelle_id FROM benutzer')) if (bs.includes(b.baustelle_id)) ids.add(b.id);
-    }
-    return ids;
+    // eine Regel (server/datenschutz.js, 15.4): stammdaten|lohn → alle Personen; sonst nur sich – nie nach Rollenname
+    return DS.stufe(ctx) === 'voll' ? null : new Set([ctx.benutzer.id]);
   }
   // R-01: Krankenstand nur über den zentralen Datenschutz-Helfer
   const code = (a, ctx) => (a.betriebsurlaub ? 'BU' : DS.code(ctx, a.benutzer_id, a.code));
@@ -300,8 +291,7 @@ module.exports = function urlaubRouten(api, bt) {
     return out;
   }
   api.get('/urlaub/warnungen', (req, res) => {
-    const ich = req.ctx.benutzer;
-    if (!verwaltung(req.ctx) && ich.rolle !== 'bauleiter') throw keinZugriff();
+    if (!verwaltung(req.ctx)) throw keinZugriff(); // 15.4 (F-016/F-019/F-020): allein stammdaten|lohn, kein Rollen-Sonderweg
     const { von, bis } = zeitraum(req.query);
     res.json(warnungen(req.ctx, von, bis, sichtbareIds(req.ctx)));
   });

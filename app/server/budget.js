@@ -22,7 +22,7 @@ function budgetEmpfaenger(db, bs) {
   const emp = parseJson(bs.empfaenger, { bauleiter: true, buero: true, gf: true });
   return empfaengerMitRecht(db, 'kalk_sehen').filter((b) => {
     if (NIE_EMPFAENGER.includes(b.rolle)) return false; // Sicherheitsnetz (kalk_sehen ist für sie ohnehin gesperrt)
-    if (emp.bauleiter && bs.bauleiter_id === b.id) return true;
+    if (emp.bauleiter && bs.bauleiter_id === b.id) return true; // rolle-ok: Empfänger des Budget-Alarms (Routing, 15.3), keine Rechtevergabe
     if (b.rolle === 'gf') return Boolean(emp.gf);
     return Boolean(emp.buero);
   }).filter((b) => darfKalk(kontext(db, b), bs));

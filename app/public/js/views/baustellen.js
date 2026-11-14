@@ -66,7 +66,7 @@ export async function baustellen(el, ctx) {
   const teile = (alle) => { interne = alle.filter(istIntern); return alle.filter((b) => !istIntern(b)); };
   let liste = teile(await get('/baustellen'));
   const darf = ctx.kann('stammdaten');
-  const zeigtInterne = darf || wieBuero(ctx.ich.benutzer.rolle);
+  const zeigtInterne = darf || wieBuero(ctx.ich.benutzer.rolle); // rolle-ok: nur Gruppierung der Anzeige (Büro = Bauleiter = GF); die Daten liefert der Server nach Rechten
   const LAUFEND = ['angebot', 'geplant', 'in_arbeit', 'pausiert', 'fertiggestellt', 'abgenommen'];
   let filter = PHASEN[ctx.query.get('phase')] ? ctx.query.get('phase') : 'laufend';
   let ansicht = speicher.lies('bt_bs_ansicht') === 'tafel' ? 'tafel' : 'liste';
@@ -120,10 +120,11 @@ export async function baustelle(el, ctx) {
   if (intern) delete b.phase;
   const zeigAuftrag = !intern && ('auftragssumme' in b || 'schwellen' in b || !!kalk);
   const rolle = ctx.ich.benutzer.rolle;
-  const planer = wieBuero(rolle) || ctx.kann('stammdaten');
+  // 15.4: wie der Server allein nach Rechten (Dokumente: stammdaten bzw. Polier der Baustelle; Rechnungen: preise_sehen)
+  const planer = ctx.kann('stammdaten');
   const eigen = (ctx.ich.baustellenIds || []).map(Number).includes(Number(b.id));
   const siehtDoku = !intern && (planer || (rolle === 'polier' && eigen));
-  const siehtRechnungen = ctx.kann('preise_sehen') && (planer || eigen) && zeigAuftrag;
+  const siehtRechnungen = ctx.kann('preise_sehen') && zeigAuftrag;
   const REITER = [['uebersicht', 'Übersicht'], ...(siehtDoku ? [['dokumente', 'Dokumente']] : []), ...(siehtRechnungen ? [['rechnungen', 'Rechnungen']] : [])];
   const reiter = REITER.some(([k]) => k === ctx.query.get('reiter')) ? ctx.query.get('reiter') : 'uebersicht';
   const verlauf = reiter === 'uebersicht' && b.phase ? await get(`/baustellen/${id}/phasen`).catch(() => []) : [];

@@ -22,9 +22,9 @@ const KONFLIKT_KURZ = { person_doppelt: 'doppelt eingeteilt', abwesenheit: 'abwe
 export default async function plan(el, ctx) {
   const ich = ctx.ich.benutzer;
   const heute = wienHeute();
-  const planer = ['buero', 'bauleiter', 'gf'].includes(ich.rolle) || ctx.kann('stammdaten'); // Bauleiter plant wie das Büro alle Baustellen
-  const eigene = (ctx.ich.baustellenIds || []).map(Number);
-  const darfBs = (id) => planer || (ich.rolle === 'bauleiter' && eigene.includes(Number(id)));
+  // 15.4: planen allein mit dem Recht stammdaten (wie der Server) – Bauleiter = Büro, bauleiterId vergibt keine Rechte
+  const planer = ctx.kann('stammdaten');
+  const darfBs = () => planer;
   // nächster Arbeitstag („morgen“): Sa/So werden übersprungen
   // G-05: „Morgen“ = nächster Arbeitstag (ohne Sa/So und Feiertage)
   const frei = await feiertage(heute);
@@ -193,10 +193,10 @@ export default async function plan(el, ctx) {
         <div class="wp-scroll" data-zieh-scroll><div class="wp-gitter${wahl.size ? ' mit-wahl' : ''}" role="table" data-spalten="${sp}" data-st="--sp:${sp}">
           <div class="wp-zeile kopf" role="row"><div class="wp-bs" role="columnheader">Baustelle</div>${d.tage.map((t) => `<button type="button" class="wp-tag${t.datum === tagWahl ? ' wahl' : ''}${t.datum === heute ? ' heute' : ''}" role="columnheader" data-tagwahl="${t.datum}" aria-pressed="${t.datum === tagWahl}" title="Tag für „Noch frei“ wählen">${esc(fmt.WTK[fmt.dt(t.datum).getDay()])} <span>${String(fmt.dt(t.datum).getDate()).padStart(2, '0')}.${String(fmt.dt(t.datum).getMonth() + 1).padStart(2, '0')}.</span>${t.feiertag ? `<small>${esc(t.feiertag === true ? 'Feiertag' : t.feiertag)}</small>` : ''}${t.vorschau ? '<small class="wie">wie Vortag</small>' : ''}</button>`).join('')}</div>
           ${d.baustellen.length ? d.baustellen.map((b) => `<div class="wp-zeile" role="row" data-bs-zeile="${b.id}"><div class="wp-bs" role="rowheader"><small>KST ${esc(b.kst || '–')}</small><b>${esc(b.kurz || b.name)}</b><small>${b.polier ? 'Polier ' + esc(b.polier.name) : 'kein Polier'}</small></div>${d.tage.map((t) => zelle(t, b)).join('')}</div>`).join('') : `<div class="pad">${leer('Keine Baustelle in Planung oder Arbeit.', 'pin')}</div>`}
-          ${fuhrenBahn(fuhren, d.tage, planer || ich.rolle === 'bauleiter', tagWahl)}
+          ${fuhrenBahn(fuhren, d.tage, planer, tagWahl)}
         </div></div>
       </section>
-      ${planer || ich.rolle === 'bauleiter' ? pool() : ''}
+      ${planer ? pool() : ''}
     </div>`;
   }
   /* ---------- Tagesansicht „Morgen“: je Baustelle eine große Karte ---------- */
@@ -247,7 +247,7 @@ export default async function plan(el, ctx) {
         </section>
         ${pool()}
       </div>
-      <section class="card tg-fuhren" id="tg-fuhren" aria-label="Fuhren ${esc(tagKurz(tag))}"><div class="card-h pad-h"><h3>${ic('truck')}Fuhren · je LKW</h3>${planer || ich.rolle === 'bauleiter' ? `<span class="btn-row"><button type="button" class="btn ghost sm" id="fu-wie-gestern" data-datum="${tag}">${ic('copy')}Fuhren wie gestern</button><button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}">${ic('plus')}Fuhre</button></span>` : ''}</div>
+      <section class="card tg-fuhren" id="tg-fuhren" aria-label="Fuhren ${esc(tagKurz(tag))}"><div class="card-h pad-h"><h3>${ic('truck')}Fuhren · je LKW</h3>${planer ? `<span class="btn-row"><button type="button" class="btn ghost sm" id="fu-wie-gestern" data-datum="${tag}">${ic('copy')}Fuhren wie gestern</button><button type="button" class="btn ghost sm" data-fuhre-neu data-datum="${tag}">${ic('plus')}Fuhre</button></span>` : ''}</div>
         <div class="wp-scroll"><div class="wp-gitter fu-tag" data-st="--sp:1">${fuhrenBahn(fuhren.filter((f) => f.datum === tag), [tagInfo(tag)], false, tag)}</div></div></section>
       <div class="tg-fuss"><button type="button" class="btn primary lg" id="tg-pub" data-personen="${offen.personen}" data-entfaellt="${offen.entfaellt}" ${offen.etwas ? '' : 'disabled'}>${ic('send')}Einteilung für ${esc(tagWort(tag))} veröffentlichen${offen.etwas ? ` (${offen.personen} Person${offen.personen === 1 ? '' : 'en'})` : ''}</button><span class="muted sm" id="tg-pub-info">${offen.etwas ? `Vor dem Senden sehen Sie, wer eine Nachricht bekommt.${offen.entfaellt ? ` ${offen.entfaellt} Person${offen.entfaellt === 1 ? '' : 'en'} erfahr${offen.entfaellt === 1 ? 't' : 'en'}, dass der Einsatz entfällt.` : ''}` : 'Alles veröffentlicht – keine offenen Änderungen.'}</span></div>`;
   }
@@ -346,7 +346,7 @@ export default async function plan(el, ctx) {
     const n = pubAnzahl(d, darfBs); // N-049: Vorschau-Tage sind auch noch nicht veröffentlicht
     el.innerHTML = `<div class="page wp-page">
       <header class="wp-header"><div><p class="muted">Wer und welches Gerät ist wann auf welcher Baustelle – per Ziehen einteilen, mit einem Klick an alle senden.</p></div>
-        ${(ansicht === 'woche' || ansicht === 'tag') && (planer || ich.rolle === 'bauleiter') ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
+        ${(ansicht === 'woche' || ansicht === 'tag') && planer ? `<div class="wp-aktionen">${planer ? `<button type="button" class="icon-btn" id="wp-einst" aria-label="Einstellungen des Baustellenplaners" title="Einstellungen">${ic('wrench')}</button>` : ''}<button type="button" class="btn ghost" id="wp-druck" data-art="${ansicht === 'tag' ? 'tag' : 'woche'}">${ic('file')}${ansicht === 'tag' ? 'Tagesplan drucken (PDF)' : 'Wochenplan drucken (PDF)'}</button><button type="button" class="btn ghost" id="wp-vorwoche">Vorwoche übernehmen</button><button type="button" class="btn primary" id="wp-pub" data-anzahl="${n}" ${n ? '' : 'disabled'}>${ic('send')}Plan veröffentlichen${n ? ` · ${n} Änderung${n === 1 ? '' : 'en'}` : ''}</button></div>` : ''}</header>
       <div class="chip-row" role="tablist" aria-label="Ansicht">${[['woche', 'Woche'], ['tag', morgen === kalMorgen ? 'Morgen' : tagKurz(morgen)], ['zeitplan', 'Projektzeitplan'], ['geraete', 'Geräte-Disposition']].map(([k, t]) => `<button type="button" role="tab" class="chip-btn${ansicht === k ? ' on' : ''}" aria-selected="${ansicht === k}" data-ansicht="${k}">${t}</button>`).join('')}</div>
       ${fehler ? banner('err', esc(fehler)) : ''}
       <div id="wp-inhalt">${ansicht === 'woche' ? wocheHtml() : ansicht === 'tag' ? tagHtml() : ansicht === 'geraete' ? geraeteHtml() : zp ? zeitplanHtml(zp, ctx) : '<div class="state">Lädt …</div>'}</div>

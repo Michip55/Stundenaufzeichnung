@@ -16,7 +16,8 @@ export async function zeitplanLaden(zp) {
   zp.bis = fmt.addTage(zp.von, WOCHEN * 7 - 1);
   zp.daten = await get(`/plan/zeitplan?von=${zp.von}&bis=${zp.bis}${zp.phase ? '&phase=' + zp.phase : ''}`);
 }
-const darfBv = (ctx, id) => ['buero', 'bauleiter', 'gf'].includes(ctx.ich.benutzer.rolle) || ctx.kann('stammdaten') || (ctx.ich.benutzer.rolle === 'bauleiter' && (ctx.ich.baustellenIds || []).map(Number).includes(Number(id)));
+// 15.4: Zeitplan bearbeiten allein mit dem Recht stammdaten (wie der Server) – nie nach Rollenname oder bauleiterId
+const darfBv = (ctx) => ctx.kann('stammdaten');
 
 export function zeitplanHtml(zp, ctx) {
   const d = zp.daten || { bauvorhaben: [], filter: {}, archivAnzahl: 0 };

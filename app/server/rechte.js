@@ -72,10 +72,13 @@ function effektiveRechte(rolle, matrixRolle, ausnahmen = []) {
   return s;
 }
 
-/** Bereich: alle Baustellen | eigene als Bauleiter | eigene Partie */
+/**
+ * Bereich: alle Baustellen | eigene Partie. Büro, Bauleiter und GF gleich (13.1); `bauleiter_id` begrenzt nichts mehr
+ * (15.4 – es bestimmt nur Empfänger von Benachrichtigungen). Was jemand im Bereich darf, entscheiden allein die Rechte.
+ * Unbekannte Rollen (z. B. interne Kontexte) bleiben streng auf „partie“.
+ */
 function bereich(benutzer) {
-  if (BUERO_ROLLEN.includes(benutzer.rolle)) return 'alle'; // Bauleiter wie Büro: alle Baustellen (13.11.2026)
-  return 'partie';
+  return BUERO_ROLLEN.includes(benutzer.rolle) ? 'alle' : 'partie'; // rolle-ok: Umfang (Büro = Bauleiter = GF), keine Rechtevergabe
 }
 
 /** Liegt die Baustelle im Bereich des Benutzers (eigene Baustellen)? */
@@ -83,7 +86,6 @@ function baustelleImBereich(benutzer, bs) {
   if (!bs) return false;
   switch (bereich(benutzer)) {
     case 'alle': return true;
-    case 'bauleiter': return bs.bauleiter_id === benutzer.id;
     default: return bs.polier_id === benutzer.id || (benutzer.baustelle_id != null && benutzer.baustelle_id === bs.id);
   }
 }
@@ -178,11 +180,12 @@ function ladeRechteFuer(db, benutzer) {
   return effektiveRechte(benutzer.rolle, matrix, ausnahmen);
 }
 
-/** Büro verwaltet Benutzer dieser Rollen (C-14); GF alle */
+/** Mit stammdaten (Büro/Bauleiter laut Matrix) verwaltbar: Benutzer dieser Rollen (C-14); mit `benutzer` (GF) alle */
 const BUERO_VERWALTBAR = ['mitarbeiter', 'polier', 'bauleiter'];
 function darfBenutzerVerwalten(ctx, zielRolle) {
   if (ctx.hat('benutzer')) return true;
-  return ['buero', 'bauleiter'].includes(ctx.benutzer.rolle) && ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
+  // 15.4: allein das Recht stammdaten (für Polier/Mitarbeiter gesperrt) – nicht der Rollenname des Aufrufers
+  return ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
 }
 
 /** Aktive Konten, die gesperrte GF-/Büro-Konten entsperren können (D-01): GF und Büro mit stammdaten */

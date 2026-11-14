@@ -105,12 +105,12 @@ export async function kalkDetail(el, ctx) {
   const k = await get(`/kalkulation/${id}`);
   const b = k.baustelle || {};
   // Einzelne Meldungen zum Stornieren (M-03) – nur wer erfassen darf
-  const mitStorno = ctx.kann('preise_bearbeiten') || (ctx.kann('kalk_sehen') && (ctx.ich.baustellenIds || []).map(String).includes(String(id)));
+  const mitStorno = ctx.kann('preise_bearbeiten'); // 15.4: wie der Server (Leistungsmeldungen = preise_bearbeiten)
   const [meldungen, fremde] = await Promise.all([
     mitStorno ? get(`/baustellen/${id}/leistungen`).catch(() => null) : null,
     ctx.kann('preise_bearbeiten') ? get(`/baustellen/${id}/fremdleistungen`).catch(() => null) : null,
   ]);
-  const darfMelden = ctx.kann('preise_bearbeiten') || (ctx.kann('kalk_sehen') && (ctx.ich.baustellenIds || []).map(String).includes(String(id)));
+  const darfMelden = ctx.kann('preise_bearbeiten');
   ctx.titel('Nachkalkulation', `${b.kst ? b.kst + ' · ' : ''}${b.name || ''}`);
   const kosten = k.kosten || {};
   const teile = ['lohn', 'geraete', 'material', 'fremd'].map((key) => ({ key, wert: kosten[key] || 0 })).filter((t) => t.wert > 0);

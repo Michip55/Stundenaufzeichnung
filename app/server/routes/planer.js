@@ -12,8 +12,12 @@ const F = require('../fuhren');
 const Bild = require('../fuhrpark-bild');
 
 const unprozessierbar = (text) => new ApiFehler(422, 'UNGUELTIG', text);
-const istPlaner = (ctx) => ['buero', 'gf'].includes(ctx.benutzer.rolle) || ctx.hat('stammdaten');
-const zeigtAbwesenheit = (ctx) => require('../datenschutz').stufe(ctx) === 'voll'; // Büro/Lohn/GF und Bauleiter: echter Grund
+/** Wer im Baustellenplaner eingeteilt wird (12.25) – Merkmal der eingeteilten Person, keine Rechteprüfung */
+const EINPLANBAR = ['mitarbeiter', 'polier'];
+// 15.4 (F-016/F-017/F-019/F-021): planen und den Plan lesen allein mit dem Recht stammdaten – nie nach Rollenname
+// oder bauleiterId (Bauleiter = Büro, 13.1). Eine Matrix-Änderung der GF wirkt sofort und für jeden Inhaber gleich.
+const istPlaner = (ctx) => ctx.hat('stammdaten');
+const zeigtAbwesenheit = (ctx) => require('../datenschutz').stufe(ctx) === 'voll'; // stammdaten|lohn: echter Grund (15.4)
 
 module.exports = function planerRouten(api, bt) {
   const { db } = bt;
@@ -22,15 +26,12 @@ module.exports = function planerRouten(api, bt) {
   const prot = (req, objekt, text, neu) => db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'plan', objekt, neu, text });
 
   /* ---------- Rechte ---------- */
-  const eigeneBs = (ctx, bsId) => { const bs = db.eins('SELECT bauleiter_id FROM baustelle WHERE id = ?', bsId); return Boolean(bs && bs.bauleiter_id === ctx.benutzer.id); };
-  function darfBearbeiten(ctx, bsId) {
-    if (istPlaner(ctx)) return true;
-    return ctx.benutzer.rolle === 'bauleiter' && eigeneBs(ctx, bsId);
+  // 15.4: kein Sonderweg „Bauleiter der Baustelle“ mehr (bauleiterId vergibt keine Rechte) – lesen = bearbeiten = stammdaten
+  const darfBearbeiten = (ctx) => istPlaner(ctx);
+  function pruefeBearbeiten(ctx) {
+    if (!darfBearbeiten(ctx)) throw keinZugriff('Einteilen darf, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
   }
-  function pruefeBearbeiten(ctx, bsId) {
-    if (!darfBearbeiten(ctx, bsId)) throw keinZugriff('Einteilen dürfen Büro, GF und der Bauleiter der Baustelle.');
-  }
-  function istLeser(ctx) { return istPlaner(ctx) || ctx.benutzer.rolle === 'bauleiter'; }
+  const istLeser = (ctx) => istPlaner(ctx);
   function datumPruefen(d, feld = 'datum') {
     const x = v.datum(d, feld);
     if (x < plusTage(heute(), -7) || x > plusTage(heute(), 366)) throw ungueltig(`${feld}: höchstens 7 Tage zurück und 366 Tage voraus.`);
@@ -44,7 +45,7 @@ module.exports = function planerRouten(api, bt) {
     res.json(P.einstellungen(db));
   });
   api.put('/einstellungen/plan', (req, res) => {
-    if (!istPlaner(req.ctx)) throw keinZugriff('Einstellungen des Planers ändern Büro bzw. GF.');
+    if (!istPlaner(req.ctx)) throw keinZugriff('Einstellungen des Planers ändert, wer das Recht stammdaten hat.');
     const body = v.objekt(req.body);
     const e = { ...(db.einstellung('plan', {}) || {}) };
     if (body.planFortschreiben !== undefined) e.planFortschreiben = v.bool(body.planFortschreiben, 'planFortschreiben');
@@ -85,7 +86,7 @@ module.exports = function planerRouten(api, bt) {
 
   api.get('/plan/woche', (req, res) => {
     const ctx = req.ctx;
-    if (!istLeser(ctx)) throw keinZugriff('Den Wochenplan sehen Büro, GF und Bauleiter.');
+    if (!istLeser(ctx)) throw keinZugriff('Den Wochenplan sieht, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
     const von0 = req.query.von ? v.datum(String(req.query.von), 'von') : heute();
     const wt = wochentag(von0);
     const von = plusTage(von0, wt === 0 ? -6 : 1 - wt);
@@ -94,7 +95,7 @@ module.exports = function planerRouten(api, bt) {
     const K = kontext(plusTage(von, -60), plusTage(bis, 1));
     K.heute = heute();
     const planer = istPlaner(ctx);
-    const sicht = (bsId) => planer || eigeneBs(ctx, bsId);
+    const sicht = () => true; // nur Planer kommen hierher (istLeser) – alle Baustellen (15.4)
     const voll = zeigtAbwesenheit(ctx);
     const tage = [], einsaetze = [], konflikte = [], frei = {}, kennzahlen = {};
     const fuhrenAlle = db.alle("SELECT * FROM plan_fuhre WHERE datum >= ? AND datum <= ? AND status <> 'storniert'", von, bis);
@@ -185,7 +186,7 @@ module.exports = function planerRouten(api, bt) {
     const kt = P.konflikteTag(e.datum, alle, fuhren, K, { voll: zeigtAbwesenheit(req.ctx) });
     const j = P.einsatzJson(e, K, { notizen: true });
     j.konflikte = P.konflikteFuer(e, kt, true);
-    j.konflikteTag = kt.filter((k) => istPlaner(req.ctx) || alle.filter((x) => (k.einsatzIds || []).includes(x.id)).some((x) => eigeneBs(req.ctx, x.baustelle_id)));
+    j.konflikteTag = istPlaner(req.ctx) ? kt : [];
     return { status, j };
   }
   const senden = (res, r) => res.status(r.status).json(r.j);
@@ -196,6 +197,7 @@ module.exports = function planerRouten(api, bt) {
       const b = db.eins('SELECT id, rolle, aktiv, name FROM benutzer WHERE id = ?', id);
       if (!b || !b.aktiv) throw ungueltig(`${feld}: Person ${id} nicht gefunden oder inaktiv.`);
       // 12.25: Bauleiter sind keine eingeplanten Personen (sie arbeiten im Büro) → 422
+      // rolle-ok: Prüfung der eingeteilten ZIEL-Person (12.25), nicht des Aufrufers
       if (b.rolle === 'bauleiter') throw unprozessierbar(`${feld}: ${b.name} ist Bauleiter und wird nicht im Baustellenplaner eingeteilt.`);
       if (!['mitarbeiter', 'polier'].includes(b.rolle)) throw ungueltig(`${feld}: ${b.name} kann nicht eingeteilt werden (nur Mitarbeiter und Polier).`);
     }
@@ -417,10 +419,9 @@ module.exports = function planerRouten(api, bt) {
     const datum = datumPruefen(v.objekt(req.body).datum);
     const K = kontext(datum, datum);
     const vs = P.vorschauTag(db, datum, K);
-    if (vs && !istPlaner(req.ctx) && !vs.einsaetze.some((e) => eigeneBs(req.ctx, e.baustelle_id))) throw keinZugriff('Nur Tage mit eigenen Baustellen übernehmen.');
     const angelegt = db.transaktion(() => P.materialisieren(bt, datum, req.ctx.benutzer.id));
     const K2 = kontext(datum, datum);
-    res.json({ angelegt, einsaetze: P.ladeEinsaetze(db, datum, datum).filter((e) => istPlaner(req.ctx) || eigeneBs(req.ctx, e.baustelle_id)).map((e) => P.einsatzJson(e, K2)) });
+    res.json({ angelegt, einsaetze: P.ladeEinsaetze(db, datum, datum).map((e) => P.einsatzJson(e, K2)) });
   });
 
   api.post('/plan/vorwoche-uebernehmen', (req, res) => {
@@ -436,7 +437,7 @@ module.exports = function planerRouten(api, bt) {
       for (let i = 0; i < 7; i++) {
         const ziel = plusTage(von, i), quelle = plusTage(ziel, -7);
         if (ziel < plusTage(heute(), -7)) continue;
-        const kopien = P.ladeEinsaetze(db, quelle, quelle).filter((e) => (!nur || nur.has(e.baustelle_id)) && darfBearbeiten(req.ctx, e.baustelle_id));
+        const kopien = P.ladeEinsaetze(db, quelle, quelle).filter((e) => (!nur || nur.has(e.baustelle_id)) && darfBearbeiten(req.ctx));
         // N-016 (12.8c): ein Vorschau-Tag wird zuerst GANZ gespeichert (alle Vorschau-Zellen), dann wird kopiert –
         // so verschwinden nicht gewählte Vorschau-Zellen nicht still, und vorhandene Zellen bleiben („vorhanden“)
         if (kopien.length) P.materialisieren(bt, ziel, req.ctx.benutzer.id);
@@ -480,11 +481,9 @@ module.exports = function planerRouten(api, bt) {
     const bis = body.bis == null ? von : v.datum(body.bis, 'bis');
     if (bis < von || plusTage(von, 13) < bis) throw ungueltig('Zeitraum: höchstens 14 Tage.');
     const trocken = body.vorschau === true;
-    const planer = istPlaner(req.ctx);
     const r = P.veroeffentlichen(bt, {
       ctx: req.ctx, von, bis, trocken,
-      baustellenFilter: (bsId) => planer || eigeneBs(req.ctx, bsId),
-      fuhreFilter: (f) => planer || [JSON.parse(f.von), JSON.parse(f.nach)].some((h) => h.baustelleId && eigeneBs(req.ctx, h.baustelleId))
+      baustellenFilter: () => true, fuhreFilter: () => true // nur Planer (stammdaten) – alle Baustellen und Fuhren (15.4)
     });
     // anzahl/benachrichtigt = tatsächlich eingefügte Meldungen (N-005/N-014), personen = verschiedene Empfänger (N-094)
     if (trocken) return res.json({ empfaenger: r.empfaenger.map((e) => ({ benutzerId: e.benutzerId, name: e.name, art: e.art, datum: e.datum, ...(e.baustelleId ? { baustelleId: e.baustelleId } : {}), titel: e.titel, text: e.text })), anzahl: r.anzahl, personen: r.personen });
@@ -493,8 +492,9 @@ module.exports = function planerRouten(api, bt) {
 
   /* ---------- Mein Einsatz ---------- */
   api.get('/plan/ich', (req, res) => {
-    // 12.25: Bauleiter werden nicht eingeplant – „Mein Einsatz“ ist für sie leer
-    if (req.ctx.benutzer.rolle === 'bauleiter') return res.json({ morgen: null, tage: [] });
+    // 12.25: eingeplant werden nur Mitarbeiter und Poliere – für alle anderen (Bauleiter wie Büro und GF, 15.4) ist
+    // „Mein Einsatz“ leer, auch bei Altbestand. Merkmal der eigenen Person, keine Rechteentscheidung über fremde Daten.
+    if (!EINPLANBAR.includes(req.ctx.benutzer.rolle)) return res.json({ morgen: null, tage: [] });
     const ich = req.ctx.benutzer.id;
     const h = heute();
     const von = req.query.von ? v.datum(String(req.query.von), 'von') : h;
@@ -538,7 +538,7 @@ module.exports = function planerRouten(api, bt) {
   /* ---------- Meine Partie (Polier) ---------- */
   api.get('/plan/partie', (req, res) => {
     const ich = req.ctx.benutzer;
-    if (!['polier', 'bauleiter'].includes(ich.rolle) && !istPlaner(req.ctx)) throw keinZugriff('„Meine Partie“ ist für Poliere.');
+    if (ich.rolle !== 'polier' && !istPlaner(req.ctx)) throw keinZugriff('„Meine Partie“ ist für Poliere.'); // 15.4: Bauleiter wie Büro (stammdaten)
     // G-05: nächster Arbeitstag; N-058: ein Sa/So/Feiertag davor mit veröffentlichtem Einsatz der Partie bzw. Fuhre geht vor
     let Kx = null;
     const meinTag = (x) => {
@@ -599,12 +599,12 @@ module.exports = function planerRouten(api, bt) {
     }
     const status = req.query.status ? v.auswahl(String(req.query.status), 'status', ['offen', 'erledigt']) : null;
     res.json(db.alle(`SELECT * FROM plan_anfrage ${status ? 'WHERE status = ?' : ''} ORDER BY zeit DESC LIMIT 200`, ...(status ? [status] : []))
-      .filter((a) => istPlaner(req.ctx) || (a.baustelle_id && eigeneBs(req.ctx, a.baustelle_id)) || a.von === req.ctx.benutzer.id).map(anfrageJson));
+      .map(anfrageJson));
   });
   api.put('/plan/anfragen/:id', (req, res) => {
     const a = db.eins('SELECT * FROM plan_anfrage WHERE id = ?', v.pfadId(req.params.id));
     if (!a) throw nichtGefunden('Anfrage nicht gefunden.');
-    if (!istPlaner(req.ctx) && !(a.baustelle_id && eigeneBs(req.ctx, a.baustelle_id))) throw keinZugriff();
+    if (!istPlaner(req.ctx)) throw keinZugriff(); // 15.4: nicht mehr „Bauleiter der Baustelle“
     const body = v.objekt(req.body);
     v.auswahl(body.status, 'status', ['erledigt']);
     const antwort = body.antwort == null ? null : v.text(body.antwort, 'antwort', { max: 500, pflicht: false }) || null;
@@ -620,8 +620,7 @@ module.exports = function planerRouten(api, bt) {
   const ABSCHNITT_NAMEN = { erdbau: 'Erdbau', kanal: 'Kanal', unterbau: 'Unterbau', pflaster: 'Pflaster', asphalt: 'Asphalt', eigen: 'Abschnitt' };
   const abschnittJson = (a) => ({ id: a.id, baustelleId: a.baustelle_id, art: a.art, name: a.name, von: a.von, bis: a.bis, sortierung: a.sortierung, version: a.version });
   function zeitplanSicht(ctx, bs) {
-    if (istPlaner(ctx)) return true;
-    if (ctx.benutzer.rolle === 'bauleiter') return bs.bauleiter_id === ctx.benutzer.id;
+    if (istPlaner(ctx)) return true; // 15.4: Bauleiter wie Büro über stammdaten, nie über bauleiterId
     if (ctx.benutzer.rolle === 'polier') return baustelleImBereich(ctx.benutzer, bs);
     return false;
   }
@@ -699,11 +698,8 @@ module.exports = function planerRouten(api, bt) {
 
   /* ================= Fuhraufträge (12.8b) ================= */
   const fahrzeug = (A) => A && (['lkw', 'pkw', 'bus', 'anhaenger'].includes(A.klasse) || A.kennzeichen);
-  function fuhreRechte(ctx, f) {
-    if (istPlaner(ctx)) return true;
-    if (ctx.benutzer.rolle !== 'bauleiter') return false;
-    return [JSON.parse(f.von), JSON.parse(f.nach)].some((h) => h.baustelleId && eigeneBs(ctx, h.baustelleId));
-  }
+  // 15.4: Fuhren planen allein mit stammdaten (kein Sonderweg über bauleiterId)
+  const fuhreRechte = (ctx) => istPlaner(ctx);
   function fuhrFelder(body, alt) {
     const f = {};
     const E = P.einstellungen(db);
@@ -772,7 +768,7 @@ module.exports = function planerRouten(api, bt) {
   api.post('/plan/fuhren', (req, res) => {
     const body = v.objekt(req.body);
     const f = fuhrFelder(body, null);
-    if (!fuhreRechte(req.ctx, { von: f.von, nach: f.nach })) throw keinZugriff('Fuhren planen Büro, GF und Bauleiter (für eigene Baustellen).');
+    if (!fuhreRechte(req.ctx, { von: f.von, nach: f.nach })) throw keinZugriff('Fuhren plant, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
     if (f.reihenfolge === undefined) f.reihenfolge = (db.eins('SELECT MAX(reihenfolge) AS m FROM plan_fuhre WHERE datum = ? AND anlage_id = ?', f.datum, f.anlage_id).m || 0) + 10;
     const k = Object.keys(f);
     const r = db.lauf(`INSERT INTO plan_fuhre (${k.join(', ')}, erstellt, erstellt_von, geaendert) VALUES (${k.map(() => '?').join(', ')}, ?, ?, ?)`, ...k.map((x) => f[x]), jetzt(), req.ctx.benutzer.id, jetzt());
@@ -972,10 +968,9 @@ module.exports = function planerRouten(api, bt) {
     return new Set(ids.map(Number));
   }
   function druckRolle(ctx) {
-    if (istPlaner(ctx)) return 'planer';
-    if (ctx.benutzer.rolle === 'bauleiter') return 'bauleiter';
+    if (istPlaner(ctx)) return 'planer'; // 15.4: Bauleiter wie Büro über stammdaten
     if (ctx.benutzer.rolle === 'polier') return 'polier';
-    throw keinZugriff('Den Einteilungsplan drucken Büro, GF, Bauleiter und Poliere.');
+    throw keinZugriff('Den Einteilungsplan drucken Planer (Recht stammdaten) und Poliere.');
   }
   /** Partie des Poliers: Stamm-Baustelle eine seiner Baustellen bzw. über seine Kolonne eingeteilt */
   function partieVon(ich, K) {
@@ -1023,7 +1018,7 @@ module.exports = function planerRouten(api, bt) {
         .filter((f) => f.nach && f.nach.baustelleId && baustelleImBereich(ich, K.baustellen.get(f.nach.baustelleId)));
       entwurf = false;
     } else {
-      const sicht = (bsId) => rolle === 'planer' || eigeneBs(ctx, bsId);
+      const sicht = () => true; // Planer (15.4): alle Baustellen
       const { einsaetze: liste, vorschau } = tagEinsaetze(d, K, voll);
       eingeteilt = new Set(liste.flatMap((e) => e.personen.map((p) => p.benutzer_id)));
       einsaetze = liste.filter((e) => sicht(e.baustelle_id)).map((e) => ({ ...P.einsatzJson(e, K, { notizen: true }), vorschau: Boolean(vorschau) }));
