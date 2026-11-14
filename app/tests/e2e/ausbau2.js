@@ -94,6 +94,24 @@ async function stammdatenUndLebenslauf(h, z) {
   await page.waitForFunction(() => !document.querySelector('#lg-verlauf [data-lg-weg]'));
   await toastWeg();
   await page.locator('dialog[open] [data-zu]').first().click();
+  // N-078: erste Lohngruppe über die Oberfläche → Datum leer, gilt von Anfang an (Basisstand 2000-01-01)
+  {
+    const ohne = await api('POST', '/benutzer', { name: `E2E Ohne Lohngruppe ${k}`, rolle: 'mitarbeiter', pin: '4826' });
+    pruef(ohne.status === 201 || ohne.status === 200, `A2-Lohn: Person ohne Lohngruppe anlegen → ${ohne.status} ${JSON.stringify(ohne.json).slice(0, 200)}`);
+    await geh('/benutzer');
+    await page.locator(`[data-bearb="${ohne.json.id}"]`).first().click();
+    await page.waitForSelector('dialog[open] #bf');
+    const lgErst = (await page.locator('#bf [name="lohngruppe"] option').evaluateAll((o) => o.map((x) => x.value))).find((v) => v);
+    await page.selectOption('#bf [name="lohngruppe"]', lgErst);
+    pruef(await page.locator('#lg-ab').inputValue() === '', 'A2-Lohn: erste Lohngruppe – „gültig ab“ ist vorbelegt (soll leer = von Anfang an)');
+    pruef(await page.locator('#lg-anfang').isVisible(), 'A2-Lohn: Hinweis „leer = von Anfang an“ fehlt');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open] #bf'));
+    await toastWeg();
+    const v0 = (await api('GET', `/benutzer/${ohne.json.id}/lohngruppen-verlauf`)).json;
+    pruef(Array.isArray(v0) && v0.length === 1 && v0[0].gueltigAb === '2000-01-01' && v0[0].lohngruppeId === lgErst, `A2-Lohn: erste Lohngruppe gilt nicht von Anfang an (${JSON.stringify(v0).slice(0, 200)})`);
+    await api('PUT', `/benutzer/${ohne.json.id}`, { aktiv: false });
+  }
   // Bauvorhaben Y für den Lebenslauf (Bauleiter zugeteilt)
   const leute = (await api('GET', '/mitarbeiter')).json;
   const bl = leute.find((m) => m.name === 'Stefan Aigner');
