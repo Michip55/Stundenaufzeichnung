@@ -876,3 +876,40 @@ Ein Antrag fasst mehrere Tage zusammen (`antragId`, Zeichenkette: neue Anträge 
 - **Schlechtwetter durch den Polier** für Personen seiner Partie (`POST /abwesenheiten` bzw. `/abwesenheiten/zeitraum` mit `code:"SW"`): wird **immer angenommen** – keine 409, kein `uebersprungen`, keine Auskunft über bestehende Abwesenheiten. Antwort 201 `{meldungId, benutzerId, von, bis, code:"SW", arbeitstage, text:"Schlechtwetter gemeldet – das Büro bestätigt.", status:"gemeldet"}` (Vorschau 200 mit `vorschau:true`, `arbeitstage` nur nach Kalender). Intern werden `SW`-Tage `beantragt` nur an Tagen ohne Eintrag (oder mit abgelehntem) angelegt; Konflikte löst das Büro. **Eine** Benachrichtigung an Büro/GF. Tabelle `sw_meldung` (Migration 26).
   - `GET /abwesenheiten/sw-meldungen` → `[{id, polierId, benutzerId, name, von, bis, status:"gemeldet"|"bestaetigt", erstellt, bestaetigt?}]` (Polier: eigene Meldungen, nur `gemeldet`/`bestaetigt`; Büro/Lohn/Bauleiter/GF: alle; Mitarbeiter 403).
   - `POST /abwesenheiten/sw-meldungen/:id/bestaetigen` (`stammdaten`/`lohn`, Vier-Augen-Prinzip) → 200; genehmigt die noch beantragten SW-Tage; schon bestätigt → 409. Die Meldung wird auch `bestaetigt`, sobald das Büro alle Tage einzeln entschieden hat. Benachrichtigung an den Polier „Schlechtwetter-Meldung bestätigt“.
+
+### 15.3 Korrekturen Rechte-Kontrolle – Benachrichtigungen (Befunde F-004, F-007, F-052, F-054, F-056; verbindlich)
+Ersetzt ältere Angaben „an Büro/GF“, „an das Büro“, „an Büro und Bauleiter der Baustelle“ bei Benachrichtigungen (6, 7, 9, 11, 12.3, 12.5, 12.8, 12.8a/b, 12.15, 12.17, 12.19, 12.24, 13.2). Regeln: Rechte entscheiden, nie der Rollenname (Bauleiter = Büro, 13.1); Polier/Mitarbeiter erhalten nie €, Rechnungsnummern, Lohndaten oder fremde Abwesenheiten (13.2).
+
+- **Gespeicherte Rechte:** Jede Benachrichtigung trägt `erfordert` (Spalte `benachrichtigung.erfordert`, JSON-Liste, **Migration 39** mit Rückfüllung des Bestands). Ein Eintrag ist ein Recht oder eine Auswahl `"a|b"` (eines genügt); alle Einträge müssen erfüllt sein; `[]` = Meldung an die betroffene Person selbst. Abgeleitet beim Erstellen aus Typ und Schlüssel (`server/benachrichtigung.js`, `erfordertFuer`), Aufrufer können Rechte je Empfänger ergänzen (nie weniger):
+
+  | Typ / Meldung | erfordert |
+  |---|---|
+  | `budget` | `kalk_sehen` |
+  | `rechnung` (fällig, Mahnstufe vorschlagen – enthält die Rechnungsnummer) | `preise_sehen` |
+  | `baustelle`: Schlussrechnung fehlt, Bankgarantie, Haftrücklass | `preise_sehen` |
+  | `baustelle`: Gewährleistung endet, Fertigstellung gemeldet | `stammdaten` |
+  | `abwesenheit`/`urlaub` über **andere** Personen (Anträge, Schlechtwetter gemeldet, Antrag offen) | `lohn\|stammdaten` |
+  | `abwesenheit` an die Person selbst (genehmigt/abgelehnt/gelöscht, SW bestätigt) | `[]` |
+  | `azg` über andere Personen / eigene | `lohn` / `[]` |
+  | `plan`: Plan-Erinnerung (nennt Abwesende), Änderung angefragt, Fuhre prüfen | `stammdaten` |
+  | `plan`: eigene Einsätze, Partie-Meldung, eigene Anfrage erledigt | `[]` |
+  | `bericht` (zur Freigabe) | `bericht_freigeben` |
+  | `email` (Versandfehler) | `stammdaten` |
+  | `sicherheit`: Konto gesperrt / Rollenwechsel, Datensicherung / eigene 2FA | `benutzer\|stammdaten` / `benutzer` / `[]` |
+  | `fuhrpark`: Wochenübersicht, unplausibler Zählerstand, gesperrte Anlage im Bericht | `fuhrpark` |
+  | `fuhrpark`: Fälligkeit, Sperre, Mangel/Schaden | je Empfänger: über das Recht Benachrichtigte `fuhrpark` bzw. `fuhrpark\|stammdaten` (Schäden mit Ursache); Verantwortliche und Polier/Bauleiter des Standorts `[]` (Standort ohne Ursache, F-13) |
+  | unbekannter Typ | `stammdaten` (streng) |
+
+- **Prüfung bei jedem Lesen mit den AKTUELLEN Rechten** (Matrix ∪ Ausnahmen − Sperren, aktives Konto): `GET /benachrichtigungen` (gefiltert vor der Begrenzung auf 200), `POST /benachrichtigungen/:id/gelesen` (nicht sichtbar → **404** wie nicht vorhanden), `POST /benachrichtigungen/alle-gelesen` (markiert und zählt nur sichtbare). Nicht mehr sichtbare Einträge werden **ausgeblendet, nicht gelöscht** und erscheinen wieder, wenn das Recht zurückkommt (Rollenwechsel zurück, Matrix-Recht wieder erteilt). Jede künftige Route über Benachrichtigungen (Anzahl, Badge, einzelne) muss dieselbe Prüfung (`darfSehen`) verwenden. Nicht lesbares `erfordert` ist nie sichtbar; `NULL` (Altbestand vor der Rückfüllung) wird abgeleitet.
+- **Push (12.3):** Der Versand wartender Meldungen (`push IS NULL`) prüft **zum Versandzeitpunkt** aktive Konto, aktuelle Rechte (`erfordert`), Push-Typ der aktuellen Rolle und Einstellung – vor der Zustellung und erneut **vor jedem Abo**. Nicht mehr zulässige Meldungen werden verworfen (`push:"aus"`) und nie nachgeholt; das gilt auch für jeden erneuten Zustellversuch (`push.zustellen`). Push-Abos und Allowlist bleiben unverändert.
+- **Empfänger über Rechte** (`empfaengerMitRecht(db, recht, {baustelleId?, ohne?})`, aktive Benutzer mit dem effektiven Recht; `baustelleId` = nur Benutzer, deren Bereich die Baustelle umfasst). Wer das Recht hat, erhält die Meldung – Bauleiter wie Büro, die GF, wenn sie das Recht hat. Texte mit geschützten Daten entstehen für Empfänger ohne Recht gar nicht erst (z. B. ohne `preise_sehen` keine Rechnungsnummer):
+  - Rechnung fällig / Mahnstufe vorschlagen, Schlussrechnung fehlt, Bankgarantie, Haftrücklass → `preise_sehen`
+  - Budget-Alarm → `kalk_sehen`; Einstellung `empfaenger`: `buero` = alle mit `kalk_sehen` außer der GF (also auch alle Bauleiter), `gf` = GF, `bauleiter` = Bauleiter der Baustelle (`bauleiterId`); nie Polier/Mitarbeiter
+  - Abwesenheits-/Urlaubsantrag, Schlechtwetter gemeldet, Antrag offen (> 3 Tage) → `stammdaten|lohn` (ohne die Person selbst)
+  - AZG-Hinweis → die Person selbst und `lohn` (ohne die Person)
+  - Konto gesperrt → `stammdaten|benutzer` (wer entsperrt, ohne die Person); Rollenwechsel durch das Büro, Datensicherung → `benutzer` (GF)
+  - E-Mail nicht zugestellt, Fuhre prüfen, Fertigstellung gemeldet, Änderung angefragt, Plan-Erinnerung (für Bauleiter derselbe Text wie für das Büro), Gewährleistung endet → `stammdaten`
+  - Bericht zur Freigabe → `bericht_freigeben` mit der Baustelle im Bereich
+  - Servicebuch-Fälligkeiten, Sperren, Mängel → `fuhrpark` (Schäden zusätzlich `stammdaten`), dazu Verantwortliche und Standort wie bisher (11)
+  - Eine Kolonnen-Warnung als Benachrichtigung gibt es nicht (Kolonne meldet nur in der Antwort, 13.2).
+- **Prüfung im Code:** `tests/api/benachrichtigung-rechte.test.js` (Herabstufung Büro → Polier mit Meldungen jeder Art über alle Routen und die Push-Warteschlange; Bauleiter → Polier; Matrix-Entzug für Büro und Bauleiter gleich; Bauleiter erhält Büro-Meldungen; wartende Pushes; Parität Ableitung ↔ Migration 39; Quelltext-Regel: keine Empfänger-Abfrage `FROM benutzer … rolle = / IN ('buero'|'gf'|'bauleiter')`).
