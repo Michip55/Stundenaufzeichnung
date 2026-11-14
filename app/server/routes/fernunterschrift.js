@@ -97,6 +97,7 @@ function intern(api, bt) {
   const { db } = bt;
   const jetzt = () => bt.uhr().toISOString();
   function bericht(req) {
+    B.pruefeGrundrecht(req.ctx, true); // 15.7 (F-036): Recht vor Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     B.pruefeSchreiben(req.ctx, b.baustelle);

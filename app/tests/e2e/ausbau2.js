@@ -1838,5 +1838,5 @@ async function intern(h) {
 }
 
 // Reihenfolge der Abschnitte (run.js ruft sie nacheinander auf; E2E_NUR_A2=stamm,planer wählt einzelne)
-const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern, planerKorr: (h) => require('./planer-korrektur').planerKorrektur(h) };
+const TEILE = { stamm: stammdatenUndLebenslauf, planer, dokumente: dokumenteUndRechnungen, urlaub, dienste, arbeitstag, geteilt, krank, intern, planerKorr: (h) => require('./planer-korrektur').planerKorrektur(h), restApp: (h) => require('./rest-app').restApp(h) };
 module.exports = { TEILE, zieh, naechsterArbeitstag, plusTage, KENN };

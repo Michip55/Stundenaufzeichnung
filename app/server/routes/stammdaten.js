@@ -238,6 +238,7 @@ module.exports = function stammdatenRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/leistungen', (req, res) => {
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen erfassen darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).'); // 15.7 (F-036)
     const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
     if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen erfassen darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
@@ -257,8 +258,8 @@ module.exports = function stammdatenRouten(api, bt) {
   });
 
   api.delete('/baustellen/:id/leistungen/:lid', (req, res) => {
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen stornieren darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).'); // 15.7 (F-036): vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen stornieren darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
     const lid = v.pfadId(req.params.lid, 'Leistungsmeldungs-ID');
     const m = db.eins('SELECT * FROM leistungsmeldung WHERE id = ? AND baustelle_id = ?', lid, bs.id);
     if (!m) throw nichtGefunden('Leistungsmeldung nicht gefunden.');

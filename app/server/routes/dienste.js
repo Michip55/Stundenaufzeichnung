@@ -83,6 +83,7 @@ module.exports = function diensteRouten(api, bt) {
     res.json(await W.wetterFuer(bt, bs, datum));
   });
   api.post('/berichte/:id/wetter', async (req, res) => {
+    B.pruefeGrundrecht(req.ctx, true); // 15.7 (F-036): Recht vor Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     B.pruefeSchreiben(req.ctx, b.baustelle);
@@ -144,6 +145,8 @@ module.exports = function diensteRouten(api, bt) {
     res.json({ ok: true });
   });
   api.post('/berichte/:id/email', (req, res) => {
+    // 15.7 (F-036): ohne stammdaten und ohne bericht_freigeben sofort 403 – vor der Existenzprüfung
+    if (!req.ctx.hat('stammdaten') && !req.ctx.hat('bericht_freigeben')) throw keinZugriff('Berichte versenden Bauleitung und Büro.');
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     B.pruefeLesen(req.ctx, b.baustelle);

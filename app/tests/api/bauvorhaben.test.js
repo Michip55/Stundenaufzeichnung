@@ -112,7 +112,8 @@ test('Bauvorhaben: Phasen, Archiv, Erinnerungen', async (t) => {
     assert.equal((await c.bauleiter.get(`/baustellen/${BS.pitten}`)).daten.schlussrechnung.betrag, 123456.79);
     const k = (await c.buero.get('/baustellen-kennzahlen')).daten;
     assert.equal(k.phasen.schlussrechnung, 1);
-    assert.equal(k.offeneSchlussrechnungen.summe, 123456.79);
+    // 15.7 (Rest N-057): ohne erfasste Schlussrechnung steht der Phasen-Betrag (netto) getrennt, nicht in der Brutto-Summe
+    assert.deepEqual(k.offeneSchlussrechnungen, { anzahl: 1, summe: 0, ohneRechnung: { anzahl: 1, netto: 123456.79 } });
     assert.equal((await c.polier.get('/baustellen-kennzahlen')).status, 403);
     assert.equal((await c.bauleiter.get('/baustellen-kennzahlen')).daten.phasen.schlussrechnung, 1);
   });

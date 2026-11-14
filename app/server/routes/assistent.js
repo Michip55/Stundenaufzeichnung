@@ -47,6 +47,7 @@ module.exports = function assistentRouten(api, bt) {
     materialien: db.alle('SELECT id, code, name, einheit FROM material WHERE aktiv = 1')
   });
   function bericht(req, { offen = true } = {}) {
+    B.pruefeGrundrecht(req.ctx, true); // 15.7 (F-036): Recht vor Body/Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id ?? req.body.berichtId, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     B.pruefeSchreiben(req.ctx, b.baustelle);
@@ -80,6 +81,7 @@ module.exports = function assistentRouten(api, bt) {
 
   /* ---------- Diktat (12.10) ---------- */
   api.post('/bericht-assistent/text', async (req, res) => {
+    B.pruefeGrundrecht(req.ctx, true); // 15.7 (F-036)
     const body = v.objekt(req.body);
     const b = bericht({ ...req, params: { id: String(body.berichtId) } }, { offen: false });
     const text = v.text(body.text, 'text', { max: 5000 });

@@ -6,6 +6,7 @@ const v = require('../validierung');
 const { ungueltig, nichtGefunden, konflikt } = require('../fehler');
 const Bild = require('../fuhrpark-bild');
 const B = require('./berichte');
+const Belege = require('../belege');
 
 const MAX_FOTOS = 10;
 const MAX_PAPIER = 5;
@@ -21,9 +22,10 @@ function fotoJson(f, namen) {
   };
 }
 
-function fotosJson(db, berichtId) {
+/** Fotos des Berichts für `ctx` – Lieferscheine nur, wenn sichtbar (N-112, server/belege.js); ohne ctx keine Lieferscheine */
+function fotosJson(db, berichtId, ctx = null) {
   const namen = new Map(db.alle('SELECT id, name FROM benutzer').map((b) => [b.id, b.name]));
-  return db.alle('SELECT * FROM bericht_foto WHERE bericht_id = ? ORDER BY id', berichtId).map((f) => fotoJson(f, namen));
+  return db.alle('SELECT * FROM bericht_foto WHERE bericht_id = ? ORDER BY id', berichtId).filter((f) => Belege.berichtFotoSichtbar(ctx, f)).map((f) => fotoJson(f, namen));
 }
 
 /**
@@ -36,6 +38,8 @@ function fotoSpeichern(bt, req, b, body, art = 'foto') {
   try { bild = Bild.bildPruefen(body.bildBase64); } catch (e) { throw ungueltig(e.message); }
   const gleich = db.eins('SELECT * FROM bericht_foto WHERE bericht_id = ? AND sha256 = ?', b.id, bild.sha256);
   // N-116: gleiches Bild nur innerhalb derselben Art zusammenführen – sonst 409 (keine fremde Art zurückgeben)
+  // N-112: ein fremd hochgeladener Lieferschein bleibt unsichtbar – auch nicht als „bestehendes Foto“ zurückgeben
+  if (gleich && !Belege.berichtFotoSichtbar(req.ctx, gleich)) throw konflikt('Dieses Bild liegt schon beim Bericht – bitte ein anderes Foto wählen.');
   if (gleich && gleich.art !== art) throw konflikt(`Dieses Bild liegt schon als ${ART_NAME[gleich.art] || gleich.art} beim Bericht – bitte ein anderes Foto wählen.`, { fotoId: gleich.id, art: gleich.art });
   if (gleich) return { foto: gleich, neu: false };
   if (art === 'papier') {
@@ -63,9 +67,9 @@ function berichtGeaendert(bt, berichtId) {
 /** aktuelle Berichtsversion für Antworten der Anhang-Routen (`berichtVersion`) */
 const berichtVersion = (db, berichtId) => db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version;
 
-/** Fotoanhang für das PDF (Fotos und Lieferscheine, ohne Papierbericht) */
-function fotoAnhang(bt, berichtId) {
-  return bt.db.alle("SELECT * FROM bericht_foto WHERE bericht_id = ? AND art <> 'papier' ORDER BY id", berichtId).map((f) => {
+/** Fotoanhang für das PDF (Fotos und Lieferscheine, ohne Papierbericht) – Lieferscheine nur, wenn für ctx sichtbar (N-112) */
+function fotoAnhang(bt, berichtId, ctx = null) {
+  return bt.db.alle("SELECT * FROM bericht_foto WHERE bericht_id = ? AND art <> 'papier' ORDER BY id", berichtId).filter((f) => Belege.berichtFotoSichtbar(ctx, f)).map((f) => {
     let daten = null;
     try { daten = fs.readFileSync(Bild.dateiPfad(ordner(bt), f.datei)); } catch (_) { /* fehlt */ }
     return { mime: daten ? f.mime : 'fehlt', daten, beschreibung: f.beschreibung, dateiname: f.dateiname };
@@ -79,6 +83,7 @@ module.exports = function berichtFotoRouten(api, bt) {
   const namen = () => new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]));
 
   function bericht(req, schreiben) {
+    B.pruefeGrundrecht(req.ctx, schreiben); // 15.7 (F-036): Recht vor Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     if (schreiben) {
@@ -89,7 +94,8 @@ module.exports = function berichtFotoRouten(api, bt) {
   }
   function foto(req, b) {
     const f = db.eins('SELECT * FROM bericht_foto WHERE id = ? AND bericht_id = ?', v.pfadId(req.params.fid, 'Foto-ID'), b.id);
-    if (!f) throw nichtGefunden('Foto nicht gefunden.');
+    // N-112: fremd hochgeladener Lieferschein ohne Recht preise_sehen/stammdaten wie nicht vorhanden (keine Auskunft)
+    if (!f || !Belege.berichtFotoSichtbar(req.ctx, f)) throw nichtGefunden('Foto nicht gefunden.');
     return f;
   }
   const geaendert = (b) => berichtGeaendert(bt, b.id);
@@ -110,6 +116,8 @@ module.exports = function berichtFotoRouten(api, bt) {
   });
 
   api.delete('/berichte/:id/fotos/:fid', (req, res) => {
+    // 15.7 (F-036): ohne bericht_erstellen und ohne stammdaten (Papierbericht) sofort 403 – vor jeder Existenzprüfung
+    if (!req.ctx.hat('bericht_erstellen') && !req.ctx.hat('stammdaten')) throw require('../fehler').keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.');
     const b0 = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b0) throw nichtGefunden('Bericht nicht gefunden.');
     const f0 = db.eins('SELECT * FROM bericht_foto WHERE id = ? AND bericht_id = ?', v.pfadId(req.params.fid, 'Foto-ID'), b0.id);

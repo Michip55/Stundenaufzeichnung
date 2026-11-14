@@ -69,9 +69,11 @@ export async function berichte(el, ctx) {
 }
 
 function neuerBericht(ctx, baustellen, vorwahl, datumVorschlag) {
-  const aktive = baustellen.filter((b) => (!b.status || b.status === 'aktiv') && !istIntern(b)); // 12.25: keine Berichte für interne Kostenstellen
   const eigene = (ctx.ich.baustellenIds || []).map(String);
-  const start = vorwahl || (aktive.find((b) => eigene.includes(String(b.id))) || aktive[0] || {}).id;
+  // 12.25: keine Berichte für interne Kostenstellen · 15.7 (F-048): nur Baustellen im eigenen Bereich (= Server-Prüfung baustelleImBereich, /auth/ich baustellenIds)
+  const aktive = baustellen.filter((b) => (!b.status || b.status === 'aktiv') && !istIntern(b) && eigene.includes(String(b.id)));
+  if (!aktive.length) { toast('Für Ihre Baustellen kann derzeit kein Bericht angelegt werden.', 'warn'); return; }
+  const start = (vorwahl && aktive.some((b) => String(b.id) === String(vorwahl)) ? vorwahl : null) || (aktive[0] || {}).id;
   const d = dialog({
     titel: 'Neuer Bautagesbericht',
     inhalt: `<form id="nb" class="stack-s">
@@ -381,12 +383,13 @@ export async function bericht(el, ctx) {
   }
   function abschlussHtml() {
     const u = b.unterschriften;
-    const darfFrei = ctx.kann('bericht_freigeben');
+    // 15.7 (F-049): wer die AN-Unterschrift selbst erfasst hat, gibt nicht frei (Vier-Augen-Prinzip, außer GF) – Knopf gar nicht zeigen
+    const darfFrei = ctx.kann('bericht_freigeben') && !b.freigabeVierAugen;
     return `
       <div class="pf-two sigs">${sigHtml('an', 'AUFTRAGNEHMER', 'oder dessen Beauftragter')}${sigHtml('bh', 'BAUHERR', 'oder dessen bevollmächtigter Vertreter')}</div>
       ${signierbar() && !signiert() ? banner('info', 'Mit der ersten Unterschrift wird der Inhalt gesperrt. Bitte vorher alles prüfen.') : ''}
       <div class="final-bar">
-        <div class="final-state">${statusChip(b.status)}<span class="muted sm">${b.status === 'entwurf' ? `${(u.an ? 1 : 0) + (u.bh ? 1 : 0)} von 2 Unterschriften` : b.status === 'unterschrieben' ? 'Wartet auf Freigabe durch Büro/Bauleitung' : 'Freigegeben – fließt in die Auswertungen ein'}</span></div>
+        <div class="final-state">${statusChip(b.status)}<span class="muted sm">${b.status === 'entwurf' ? `${(u.an ? 1 : 0) + (u.bh ? 1 : 0)} von 2 Unterschriften` : b.status === 'unterschrieben' ? (b.freigabeVierAugen ? 'Wartet auf Freigabe durch eine zweite Person (Vier-Augen-Prinzip)' : 'Wartet auf Freigabe durch Büro/Bauleitung') : 'Freigegeben – fließt in die Auswertungen ein'}</span></div>
         <a class="btn ghost" id="pdf" href="/api/berichte/${id}/pdf${(b.fotos || []).length ? '?fotos=1' : ''}" target="_blank" rel="noopener">${ic('file')}PDF öffnen</a>
         ${mailKnopf()}
         ${darfFrei && b.status !== 'freigegeben' ? `<button type="button" class="btn primary" id="freigeben" ${b.status === 'unterschrieben' ? '' : 'disabled'} ${b.status === 'unterschrieben' ? '' : 'title="Freigabe erst möglich, wenn beide unterschrieben haben"'}>${ic('check')}Freigeben</button>` : ''}
@@ -665,7 +668,7 @@ export async function bericht(el, ctx) {
     const sw = e.target.closest('[data-sig-weg]');
     if (sw) {
       if (!(await bestaetigen('Unterschrift zurückziehen?', 'Die Unterschrift wird gelöscht. Danach kann der Bericht wieder geändert werden und muss neu unterschrieben werden.', 'Zurückziehen', 'danger'))) return;
-      try { const neu = await del(`/berichte/${id}/unterschrift/${sw.dataset.sigWeg}`); b.unterschriften = (neu && neu.unterschriften) || {}; if (neu && neu.status) b.status = neu.status; if (neu && neu.version != null) b.version = neu.version; if (neu) b.geaendertNachUnterschrift = neu.geaendertNachUnterschrift; toast('Unterschrift zurückgezogen.'); zeichne(); }
+      try { const neu = await del(`/berichte/${id}/unterschrift/${sw.dataset.sigWeg}`); b.unterschriften = (neu && neu.unterschriften) || {}; if (neu && neu.status) b.status = neu.status; if (neu && neu.version != null) b.version = neu.version; if (neu) { b.geaendertNachUnterschrift = neu.geaendertNachUnterschrift; b.freigabeVierAugen = Boolean(neu.freigabeVierAugen); } toast('Unterschrift zurückgezogen.'); zeichne(); }
       catch (x) { toast(x.message, 'warn'); }
       return;
     }
@@ -784,6 +787,7 @@ export async function bericht(el, ctx) {
       const r = await post(`/berichte/${id}/unterschrift`, { rolle, name, bildPng: pad.png(), version: b.version }); // D-07: unterschrieben wird genau der angezeigte Stand
       const neu = r && r.unterschriften ? r : await get(`/berichte/${id}`);
       b.unterschriften = neu.unterschriften || {}; b.status = neu.status; if (neu.version != null) b.version = neu.version;
+      b.freigabeVierAugen = Boolean(neu.freigabeVierAugen); // 15.7 (F-049)
       delete pads[rolle];
       toast(b.status === 'unterschrieben' ? 'Beide Unterschriften vorhanden – Bericht abgeschlossen.' : 'Unterschrift gespeichert.');
       zeichne(); // Inhalt ist ab jetzt gesperrt (M-02)

@@ -3,7 +3,10 @@ const v = require('../validierung');
 const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const auth = require('../auth');
-const { eigeneBaustellenIds } = require('../rechte');
+const { eigeneBaustellenIds, ladeRechteFuer } = require('../rechte');
+
+/** 15.7 (F-059, Regel 2): Lohngruppe – auch die eigene – nur mit Recht stammdaten, lohn oder benutzer, nie nach Rollenname */
+const darfLohngruppe = (rechte) => ['stammdaten', 'lohn', 'benutzer'].some((r) => rechte.has(r));
 
 function benutzerJson(b, mitLohngruppe) {
   const o = { id: b.id, name: b.name, rolle: b.rolle };
@@ -106,7 +109,7 @@ module.exports = function authRouten(api, bt) {
     if (req.token) auth.beendeSitzung(db, req.token);
     const token = auth.neueSitzung(db, b.id, bt.uhr());
     auth.setzeCookie(req, res, token);
-    res.json({ benutzer: benutzerJson(b, true), mussPinAendern: b.muss_pin_aendern === 1 });
+    res.json({ benutzer: benutzerJson(b, darfLohngruppe(ladeRechteFuer(db, b))), mussPinAendern: b.muss_pin_aendern === 1 });
   }
 
   require('./zweifaktor')(api, bt, { anmelden, fehlversuch: (b, ip) => fehlversuch(bt, b, ip), zweiFaktorFehlversuch: (b, ip, o) => zweiFaktorFehlversuch(bt, b, ip, o), clientIp });
@@ -121,7 +124,7 @@ module.exports = function authRouten(api, bt) {
     if (!req.ctx) throw nichtAngemeldet();
     const b = req.ctx.benutzer;
     res.json({
-      benutzer: { ...benutzerJson(b, true), baustelleId: b.baustelle_id ?? null },
+      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null },
       rechte: [...req.ctx.rechte],
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,

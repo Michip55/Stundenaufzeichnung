@@ -321,11 +321,11 @@ module.exports = function abwesenheitsRouten(api, bt) {
 
   api.put('/abwesenheiten/antraege/:antragId', (req, res) => {
     const ctx = req.ctx;
+    if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT); // 15.4 (F-012), 15.7 (F-036): Rechte vor Validierung und Existenz, nie nach Rollenname
     const aid = antragPfad(req.params.antragId);
     const body = v.objekt(req.body);
     const status = v.auswahl(body.status, 'status', ['genehmigt', 'abgelehnt']);
     const antwortText = body.antwort == null || body.antwort === '' ? null : v.text(body.antwort, 'antwort', { max: 300 });
-    if (!darfEntscheiden(ctx)) throw keinZugriff(ENTSCHEIDEN_TEXT); // 15.4 (F-012): Rechte vor Existenz, nie nach Rollenname
     const zeilen = db.alle(`SELECT a.*, b.name, b.baustelle_id AS stamm FROM abwesenheit a JOIN benutzer b ON b.id = a.benutzer_id WHERE ${ANTRAG_SQL} = ? ORDER BY a.datum`, aid);
     if (!zeilen.length) throw nichtGefunden('Antrag nicht gefunden.');
     const a0 = zeilen[0];

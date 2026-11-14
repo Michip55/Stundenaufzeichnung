@@ -18,17 +18,18 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   };
 
   api.post('/baustellen/:id/phase', (req, res) => {
+    BV.pruefePhaseRecht(req.ctx); // R-07: Recht vor Version; 15.7 (F-036): auch vor Existenz und Body
     const bs = baustelleAusPfad(db, req.params.id);
     const body = v.objekt(req.body);
-    BV.pruefePhaseRecht(req.ctx, bs); // R-07: Recht vor Version (Unberechtigte erfahren nichts über den Zustand)
     version(body, bs);
     db.transaktion(() => BV.wechslePhase(bt, req.ctx, bs, body));
     res.json(detail(req, bs.id));
   });
 
   api.post('/baustellen/:id/fertigmeldung', (req, res) => {
-    const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
+    if (ich.rolle !== 'polier') throw keinZugriff('Die Fertigstellung meldet der Polier der Baustelle; Büro und Bauleiter bestätigen sie über die Phase.'); // 15.7 (F-036): vor Existenz
+    const bs = baustelleAusPfad(db, req.params.id);
     // Inhaber 13.11.2026: Bauleiter = Büro – er meldet nicht, er bestätigt (Phasenwechsel „fertiggestellt“)
     const zustaendig = ich.rolle === 'polier' && baustelleImBereich(ich, bs);
     if (!zustaendig) throw keinZugriff('Die Fertigstellung meldet der Polier der Baustelle; Büro und Bauleiter bestätigen sie über die Phase.');
@@ -72,8 +73,8 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
   });
 
   api.put('/baustellen/:id/abschluss', (req, res) => {
+    if (!BV.istPlaner(req.ctx)) throw keinZugriff('Gewährleistung und Haftrücklass pflegt, wer das Recht stammdaten hat.'); // 15.7 (F-036): vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!BV.istPlaner(req.ctx)) throw keinZugriff('Gewährleistung und Haftrücklass pflegt, wer das Recht stammdaten hat.');
     const body = v.objekt(req.body);
     version(body, bs);
     const set = {};
@@ -117,13 +118,18 @@ module.exports = function bauvorhabenRouten(api, bt, { baustelleJson, sichtbar }
       offeneSchlussrechnungen: { anzahl: offen.length }
     };
     if (offen.every((b) => darfPreise(req.ctx, b)) && req.ctx.hat('preise_sehen')) {
-      // N-057: offener Betrag der erfassten (nicht stornierten) Schlussrechnungen; nur ohne erfasste Schlussrechnung der Phasen-Betrag
+      // N-057: offener Betrag der erfassten (nicht stornierten) Schlussrechnungen.
+      // 15.7 (Rest N-057): EINE Basis je Feld – `summe` = offener Zahlbetrag (brutto abzüglich Rücklass, wie Offene Posten);
+      // der Phasen-Betrag (netto, ohne erfasste Schlussrechnung) wird nicht mehr hineingemischt, sondern getrennt ausgewiesen
       const R = require('../rechnungen');
-      o.offeneSchlussrechnungen.summe = R.r2(offen.reduce((a, b) => {
+      let summe = 0, ohneAnzahl = 0, ohneNetto = 0;
+      for (const b of offen) {
         const sr = db.alle("SELECT * FROM rechnung WHERE baustelle_id = ? AND typ = 'schluss' AND storniert IS NULL", b.id);
-        if (sr.length) return a + sr.reduce((x, r) => x + R.rechnungStand(db, r).offen, 0);
-        return a + ((parseJson(b.schlussrechnung, {}) || {}).betrag || 0);
-      }, 0));
+        if (sr.length) summe += sr.reduce((x, r) => x + R.rechnungStand(db, r).offen, 0);
+        else { ohneAnzahl += 1; ohneNetto += (parseJson(b.schlussrechnung, {}) || {}).betrag || 0; }
+      }
+      o.offeneSchlussrechnungen.summe = R.r2(summe);
+      if (ohneAnzahl) o.offeneSchlussrechnungen.ohneRechnung = { anzahl: ohneAnzahl, netto: R.r2(ohneNetto) };
     }
     res.json(o);
   });

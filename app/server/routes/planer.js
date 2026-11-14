@@ -17,6 +17,7 @@ const EINPLANBAR = ['mitarbeiter', 'polier'];
 // 15.4 (F-016/F-017/F-019/F-021): planen und den Plan lesen allein mit dem Recht stammdaten – nie nach Rollenname
 // oder bauleiterId (Bauleiter = Büro, 13.1). Eine Matrix-Änderung der GF wirkt sofort und für jeden Inhaber gleich.
 const istPlaner = (ctx) => ctx.hat('stammdaten');
+const Belege = require('../belege');
 const zeigtAbwesenheit = (ctx) => require('../datenschutz').stufe(ctx) === 'voll'; // stammdaten|lohn: echter Grund (15.4)
 
 module.exports = function planerRouten(api, bt) {
@@ -260,6 +261,7 @@ module.exports = function planerRouten(api, bt) {
     }
   }
   function einsatzLaden(req, schreiben) {
+    if (schreiben) pruefeBearbeiten(req.ctx); // 15.7 (F-036): Rechte vor Existenz
     const id = v.pfadId(req.params.id, 'Einsatz-ID');
     const e = db.eins('SELECT * FROM plan_einsatz WHERE id = ? AND geloescht = 0', id);
     if (!e) throw nichtGefunden('Einsatz nicht gefunden.');
@@ -275,6 +277,7 @@ module.exports = function planerRouten(api, bt) {
   }
 
   api.post('/plan/einsaetze', (req, res) => {
+    pruefeBearbeiten(req.ctx); // 15.7 (F-036): Rechte vor Validierung
     const body = v.objekt(req.body);
     const datum = datumPruefen(body.datum);
     const bsId = v.id(body.baustelleId, 'baustelleId');
@@ -535,6 +538,35 @@ module.exports = function planerRouten(api, bt) {
     res.json({ ok: true });
   });
 
+  /**
+   * 15.7 (F-055/F-057): Sicht des Poliers (ohne Recht stammdaten) auf einen veröffentlichten Stand – EINE Regel für
+   * /plan/partie (JSON, #/partie) und das Polier-PDF (druckTag):
+   *  - Notizen: Baustellen- und Geräte-Notiz nur auf eigenen Baustellen (Bereich), Personen-Notiz nur eigene, Partie, Kolonne.
+   *  - Fortgeschriebene Tage (12.8c): wegen Abwesenheit still ausgelassene Personen (plan_tag.uebersprungen) bleiben in der
+   *    Liste (wie am Quelltag, auch als Fahrer ihres Geräts), sofern sie an dem Tag nicht anders eingeteilt sind. Liste, Anzahl
+   *    und Kolonnen hängen so nie von fremden Abwesenheiten ab. Wer stammdaten hat (Planer), sieht den echten Stand.
+   */
+  function polierStand(ich, K, st, { partie, eingeteilt, gemerkt }) {
+    const eigen = baustelleImBereich(ich, K.baustellen.get(st.baustelleId));
+    const dazu = gemerkt.filter((g) => g.baustelleId === st.baustelleId && g.benutzerId !== ich.id && !eingeteilt.has(g.benutzerId) && !st.personen.some((p) => p.benutzerId === g.benutzerId))
+      .filter((g, i, l) => l.findIndex((x) => x.benutzerId === g.benutzerId) === i)
+      .map((g) => { const b = K.personen.get(g.benutzerId) || { name: '?', rolle: null }; return { benutzerId: g.benutzerId, name: b.name, rolle: b.rolle, ...(g.kolonnePolierId ? { kolonnePolierId: g.kolonnePolierId } : {}), notiz: '', fahrerAnlagen: g.fahrerAnlagen || [] }; });
+    const personen = [...st.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })), ...dazu.map(({ fahrerAnlagen, ...p }) => p)];
+    const kol = new Map();
+    for (const p of personen) if (p.kolonnePolierId) kol.set(p.kolonnePolierId, (kol.get(p.kolonnePolierId) || 0) + 1);
+    return {
+      ...st, notiz: eigen ? st.notiz : '',
+      personen,
+      anlagen: st.anlagen.map((a) => {
+        const z = !a.fahrer ? dazu.find((p) => p.fahrerAnlagen.includes(a.anlageId)) : null;
+        return { ...a, notiz: eigen ? a.notiz : '', ...(z ? { fahrer: { benutzerId: z.benutzerId, name: z.name } } : {}) };
+      }),
+      kolonnen: [...kol].map(([polierId, anzahl]) => ({ polierId, name: (K.personen.get(polierId) || {}).name || '?', anzahl }))
+    };
+  }
+  /** Für polierStand: am Tag eingeteilte Personen (alle veröffentlichten Stände) und gemerkte Abwesende */
+  const polierTagDaten = (staende, d) => ({ eingeteilt: new Set(staende.flatMap((x) => x.personen.map((p) => p.benutzerId))), gemerkt: P.gemerkteAbwesende(db, d) });
+
   /* ---------- Meine Partie (Polier) ---------- */
   api.get('/plan/partie', (req, res) => {
     const ich = req.ctx.benutzer;
@@ -552,8 +584,12 @@ module.exports = function planerRouten(api, bt) {
     const K = kontext(d, d);
     const lese = new Map(db.alle('SELECT benutzer_id, gelesen, bestaetigt FROM plan_mitteilung WHERE datum = ?', d).map((x) => [x.benutzer_id, x]));
     const S = K.S;
-    const einsaetze = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => JSON.parse(e.veroeffentlicht_stand))
+    const alleStaende = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => JSON.parse(e.veroeffentlicht_stand));
+    const planer = istPlaner(req.ctx);
+    const td = planer ? null : { partie: partieVon(ich, K), ...polierTagDaten(alleStaende, d) };
+    const einsaetze = alleStaende
       .filter((st) => st.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(st.baustelleId)))
+      .map((st0) => (planer ? st0 : polierStand(ich, K, st0, td))) // 15.7 (F-055/F-057): dieselbe Regel wie das Polier-PDF
       .map((st) => ({
         ...st,
         personen: st.personen.map((p) => { const l = lese.get(p.benutzerId); const tel = (db.eins('SELECT telefon FROM benutzer WHERE id = ?', p.benutzerId) || {}).telefon; return { ...p, gelesen: Boolean(l && l.gelesen), bestaetigt: Boolean(l && l.bestaetigt), ...(tel ? { telefon: tel } : {}) }; }),
@@ -602,6 +638,7 @@ module.exports = function planerRouten(api, bt) {
       .map(anfrageJson));
   });
   api.put('/plan/anfragen/:id', (req, res) => {
+    if (!istPlaner(req.ctx)) throw keinZugriff(); // 15.7 (F-036): Rechte vor Existenz
     const a = db.eins('SELECT * FROM plan_anfrage WHERE id = ?', v.pfadId(req.params.id));
     if (!a) throw nichtGefunden('Anfrage nicht gefunden.');
     if (!istPlaner(req.ctx)) throw keinZugriff(); // 15.4: nicht mehr „Bauleiter der Baustelle“
@@ -663,6 +700,7 @@ module.exports = function planerRouten(api, bt) {
     return f;
   }
   api.post('/baustellen/:id/abschnitte', (req, res) => {
+    pruefeBearbeiten(req.ctx); // 15.7 (F-036)
     const bsId = v.pfadId(req.params.id, 'Baustellen-ID');
     if (!db.eins('SELECT id FROM baustelle WHERE id = ?', bsId)) throw nichtGefunden('Baustelle nicht gefunden.');
     pruefeBearbeiten(req.ctx, bsId);
@@ -673,6 +711,7 @@ module.exports = function planerRouten(api, bt) {
     res.status(201).json(abschnittJson(db.eins('SELECT * FROM plan_abschnitt WHERE id = ?', r.id)));
   });
   function abschnittLaden(req) {
+    pruefeBearbeiten(req.ctx); // 15.7 (F-036)
     const a = db.eins('SELECT * FROM plan_abschnitt WHERE id = ? AND baustelle_id = ?', v.pfadId(req.params.aid), v.pfadId(req.params.id));
     if (!a) throw nichtGefunden('Abschnitt nicht gefunden.');
     pruefeBearbeiten(req.ctx, a.baustelle_id);
@@ -697,7 +736,9 @@ module.exports = function planerRouten(api, bt) {
   });
 
   /* ================= Fuhraufträge (12.8b) ================= */
-  const fahrzeug = (A) => A && (['lkw', 'pkw', 'bus', 'anhaenger'].includes(A.klasse) || A.kennzeichen);
+  // 15.7 (N-102): Fuhren nur mit Anlagen der Klasse LKW (Sattel-/Zugmaschinen sind Klasse lkw) – wie die Auswahl der Oberfläche
+  // (plan-regeln.js istLkw); PKW, Bus, Anhänger und Baumaschinen mit Kennzeichen → 400
+  const fahrzeug = (A) => Boolean(A && A.klasse === 'lkw');
   // 15.4: Fuhren planen allein mit stammdaten (kein Sonderweg über bauleiterId)
   const fuhreRechte = (ctx) => istPlaner(ctx);
   function fuhrFelder(body, alt) {
@@ -740,9 +781,11 @@ module.exports = function planerRouten(api, bt) {
     if (j.berichtZeile && j.berichtZeile.status === 'uebernommen' && f.bericht_id) j.berichtZeile.berichtVersion = (db.eins('SELECT version FROM bericht WHERE id = ?', f.bericht_id) || {}).version; // G-02
     return { status, j };
   };
-  function fuhreLaden(req) {
+  /** 15.7 (F-036): ohne Planerrecht keine Existenzauskunft – eine fehlende Fuhre gibt dann dieselbe 403 wie eine fremde */
+  function fuhreLaden(req, { nurPlaner = false, text } = {}) {
+    if (nurPlaner && !fuhreRechte(req.ctx)) throw keinZugriff();
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', v.pfadId(req.params.id, 'Fuhren-ID'));
-    if (!f) throw nichtGefunden('Fuhre nicht gefunden.');
+    if (!f) throw fuhreRechte(req.ctx) ? nichtGefunden('Fuhre nicht gefunden.') : keinZugriff(text);
     return f;
   }
 
@@ -766,6 +809,7 @@ module.exports = function planerRouten(api, bt) {
   });
 
   api.post('/plan/fuhren', (req, res) => {
+    if (!fuhreRechte(req.ctx)) throw keinZugriff('Fuhren plant, wer das Recht stammdaten hat (Büro, Bauleiter, GF).'); // 15.7 (F-036)
     const body = v.objekt(req.body);
     const f = fuhrFelder(body, null);
     if (!fuhreRechte(req.ctx, { von: f.von, nach: f.nach })) throw keinZugriff('Fuhren plant, wer das Recht stammdaten hat (Büro, Bauleiter, GF).');
@@ -777,7 +821,7 @@ module.exports = function planerRouten(api, bt) {
   });
 
   api.put('/plan/fuhren/:id', (req, res) => {
-    const alt = fuhreLaden(req);
+    const alt = fuhreLaden(req, { nurPlaner: true });
     if (!fuhreRechte(req.ctx, alt)) throw keinZugriff();
     const body = v.objekt(req.body);
     if (v.zahl(body.version, 'version', { min: 1, ganz: true }) !== alt.version) throw konflikt('Die Fuhre wurde inzwischen geändert.', { version: alt.version });
@@ -805,7 +849,7 @@ module.exports = function planerRouten(api, bt) {
   });
 
   api.delete('/plan/fuhren/:id', (req, res) => {
-    const f = fuhreLaden(req);
+    const f = fuhreLaden(req, { nurPlaner: true });
     if (!fuhreRechte(req.ctx, f)) throw keinZugriff();
     // N-022/N-040: wie PUT – eine erledigte (gefahrene) Fuhre steht im Bautagesbericht bzw. als Vorschlag; Korrektur dort
     if (f.status === 'erledigt') throw konflikt('Die Fuhre ist schon abgeladen gemeldet und kann nicht mehr storniert werden – die Menge bitte im Bautagesbericht korrigieren.');
@@ -823,6 +867,7 @@ module.exports = function planerRouten(api, bt) {
     return db.lauf(`INSERT INTO plan_fuhre (datum, ${k.join(', ')}, erstellt, erstellt_von, geaendert) VALUES (?, ${k.map(() => '?').join(', ')}, ?, ?, ?)`, d, ...k.map((x) => f[x]), jetzt(), req.ctx.benutzer.id, jetzt()).id;
   }
   api.post('/plan/fuhren/kopieren', (req, res) => {
+    if (!fuhreRechte(req.ctx)) throw keinZugriff(); // 15.7 (F-036): Rechte vor Validierung und Existenz
     const body = v.objekt(req.body);
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', v.id(body.id, 'id'));
     if (!f) throw nichtGefunden('Fuhre nicht gefunden.');
@@ -845,11 +890,31 @@ module.exports = function planerRouten(api, bt) {
     res.json({ angelegt, quelleDatum: vt });
   });
 
+  /**
+   * 15.7 (F-058): Fahrer handeln nur auf dem VERÖFFENTLICHTEN Stand – maßgeblich ist der Fahrer der letzten Veröffentlichung,
+   * nicht ein inzwischen (unveröffentlicht) eingetragener. Liefert den veröffentlichten Stand oder wirft 403.
+   */
+  function veroeffentlichtFuerFahrer(f, ich) {
+    const st = f.veroeffentlicht_stand ? JSON.parse(f.veroeffentlicht_stand) : null;
+    if (st && st.fahrer && st.fahrer.benutzerId === ich.id) return st;
+    // veröffentlicht storniert (Stand gelöscht): der Fahrer erfährt nur das Storno
+    if (!st && f.status === 'storniert' && f.veroeffentlicht_zeit && f.fahrer_id === ich.id) throw konflikt('Die Fuhre ist storniert.');
+    throw keinZugriff('Den Status meldet der eingeteilte Fahrer.');
+  }
+  /** Antwort für den Fahrer: veröffentlichter Stand (fuhreFuerFahrer) + aktueller Status, eigene Erledigung, Berichtszeile – keine Entwurfsdaten */
+  function fahrerAntwort(id, st, ichId) {
+    const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', id);
+    const erl = f.erledigt ? JSON.parse(f.erledigt) : null;
+    const foto = erl && erl.lieferscheinFotoId ? db.eins('SELECT erstellt_von FROM plan_fuhre_foto WHERE id = ?', erl.lieferscheinFotoId) : null;
+    if (erl && erl.lieferscheinFotoId && !(foto && foto.erstellt_von === ichId)) delete erl.lieferscheinFotoId; // N-112
+    return { ...F.fuhreFuerFahrer(st), status: f.status, erledigt: erl, berichtZeile: f.bericht_status ? { ...(f.bericht_id ? { berichtId: f.bericht_id, berichtVersion: (db.eins('SELECT version FROM bericht WHERE id = ?', f.bericht_id) || {}).version } : {}), status: f.bericht_status, ...(f.bericht_hinweis ? { hinweis: f.bericht_hinweis } : {}) } : null };
+  }
+
   api.post('/plan/fuhren/:id/status', (req, res) => {
-    const f = fuhreLaden(req);
+    const f = fuhreLaden(req, { text: 'Den Status meldet der eingeteilte Fahrer.' });
     const ich = req.ctx.benutzer;
-    if (f.fahrer_id !== ich.id && !fuhreRechte(req.ctx, f)) throw keinZugriff('Den Status meldet der eingeteilte Fahrer.');
-    if (f.fahrer_id === ich.id && !istPlaner(req.ctx) && !f.veroeffentlicht_zeit) throw keinZugriff('Die Fuhre ist noch nicht veröffentlicht.');
+    const planer = fuhreRechte(req.ctx, f);
+    const stand = planer ? null : veroeffentlichtFuerFahrer(f, ich);
     const body = v.objekt(req.body);
     const status = v.auswahl(body.status, 'status', ['unterwegs', 'erledigt']);
     if (f.status === 'storniert') throw konflikt('Die Fuhre ist storniert.');
@@ -879,13 +944,14 @@ module.exports = function planerRouten(api, bt) {
       }
       prot(req, `fuhre:${f.id}`, `Fuhre ${f.id}: ${status}`, { status });
     });
+    if (stand) return res.json(fahrerAntwort(f.id, stand, ich.id));
     senden(res, fuhreAntwort(f.id));
   });
 
   const fotoOrdner = () => path.join(bt.uploads, 'fuhren');
   api.post('/plan/fuhren/:id/foto', (req, res) => {
     const f = fuhreLaden(req);
-    if (f.fahrer_id !== req.ctx.benutzer.id && !fuhreRechte(req.ctx, f)) throw keinZugriff();
+    if (!fuhreRechte(req.ctx, f)) veroeffentlichtFuerFahrer(f, req.ctx.benutzer); // 15.7 (F-058): nur der veröffentlichte Fahrer
     const body = v.objekt(req.body);
     let b;
     try { b = Bild.bildPruefen(body.bildBase64); } catch (e) { throw ungueltig(e.message); }
@@ -903,12 +969,11 @@ module.exports = function planerRouten(api, bt) {
   });
   api.get('/plan/fuhren/:id/foto/:fid', (req, res) => {
     const f = fuhreLaden(req);
-    const ich = req.ctx.benutzer;
-    const nach = JSON.parse(f.nach);
-    const polier = ich.rolle === 'polier' && nach.baustelleId && baustelleImBereich(ich, db.eins('SELECT * FROM baustelle WHERE id = ?', nach.baustelleId));
-    if (f.fahrer_id !== ich.id && !fuhreRechte(req.ctx, f) && !polier) throw keinZugriff();
+    // N-112 (Inhaberentscheidung, server/belege.js): Liefer-/Wiegescheine sieht, wer preise_sehen oder stammdaten hat, sonst
+    // nur, wer das Foto selbst hochgeladen hat – nicht der Polier der Baustelle, nicht ein später eingeteilter Fahrer
+    if (!Belege.siehtAlle(req.ctx) && f.fahrer_id !== req.ctx.benutzer.id && !db.eins('SELECT 1 FROM plan_fuhre_foto WHERE fuhre_id = ? AND erstellt_von = ?', f.id, req.ctx.benutzer.id)) throw keinZugriff();
     const x = db.eins('SELECT * FROM plan_fuhre_foto WHERE id = ? AND fuhre_id = ?', v.pfadId(req.params.fid), f.id);
-    if (!x) throw nichtGefunden('Foto nicht gefunden.');
+    if (!x || !Belege.sichtbar(req.ctx, x.erstellt_von)) throw nichtGefunden('Foto nicht gefunden.');
     let daten;
     try { daten = fs.readFileSync(Bild.dateiPfad(fotoOrdner(), x.datei)); } catch (_) { throw nichtGefunden('Fotodatei nicht vorhanden.'); }
     res.setHeader('Content-Type', x.mime);
@@ -923,6 +988,7 @@ module.exports = function planerRouten(api, bt) {
   const B = require('./berichte');
   B.fuhrenVorschlag = (dbx, b) => F.vorschlaegeFuer(dbx, b);
   api.post('/berichte/:id/fuhren-uebernehmen', (req, res) => {
+    B.pruefeGrundrecht(req.ctx, true); // 15.7 (F-036): Recht vor Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!b) throw nichtGefunden('Bericht nicht gefunden.');
     B.pruefeSchreiben(req.ctx, b.baustelle);
@@ -1005,15 +1071,10 @@ module.exports = function planerRouten(api, bt) {
       partie = partieVon(ich, K);
       const st = db.alle('SELECT * FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL', d).map((e) => ({ e, st: JSON.parse(e.veroeffentlicht_stand) }));
       eingeteilt = new Set(st.flatMap(({ st: x }) => x.personen.map((p) => p.benutzerId)));
-      einsaetze = st.filter(({ st: x }) => x.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(x.baustelleId))).map(({ e, st: x }) => {
-        const eigen = baustelleImBereich(ich, K.baustellen.get(x.baustelleId));
-        return {
-          ...x, veroeffentlichtUm: e.veroeffentlicht_zeit,
-          notiz: eigen ? x.notiz : '', benoetigt: x.benoetigt,
-          personen: x.personen.map((p) => ({ ...p, notiz: p.benutzerId === ich.id || partie.has(p.benutzerId) || p.kolonnePolierId === ich.id ? p.notiz : '' })),
-          anlagen: x.anlagen.map((a) => ({ ...a, notiz: eigen ? a.notiz : '' }))
-        };
-      });
+      const td = { partie, ...polierTagDaten(st.map((x) => x.st), d) };
+      // 15.7 (F-055/F-057): dieselbe Polier-Sicht wie /plan/partie (polierStand)
+      einsaetze = st.filter(({ st: x }) => x.personen.some((p) => p.benutzerId === ich.id) || baustelleImBereich(ich, K.baustellen.get(x.baustelleId)))
+        .map(({ e, st: x }) => ({ ...polierStand(ich, K, x, td), veroeffentlichtUm: e.veroeffentlicht_zeit }));
       fuhren = db.alle("SELECT * FROM plan_fuhre WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL AND status <> 'storniert'", d).map((f) => JSON.parse(f.veroeffentlicht_stand))
         .filter((f) => f.nach && f.nach.baustelleId && baustelleImBereich(ich, K.baustellen.get(f.nach.baustelleId)));
       entwurf = false;

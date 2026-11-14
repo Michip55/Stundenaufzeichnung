@@ -197,6 +197,9 @@ module.exports = function importRouten(api, bt) {
   }
 
   function lvRechte(req, schreiben) {
+    // 15.7 (F-036): Grundrechte vor Existenz
+    if (!req.ctx.hat('preise_sehen')) throw keinZugriff('Das LV enthält Preise.');
+    if (schreiben && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Das LV übernehmen Büro bzw. GF.');
     const bs = db.eins('SELECT * FROM baustelle WHERE id = ?', v.pfadId(req.params.id, 'Baustellen-ID'));
     if (!bs) throw nichtGefunden('Baustelle nicht gefunden.');
     if (!darfPreise(req.ctx, bs)) throw keinZugriff('Das LV enthält Preise.');

@@ -8,9 +8,11 @@ const { ungueltig, keinZugriff, nichtGefunden, konflikt } = require('../fehler')
 const { darfPreise, baustelleImBereich } = require('../rechte');
 const { baustelleAusPfad } = require('./hilfe');
 const D = require('../dokument-pruefung');
+const Belege = require('../belege');
 
 // 15.4 (F-016/F-021): Projektdokumente verwalten allein mit dem Recht stammdaten – nie nach Rollenname oder bauleiterId
 const istVerwaltung = (ctx) => ctx.hat('stammdaten');
+const SCHREIB_TEXT = 'Projektdokumente verwaltet, wer das Recht stammdaten hat (Büro, Bauleiter, GF).';
 
 module.exports = function dokumentRouten(api, bt) {
   const { db } = bt;
@@ -36,8 +38,10 @@ module.exports = function dokumentRouten(api, bt) {
 
   /** N-050: Rechnung, mit der das Dokument verknüpft ist (auch stornierte – das PDF zeigt Beträge) */
   const rechnungZu = (dokumentId) => db.eins('SELECT id, nr FROM rechnung WHERE dokument_id = ? ORDER BY id LIMIT 1', dokumentId);
-  function json(d, dateien, n, alleVersionen = true, mitRechnung = false) {
+  function json(d, dateien0, n, alleVersionen = true, mitRechnung = false, ctx = null) {
     const r = mitRechnung ? rechnungZu(d.id) : null;
+    // N-112 (15.7): bei „Lieferscheine“ ohne preise_sehen/stammdaten nur selbst hochgeladene Versionen
+    const dateien = ctx ? dateien0.filter((x) => Belege.dokumentDateiSichtbar(ctx, d, x)) : dateien0;
     const akt = dateien.find((x) => x.nr === d.version) || dateien[dateien.length - 1] || {};
     const url = (x) => `/api/baustellen/${d.baustelle_id}/dokumente/${d.id}/datei?version=${x.nr}`;
     return {
@@ -85,6 +89,8 @@ module.exports = function dokumentRouten(api, bt) {
     if (!d) throw nichtGefunden('Dokument nicht gefunden.');
     const z = zugriff(req.ctx, bs, kategorien().get(d.kategorie) || { finanziell: 1 });
     if (!z) throw keinZugriff('Diese Dokumentkategorie ist für Sie nicht sichtbar.');
+    // N-112 (15.7): fremd hochgeladener Lieferschein ohne preise_sehen/stammdaten – wie eine unsichtbare Kategorie
+    if (!Belege.dokumentSichtbar(req.ctx, d)) throw keinZugriff('Diese Dokumentkategorie ist für Sie nicht sichtbar.');
     return { d, z };
   }
 
@@ -175,10 +181,10 @@ module.exports = function dokumentRouten(api, bt) {
     const tag = typeof q.tag === 'string' && q.tag ? q.tag.toLowerCase() : null;
     const bs = new Map(db.alle(`SELECT * FROM baustelle WHERE id IN (${bsIds.map(() => '?').join(',') || 'NULL'})`, ...bsIds).map((b) => [b.id, b]));
     return db.alle(`SELECT * FROM dokument WHERE ${bed.join(' AND ')} ORDER BY COALESCE(datum, substr(erstellt, 1, 10)) DESC, id DESC LIMIT 500`, ...par)
-      .filter((d) => zugriff(req.ctx, bs.get(d.baustelle_id), K.get(d.kategorie) || { finanziell: 1 }))
+      .filter((d) => zugriff(req.ctx, bs.get(d.baustelle_id), K.get(d.kategorie) || { finanziell: 1 }) && Belege.dokumentSichtbar(req.ctx, d)) // N-112
       .filter((d) => !such || [d.titel, d.notiz, d.tags, (K.get(d.kategorie) || {}).name].some((x) => String(x || '').toLowerCase().includes(such)))
       .filter((d) => !tag || JSON.parse(d.tags || '[]').some((t) => t.toLowerCase() === tag))
-      .map((d) => json(d, dateienVon(d.id), n, true, darfPreise(req.ctx, bs.get(d.baustelle_id))));
+      .map((d) => json(d, dateienVon(d.id), n, true, darfPreise(req.ctx, bs.get(d.baustelle_id)), req.ctx));
   }
 
   api.get('/baustellen/:id/dokumente', (req, res) => {
@@ -198,10 +204,11 @@ module.exports = function dokumentRouten(api, bt) {
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const { d } = laden(req, bs, { geloescht: istVerwaltung(req.ctx) });
-    res.json(json(d, dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs)));
+    res.json(json(d, dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs), req.ctx));
   });
 
   api.post('/baustellen/:id/dokumente', (req, res) => {
+    if (!istVerwaltung(req.ctx)) throw keinZugriff(SCHREIB_TEXT); // 15.7 (F-036): Rechte vor Validierung und Existenz
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const body = v.objekt(req.body);
@@ -216,11 +223,12 @@ module.exports = function dokumentRouten(api, bt) {
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `baustelle:${bs.id}`, neu: { dokumentId: r.id, kategorie: f.kategorie, titel: f.titel, sha256: x.sha256 }, text: `Dokument „${f.titel}“ (${f.kategorie}) zu ${bs.kst} hochgeladen` });
         return r.id;
       });
-      res.status(201).json(json(db.eins('SELECT * FROM dokument WHERE id = ?', id), dateienVon(id), namen()));
+      res.status(201).json(json(db.eins('SELECT * FROM dokument WHERE id = ?', id), dateienVon(id), namen(), true, false, req.ctx));
     } catch (e) { try { fs.unlinkSync(pfad(x.datei)); } catch (_) { /* egal */ } throw e; }
   });
 
   api.post('/baustellen/:id/dokumente/:did/versionen', (req, res) => {
+    if (!istVerwaltung(req.ctx)) throw keinZugriff(SCHREIB_TEXT); // 15.7 (F-036): Rechte vor Validierung und Existenz
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const { d, z } = laden(req, bs);
@@ -236,10 +244,11 @@ module.exports = function dokumentRouten(api, bt) {
         db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, neu: { version: nr, sha256: x.sha256 }, text: `Dokument „${d.titel}“: neue Version ${nr}` });
       });
     } catch (e) { try { fs.unlinkSync(pfad(x.datei)); } catch (_) { /* egal */ } throw e; }
-    res.status(201).json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen()));
+    res.status(201).json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen(), true, false, req.ctx));
   });
 
   api.put('/baustellen/:id/dokumente/:did', (req, res) => {
+    if (!istVerwaltung(req.ctx)) throw keinZugriff(SCHREIB_TEXT); // 15.7 (F-036): Rechte vor Validierung und Existenz
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const { d, z } = laden(req, bs);
@@ -265,10 +274,11 @@ module.exports = function dokumentRouten(api, bt) {
       db.lauf(`UPDATE dokument SET ${k.map((x) => `${x} = ?`).join(', ')}, geaendert = ? WHERE id = ?`, ...k.map((x) => f[x]), jetzt(), d.id);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, alt: Object.fromEntries(k.map((x) => [x, d[x]])), neu: { ...f, ...(body.bestaetigtPreisfrei === true && f.kategorie !== d.kategorie ? { bestaetigtPreisfrei: true } : {}) }, text: `Dokument „${d.titel}“ geändert` });
     });
-    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs)));
+    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen(), true, darfPreise(req.ctx, bs), req.ctx));
   });
 
   api.delete('/baustellen/:id/dokumente/:did', (req, res) => {
+    if (!istVerwaltung(req.ctx)) throw keinZugriff(SCHREIB_TEXT); // 15.7 (F-036): Rechte vor Validierung und Existenz
     const bs = baustelleAusPfad(db, req.params.id);
     pruefeBaustelle(req.ctx, bs);
     const { d, z } = laden(req, bs);
@@ -284,14 +294,14 @@ module.exports = function dokumentRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/dokumente/:did/wiederherstellen', (req, res) => {
+    if (!istVerwaltung(req.ctx)) throw keinZugriff('Wiederherstellen darf, wer das Recht stammdaten hat.'); // 15.7 (F-036): vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!istVerwaltung(req.ctx)) throw keinZugriff('Wiederherstellen darf, wer das Recht stammdaten hat.');
     const { d } = laden(req, bs, { geloescht: true });
     db.transaktion(() => {
       db.lauf('UPDATE dokument SET geloescht_zeit = NULL, geloescht_von = NULL, geloescht_grund = NULL WHERE id = ?', d.id);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'dokument', objekt: `dokument:${d.id}`, text: `Dokument „${d.titel}“ wiederhergestellt` });
     });
-    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen()));
+    res.json(json(db.eins('SELECT * FROM dokument WHERE id = ?', d.id), dateienVon(d.id), namen(), true, false, req.ctx));
   });
 
   api.get('/baustellen/:id/dokumente/:did/datei', (req, res) => {
@@ -300,7 +310,7 @@ module.exports = function dokumentRouten(api, bt) {
     const { d } = laden(req, bs, { geloescht: istVerwaltung(req.ctx) });
     const nr = req.query.version ? v.zahl(Number(req.query.version), 'version', { min: 1, ganz: true }) : d.version;
     const x = db.eins('SELECT * FROM dokument_datei WHERE dokument_id = ? AND nr = ?', d.id, nr);
-    if (!x) throw nichtGefunden('Version nicht gefunden.');
+    if (!x || !Belege.dokumentDateiSichtbar(req.ctx, d, x)) throw nichtGefunden('Version nicht gefunden.'); // N-112
     let daten;
     try { daten = fs.readFileSync(pfad(x.datei)); } catch (_) { throw nichtGefunden('Datei nicht vorhanden.'); }
     const inline = x.mime.startsWith('image/') || x.mime === 'application/pdf';
