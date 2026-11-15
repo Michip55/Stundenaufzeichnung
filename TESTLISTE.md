@@ -71,6 +71,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 ## 3. Mitarbeiter (Lukas Brandstätter)
 
 - [ ] **Mein Einsatz**: morgen, Uhrzeit, Treffpunkt, Polier anrufen, Route öffnen, meine Notiz.
+- [ ] **Kollegen** in „Mein Einsatz“: Zeile **„Mit dir eingeteilt: …“** mit den Namen der Kollegen am selben veröffentlichten Einsatz (nur Namen – keine Notizen, keine Telefonnummern, keine Abwesenheiten). Erst nach dem Veröffentlichen sichtbar.
 - [ ] **Stempeln** (auch im Flugmodus testen: Stempelung wird nachgereicht).
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.
