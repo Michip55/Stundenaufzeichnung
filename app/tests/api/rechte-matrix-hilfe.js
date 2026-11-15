@@ -117,7 +117,8 @@ function verboteneKanarien(rolle) {
     if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
     if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
     // G2-008 (Regel 2): keine Lohngruppe in irgendeiner Form – ID, Name und KV jeder Person (auch der eigenen)
-    for (const l of ZUSTAND.lohn || []) k.push({ name: `Lohngruppe ${l.id} (Person ${l.person})`, formen: [l.name, l.kv, l.id] });
+    // 15.17 (H-T8): dazu der Kern „KANARIE-<Person>-<Gruppe>“ (Name/KV ohne Vorsilbe, z. B. nach einem Umbruch hinter „LG-“)
+    for (const l of ZUSTAND.lohn || []) k.push({ name: `Lohngruppe ${l.id} (Person ${l.person})`, formen: [l.name, l.kv, l.id, l.name.replace(/^LG-/, '')] });
   } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
     ['smtp', 'alarmAn'].forEach(text); // SMTP-Einstellungen: nur Recht `benutzer` (GF)
   }
@@ -546,10 +547,20 @@ async function scanne(rolle, r0, k) {
     const m = /\bKrank(enstand|meldung)?\b/.exec(text);
     if (m) v.push(`${wo}: Wort „${m[0]}“ (Gesundheitsdaten) im Text „…${text.slice(Math.max(0, m.index - 60), m.index + 40).replace(/\s+/g, ' ')}…“`);
   }
+  // 15.17 (H-T8): PDF-Text kommt als ein Textstück je Zeile – eine Kanarie, die in einer schmalen Tabellenzelle am
+  // Bindestrich oder Leerzeichen umbricht („LG-“ | „KANARIE-1-POL“), steht in keiner Zeile ganz. Darum zusätzlich im Text
+  // mit ohne Umbruch verbundenen Zeilen (direkt und mit Leerzeichen) suchen.
+  const ct0 = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+  const texte = [['', text]];
+  if (Buffer.isBuffer(r.daten) && /pdf/.test(ct0)) texte.push([' (über Zeilenumbruch)', text.replace(/\s*\n\s*/g, '')], [' (über Zeilenumbruch)', text.replace(/\s*\n\s*/g, ' ')]);
   for (const kan of verboteneKanarien(rolle).filter((x) => !(k.erlaubteKanarien || []).includes(x.name))) {
-    for (const f of kan.formen) {
-      const i = text.indexOf(f);
-      if (i >= 0) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden („…${text.slice(Math.max(0, i - 60), i + f.length + 20).replace(/\s+/g, ' ')}…“)`); break; }
+    let gefunden = false;
+    for (const [art, t] of texte) {
+      for (const f of kan.formen) {
+        const i = t.indexOf(f);
+        if (i >= 0) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden${art} („…${t.slice(Math.max(0, i - 60), i + f.length + 20).replace(/\s+/g, ' ')}…“)`); gefunden = true; break; }
+      }
+      if (gefunden) break;
     }
   }
   return v;

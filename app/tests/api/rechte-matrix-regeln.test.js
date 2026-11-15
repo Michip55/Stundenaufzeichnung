@@ -48,3 +48,22 @@ test('Polier/Mitarbeiter: Erwartungen gegenüber e6e3de3 unverändert (nichts ge
   const neu = Object.keys(M.routen).filter((k) => !ALT.routen[k]);
   for (const k of neu) assert.ok(['N', 'E'].includes(spalten(M.routen[k].r).mitarbeiter), `${k}: Mitarbeiter ${M.routen[k].r}`);
 });
+
+/**
+ * 15.17 (H-T7): Begründungen der Abwesenheits- und Urlaubsrouten, die Polier oder Mitarbeiter erreichen (J/E), stützen
+ * sich auf die verbindliche Regel 13.2 (nur eigene Einträge, keine Platzhalter, keine Zählungen; SW-Meldung des Poliers
+ * immer angenommen) – keine veralteten Begründungen („Bereich“, „Sichtbarkeit wie …“), die eine lockerere Regel nahelegen.
+ * Die Erwartungen selbst prüft der Test oben (nichts gelockert).
+ */
+test('15.17: Abwesenheits-/Urlaubsrouten mit Polier-/Mitarbeiter-Zugriff begründen mit 13.2', () => {
+  const OHNE_PERSONENDATEN = new Set(['GET /api/urlaub/feiertage']); // gesetzliche Feiertage, keine Abwesenheit einer Person
+  const v = [];
+  for (const [k, e] of Object.entries(M.routen)) {
+    if (!/^\w+ \/api\/(abwesenheiten|urlaub)\b/.test(k) || OHNE_PERSONENDATEN.has(k)) continue;
+    const s = spalten(e.r);
+    if (!['J', 'E'].includes(s.mitarbeiter) && !['J', 'E'].includes(s.polier)) continue;
+    if (!/\b13\.2\b/.test(e.grund || '')) v.push(`${k} (${e.r}): Begründung ohne 13.2 – „${e.grund}“`);
+    if (/Bereich|Sichtbarkeit wie/.test(e.grund || '')) v.push(`${k}: veraltete Begründung „${e.grund}“`);
+  }
+  assert.deepEqual(v, []);
+});

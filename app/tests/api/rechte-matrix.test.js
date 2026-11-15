@@ -151,6 +151,39 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
       await muss('Bild-Adresse im JSON', scan('polier', { bild: `/api/berichte/${F.bericht.bs1}/fotos/${bild.lieferscheinId}` }));
       await nicht('eigener Lieferschein des Hochladenden (N-112)', scan('polier', roh, 'image/png', { ich: bild.von }));
     }
+    // 15.17 (H-T1): Zahl der Anwesenden (eingeteilt − fremde Abwesende) neben der Personenliste, auch eine Ebene tiefer
+    const einsatz = s.db.alle('SELECT p.benutzer_id AS id, u.name FROM plan_person p JOIN benutzer u ON u.id = p.benutzer_id WHERE p.einsatz_id = ? ORDER BY u.name', F.einsatz.bs1);
+    const fremdAbw = einsatz.filter((p) => abw.includes(p.id)).length;
+    if (einsatz.length < 8 || fremdAbw < 5) v.push(`Testdaten: Einsatz Pitten 13.11. mit ${einsatz.length} Personen, ${fremdAbw} fremd abwesend`);
+    const anwesend = einsatz.length - fremdAbw; // mit Polier
+    await muss('Zahl der Anwesenden neben personen (/plan/partie)', scan('polier', { datum: '2026-11-13', einsaetze: [{ einsatzId: 1, personen: einsatz.map((p) => ({ benutzerId: p.id, name: p.name })), vorOrt: anwesend }] }));
+    const kollegen = einsatz.filter((p) => p.id !== U.mitarbeiter).map((p) => ({ name: p.name }));
+    await muss('Zahl der Anwesenden neben einsatz.kollegen (/plan/ich)', scan('mitarbeiter', { tage: [{ datum: '2026-11-13', besetzung: anwesend, einsatz: { einsatzId: 1, kollegen } }] }));
+    await muss('Zahl der Abwesenden neben personen', scan('polier', { datum: '2026-11-13', einsaetze: [{ personen: einsatz.map((p) => ({ benutzerId: p.id })), fehlen: fremdAbw }] }));
+    await nicht('Länge der sichtbaren Personenliste', scan('polier', { datum: '2026-11-13', einsaetze: [{ personen: einsatz.map((p) => ({ benutzerId: p.id })), anzahl: einsatz.length, kollegenOhneMich: einsatz.length - 1 }] }));
+    await nicht('15.14: Kollegen im eigenen Einsatz (nur Namen)', scan('mitarbeiter', { tage: [{ datum: '2026-11-13', einsatz: { einsatzId: 1, kollegen } }] }));
+    // 15.17 (H-T4): Merker als Text/Klasse/Zahl in der Personenliste
+    const istAbw = (id) => abw.includes(id);
+    await muss('Merker als Text „grau“/„normal“', scan('polier', { datum: '2026-11-13', personen: einsatz.map((p) => ({ benutzerId: p.id, name: p.name, markierung: istAbw(p.id) ? 'grau' : 'normal' })) }));
+    await muss('Merker als Zahl 2/0', scan('polier', { datum: '2026-11-13', personen: einsatz.map((p) => ({ benutzerId: p.id, stufe: istAbw(p.id) ? 2 : 0 })) }));
+    await nicht('Rolle in der Personenliste (Plandaten)', scan('mitarbeiter', { datum: '2026-11-13', personen: einsatz.map((p) => ({ benutzerId: p.id, rolle: s.db.eins('SELECT rolle FROM benutzer WHERE id = ?', p.id).rolle })) }));
+    // 15.17 (H-T5): abgeleiteter Betrag in Tausend/Million ohne € unter neutralem Schlüssel
+    if (summe) {
+      await muss('Summe Menge × EP in Tausend (eine Stelle) unter neutralem Schlüssel', scan('mitarbeiter', { fortschritt: { tsd: Math.round(summe.wert / 100) / 10 } }));
+      await muss('Summe Menge × EP in Tausend (ganz, abgeschnitten) im Text', scan('polier', { hinweis: `Leistung bisher ${Math.trunc(summe.wert / 1000)} Tsd.` }));
+      await muss('Summe Menge × EP in Millionen (zwei Stellen)', scan('mitarbeiter', { stand: Number((summe.wert / 1e6).toFixed(2)) }));
+    }
+    await nicht('gewöhnliche Zahlen (Jahr, Stunden, Mengen, Zählerstand)', scan('mitarbeiter', { jahr: 2026, stunden: 38.5, menge: 12.5, kw: 46, zaehler: 4523.5, km: 123456 }));
+    // 15.17 (H-T8): Text-Kanarie in einer PDF-Tabellenzelle mit Zeilenumbruch (am Bindestrich bzw. Leerzeichen)
+    const lgPol = F.lohnKanarien.find((x) => x.person === U.polier);
+    const pdfZeilen = (zeilen) => Buffer.from(`%PDF-1.4\nstream\n${zeilen.map((z) => `BT (${z}) Tj ET`).join('\n')}\nendstream\n`, 'latin1');
+    if (!lgPol) v.push('Testdaten: keine Lohngruppen-Kanarie des Poliers');
+    else {
+      await muss('Lohngruppe über einen Zeilenumbruch im PDF („LG-“ | Rest)', scan('polier', pdfZeilen(['Josef Haidbauer LG-', lgPol.name.slice(3), 'Daniel Schwarz']), 'application/pdf'));
+      await muss('Lohngruppe über einen Zeilenumbruch im PDF („LG-KANARIE-“ | Rest)', scan('polier', pdfZeilen(['Josef Haidbauer LG-KANARIE-', lgPol.name.slice(11), 'Daniel Schwarz']), 'application/pdf'));
+    }
+    await muss('Text-Kanarie über einen Zeilenumbruch im PDF', scan('mitarbeiter', pdfZeilen(['Beschreibung', H.TEXT.lieferschein.slice(0, 13), H.TEXT.lieferschein.slice(13)]), 'application/pdf'));
+    await nicht('PDF ohne Kanarie (Zeilen verbunden)', scan('polier', pdfZeilen(['Josef Haidbauer', 'LG', 'Daniel Schwarz']), 'application/pdf'));
     v.forEach(melde);
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
