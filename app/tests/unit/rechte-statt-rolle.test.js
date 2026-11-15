@@ -23,6 +23,14 @@
  *     (außer reinen Anzeigetexten)
  *  9. bauleiter_id in Rechenausdrücken/Hilfsfunktionen (`bauleiter_id - ich.id`, `Object.is(…bauleiter_id…)`,
  *     `[…].includes(bs.bauleiter_id)`, SQL `bauleiter_id IN (…)`, `bauleiter_id <> ?`, `bauleiter_id = ${…}`)
+ * 15.17 (H-T6) – jede andere Auswertung des Rollentexts statt eines Rechts:
+ * 10. RegExp auf den Rollentext (`/leiter$/.test(ctx.benutzer.rolle)`, `rolle.match(…)`, `new RegExp(…).exec(rolle)`),
+ *     String-Methoden und Eigenschaften (`rolle.startsWith/endsWith/includes/indexOf/slice/length/split/…`), Index
+ *     (`rolle[0]`) und Größenvergleich (`rolle < 'c'`, `x > rolle`)
+ * 11. Bruchstücke der Rollennamen Büro/Bauleiter (je mindestens vier Buchstaben, z. B. „leiter“, „baul“, „buer“) in einem
+ *     RegExp-Literal mit .test/.exec/.match/.search/.replace/.split bzw. new RegExp(…), als Argument einer String-Suche
+ *     (`r.endsWith('leiter')`) oder als durchsuchter Text (`'bauleiter'.includes(r)`) – auch wenn der Rollentext unter
+ *     einem anderen Namen steht
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -54,6 +62,14 @@ const TEXT_VERGLEICH = /[!=]==?\s*['"`](bauleiter|buero)['"`]|['"`](bauleiter|bu
 const BENANNTE_LISTE = /\b(?:const|let|var)\s+\w+\s*=\s*(?:new\s+Set\(\s*)?\[([^\][]*)\]/g;
 const BAULEITER_ID_SONST = /\bbauleiter_?[iI]d\s*(?:[-+^]|<>|!=(?!=)|\s+IN\s*\(|\s+IS\s+(?!NULL|NOT\s+NULL)|=\s*\$\{|=\s*:\w|=\s*\d)|[-^]\s*[\w.]*\bbauleiter_?[iI]d\b|Object\.is\([^)]*bauleiter_?[iI]d|\.(?:includes|indexOf|has)\(\s*[\w.]*bauleiter_?[iI]d|\[[^\]]*\bbauleiter_?[iI]d\b[^\]]*\]\s*\.(?:includes|indexOf|some|find)\(/;
 const ROLLEN_NAMEN = /['"`](mitarbeiter|polier|bauleiter|buero|gf)['"`]/;
+// 15.17 (H-T6) Regel 10: Rollentext mit RegExp, String-Methode/-Eigenschaft, Index oder < > ausgewertet
+const ROLLE_TEXT_OP = /\.(?:test|exec)\(\s*[^)]*\brolle\b|\brolle\b\s*(?:\?\.|\.)\s*(?:match|matchAll|search|startsWith|endsWith|includes|indexOf|lastIndexOf|slice|substring|substr|charAt|charCodeAt|codePointAt|at|length|split|localeCompare|replace|replaceAll|toLowerCase|toUpperCase|toLocaleLowerCase|toLocaleUpperCase|trim|trimStart|trimEnd|normalize|padStart|padEnd|concat)\b|\brolle\b\s*(?:\?\.)?\[\s*\d|\brolle\b\s*(?:<=?|>=?)(?![=>])|(?<![=\-<>])(?:<=?|>=?)\s*[\w.]*\brolle\b(?!\s*=)/;
+// Regel 11: Bruchstücke (≥ 4 Buchstaben) von „bauleiter“/„buero“ – ohne „iter“, „eite“, „eiter“ (weiter, Seite, Liter)
+const ROLLEN_STUECKE = (() => { const f = new Set(); for (const w of ['bauleiter', 'buero']) for (let i = 0; i < w.length; i++) for (let j = i + 4; j <= w.length; j++) f.add(w.slice(i, j)); for (const x of ['iter', 'eite', 'eiter']) f.delete(x); return [...f]; })();
+const hatRollenStueck = (t) => ROLLEN_STUECKE.some((x) => String(t).toLowerCase().includes(x));
+const REGEX_LITERAL = /\/(?![*/])((?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+)\/[dgimsuyv]*\s*\.\s*(?:test|exec)\(|\.(?:match|matchAll|search|replace|replaceAll|split)\(\s*\/((?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+)\/|new\s+RegExp\(\s*(['"`])([^'"`]*)\3/g;
+const TEXT_SUCHE_ARG = /\.\s*(?:startsWith|endsWith|includes|indexOf|lastIndexOf|search|match|localeCompare)\(\s*(['"`])([^'"`]*)\1/g;
+const TEXT_SUCHE_IN = /(['"`])([^'"`\n]*)\1\s*\.\s*(?:includes|indexOf|lastIndexOf|startsWith|endsWith|search|match)\(/g;
 
 /** Text-Stücke zusammensetzen: 'bau' + 'leiter' → 'bauleiter', `bu${'ero'}` → 'buero', `buero` → 'buero' */
 function zusammensetzen(code) {
@@ -135,6 +151,11 @@ function verstoesse(text, datei) {
       if (b !== bl) gruende.push(`Rollenliste behandelt Büro und Bauleiter verschieden: [${inhalt.trim()}]`);
     }
     if (ROLLEN_GRUPPE.test(code)) gruende.push('Rollengruppe statt Recht');
+    // 15.17 (H-T6)
+    if (ROLLE_TEXT_OP.test(code)) gruende.push('Rollentext mit RegExp/String-Methode/Länge/Vergleich ausgewertet');
+    for (const m of code.matchAll(REGEX_LITERAL)) if (hatRollenStueck(m[1] || m[2] || m[4] || '')) gruende.push(`RegExp mit Bruchstück eines Rollennamens: ${m[1] || m[2] || m[4]}`);
+    for (const m of code.matchAll(TEXT_SUCHE_ARG)) if (hatRollenStueck(m[2])) gruende.push(`Text-Suche nach Bruchstück eines Rollennamens: '${m[2]}'`);
+    for (const m of code.matchAll(TEXT_SUCHE_IN)) if (hatRollenStueck(m[2])) gruende.push(`Suche in einem Text mit Rollennamen: '${m[2]}'`);
     if (gruende.length) out.push(`${datei}:${i + 1}: ${[...new Set(gruende)].join('; ')} → ${z.trim().slice(0, 160)}`);
   });
   return out.concat(strukturVerstoesse(text, datei));
@@ -212,6 +233,38 @@ test('G2-012: die Regel erkennt auch naheliegende Umgehungen (Zusammensetzen, in
     "  const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];",
     "  const alle = db.alle('SELECT id FROM baustelle WHERE bauleiter_id IS NULL');",
     "  const url = 'https://x.example/buero'; // Kommentar mit rolle === 'buero'"
+  ];
+  for (const z of ok) assert.deepEqual(verstoesse(z, 'ok.js'), [], `fälschlich gemeldet: ${z}`);
+});
+
+test('15.17 (H-T6): die Regel erkennt Rollenprüfungen per RegExp, String-Methode, Länge, Index, Größenvergleich und Bruchstück', () => {
+  const umgehung = [
+    // Nachkontrolle H-T6, Injektion public/js/views/baustellen.js:68 und server/routes/stammdaten.js
+    "  const darf = ctx.kann('stammdaten') && !/leiter$/.test(ctx.ich.benutzer.rolle);",
+    "    if (body.bauleiterId !== undefined && /leiter$/.test(req.ctx.benutzer.rolle)) throw keinZugriff('…');",
+    "  if (ctx.benutzer.rolle.endsWith('leiter')) return false;",
+    "  if (ich.rolle.startsWith('bau')) return false;",
+    "  if (ich.rolle?.includes('eit')) return false;",
+    "  if (rolle.match(/^b/)) x();",
+    "  if (ctx.benutzer.rolle.length === 9) x();",
+    "  if (ctx.benutzer.rolle[0] === 'b') x();",
+    "  if (ctx.benutzer.rolle > 'buero') x();",
+    "  if ('c' < ctx.benutzer.rolle) x();",
+    "  if (new RegExp('leiter').exec(r)) x();",
+    "  const r = ctx.benutzer.rolle; if (/bau.?leit/i.test(r)) x();",
+    "  if (r.endsWith('leiter')) x();",
+    "  if (String(r).indexOf('uero') >= 0) x();",
+    "  if ('bauleiter gf'.includes(r)) x();",
+    "  const kurz = r.replace(/leiter$/, ''); if (kurz === 'bau') x();"
+  ];
+  for (const z of umgehung) assert.ok(verstoesse(z, 'umgehung.js').length >= 1, `nicht erkannt: ${z}`);
+  const ok = [
+    "  const titel = `${ROLLE_KURZ[b.rolle]} ${b.name}`;",
+    '  const zeilen = liste.filter((b) => b.aktiv).map((b) => ({ id: b.id, rolle: b.rolle }));',
+    "  const fehler = /Büro/i.test(e.message || '') ? '' : ' Bitte im Büro melden.';",
+    "  if (/weiter|Seite|Liter/.test(text)) x();",
+    "  const f = (rolle) => rolle === 'polier';",
+    "  const darf = ctx.kann('stammdaten') && !/leiter$/.test(ctx.ich.benutzer.rolle); // rolle-ok: nur Beispiel einer begründeten Anzeige"
   ];
   for (const z of ok) assert.deepEqual(verstoesse(z, 'ok.js'), [], `fälschlich gemeldet: ${z}`);
 });

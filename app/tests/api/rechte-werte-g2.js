@@ -212,12 +212,24 @@ function abwKandidaten(A, ich) {
     }
   }
   for (const k of legit) sets.delete(k);
-  const k = { sets, legit, zaehl, zaehlText, zaehlKontext, tage: new Set(tage) };
+  // 15.17 (H-T1): fremde Abwesende je Tag (alle Status bzw. nur genehmigte) – für „Anzahl Anwesende“ (eingeteilt − abwesend)
+  const abwTag = new Map();
+  for (const d of tage) {
+    const amTag = A.abw.filter((a) => a.datum === d && a.id !== ich && (ABW_CODES_DB.includes(a.code) || a.bu));
+    abwTag.set(d, { alle: new Set(amTag.map((a) => a.id)), genehmigt: new Set(amTag.filter((a) => a.status === 'genehmigt').map((a) => a.id)) });
+  }
+  const k = { sets, legit, zaehl, zaehlText, zaehlKontext, abwTag, tage: new Set(tage) };
   _kandCache.set(key, { A, k });
   return k;
 }
 
 const ID_SCHLUESSEL = /(^id$|Id$|_id$|^nr$|version|^pos$|sortierung|reihenfolge)/i;
+// 15.17 (H-T4): Felder, die je Person verschieden sind (Name, Kontakt, Freitext) – keine Merker
+const FREI_SCHLUESSEL = /^(name|vorname|nachname|anzeige|telefon|email|notiz|text|kuerzel)$/i;
+// 15.17 (H-T4): Merker-Wert als Text: ein Wort (Klasse, Farbe, Zustand: „grau“, „normal“, „frei“, „wp-abw“)
+const MERKER_TEXT = /^[\p{L}\p{N}_.-]{1,24}$/u;
+// Antwort ohne eigenes Datum (z. B. Kolonne, Partie heute): sie handelt vom Testtag (Uhr der Testserver)
+const TESTTAG = require('../../server/datum').wienDatum(new Date(require('./hilfe').START));
 
 /**
  * G2-004/G2-006 (JSON): Korrelation mit den Abwesenheiten der Testdaten.
@@ -252,7 +264,7 @@ function abwesenheitKorrelation(daten, o, wo, personVon) {
           for (const s of schluessel) {
             const werte = obj.map((y) => y[s]);
             const bool = werte.every((w) => typeof w === 'boolean' || w === 0 || w === 1 || w === undefined || w === null);
-            if (!bool) continue;
+            if (!bool) { pruefeWertMerker(s, werte, pers, pfad, tag); continue; }
             const wahr = pers.filter((_, i) => werte[i] === true || werte[i] === 1), falsch = pers.filter((_, i) => werte[i] === false || werte[i] === 0 || werte[i] === null || werte[i] === undefined);
             if (!wahr.length || !falsch.length) continue;
             for (const [teil, w] of [[wahr, 'true'], [falsch, 'false/fehlt']]) {
@@ -271,6 +283,8 @@ function abwesenheitKorrelation(daten, o, wo, personVon) {
       return;
     }
     if (x && typeof x === 'object') {
+      // d) 15.17 (H-T1): Zahl = Anzahl der Anwesenden (eingeteilt − fremde Abwesende, mit/ohne Aufrufer) bzw. der Abwesenden
+      if (tag) pruefeAnwesendZahl(x, pfad, tag);
       // c2) Objekt mit Datum als Schlüssel: { "2026-11-13": 5 } oder { "2026-11-13": {…} }
       const dk = Object.keys(x).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k));
       if (dk.length >= 3) pruefeTageswerte(dk.map((d) => [d, typeof x[d] === 'number' ? { wert: x[d] } : x[d]]), pfad);
@@ -287,6 +301,66 @@ function abwesenheitKorrelation(daten, o, wo, personVon) {
         const soll = werte.map(([d]) => proTag.get(d) || 0);
         if (soll.filter((n) => n > 0).length < 2) continue;
         if (werte.every(([, w], i) => w === soll[i])) { v.push(`${wo}: Tageswert „${s}“ bei ${pfad} folgt der Zahl fremder Abwesenheiten (${kk}) an ${werte.length} Tagen`); return; }
+      }
+    }
+  };
+  /**
+   * 15.17 (H-T4): Merker als Text/Zahl/Klasse („grau“/„normal“, 0/1/2, „wp-abw“) in einer Personenliste – jede Gruppe
+   * gleicher Werte gegen die Mengen der fremden Abwesenden. Nur „Aufzählungen“: höchstens 3 verschiedene Werte, ein Wort
+   * je Text; eine Gruppe aus nur einer Person nur bei höchstens 2 Werten (sonst Freitext/Telefon einer Person). Eine
+   * Gruppe mit dem Aufrufer selbst trennt keine Abwesenden (er ist an den geprüften Tagen nie abwesend) – so ist z. B. die
+   * Rolle „mitarbeiter“ einer Partie kein Befund, auch wenn die übrigen Mitarbeiter zufällig alle abwesend sind.
+   */
+  const pruefeWertMerker = (s, werte, pers, pfad, tag) => {
+    if (ID_SCHLUESSEL.test(s) || FREI_SCHLUESSEL.test(s)) return;
+    if (!werte.every((w) => w === undefined || w === null || typeof w === 'boolean' || typeof w === 'number' || (typeof w === 'string' && (w === '' || MERKER_TEXT.test(w))))) return;
+    const gruppen = new Map();
+    werte.forEach((w, i) => { const g = w == null || w === '' ? '∅' : `${typeof w}:${w}`; if (!gruppen.has(g)) gruppen.set(g, []); gruppen.get(g).push(pers[i]); });
+    if (gruppen.size < 2 || gruppen.size > 3) return;
+    for (const [w, teil] of gruppen) {
+      if (teil.includes(o.ich) || (teil.length < 2 && gruppen.size > 2)) continue;
+      if (!pers.some((p) => p !== o.ich && !teil.includes(p))) continue;
+      const k = [...new Set(teil)].sort((a, b) => a - b).join(',');
+      const n = treffer(k, tag || TESTTAG);
+      if (n) v.push(`${wo}: Merker „${s}“=${w.replace(/^\w+:/, '')} bei ${pfad} trennt genau die fremden Abwesenden (${n}: ${k})`);
+    }
+  };
+  /**
+   * 15.17 (H-T1): ganze Zahl im Objekt (oder einem Unterobjekt) neben einer Personenliste (personen, kollegen …, auch eine
+   * Ebene tiefer), die der Zahl der ANWESENDEN entspricht – sichtbare Personen ohne die fremden Abwesenden des Tages, mit
+   * oder ohne den Aufrufer – oder der Zahl dieser Abwesenden. Zahlen, die auch aus der sichtbaren Liste folgen (Länge,
+   * Länge ± Aufrufer), sind keine Auskunft.
+   */
+  const pruefeAnwesendZahl = (x, pfad, tag) => {
+    const abw = K.abwTag.get(tag);
+    if (!abw || !abw.alle.size) return;
+    const listen = [];
+    const nimm = (arr, wo2) => {
+      if (!Array.isArray(arr) || arr.length < 2 || !arr.every((y) => y && typeof y === 'object' && !Array.isArray(y))) return;
+      const ids = arr.map((y) => personVon(y, o.namen));
+      if (ids.every((p) => p !== undefined)) listen.push({ ids, wo2 });
+    };
+    const unter = [];
+    for (const [kk, w] of Object.entries(x)) {
+      if (Array.isArray(w)) nimm(w, kk);
+      else if (w && typeof w === 'object') { unter.push([kk, w]); for (const [k2, w2] of Object.entries(w)) if (Array.isArray(w2)) nimm(w2, `${kk}.${k2}`); }
+    }
+    if (!listen.length) return;
+    const zahlen = [];
+    for (const [kk, w] of Object.entries(x)) if (Number.isInteger(w) && !ID_SCHLUESSEL.test(kk)) zahlen.push([kk, w]);
+    for (const [ku, u] of unter) for (const [kk, w] of Object.entries(u)) if (Number.isInteger(w) && !ID_SCHLUESSEL.test(kk)) zahlen.push([`${ku}.${kk}`, w]);
+    if (!zahlen.length) return;
+    for (const { ids, wo2 } of listen) {
+      const andere = [...new Set(ids)].filter((p) => p !== o.ich);
+      const sichtbar = new Set([ids.length, andere.length, andere.length + 1]);
+      for (const [art, menge] of [['alle Status', abw.alle], ['genehmigt', abw.genehmigt]]) {
+        const a = andere.filter((p) => menge.has(p)).length;
+        if (!a) continue;
+        const kand = [[andere.length - a, 'Anwesende ohne Aufrufer'], [andere.length - a + 1, 'Anwesende mit Aufrufer'], [a, 'Abwesende']].filter(([n]) => n > 0 && !sichtbar.has(n));
+        for (const [kk, w] of zahlen) {
+          const t = kand.find(([n]) => n === w);
+          if (t) { v.push(`${wo}: Zahl „${kk}“=${w} bei ${pfad} = ${t[1]} der Liste ${wo2} (${andere.length} andere, davon ${a} fremd abwesend, ${art}, ${tag})`); return; }
+        }
       }
     }
   };
@@ -436,8 +510,30 @@ function geldIndexAbgeleitet(liste, m = new Map()) {
     const keys = [`c:${cent}`];
     if (Math.abs(wert) >= 1e5) keys.push(`d:${Math.round(wert * 10)}`, `i:${Math.round(wert)}`, `i:${Math.trunc(wert)}`);
     for (const k of keys) if (!m.has(k)) m.set(k, `abgeleitet: ${name}`);
+    for (const [k, n] of skalierteSchluessel(wert)) if (!m.has(k)) m.set(k, `abgeleitet: ${name} ${n}`);
   }
   return m;
+}
+
+/**
+ * 15.17 (H-T5): derselbe Betrag in Tausend bzw. Million („34 356,6 Tsd.“, „34,36 Mio.“, ohne €, unter neutralem Schlüssel):
+ * ÷ 1 000 und ÷ 1 000 000 mit 0, 1 und 2 Nachkommastellen, gerundet und abgeschnitten. Nur ab einer Mindestgröße, damit
+ * gewöhnliche Zahlen (Jahre, Stunden, Mengen, Zählerstände) keinen Fehlalarm geben: der skalierte Wert ≥ 1 000, ganzzahlige
+ * Formen erst ab 100 000 (wie bei den unskalierten Beträgen).
+ */
+const SKALEN = [[1e3, 'in Tausend'], [1e6, 'in Millionen']];
+function skalierteSchluessel(wert) {
+  const out = [];
+  for (const [f, n] of SKALEN) {
+    const s = wert / f;
+    if (Math.abs(s) < 1e3) continue;
+    const rund = (x, st) => Math.round(x * 10 ** st), ab = (x, st) => Math.trunc(Math.round(x * 10 ** st * 1e6) / 1e6);
+    // Formen mit Nachkommastellen nur, wenn diese nicht 0 sind – sonst träfe jede ganze Zahl (z. B. 1024 in „/ 1024“)
+    for (const c of [rund(s, 2), ab(s, 2)]) if (c % 100 !== 0) out.push([`c:${c}`, n]);
+    for (const d of [rund(s, 1), ab(s, 1)]) if (d % 10 !== 0) out.push([`d:${d}`, n]);
+    if (Math.abs(s) >= 1e5) out.push([`i:${rund(s, 0)}`, n], [`i:${ab(s, 0)}`, n]);
+  }
+  return out;
 }
 
 /** Prozentwerte („12,34 %“): nur mit Nachkommastelle und %-Zeichen; ganzzahlig nur ab 1000 % */

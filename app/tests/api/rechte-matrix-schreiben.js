@@ -98,10 +98,15 @@ async function pruefeSchreiben(basis, teil, teile) {
       const feld = FELD.includes(p.rolle);
       let a;
       try { a = feld ? await erfolgsAnfrage(k, schluessel, e, F, p.rolle, p.variante) : anfrage(schluessel, e, F, p.rolle, p.variante); } catch (x) { v.push(`${p.rolle} ${schluessel} [${p.variante}]: ${x.message}`); continue; }
-      const r = await k.als(p.rolle).anfrage(a.methode, a.pfad, a.body === undefined ? {} : a.body);
+      let r = await k.als(p.rolle).anfrage(a.methode, a.pfad, a.body === undefined ? {} : a.body);
+      // 15.17 (H-T3): Büro/Bauleiter/GF – ein 409 wegen der veralteten version der Matrix ist keine Erfolgsprobe: wie ein
+      // Client nach „Bitte neu laden“ einmal mit der gemeldeten aktuellen version wiederholen, damit die Antwort NACH allen
+      // Prüfungen gescannt wird. Bleibt es bei einer versionierten Route beim 409, zählt das nur mit Begründung (Matrix `ok`
+      // mit 409 bzw. `konfliktGrund`) als erlaubt; fachliche 409 ohne version (z. B. „Bericht gibt es bereits“) wie bisher.
+      if (!feld && r.status === 409 && r.daten && Number.isInteger(r.daten.version) && a.body && typeof a.body === 'object' && 'version' in a.body) r = await k.als(p.rolle).anfrage(a.methode, a.pfad, { ...a.body, version: r.daten.version });
       const wo = `${p.rolle} ${a.methode} ${a.pfad} [${p.variante}]`;
-      const ok = feld ? feldOk(e, r.status) : e.ok ? e.ok.includes(r.status) : !VERWEIGERT.includes(r.status) && r.status < 500;
-      if (!ok) v.push(`${wo}: erlaubt laut Matrix, aber ${r.status}${feld ? ' (Polier/Mitarbeiter: Erfolg 2xx verlangt, F-025)' : ''} ${JSON.stringify(r.daten).slice(0, 200)}`);
+      const ok = feld ? feldOk(e, r.status) : e.ok ? e.ok.includes(r.status) : !VERWEIGERT.includes(r.status) && r.status < 500 && (r.status !== 409 || !(a.body && typeof a.body === 'object' && 'version' in a.body) || Boolean(e.konfliktGrund));
+      if (!ok) v.push(`${wo}: erlaubt laut Matrix, aber ${r.status}${feld ? ' (Polier/Mitarbeiter: Erfolg 2xx verlangt, F-025)' : r.status === 409 ? ' (409 für Büro/Bauleiter/GF nur mit „konfliktGrund“, 15.17)' : ''} ${JSON.stringify(r.daten).slice(0, 200)}`);
       if (feld && r.status >= 200 && r.status < 300) gelungen++;
       v.push(...await H.scanne(p.rolle, r, { route: schluessel, variante: p.variante, url: a.pfad }));
       // Folgen der Schreibprobe (Benachrichtigungen, Push, Mails) für Polier/Mitarbeiter ebenso prüfen

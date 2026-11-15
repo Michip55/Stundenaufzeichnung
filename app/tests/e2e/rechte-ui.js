@@ -16,6 +16,12 @@
  * - Service Worker: /api wird nie zwischengespeichert.
  * - F-044: Identitäten auch MIT allen vergebbaren Ausnahmen (Mitarbeiter, Polier) und der Bauleiter (Menü = Büro-Menü,
  *   keine GF-Vorbehalte). Eine Antwort, die nicht (rechtzeitig) gelesen werden kann, ist ein Befund – nie still verworfen.
+ * - 15.17 (H-T6): Bauleiter = Büro auch je Seite – zwei Zwillinge (rechte-zwilling.js: gleiche Person 900001, gleiche
+ *   eigene Daten, nur Rolle und bauleiterId verschieden) besuchen dieselben Seiten; die sichtbaren Bedienelemente (Text,
+ *   Ziel, data-*, gesperrt/schreibgeschützt) müssen gleich sein – nicht nur das Menü.
+ * - 15.17 (H-T2): nach dem Abmelden gilt die Positivliste für JEDEN Speicher: IndexedDB nur versiegelte Schadensmeldungen
+ *   (bautag-schaden/meldungen: {clientId, versiegelt:{iv, d}}), Cache Storage nur die App-Hülle (aktueller Cache des
+ *   Service Workers, Dateien aus public/ mit unverändertem Inhalt); dazu eine Selbstprobe mit einem Test-Eintrag.
  * - F-042: jedes sichtbare Bedienelement mit Ziel (Links, data-href/-nav, Knöpfe mit Klick-Handler im Trockenlauf,
  *   Benachrichtigungen) darf nicht auf eine für die Identität gesperrte Seite oder Datei führen. G2-010: auch jedes
  *   Element außerhalb von #view (Kopfleiste, Seitenleiste, untere Leiste, Glocke-Panel), je Bildschirmgröße.
@@ -26,6 +32,9 @@ const path = require('node:path');
 const H = require('../api/rechte-matrix-hilfe');
 const { U, BS, START } = require('../api/hilfe');
 const BE = require('./bedienelemente');
+const { Z, zwillingsBasis } = require('../api/rechte-zwilling');
+// Oberfläche, die der Testserver ausliefert (BT_PUBLIC nur in Injektions-Kopien der Nachkontrolle)
+const PUBLIC = process.env.BT_PUBLIC || path.join(__dirname, '..', '..', 'public');
 
 const GROESSEN = [{ name: 'handy', width: 390, height: 844, mobil: true }, { name: 'pc', width: 1440, height: 900, mobil: false }]
   .filter((g) => !process.env.E2E_NUR || process.env.E2E_NUR.split(',').includes(g.name));
@@ -49,6 +58,40 @@ const GELD_SICHTBAR = /€|\bEUR\b|\d+,\d{2}\s?€/;
 /* ---------- G2-011: Gerätespeicher ---------- */
 // nach dem Abmelden erlaubt (gehört zum Gerät bzw. ist versiegelt, ui.js abmelden: GERAET/WARTEND); Testattrappen e2e_*
 const SPEICHER_NACH_ABMELDEN = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
+
+/* ---------- 15.17 (H-T2): Positivliste für IndexedDB und Cache Storage nach dem Abmelden ---------- */
+// IndexedDB: nur versiegelte Einträge der Schadens-Warteschlange (tresor.js) – ohne jede Angabe im Klartext
+const IDB_NACH_ABMELDEN = {
+  'bautag-schaden': { meldungen: (e) => Boolean(e) && typeof e === 'object' && Object.keys(e).sort().join(',') === 'clientId,versiegelt' && /^v-[\w-]+$/.test(e.clientId) && e.versiegelt && typeof e.versiegelt === 'object' && Object.keys(e.versiegelt).sort().join(',') === 'd,iv' && typeof e.versiegelt.iv === 'string' && typeof e.versiegelt.d === 'string' }
+};
+function idbBefunde(idb) {
+  const v = [];
+  for (const [db, stores] of Object.entries(idb || {})) {
+    if (db === '__fehler') { v.push(`IndexedDB nicht lesbar (${stores}) – ungeprüft`); continue; }
+    if (stores && stores.fehler) { v.push(`IndexedDB ${db} nicht lesbar – ungeprüft`); continue; }
+    for (const [st, x] of Object.entries(stores || {})) {
+      const regel = IDB_NACH_ABMELDEN[db] && IDB_NACH_ABMELDEN[db][st];
+      (x.werte || []).forEach((w, i) => { if (!regel || !regel(w)) v.push(`IndexedDB ${db}/${st}[${(x.schluessel || [])[i]}] außerhalb der Positivliste: ${JSON.stringify(w).slice(0, 160)}`); });
+    }
+  }
+  return v;
+}
+// Cache Storage: nur der aktuelle Cache des Service Workers mit Dateien der App-Hülle in unverändertem Inhalt
+const SW_CACHE = (/const VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(PUBLIC, 'sw.js'), 'utf8')) || [])[1];
+function cacheBefunde(cache) {
+  const v = [];
+  for (const [k, inhalt] of Object.entries(cache || {})) {
+    if (k === '__fehler') { v.push(`Cache Storage nicht lesbar (${inhalt}) – ungeprüft`); continue; }
+    const name = k.split(' ')[0], url = k.split(' ').slice(1).join(' ');
+    let pfad;
+    try { pfad = decodeURIComponent(new URL(url).pathname); } catch (_) { v.push(`Cache ${k}: keine gültige Adresse`); continue; }
+    if (name !== SW_CACHE) { v.push(`Cache Storage „${name}“ (nicht der Cache der App-Hülle ${SW_CACHE}): ${url}`); continue; }
+    const datei = path.join(PUBLIC, pfad === '/' ? 'index.html' : pfad);
+    if (!datei.startsWith(PUBLIC) || !fs.existsSync(datei) || !fs.statSync(datei).isFile()) { v.push(`Cache ${url}: keine Datei der App-Hülle`); continue; }
+    if (/\.(html|js|css|webmanifest|svg|json)$/.test(datei) && inhalt !== fs.readFileSync(datei, 'utf8').slice(0, inhalt.length)) v.push(`Cache ${url}: Inhalt weicht von der App-Hülle ab`);
+  }
+  return v;
+}
 
 /** Alle Speicher des Geräts: localStorage, sessionStorage, IndexedDB (alle DBs, alle Stores, Schlüssel + Werte), Cache Storage (Inhalt), Cookies (auch HttpOnly) */
 async function geraeteSpeicher(page, ctx) {
@@ -143,8 +186,8 @@ async function main() {
     await ctx.clock.install({ time: new Date(START) });
     return ctx;
   }
-  async function anmelden(page, id) {
-    await page.goto(s.basis + '/#/login', { waitUntil: 'domcontentloaded' });
+  async function anmelden(page, id, basisUrl = s.basis) {
+    await page.goto(basisUrl + '/#/login', { waitUntil: 'domcontentloaded' });
     // Antwort vollständig lesen und kurz warten, damit der Mitschnitt sie vor dem Neuladen prüfen kann (F-044)
     const r = await page.evaluate(async (bid) => { const x = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benutzerId: bid, pin: '1234' }) }); await x.text(); return x.status; }, id);
     if (r !== 200) throw new Error(`Anmeldung ${id}: ${r}`);
@@ -152,7 +195,7 @@ async function main() {
     // wie nach der Anmeldung über die Oberfläche: Hinweis „angemeldet“ für den App-Start (app.js ladeIch)
     await page.evaluate(() => localStorage.setItem('bt_ich', '{}'));
     // vollständig neu laden (anderer Query-Teil erzwingt echten Seitenaufruf, nicht nur Hash-Wechsel)
-    await page.goto(`${s.basis}/?nach-login=${Date.now()}#/stempeln`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${basisUrl}/?nach-login=${Date.now()}#/stempeln`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1000);
     const ok = await page.evaluate(() => !!document.querySelector('[data-nav]'));
     if (!ok) throw new Error(`Nach der Anmeldung von ${id} kein App-Rahmen sichtbar`);
@@ -301,6 +344,53 @@ async function main() {
     }
   }
 
+  /* ---------- 1b) 15.17 (H-T6): Bauleiter = Büro – dieselben Bedienelemente auf jeder Seite (Zwillinge) ---------- */
+  if (!process.env.BAUTAG_RECHTE_UI_NUR_GERAET && (!NUR_IDENT || NUR_IDENT.test('bauleiter'))) {
+    const zb = { buero: await zwillingsBasis(basis, 'buero'), bauleiter: await zwillingsBasis(basis, 'bauleiter') };
+    const srv = { buero: await H.starteKopie(zb.buero), bauleiter: await H.starteKopie(zb.bauleiter) };
+    // sichtbare Bedienelemente der ganzen Seite (Rahmen, Inhalt, offene Dialoge): Art, id, Text, Ziel, data-*, Zustand
+    const finger = (page) => page.evaluate(() => {
+      const sel = 'button, [role="button"], [role="link"], [role="menuitem"], [role="tab"], a[href], [data-href], [data-link], [data-ziel], [data-nav], [data-auf], [onclick], summary, input:not([type="hidden"]), select, textarea, [contenteditable="true"]';
+      const norm = (t) => String(t || '').replace(/\s+/g, ' ').trim().replace(/\b\d{1,2}:\d{2}(:\d{2})?\b/g, '<ZEIT>').replace(/http:\/\/127\.0\.0\.1:\d+/g, '<HOST>').replace(/\ba[0-9a-f]{12}\b/g, '<ANTRAG>').replace(/\b(Büro|Bauleiter|buero|bauleiter)\b/g, '<ROLLE>').slice(0, 80);
+      const out = [];
+      for (const e of document.querySelectorAll(sel)) {
+        if (!(e.offsetParent !== null || e.getClientRects().length)) continue;
+        const data = [...e.attributes].filter((x) => /^data-/.test(x.name) && !/^data-bt-/.test(x.name)).map((x) => `${x.name}=${norm(x.value)}`).sort().join(' ');
+        out.push([e.tagName.toLowerCase(), e.id ? `#${e.id}` : '', e.getAttribute('type') || '', norm(e.innerText || e.value || e.getAttribute('aria-label') || e.getAttribute('title') || ''), e.disabled ? 'gesperrt' : '', e.readOnly ? 'schreibgeschützt' : '', norm(e.getAttribute('href') || ''), data].join('|'));
+      }
+      return out.sort();
+    });
+    const stabil = async (page) => { let a = await finger(page); for (let i = 0; i < 12; i++) { await page.waitForTimeout(350); const b = await finger(page); if (JSON.stringify(a) === JSON.stringify(b)) return b; a = b; } return a; };
+    let verglichen = 0;
+    try {
+      for (const g of GROESSEN) {
+        const seite = {};
+        for (const r of ['buero', 'bauleiter']) {
+          seite[r] = { ctx: await kontext(g) };
+          seite[r].page = await seite[r].ctx.newPage();
+          await anmelden(seite[r].page, Z, srv[r].basis);
+        }
+        for (const route of ROUTEN) {
+          for (const r of ['buero', 'bauleiter']) await seite[r].page.goto(`${srv[r].basis}/?zwilling=${verglichen}#${route}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+          let f = {};
+          for (let versuch = 0; versuch < 3; versuch++) {
+            if (versuch) await seite.buero.page.waitForTimeout(1200);
+            for (const r of ['buero', 'bauleiter']) f[r] = await stabil(seite[r].page);
+            if (JSON.stringify(f.buero) === JSON.stringify(f.bauleiter)) break;
+          }
+          verglichen++;
+          const fehlt = f.buero.filter((x) => !f.bauleiter.includes(x)), mehr = f.bauleiter.filter((x) => !f.buero.includes(x));
+          if (fehlt.length || mehr.length) notiere(`Bauleiter = Büro/${g.name} #${route}: Bedienelemente verschieden – nur Büro: ${fehlt.slice(0, 6).join(' ; ') || '–'} | nur Bauleiter: ${mehr.slice(0, 6).join(' ; ') || '–'}`);
+          if (!f.buero.length) notiere(`Bauleiter = Büro/${g.name} #${route}: keine Bedienelemente gefunden – Vergleich wirkungslos`);
+        }
+        for (const r of ['buero', 'bauleiter']) await seite[r].ctx.close();
+      }
+    } finally {
+      for (const r of ['buero', 'bauleiter']) { await srv[r].stop(); fs.rmSync(zb[r].ordner, { recursive: true, force: true }); }
+    }
+    console.log(`  Bauleiter = Büro: ${verglichen} Seiten mit Zwillingen verglichen`);
+  }
+
   /* ---------- 2) Geteiltes Gerät: Polier → Abmelden → Mitarbeiter ---------- */
   const log = (x) => { if (process.env.BAUTAG_RECHTE_UI_LOG) console.log('  [Gerät] ' + x); };
   {
@@ -346,6 +436,20 @@ async function main() {
     }
     for (const [k, w] of Object.entries(speicher.idb)) if (polierDaten(w)) notiere(`geteiltes Gerät: nach Abmelden bleibt IndexedDB ${k} mit Daten des Poliers`);
     if (speicher.cookie) notiere(`geteiltes Gerät: Cookie nach Abmelden per JS lesbar: ${speicher.cookie}`);
+    // 15.17 (H-T2): Positivliste auch für IndexedDB und Cache Storage – jeder Eintrag außerhalb ist ein Befund, gleich ob er
+    // Name oder Kennung des Poliers trägt (z. B. sein letzter Stempelstand ohne Namen)
+    for (const b of [...idbBefunde(speicher.idb), ...cacheBefunde(speicher.cache)]) notiere(`geteiltes Gerät: nach Abmelden des Poliers – ${b}`);
+    {
+      // Selbstprobe: ein Test-Eintrag in einer neuen IndexedDB und im Cache Storage muss gemeldet werden
+      await page.evaluate(async () => {
+        await new Promise((ok, nok) => { const r = indexedDB.open('bt-selbstprobe', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onerror = () => nok(r.error); r.onsuccess = () => { const t = r.result.transaction('s', 'readwrite'); t.objectStore('s').put({ x: 'Wert' }, 'probe'); t.oncomplete = () => { r.result.close(); ok(); }; }; });
+        const c = await caches.open('bt-selbstprobe'); await c.put('/daten/selbstprobe', new Response('{"x":"Wert"}'));
+      });
+      const probe = await geraeteSpeicher(page, ctx);
+      if (!idbBefunde(probe.idb).some((b) => /bt-selbstprobe/.test(b))) notiere('Selbstprobe: Test-Eintrag in einer neuen IndexedDB nach dem Abmelden nicht erkannt – Prüfung wirkungslos');
+      if (!cacheBefunde(probe.cache).some((b) => /bt-selbstprobe/.test(b))) notiere('Selbstprobe: Test-Eintrag im Cache Storage nach dem Abmelden nicht erkannt – Prüfung wirkungslos');
+      await page.evaluate(async () => { await new Promise((ok) => { const r = indexedDB.deleteDatabase('bt-selbstprobe'); r.onsuccess = r.onerror = r.onblocked = () => ok(); }); await caches.delete('bt-selbstprobe'); });
+    }
     // Mitarbeiter meldet sich am selben Gerät an – die Warteschlange des Poliers darf nicht mit seiner Sitzung gesendet werden
     const vorher = s.db.eins("SELECT COUNT(*) AS n FROM buchung WHERE quelle = 'offline'").n;
     await anmelden(page, U.mitarbeiter);
