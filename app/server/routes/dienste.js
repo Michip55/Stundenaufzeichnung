@@ -94,6 +94,7 @@ module.exports = function diensteRouten(api, bt) {
     if (!w.verfuegbar) throw new ApiFehler(503, 'NICHT_VERFUEGBAR', `Wetter nicht verfügbar: ${w.grund}`);
     db.transaktion(() => {
       db.lauf('UPDATE bericht SET wetter = ?, geaendert = ?, version = version + 1 WHERE id = ?', JSON.stringify(W.berichtWetter(w)), jetzt(), b.id);
+      require('../berichtsicht').nachfuehren(db, b.id, null); // 15.15 (H-G4) – Zeitpunkt wie bericht.geaendert
       if (typeof B.linksUngueltig === 'function') B.linksUngueltig(db, b.id);
     });
     res.json({ ...B.berichtJson(db, req.ctx, B.ladeBerichtRoh(db, b.id)), wetterVorschlag: w.schlechtwetter });

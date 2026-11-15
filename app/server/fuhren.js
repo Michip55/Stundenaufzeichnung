@@ -138,6 +138,7 @@ function inBericht(bt, f, benutzerId) {
   const b = db.eins('SELECT id, status FROM bericht WHERE baustelle_id = ? AND datum = ?', nach.baustelleId, f.datum);
   const offen = b && b.status === 'entwurf' && !db.eins('SELECT 1 AS x FROM unterschrift WHERE bericht_id = ?', b.id);
   if (offen) {
+    require('./berichtsicht').vorbereiten(db, b.id); // 15.15 (H-G4): Ausgangsstand vor der Änderung
     zeileHinzufuegen(db, b.id, f.material_id, menge);
     db.lauf("UPDATE plan_fuhre SET bericht_status = 'uebernommen', bericht_id = ?, bericht_menge = ? WHERE id = ?", b.id, menge, f.id);
     require('./routes/berichte').berichtGeaendert(db, b.id, zeit); // G-02: Version +1 und Fern-Links ungültig

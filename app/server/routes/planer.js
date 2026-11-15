@@ -800,6 +800,8 @@ module.exports = function planerRouten(api, bt) {
     }
     return f;
   }
+  // 15.15 (H-G4): Berichtsversion, wie ctx sie sieht (Fahrer ohne volle Sicht: Sichtversion)
+  const berichtVersionFuer = (ctx, berichtId) => { const r = db.eins('SELECT id, version, geaendert FROM bericht WHERE id = ?', berichtId); return r ? require('../berichtsicht').stand(db, ctx, r).version : undefined; };
   const fuhreAntwort = (id, status = 200) => {
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', id);
     const K = kontext(f.datum, f.datum);
@@ -930,12 +932,12 @@ module.exports = function planerRouten(api, bt) {
     throw keinZugriff('Den Status meldet der eingeteilte Fahrer.');
   }
   /** Antwort für den Fahrer: veröffentlichter Stand (fuhreFuerFahrer) + aktueller Status, eigene Erledigung, Berichtszeile – keine Entwurfsdaten */
-  function fahrerAntwort(id, st, ichId) {
+  function fahrerAntwort(id, st, ichId, ctx) {
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', id);
     const erl = f.erledigt ? JSON.parse(f.erledigt) : null;
     const foto = erl && erl.lieferscheinFotoId ? db.eins('SELECT erstellt_von FROM plan_fuhre_foto WHERE id = ?', erl.lieferscheinFotoId) : null;
     if (erl && erl.lieferscheinFotoId && !(foto && foto.erstellt_von === ichId)) delete erl.lieferscheinFotoId; // N-112
-    return { ...F.fuhreFuerFahrer(st), status: f.status, erledigt: erl, berichtZeile: f.bericht_status ? { ...(f.bericht_id ? { berichtId: f.bericht_id, berichtVersion: (db.eins('SELECT version FROM bericht WHERE id = ?', f.bericht_id) || {}).version } : {}), status: f.bericht_status, ...(f.bericht_hinweis ? { hinweis: f.bericht_hinweis } : {}) } : null };
+    return { ...F.fuhreFuerFahrer(st), status: f.status, erledigt: erl, berichtZeile: f.bericht_status ? { ...(f.bericht_id ? { berichtId: f.bericht_id, berichtVersion: berichtVersionFuer(ctx, f.bericht_id) } : {}), status: f.bericht_status, ...(f.bericht_hinweis ? { hinweis: f.bericht_hinweis } : {}) } : null };
   }
 
   api.post('/plan/fuhren/:id/status', (req, res) => {
@@ -972,7 +974,7 @@ module.exports = function planerRouten(api, bt) {
       }
       prot(req, `fuhre:${f.id}`, `Fuhre ${f.id}: ${status}`, { status });
     });
-    if (stand) return res.json(fahrerAntwort(f.id, stand, ich.id));
+    if (stand) return res.json(fahrerAntwort(f.id, stand, ich.id, req.ctx));
     senden(res, fuhreAntwort(f.id));
   });
 

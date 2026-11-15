@@ -15,9 +15,13 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
     id: bs.id, kst: bs.kst, name: bs.name, kurz: bs.kurz, auftraggeber: bs.auftraggeber, agAdresse: bs.ag_adresse,
     bauvorhaben: bs.bauvorhaben, adresse: bs.adresse, bauherrVertreter: bs.bauherr_vertreter, art: bs.art,
     status: bs.status, intern: bs.intern === 1, kostenstelle: bs.intern === 1 ? 'intern' : 'baustelle', polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
-    beginn: bs.beginn, ende: bs.ende, version: bs.version,
+    beginn: bs.beginn, ende: bs.ende,
     lat: bs.lat, lng: bs.lng
   };
+  // 15.15 (H-G3): Bearbeitungszähler nur für Aufrufer, die die Baustelle ändern (Recht stammdaten – Büro, Bauleiter, GF laut
+  // Matrix; für Polier/Mitarbeiter gesperrt). Er steigt auch bei verborgenen Geldschritten (Schlussrechnung, Bezahlt,
+  // Archiviert, Haftrücklass, Auftragssumme …) und verriete sie sonst bei unveränderter neutraler Sicht.
+  if (ctx.hat('stammdaten')) o.version = bs.version;
   const mitPreisen = darfPreise(ctx, bs);
   Object.assign(o, require('../bauvorhaben').phaseFelder(db, bs, mitPreisen, ctx)); // API.md 12.15; 15.11: Phase in der Sicht des Aufrufers
   if (detail && (ctx.hat('stammdaten') || ctx.hat('bericht_freigeben'))) { o.agEmail = bs.ag_email; o.berichtMail = bs.bericht_mail === 1; }

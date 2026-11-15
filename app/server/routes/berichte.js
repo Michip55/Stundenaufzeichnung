@@ -10,14 +10,19 @@ const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const { erzeugeBerichtPdf } = require('../pdf');
 const { bildHash } = require('../db');
 const DS = require('../datenschutz');
+const S = require('../berichtsicht'); // 15.15 (H-G4): Sichtversion für Aufrufer ohne volle Sicht
 
 const CODES = ['K', 'U', 'SW', 'ZA'];
 const WETTER_SCHLUESSEL = ['text', 'temperatur', 'niederschlag', 'wind', 'quelle'];
-/** Optimistische Sperre (C-08) */
-function pruefeBerichtVersion(body, b, pflicht) {
+/**
+ * Optimistische Sperre (C-08). 15.15 (H-G4): verglichen wird mit der Version, wie ctx sie sieht (volle Sicht: Tabellenversion;
+ * sonst Sichtversion – verborgene Änderungen lösen für Polier/Mitarbeiter keinen Konflikt aus und erscheinen nicht in der 409)
+ */
+function pruefeBerichtVersion(body, b, pflicht, db, ctx) {
   if (body.version === undefined && !pflicht) return;
   const version = v.zahl(body.version, 'version', { min: 1, max: 1e9, ganz: true });
-  if (version !== b.version) throw konflikt('Der Bericht wurde inzwischen von jemand anderem geändert. Bitte neu laden – Ihre Änderung wurde nicht gespeichert.', { version: b.version });
+  const aktuell = S.stand(db, ctx, b).version;
+  if (version !== aktuell) throw konflikt('Der Bericht wurde inzwischen von jemand anderem geändert. Bitte neu laden – Ihre Änderung wurde nicht gespeichert.', { version: aktuell });
 }
 
 const GESPERRT_TEXT = 'Der Bericht ist bereits unterschrieben (Auftragnehmer/Bauherr) – Inhalt gesperrt. Unterschrift zurückziehen, um zu ändern.';
@@ -26,6 +31,7 @@ const MAX_PNG_BYTES = 400 * 1024;
 /* ---------- Laden ---------- */
 
 function ladeBerichtRoh(db, id) {
+  S.vorbereiten(db, id); // 15.15 (H-G4): Ausgangsstand der Sichtversion vor jeder Änderung
   const b = db.eins('SELECT * FROM bericht WHERE id = ?', id);
   if (!b) return null;
   b.personal = db.alle(`SELECT bp.*, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id
@@ -80,8 +86,8 @@ function berichtJson(db, ctx, b, { mitBild = true } = {}) {
     unterschriften,
     freigabe: b.freigegeben_zeit ? { benutzerId: b.freigegeben_von, zeit: b.freigegeben_zeit } : null,
     erstellt: b.erstellt,
-    geaendert: b.geaendert,
-    version: b.version,
+    // 15.15 (H-G4): ohne volle Sicht Version/Zeitpunkt der für ctx sichtbaren Inhalte (server/berichtsicht.js)
+    ...S.stand(db, ctx, b),
     geaendertNachUnterschrift: parseJson(b.geaendert_nach_unterschrift, null),
     selbstfreigabe: b.selbstfreigabe === 1,
     bearbeitbar: b.status === 'entwurf' && !b.unterschriften.length
@@ -414,6 +420,7 @@ function speichereUpdate(db, berichtId, u, zeit) {
   set.geaendert = zeit;
   const k = Object.keys(set);
   db.lauf(`UPDATE bericht SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...k.map((x) => set[x]), berichtId);
+  S.nachfuehren(db, berichtId, zeit); // 15.15 (H-G4)
 }
 
 function pruefePng(dataUrl) {
@@ -496,7 +503,11 @@ module.exports = function berichtRouten(api, bt) {
     const sicht = BV.siehtZahlungsstand(req.ctx, bs);
     const seit = sicht || BV.neutralePhase(bs) === bs.phase ? bs.phase_seit
       : (db.eins(`SELECT MAX(datum) AS d FROM baustelle_phase WHERE baustelle_id = ? AND phase NOT IN (${BV.GELD_PHASEN.map(() => '?').join(', ')})`, bs.id, ...BV.GELD_PHASEN) || {}).d || bs.abnahme_datum || null;
-    if (bs.status === 'abgeschlossen' && (['archiviert', 'storniert'].includes(bs.phase) || !seit || datum > seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${BV.phaseName(BV.sichtPhase(req.ctx, bs))}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
+    // 15.15 (H-G2): „immer gesperrt“ nur für Phasen, die der Aufrufer als solche sieht – ohne Zahlungsstand ist eine nach
+    // der Zahlung archivierte Baustelle neutral „abgeschlossen“ wie Schlussrechnung/Bezahlt und hat dieselbe Grenze
+    // (sonst verriete ein Probebericht vor der Abnahme „archiviert“ = bezahlt und Rücklass erledigt); storniert bleibt gesperrt
+    const immerGesperrt = sicht ? ['archiviert', 'storniert'].includes(bs.phase) : BV.neutralePhase(bs) === 'storniert';
+    if (bs.status === 'abgeschlossen' && (immerGesperrt || !seit || datum > seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${BV.phaseName(BV.sichtPhase(req.ctx, bs))}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
     const vorhanden = db.eins('SELECT id FROM bericht WHERE baustelle_id = ? AND datum = ?', baustelleId, datum);
     if (vorhanden) throw konflikt('Für diese Baustelle und diesen Tag gibt es bereits einen Bericht.', { id: vorhanden.id });
     const zeit = jetzt();
@@ -509,7 +520,9 @@ module.exports = function berichtRouten(api, bt) {
     if (bs.lat != null && bs.lng != null && bt.wetterAn) {
       try {
         const w = await Promise.race([require('../wetter').wetterFuer(bt, bs, datum), new Promise((r) => setTimeout(() => r(null), 4000).unref())]);
-        if (w && w.verfuegbar) db.lauf('UPDATE bericht SET wetter = ? WHERE id = ? AND wetter IS NULL', JSON.stringify(require('../wetter').berichtWetter(w)), id);
+        if (w && w.verfuegbar && db.lauf('UPDATE bericht SET wetter = ? WHERE id = ? AND wetter IS NULL', JSON.stringify(require('../wetter').berichtWetter(w)), id).changes) {
+          S.nachfuehren(db, id, null, { basis: true }); // 15.15: Teil der Erstanlage (ohne Versionssprung) – Ausgangsstand übernehmen
+        }
       } catch (_) { /* Wetter ist optional */ }
     }
     res.status(201).json(berichtJson(db, req.ctx, ladeBerichtRoh(db, id)));
@@ -523,7 +536,7 @@ module.exports = function berichtRouten(api, bt) {
     const b = ladeMitZugriff(req, true);
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
     const body = v.objekt(req.body);
-    pruefeBerichtVersion(body, b, true);
+    pruefeBerichtVersion(body, b, true, db, req.ctx);
     const ueberschneidungen = []; // 15.11 (G2-016): Überschneidungen fremder Zeilen ohne stammdaten/lohn → Klärung beim Büro
     const u = pruefeUpdate(db, body, { baustelle: b.baustelle, datum: b.datum, berichtId: b.id, jetzt: bt.uhr(), ctx: req.ctx, ueberschneidungen });
     if (!Object.keys(u).length) throw ungueltig('Keine bearbeitbaren Felder angegeben.');
@@ -569,7 +582,7 @@ module.exports = function berichtRouten(api, bt) {
   api.post('/berichte/:id/personal-aktualisieren', (req, res) => {
     const b = ladeMitZugriff(req, true);
     if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(GESPERRT_TEXT);
-    pruefeBerichtVersion(v.objekt(req.body || {}), b, true); // D-07
+    pruefeBerichtVersion(v.objekt(req.body || {}), b, true, db, req.ctx); // D-07
     const seg = new Map(b.personal.map((p) => [p.benutzer_id, p.seg_stunden]));
     const personal = personalVorschlag(db, b.baustelle_id, b.datum, bt.uhr()).map((p) => ({ ...p, segStunden: Math.min(seg.get(p.benutzerId) || 0, p.stunden) }));
     // API.md 15.1: Zeilen, die der Aufrufer nicht sieht (z. B. vom Büro eingetragene abwesende Gäste), bleiben erhalten
@@ -591,7 +604,7 @@ module.exports = function berichtRouten(api, bt) {
     const rolle = v.auswahl(body.rolle, 'rolle', ['an', 'bh']);
     const name = v.text(body.name, 'name', { max: 120 });
     const bild = pruefePng(body.bildPng);
-    pruefeBerichtVersion(body, b, true); // D-07: Unterschrift nur auf den gesehenen Stand
+    pruefeBerichtVersion(body, b, true, db, req.ctx); // D-07: Unterschrift nur auf den gesehenen Stand
     // D-05: vorhandene Unterschrift nie überschreiben – nur über Zurückziehen
     if (b.unterschriften.some((u) => u.rolle === rolle)) {
       throw konflikt(`Die Unterschrift ${rolle === 'bh' ? 'des Bauherrn' : 'des Auftragnehmers'} liegt bereits vor. Ersetzen nur über „Unterschrift zurückziehen“.`);
@@ -620,10 +633,12 @@ module.exports = function berichtRouten(api, bt) {
         ON CONFLICT(bericht_id, rolle) DO NOTHING`,
       b.id, rolle, name, zeit, bild, req.ctx.benutzer.id, hash);
       db.lauf('UPDATE bericht SET version = version + 1 WHERE id = ?', b.id);
+      S.nachfuehren(db, b.id, null); // 15.15 (H-G4) – Zeitpunkt wie bericht.geaendert
       const n = db.eins('SELECT COUNT(*) AS n FROM unterschrift WHERE bericht_id = ?', b.id).n;
       if (n >= 2) {
         neuerStatus = 'unterschrieben';
         db.lauf("UPDATE bericht SET status = 'unterschrieben', geaendert = ?, version = version + 1 WHERE id = ?", zeit, b.id);
+        S.nachfuehren(db, b.id, zeit); // 15.15 (H-G4)
         db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, alt: 'entwurf', neu: 'unterschrieben', text: `Bericht ${b.baustelle.kst} ${b.datum} unterschrieben${protokollZusatz}` });
         // Hinweis an alle, die freigeben dürfen (Bauleiter der Baustelle, Büro, GF)
         const empf = empfaengerMitRecht(db, 'bericht_freigeben', { baustelleId: b.baustelle_id }); // 15.3: über das Recht (Bauleiter = Büro)
@@ -671,6 +686,7 @@ module.exports = function berichtRouten(api, bt) {
       linksUngueltig(db, b.id);
       db.lauf('UPDATE bericht SET geaendert_nach_unterschrift = ?, version = version + 1 WHERE id = ?',
         JSON.stringify({ zeit: jetzt(), rolle, von: req.ctx.benutzer.name, unterschriebenAm: alt.zeit }), b.id);
+      S.nachfuehren(db, b.id, null); // 15.15 (H-G4) – Zeitpunkt wie bericht.geaendert
     });
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, text: `Unterschrift (${rolle === 'an' ? 'Auftragnehmer' : 'Bauherr'}) zurückgezogen: ${b.baustelle.kst} ${b.datum}` });
     res.json(berichtJson(db, req.ctx, ladeBerichtRoh(db, b.id)));
@@ -693,6 +709,7 @@ module.exports = function berichtRouten(api, bt) {
     const zeit = jetzt();
     db.transaktion(() => {
       db.lauf("UPDATE bericht SET status = 'freigegeben', freigegeben_von = ?, freigegeben_zeit = ?, geaendert = ?, selbstfreigabe = ?, version = version + 1 WHERE id = ?", req.ctx.benutzer.id, zeit, zeit, selbst ? 1 : 0, b.id);
+      S.nachfuehren(db, b.id, zeit); // 15.15 (H-G4)
       db.protokolliere({ zeit, benutzerId: req.ctx.benutzer.id, art: 'freigabe', objekt: `bericht:${b.id}`, alt: 'unterschrieben', neu: 'freigegeben',
         text: `Bericht ${b.baustelle.kst} ${b.datum} freigegeben${selbst ? ' (Selbstfreigabe durch GF – Vier-Augen-Prinzip nicht eingehalten)' : ''}` });
     });
@@ -779,8 +796,9 @@ function linksUngueltig(db, berichtId, nurRolle = null) {
  */
 function berichtGeaendert(db, berichtId, zeit) {
   db.lauf('UPDATE bericht SET geaendert = ?, version = version + 1 WHERE id = ?', zeit, berichtId);
+  S.nachfuehren(db, berichtId, zeit); // 15.15 (H-G4): Sichtversion nur bei sichtbarer Änderung (fremder Lieferschein: nein)
   linksUngueltig(db, berichtId);
-  return db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version;
+  return db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version; // Tabellenversion – nur intern; Antworten nutzen S.stand
 }
 module.exports.linksUngueltig = linksUngueltig;
 module.exports.berichtGeaendert = berichtGeaendert;

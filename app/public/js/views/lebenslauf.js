@@ -109,6 +109,9 @@ export function abschlussHtml(b, ctx) {
   const p = phaseVon(b), heute = wienHeute();
   if (!b.abnahmeDatum && !b.gewaehrleistungBis && !b.haftruecklass && !['abgenommen', 'schlussrechnung', 'bezahlt', 'archiviert', 'abgeschlossen'].includes(p)) return '';
   const darf = planer(ctx), h = b.haftruecklass, hinweise = [];
+  // 15.15 (H-G5): nur Erinnerungen nennen, die der Aufrufer bekommt (Server: Gewährleistung an stammdaten, Bankgarantie und
+  // Haftrücklass an preise_sehen) – Polier/Mitarbeiter sehen den Hinweis nicht und keine Geldbegriffe
+  const erinnerungen = [...(darf ? ['3 Monate vor Ende der Gewährleistung'] : []), ...(ctx.kann('preise_sehen') ? ['30 Tage vor Ablauf der Bankgarantie', 'bei möglicher Freigabe des Haftrücklasses'] : [])];
   if (b.gewaehrleistungBis) { const t = tageBis(b.gewaehrleistungBis, heute); if (t < 0) hinweise.push(['info', 'Gewährleistung abgelaufen.']); else if (t <= 92) hinweise.push(['warn', `Gewährleistung endet in ${t} Tagen – Schlussbegehung einplanen.`]); }
   if (h && h.bankgarantieBis && !h.freigegeben) { const t = tageBis(h.bankgarantieBis, heute); if (t >= 0 && t <= 30) hinweise.push(['warn', `Bankgarantie läuft in ${t} Tagen ab.`]); }
   if (h && h.freigabeAm && !h.freigegeben && h.freigabeAm <= heute) hinweise.push(['warn', 'Haftrücklass kann freigegeben bzw. eingefordert werden.']);
@@ -118,7 +121,7 @@ export function abschlussHtml(b, ctx) {
     <dl class="def-list"><div><dt>Abnahme am</dt><dd>${esc(b.abnahmeDatum ? fmt.datum(b.abnahmeDatum) : '–')}</dd></div><div><dt>Gewährleistung bis</dt><dd data-wert="gewaehrleistung">${esc(b.gewaehrleistungBis ? fmt.datum(b.gewaehrleistungBis) : '–')}</dd></div>
       ${b.schlussrechnung ? `<div><dt>Schlussrechnung</dt><dd>${esc(b.schlussrechnung.nr || '–')}${b.schlussrechnung.datum ? ' vom ' + esc(fmt.datum(b.schlussrechnung.datum)) : ''}${b.schlussrechnung.betrag != null ? ' · ' + fmt.eur(b.schlussrechnung.betrag) : ''}</dd></div>` : ''}
       ${h ? `<div><dt>Haftrücklass</dt><dd class="num" data-wert="haftruecklass">${h.betrag != null ? fmt.eur(h.betrag) : '–'}${h.prozent != null ? ` (${fmt.zahl(h.prozent)} %)` : ''}${h.freigegeben ? ' <span class="chip xs st-green">freigegeben</span>' : ''}</dd></div><div><dt>Bankgarantie bis</dt><dd>${esc(h.bankgarantieBis ? fmt.datum(h.bankgarantieBis) : '–')}</dd></div><div><dt>Freigabe am</dt><dd>${esc(h.freigabeAm ? fmt.datum(h.freigabeAm) : '–')}</dd></div>` : ''}</dl>
-    <p class="muted sm pad-s">Erinnerungen kommen automatisch in der App: 3 Monate vor Ende der Gewährleistung, 30 Tage vor Ablauf der Bankgarantie, bei möglicher Freigabe des Haftrücklasses.</p>
+    ${erinnerungen.length ? `<p class="muted sm pad-s" id="abschluss-erinnerungen">Erinnerungen kommen automatisch in der App: ${erinnerungen.join(', ')}.</p>` : ''}
   </section>`;
 }
 function abschlussDialog(ctx, b) {

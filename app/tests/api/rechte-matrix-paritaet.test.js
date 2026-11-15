@@ -88,7 +88,11 @@ const ueberFuer = (zb) => (variante) => (variante === 'fremd' ? {} : {
 /** Antwort vergleichbar machen: eigene Rolle, bauleiterId der Baustellen und Zufallswerte neutralisieren */
 async function neutral(r) {
   // Zufallswerte: Antrags-IDs, Link-Token, Port des jeweiligen Testservers, zufällige Schlüssel (z. B. Lohn-Vorlagen)
-  const text = (s) => s.replace(/\ba[0-9a-f]{12}\b/g, '<ANTRAG>').replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, '<TOKEN>').replace(/http:\/\/127\.0\.0\.1:\d+/g, '<HOST>');
+  // 15.15 (H-G1): öffentliche Abwesenheits-/Antragskennungen sind zufällig je Zeile – je Antwort fortlaufend nummeriert (gleiche
+  // Kennung → gleiche Nummer), damit die Struktur verglichen bleibt
+  const kennungen = new Map();
+  const text = (s) => s.replace(/\b[px][0-9a-f]{20}\b/g, (k) => { if (!kennungen.has(k)) kennungen.set(k, `<KENNUNG${kennungen.size + 1}>`); return kennungen.get(k); })
+    .replace(/\ba[0-9a-f]{12}\b/g, '<ANTRAG>').replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, '<TOKEN>').replace(/http:\/\/127\.0\.0\.1:\d+/g, '<HOST>');
   const lauf = (w) => {
     if (Array.isArray(w)) return w.map(lauf);
     if (w && typeof w === 'object') {

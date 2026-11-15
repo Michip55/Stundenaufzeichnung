@@ -80,7 +80,7 @@ module.exports = function positionenRouten(api, bt) {
   }
 
   function lesen(req, bs) {
-    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Die Nachkalkulation sieht, wer das Recht kalk_sehen hat.');
+    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Diese Auswertung ist für Ihr Konto nicht freigegeben.'); // 15.15 (H-G6)
   }
   function schreibenPreise(req) {
     if (!req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Positionen und Preise ändern Büro bzw. Geschäftsführung.');
