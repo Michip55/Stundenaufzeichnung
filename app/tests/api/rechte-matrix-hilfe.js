@@ -1,0 +1,1028 @@
+'use strict';
+/**
+ * Hilfen für die vollständige Rechte-Prüfung (Prüfbericht 7):
+ * - Routen-Liste direkt aus dem Express-Router (keine Handliste)
+ * - Basis-Datenbank mit Demo-Seed + gezielt angelegten Objekten („Kanarienvögel“) je Baustelle
+ * - Scanner: verbotene Schlüssel, €-Beträge und Kanarien-Werte in JSON/CSV/PDF/XLSX/Text
+ * - DB-Fingerabdruck für Schreibproben (Datenbank unverändert nach Ablehnung)
+ *
+ * Kanarienvögel: auffällige, eindeutige Werte (z. B. Rechnung netto 87654.32 auf Baustelle 1), die nur
+ * bestimmte Rollen je sehen dürfen. Taucht ein solcher Wert in irgendeiner Antwort einer anderen Rolle auf
+ * – egal unter welchem Feldnamen, in welchem Format oder in welcher Fehlermeldung –, ist das ein Leck.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const zlib = require('node:zlib');
+const crypto = require('node:crypto');
+const { starte, U, BS } = require('./hilfe');
+const { testJpeg } = require('./fuhrpark-bilder');
+const W = require('./rechte-werte');
+
+const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
+const ID = { mitarbeiter: U.mitarbeiter, polier: U.polier, bauleiter: U.bauleiter, buero: U.buero, gf: U.gf };
+const TOKEN = 'rechte-matrix-test-token-0123456789';
+// Mitarbeiter 3 (Daniel Schwarz) gehört zur Partie von Polier 1 auf Baustelle 1 (Pitten)
+const ANDERER_MA = 3;
+// Mitarbeiter 14 (Mario Gruber) gehört zur Baustelle 3 (Reisinger, Bauleiter = GF, Polier 13)
+const FREMDER_MA = 14;
+// F-024: Personen im veröffentlichten Einsatz Pitten am 13.11. und 16.11. mit je einer anderen Abwesenheit (Code, Status)
+const PARTIE_ABW = [4, 5, 6, 7, 9];
+const PLAN_TAGE = ['2026-11-13', '2026-11-16'];
+const ABW_PLAN = [ // [Person, Code, eingetragen von, Notiz-Kanarie, Zeiträume]
+  [4, 'U', 'buero', 'ABW-U-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [5, 'ZA', 'buero', 'ABW-ZA-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [6, 'U', 'selbst', 'ABW-U-BEANTRAGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [7, 'ZA', 'selbst', 'ABW-ZA-BEANTRAGT-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [9, 'BU', 'buero', 'ABW-BU-KANARIE', [['2026-11-13', '2026-11-16']]],
+  [3, 'K', 'buero', 'ABW-K-GENEHMIGT-KANARIE', [['2026-11-13', '2026-11-13']]] // 16./17.11. schon K (Diagnose-Kanarie)
+];
+
+/* ------------------------------------------------------------------ Routen */
+
+/**
+ * Alle registrierten Routen (Methode + vollständiger Pfad) aus dem Router-Stack der App.
+ * Eingehängte Router werden rekursiv durchsucht; der Einhängepunkt wird über den Matcher der Schicht ermittelt.
+ */
+function routenAusApp(app) {
+  const out = [];
+  const praefixVon = (layer) => {
+    for (const p of ['/api', '']) {
+      try { const m = layer.matchers && layer.matchers[0] && layer.matchers[0](p + '/__probe__'); if (m) return m.path === '/' ? '' : m.path; } catch (_) { /* weiter */ }
+    }
+    throw new Error('Unbekannter Einhängepunkt eines Routers – routenAusApp erweitern');
+  };
+  const lauf = (stack, praefix) => {
+    for (const l of stack) {
+      if (l.route) {
+        const pfade = Array.isArray(l.route.path) ? l.route.path : [l.route.path];
+        for (const p of pfade) {
+          if (typeof p !== 'string') throw new Error(`Route mit RegExp-Pfad gefunden (${p}) – Matrix kann sie nicht prüfen`);
+          for (const m of Object.keys(l.route.methods)) if (m !== '_all') out.push(`${m.toUpperCase()} ${praefix}${p}`);
+          if (l.route.methods._all) out.push(`ALL ${praefix}${p}`);
+        }
+      } else if (l.handle && Array.isArray(l.handle.stack)) {
+        lauf(l.handle.stack, praefix + praefixVon(l));
+      }
+    }
+  };
+  lauf(app.router.stack, '');
+  return out;
+}
+
+/* ------------------------------------------------------------------ Kanarienvögel */
+
+// Geld je Baustelle (Bauleiter 103 besitzt BS 1 Pitten, nicht BS 3 Reisinger)
+const GELD = {
+  bs1: { rechnungNetto: 87654.32, nachtrag: 76543.21, fremdleistung: 65432.19, zahlung: 3456.78, haftruecklass: 5432.11, posEp: 5813.37, mengePa: 6666.66, auftragssumme: 345678.91 },
+  bs3: { rechnungNetto: 81818.18, nachtrag: 72727.27, fremdleistung: 63636.36, zahlung: 3939.39, haftruecklass: 5151.51, posEp: 7171.73, mengePa: 6161.61, auftragssumme: 312312.31 },
+  // F-022: alle Beträge mit unverwechselbarem ganzzahligem Anteil (auch gerundet/abgeschnitten erkennbar)
+  // lieferscheinOcr: Preis auf dem fotografierten Lieferschein (Test-OCR, POST /test/ocr) – darf nicht an Polier/Mitarbeiter zurück
+  global: { leistungEp: 4321.98, geplantEp: 3579.24, katalogEp: 9898.83, geraetSatz: 1887.71, reparatur: 2468.13, lieferscheinOcr: 6248.19 }
+};
+const TEXT = {
+  rechnungNrBs1: 'R-KANARIE-BS1', rechnungNrBs3: 'R-KANARIE-BS3',
+  nachtragBs3: 'NACHTRAG-KANARIE-BS3', fremdBs3: 'FREMD-KANARIE-BS3', nachtragBs1: 'NACHTRAG-KANARIE-BS1', fremdBs1: 'FREMD-KANARIE-BS1',
+  dokFinBs1: 'DOKFIN-KANARIE-BS1', dokFinBs3: 'DOKFIN-KANARIE-BS3', dokSvBs1: 'DOKSV-KANARIE-BS1', dokPlanBs3: 'DOKPLAN-KANARIE-BS3', dokPlanBs1: 'DOKPLAN-OK-BS1',
+  krank: 'KRANK-KANARIE-DIAGNOSE', urlaubAnderer: 'URLAUB-KANARIE-3', planNotizAnderer: 'PLANNOTIZ-KANARIE-3', planNotizEigen: 'PLANNOTIZ-EIGEN-2', planNotizGastFremd: 'PLANNOTIZ-GAST-FREMDE-PARTIE-8',
+  telefonAnderer: '+43 699 3333 3131', telefonPolier: '+43 664 1111 1111', smtp: 'smtp-kanarie.example.test', alarmAn: 'alarm-kanarie@example.test',
+  rechnungServicebuch: 'SB-RECHNUNG-KANARIE-4711', // Rechnungsnr. der Werkstatt im Servicebuch: nur mit preise_sehen (14.11.2026)
+  // F-023/F-024/F-040: Notizen fremder Abwesenheiten an den geprüften Planer-Tagen (je Code und Status eindeutig)
+  abwKg: 'ABW-K-GENEHMIGT-KANARIE', abwUg: 'ABW-U-GENEHMIGT-KANARIE', abwZAg: 'ABW-ZA-GENEHMIGT-KANARIE', abwUb: 'ABW-U-BEANTRAGT-KANARIE', abwZAb: 'ABW-ZA-BEANTRAGT-KANARIE', abwBU: 'ABW-BU-KANARIE',
+  abwKheute: 'ABW-K-HEUTE-KANARIE', abwUbHeute: 'ABW-U-BEANTRAGT-HEUTE-KANARIE', abwZAbHeute: 'ABW-ZA-BEANTRAGT-HEUTE-KANARIE',
+  schadenEigen: 'SCHADEN-EIGEN-KANARIE von Mitarbeiter 2', schadenFremd: 'SCHADEN-FREMD-KANARIE von Mitarbeiter 14', lvKurztext: 'LV-KANARIE-POSITION',
+  lieferschein: 'LIEFERSCHEIN-KANARIE-GF' // N-112 (15.7): von der GF hochgeladener Lieferschein (Beschreibung, OCR-Text, Dokument) – Polier/Mitarbeiter nie
+};
+
+function zahlFormen(z) {
+  const [g, n] = z.toFixed(2).split('.');
+  const tausend = g.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return [`${g}.${n}`, `${g},${n}`, `${tausend},${n}`, `${g.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${n}`, `${g.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')},${n}`, `${g.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')},${n}`, `${g.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')},${n}`]
+    .concat(n === '00' ? [] : []);
+}
+
+/**
+ * Kanarienvögel, die eine Rolle NIE sehen darf (je Antwort, alle Formate).
+ * @returns {{name:string, formen:string[]}[]}
+ */
+function verboteneKanarien(rolle) {
+  const k = [];
+  const geld = (gruppe, schluessel) => k.push({ name: `€ ${gruppe}.${schluessel}=${GELD[gruppe][schluessel]}`, formen: zahlFormen(GELD[gruppe][schluessel]) });
+  const text = (schluessel) => k.push({ name: `Text ${schluessel}`, formen: [TEXT[schluessel]] });
+  if (rolle === 'mitarbeiter' || rolle === 'polier') {
+    for (const g of ['bs1', 'bs3', 'global']) for (const s of Object.keys(GELD[g])) geld(g, s);
+    ['rechnungNrBs1', 'rechnungNrBs3', 'nachtragBs3', 'fremdBs3', 'nachtragBs1', 'fremdBs1', 'dokFinBs1', 'dokFinBs3', 'dokSvBs1', 'dokPlanBs3', 'krank', 'smtp', 'alarmAn', 'schadenFremd', 'lvKurztext', 'rechnungServicebuch', 'lieferschein'].forEach(text);
+    ABW_TEXTE.forEach(text); // F-023/F-040: Notizen fremder Abwesenheiten
+    text('planNotizGastFremd'); // F-057 (15.7): Personen-Notiz eines Gasts aus fremder Partie
+    if (rolle === 'mitarbeiter') ['urlaubAnderer', 'planNotizAnderer', 'telefonAnderer', 'dokPlanBs1'].forEach(text);
+    if (rolle === 'polier') text('urlaubAnderer'); // Inhaber 13.11.2026: Polier sieht keine Abwesenheiten anderer
+    // G2-008 (Regel 2): keine Lohngruppe in irgendeiner Form – ID, Name und KV jeder Person (auch der eigenen)
+    // 15.17 (H-T8): dazu der Kern „KANARIE-<Person>-<Gruppe>“ (Name/KV ohne Vorsilbe, z. B. nach einem Umbruch hinter „LG-“)
+    for (const l of ZUSTAND.lohn || []) k.push({ name: `Lohngruppe ${l.id} (Person ${l.person})`, formen: [l.name, l.kv, l.id, l.name.replace(/^LG-/, '')] });
+  } else if (rolle === 'bauleiter' || rolle === 'buero') { // Bauleiter wie Büro (13.11.2026)
+    ['smtp', 'alarmAn'].forEach(text); // SMTP-Einstellungen: nur Recht `benutzer` (GF)
+  }
+  return k;
+}
+
+const ABW_TEXTE = ['abwKg', 'abwUg', 'abwZAg', 'abwUb', 'abwZAb', 'abwBU', 'abwKheute', 'abwUbHeute', 'abwZAbHeute'];
+
+/**
+ * Zustand der Test-Datenbank für die wertbasierten Prüfungen (F-022/F-040): Geld-Kanarien (alle Preis-Spalten) und
+ * Personen (Name → ID). Wird von erstelleBasis gesetzt und mit fixtures.json weitergegeben (ladeZustand).
+ */
+const ZUSTAND = { geld: new Map(), namen: new Map(), kanarien: [] };
+function ladeZustand(F) {
+  const handGeld = [];
+  for (const g of Object.keys(GELD)) for (const [k, w] of Object.entries(GELD[g])) handGeld.push({ name: `€ ${g}.${k}=${w}`, wert: w });
+  ZUSTAND.kanarien = handGeld.concat(F && F.geldKanarien ? F.geldKanarien : []);
+  ZUSTAND.geld = W.geldIndex(ZUSTAND.kanarien);
+  // G2-007: abgeleitete Beträge (Menge × EP, Summen, Prozente der Auftragssumme) – eigener Index, sichere Schlüssel
+  W.geldIndexAbgeleitet((F && F.abgeleitet) || [], ZUSTAND.geld);
+  ZUSTAND.prozente = (F && F.prozente) || [];
+  ZUSTAND.namen = new Map(((F && F.personen) || []).map((p) => [p.name, p.id]));
+  ZUSTAND.pnr = new Map(((F && F.personen) || []).filter((p) => p.pnr).map((p) => [p.id, p.pnr]));
+  // G2-004/G2-006: Abwesenheiten, Einsätze und Stamm-Baustellen der Testdaten (Korrelation, Tageszahlen)
+  ZUSTAND.abw = (F && F.abwDaten) || null;
+  // G2-008: Lohngruppen-Kanarien (ID, Name, KV je Person)
+  ZUSTAND.lohn = (F && F.lohnKanarien) || [];
+  // G2-009: Bild-Kanarien (fremde Liefer-/Wiegescheine)
+  ZUSTAND.bilder = (F && F.bildKanarien) || [];
+  ZUSTAND.geheim = (F && F.geheim) || [];
+  ZUSTAND.ignorieren = (F && F.firma) ? [F.firma, require('../../server/pdf').winAnsi(F.firma)] : [];
+  return ZUSTAND;
+}
+ladeZustand(null);
+
+/* ------------------------------------------------------------------ Text aus Antworten */
+
+/**
+ * Text aus einem PDF (F-039): Flate-Streams entpacken; aus Inhalts-Streams die Tj/TJ-Strings, aus allem anderen (Info-
+ * Dictionary Title/Subject/Keywords/Author, Annotationen, Formularfelder, Lesezeichen, Objekt-Streams) JEDEN Literal- und
+ * Hex-String; eingebettete Dateien (Anhänge) als Text bzw. – wenn selbst PDF – rekursiv. XMP-Metadaten als Rohtext.
+ */
+function pdfText(buf, tiefe = 0) {
+  const roh = buf.toString('latin1');
+  const out = [];
+  const streams = [];
+  const re = /stream\r?\n/g;
+  let m;
+  let ohneStreams = '';
+  let pos = 0;
+  while ((m = re.exec(roh))) {
+    const start = m.index + m[0].length;
+    const ende = roh.indexOf('endstream', start);
+    if (ende < 0) break;
+    ohneStreams += roh.slice(pos, m.index);
+    pos = ende + 'endstream'.length;
+    re.lastIndex = pos;
+    const daten = buf.subarray(start, ende);
+    let inhalt = null;
+    try { inhalt = zlib.inflateSync(daten); } catch (_) { try { inhalt = zlib.inflateSync(daten.subarray(0, daten.length - 1)); } catch (__) { inhalt = daten; } }
+    streams.push(inhalt);
+  }
+  ohneStreams += roh.slice(pos);
+  // Objekte außerhalb der Streams (Info, Annotationen, Anhang-Namen …): alle Strings; die Datei-ID im Trailer (/ID [<…><…>])
+  // ist Zufall und kein Text. Strings, die überwiegend aus Steuer-/Binärzeichen bestehen, ebenso nicht.
+  const lesbar = (x) => x.length < 4 || [...x].filter((ch) => /[\x20-\x7e\xa0-\xff\n\r\t]/.test(ch) && !/[\x80-\x9f]/.test(ch)).length / x.length > 0.85;
+  // Erstellungs-/Änderungsdatum (D:JJJJMMTThhmmss…) ist die Uhr des Rechners, kein Inhalt (sonst wären PDFs nie vergleichbar)
+  out.push(...stringsAus(ohneStreams.replace(/\/ID\s*\[[^\]]*\]/g, ' ').replace(/<<|>>/g, ' ')).filter(lesbar).filter((x) => !/^D:\d{8,14}/.test(x)));
+  for (const st of streams) {
+    const t = st.toString('latin1');
+    if (/\bBT\b[\s\S]*\bET\b/.test(t)) {
+      for (const x of t.matchAll(/\[((?:[^\]\\]|\\.)*)\]\s*TJ/g)) out.push(stringsAus(x[1]).join(''));
+      for (const x of t.matchAll(/(<[0-9a-fA-F]*>|\((?:[^)\\]|\\.)*\))\s*Tj/g)) out.push(stringsAus(x[1]).join(''));
+    } else if (t.startsWith('%PDF') && tiefe < 3) {
+      out.push(pdfText(st, tiefe + 1)); // eingebettetes PDF (Anhang)
+    } else if (/^[\x09\x0a\x0d\x20-\x7e\xa0-\xff]*$/.test(t.slice(0, 4000))) {
+      out.push(t); // Text-Anhang, XMP, Objekt-Stream mit Strings
+      out.push(...stringsAus(t.replace(/<<|>>/g, ' ')));
+    }
+  }
+  return out.filter((x) => x !== '').join('\n');
+}
+function stringsAus(s) {
+  const r = [];
+  for (const x of s.matchAll(/<([0-9a-fA-F]*)>|\(((?:[^)\\]|\\.)*)\)/g)) {
+    if (x[1] !== undefined) r.push(Buffer.from(x[1], 'hex').toString('latin1'));
+    else r.push(x[2].replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, e) => (/^[0-7]/.test(e) ? String.fromCharCode(parseInt(e, 8)) : ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' }[e] || e))));
+  }
+  return r;
+}
+/** WinAnsi → Unicode für €, Umlaute (pdfkit-Standardschriften) */
+function winAnsi(s) { return s.replace(/\x80/g, '€'); }
+
+async function xlsxText(buf) {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const out = [];
+  // Metadaten der Mappe (Titel, Betreff, Stichwörter …) zählen wie Inhalt (F-039)
+  for (const k of ['title', 'subject', 'keywords', 'description', 'creator', 'lastModifiedBy', 'category', 'company', 'manager']) if (wb[k]) out.push(`[${k}] ${wb[k]}`);
+  wb.eachSheet((ws) => {
+    out.push(`[Blatt ${ws.name}]`);
+    // F-023: eine Zeile je Tabellenzeile (Zellen mit „ | “), damit Name und Code derselben Zeile zusammen geprüft werden
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const zellen = [];
+      row.eachCell({ includeEmpty: false }, (c) => {
+        const v = c.value;
+        if (v == null) return;
+        let t;
+        if (typeof v === 'object') {
+          if (v.formula !== undefined) t = `=${v.formula} → ${v.result === undefined ? '' : JSON.stringify(v.result)}`;
+          else if (v.richText) t = v.richText.map((x) => x.text).join('');
+          else if (v instanceof Date) t = v.toISOString();
+          else t = JSON.stringify(v);
+        } else t = String(v);
+        if (c.numFmt && /€|EUR/.test(c.numFmt)) t += ` [Zahlenformat mit €: ${c.numFmt}]`;
+        if (c.note) t += ` [Notiz: ${typeof c.note === 'string' ? c.note : JSON.stringify(c.note)}]`;
+        zellen.push(t);
+      });
+      out.push(zellen.join(' | '));
+    });
+  });
+  return out.join('\n');
+}
+
+// F-038: Kopfzeilen gehören zur Antwort (Content-Disposition-Dateiname, Location, X-* …); nur reine Protokollköpfe nicht
+const KOPF_OHNE = new Set(['set-cookie', 'date', 'content-length', 'etag', 'connection', 'keep-alive', 'transfer-encoding']);
+function kopfText(headers) {
+  if (!headers) return '';
+  const paare = [];
+  const add = (k, v) => { if (!KOPF_OHNE.has(String(k).toLowerCase())) paare.push(`${k}: ${v}`); };
+  if (typeof headers.forEach === 'function' && !(headers instanceof Map)) headers.forEach((v, k) => add(k, v));
+  else if (headers instanceof Map) headers.forEach((v, k) => add(k, v));
+  else if (typeof headers === 'object') for (const [k, v] of Object.entries(headers)) if (typeof v !== 'function') add(k, v);
+  // Dateinamen nach RFC 5987 (filename*=UTF-8''…) lesbar machen
+  return paare.map((x) => x.replace(/filename\*=UTF-8''([^;]+)/i, (m, f) => { try { return `${m} [${decodeURIComponent(f)}]`; } catch (_) { return m; } })).join('\n');
+}
+
+/** Gesamter lesbarer Inhalt einer Antwort (für Text-/Kanarien-Suche), mit Kopfzeilen (F-038) */
+async function antwortText(r, { ohneKopf = false } = {}) {
+  const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+  let t;
+  if (Buffer.isBuffer(r.daten)) {
+    if (ct.includes('pdf')) t = winAnsi(pdfText(r.daten));
+    else if (ct.includes('spreadsheetml')) { try { t = await xlsxText(r.daten); } catch (e) { t = `[XLSX unlesbar: ${e.message}]`; } }
+    else t = r.daten.toString('utf8');
+  } else t = typeof r.daten === 'string' ? r.daten : JSON.stringify(r.daten);
+  if (ohneKopf) return t;
+  const k = kopfText(r.headers);
+  return k ? `${t}\n[Kopfzeilen]\n${k}` : t;
+}
+
+/* ------------------------------------------------------------------ Scanner */
+
+// Feldnamen mit €-Bezug (Liste aus API.md 2/6/10–12 + Sicherheitsnetz EURO_FELDER, großzügig)
+const GELD_SCHLUESSEL = /preis|^eps?$|^ep[A-Z_]|^epAb$|kosten|^satz$|kostensatz|verrechnungssatz|regiesatz|stundensatz|betrag|summe|euro|€|budget|^auftrag(?!geber)|rechnung|zahlung|^ek$|^vk$|netto|brutto|^ust|skonto|r(ue|ü)ckla(ss|ß)|erloes|^db$|dbprozent|mahn|^gp$|^soll$|perioden|leistungsstand|verrechnet|offeneposten|^offen$|nachtr(ae|ä)ge/i;
+const LOHN_SCHLUESSEL = /^lohngruppe(n|Id|Verlauf|GueltigAb)?$/i;
+// Betrag mit Währung in Texten (z. B. „1.234,50 €“, „EUR 12“, „€ 5“)
+const GELD_TEXT = /\d[\d.,   ]*\s?(€|EUR\b)|(€|\bEUR)\s?-?\d/;
+
+/**
+ * Ausnahmen der Schlüsselprüfung: Feld + Route (+ Rolle), immer mit Begründung.
+ * route: exakter Routen-Schlüssel oder '*'
+ */
+const SCHLUESSEL_AUSNAHMEN = [
+  // 12.25: Kennung der vorgeschlagenen Kostenstelle beim Einstempeln (eine Baustellen-ID, kein €) – nur dieser Pfad, nur ganze Zahl/null
+  ...['GET /api/zeit/status', 'POST /api/zeit/stempeln'].map((route) => ({ schluessel: 'standardKostenstelleId', route, pfad: /^\$\.standardKostenstelleId$/, nurWennWert: (v) => v === null || Number.isInteger(v), grund: '12.25: ID der Standard-Kostenstelle (Baustelle), kein Betrag' })),
+  { schluessel: 'summe', route: 'GET /api/zeit/woche', grund: 'Stundensumme der eigenen Woche (Stunden, kein €)' },
+  { schluessel: 'satz', route: '*', nurWennWert: (v) => v === null, grund: 'nie belegt' },
+  // 15.7 (F-059): keine Ausnahme mehr für die eigene Lohngruppe in /auth/ich bzw. nach der Anmeldung (Inhaberregel 2)
+  { schluessel: 'rechnung', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name eines Push-Typs (bool); Wert wird zusätzlich geprüft', nurWennWert: (v) => typeof v === 'boolean' },
+  { schluessel: 'budget', route: 'GET /api/push/einstellungen', pfad: /^\$\.typen\.budget$/, grund: 'nur Schalter-Name eines Push-Typs (bool)', nurWennWert: (v) => typeof v === 'boolean' },
+  { schluessel: 'rechnung', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.rechnung$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
+  { schluessel: 'budget', route: 'PUT /api/push/einstellungen', pfad: /^\$\.typen\.budget$/, grund: 'nur Schalter-Name', nurWennWert: (v) => typeof v === 'boolean' },
+  { schluessel: 'auftraggeber', route: '*', grund: 'Name des Auftraggebers (kein €-Wert; Konzept: Baustellen-Stammdaten)' },
+  // F-037: seit jeder nicht leere Wert unter einem €-Schlüssel zählt – feste Aufzählungswerte ohne Betrag
+  { schluessel: 'db', route: 'GET /api/gesundheit', pfad: /^\$\.db$/, nurWennWert: (v) => ['ok', 'fehler'].includes(v), grund: 'Zustand der Datenbank (ok/fehler), kein Deckungsbeitrag' },
+  { schluessel: 'kostenstelle', route: '*', nurWennWert: (v) => ['baustelle', 'intern'].includes(v), grund: 'Art der Kostenstelle (12.25: baustelle|intern), kein Betrag' },
+  { schluessel: 'euro', route: '*', pfad: /\.paletten\.euro$/, grund: 'Anzahl Europaletten im Bautagesbericht (Stück, kein Geld)' },
+  { schluessel: 'lohngruppen', route: 'GET /api/preise', pfad: /^\$\.lohngruppen$/, grund: 'Preisliste je Lohngruppe (Kostensatz/Regiesatz) – Recht preise_sehen, keine Person' },
+  { schluessel: 'lohngruppeId', route: 'GET /api/kalkulation/:baustelleId', pfad: /^\$\.positionen\.lohn\[\d+\]\.lohngruppeId$/, grund: 'aggregierte Stunden je Lohngruppe der eigenen Baustelle (API.md 6, kalk_sehen), keine Person' }
+];
+/**
+ * F-037: unter einem €-Schlüssel gilt JEDER nicht leere Wert als Geldwert – Zahl, Zahl-Text und auch formatierter Text
+ * („14,60 je m²“, „1.234 €“). Nur true/false, null und leere Werte/Objekte nicht (z. B. offen=false).
+ */
+const geldWert = (w) => typeof w === 'number' || (typeof w === 'string' && w.trim() !== '') || (w && typeof w === 'object' && Object.keys(w).length > 0);
+// F-037: Betrag je Einheit ohne €-Zeichen („14,60 je m²“, „95,00/h“, „12,5 pro t“) in jedem Text
+const PREIS_JE_EINHEIT = /\d+[.,]\d{1,2}\s*(€|EUR)?\s*(je|pro|\/)\s*(m²|m2|m³|m3|lfm|lm|m|h|Std\.?|Stunde|t|Tonne|Stk\.?|Stück|PA|kg|Fuhre|Tag)\b/;
+
+function schluesselErlaubt(route, pfad, k, wert) {
+  return SCHLUESSEL_AUSNAHMEN.some((a) => a.schluessel === k && (a.route === '*' || a.route === route) && (!a.pfad || a.pfad.test(pfad)) && (!a.nurWennWert || a.nurWennWert(wert)));
+}
+
+/** Routen, die nur Daten des Aufrufers liefern (Einträge ohne benutzerId gehören ihm selbst) */
+/**
+ * F-040: Objekte OHNE Personen-Kennung gelten nur an diesen JSON-Pfaden als Daten des Aufrufers (z. B. eigener Tag mit
+ * Code K in der eigenen Woche). Jedes Objekt MIT Kennung (benutzerId, id+Name, Name, benutzer.id …) wird immer geprüft.
+ */
+const EIGENE_PFADE = {
+  'GET /api/zeit/woche': /^\$(\.tage\[\d+\])?$/,
+  'GET /api/zeit/status': /^\$(\.heute|\.geplant|\.abwesenheit)?$/,
+  'GET /api/plan/ich': /^\$(\.morgen|\.tage\[\d+\])?$/,
+  'GET /api/auth/ich': /^\$(\.benutzer)?$/
+};
+const EIGENE_ROUTEN = Object.keys(EIGENE_PFADE);
+
+/** Optionen der wertbasierten Abwesenheitsprüfung (eigene ID, Namen, Notiz-Kanarien, eigene Pfade der Route) */
+function abwOpt(rolle, k) {
+  const ich = k.ich !== undefined ? k.ich : ID[rolle];
+  const K = W.abwKandidaten(ZUSTAND.abw, ich);
+  return { ich, namen: ZUSTAND.namen, pnr: ZUSTAND.pnr, abw: ZUSTAND.abw, zaehl: K ? K.zaehlText : null, texte: ABW_TEXTE.map((x) => TEXT[x]), ignorieren: ZUSTAND.ignorieren };
+}
+
+/** Darf diese Rolle (in dieser Variante) €-Schlüssel sehen? */
+function geldErlaubt(rolle, variante) { // eslint-disable-line no-unused-vars
+  // Inhaber 13.11.2026: Bauleiter in allem wie Büro (alle Baustellen)
+  return rolle === 'buero' || rolle === 'gf' || rolle === 'bauleiter';
+}
+const lohnErlaubt = (rolle) => rolle === 'buero' || rolle === 'gf' || rolle === 'bauleiter';
+
+/**
+ * Inhaberentscheidung N-112 (API.md 15.7, 15.9): Polier, LKW-Fahrer und Mitarbeiter dürfen Liefer-/Wiegescheine sehen, die
+ * sie SELBST hochgeladen haben – auch mit Preisen. Einzige Ausnahme vom Scanner: die aus dem eigenen Bild erkannten Felder
+ * `text` (OCR-Text), `unklar` (nicht zugeordnete OCR-Zeilen) und `vorschlag` in der Erfolgsantwort von
+ * POST /berichte/:id/lieferschein, wenn das zurückgegebene Foto ein Lieferschein des Aufrufers selbst ist. Alles andere
+ * dieser Antwort (Foto-Daten, Hinweise, Version, Kopfzeilen) wird weiter vollständig geprüft. Dass niemand
+ * sonst (andere Poliere/Mitarbeiter, Fernansicht, Auftraggeber, Mail, Benachrichtigungen) Text oder Foto bekommt, prüfen die
+ * Lese-Proben (Kanarie LIEFERSCHEIN-KANARIE-GF), pruefeAusgaenge und tests/api/rechte-selbst-peer.test.js (N-112).
+ */
+function ohneEigenenLieferscheinText(rolle, r, k) {
+  if (k.route !== 'POST /api/berichte/:id/lieferschein' || !['polier', 'mitarbeiter'].includes(rolle)) return r;
+  const d = r.daten;
+  const ich = k.ich !== undefined ? k.ich : ID[rolle];
+  if (!(r.status === 200 || r.status === 201) || !d || typeof d !== 'object' || Buffer.isBuffer(d) || typeof d.text !== 'string') return r;
+  if (!d.foto || d.foto.art !== 'lieferschein' || !d.foto.erstelltVon || d.foto.erstelltVon.id !== ich) return r;
+  return { ...r, daten: { ...d, text: '[eigener Lieferschein – OCR-Text erlaubt, N-112]', unklar: [], vorschlag: null } };
+}
+
+/** Alle Strings einer JSON-Antwort, die ein Kürzel oder Abwesenheitswort enthalten (Vorfilter für G2-005/G2-006) */
+function jsonTexte(x, pfad, f) {
+  if (typeof x === 'string') { if (x.length >= 3 && (W.CODE_TOKEN.test(x) || W.ABW_WORT_G2.test(x))) f(x, pfad); return; }
+  if (Array.isArray(x)) return x.forEach((e, i) => jsonTexte(e, `${pfad}[${i}]`, f));
+  if (x && typeof x === 'object') for (const [k, w] of Object.entries(x)) jsonTexte(w, `${pfad}.${k}`, f);
+}
+
+/** G2-005/G2-006 für Textformate: je Zeile; bei PDFs mit den folgenden Textstücken bis zum nächsten Personennamen */
+function textFormatAbwesenheit(inhalt, ao, wo, fenster) {
+  const zeilen = String(inhalt).split('\n');
+  const namen = [...ao.namen.keys()].flatMap((n) => [n, require('../../server/pdf').winAnsi(n)]);
+  const v = new Set();
+  for (let i = 0; i < zeilen.length; i++) {
+    let stueck = zeilen[i];
+    for (let j = i + 1; j <= i + fenster && j < zeilen.length; j++) { if (namen.some((n) => zeilen[j].includes(n))) break; stueck += ' ' + zeilen[j]; }
+    if (!(W.CODE_TOKEN.test(stueck) || W.ABW_WORT_G2.test(stueck))) continue;
+    for (const b of W.textAbwesenheit(stueck, ao)) v.add(`${wo}: ${b}`);
+    if (v.size >= 5) break;
+  }
+  return [...v];
+}
+
+/**
+ * G2-006: Abwesenheitswörter (Urlaub, Krank, Zeitausgleich, abwesend …) erreichen Polier/Mitarbeiter nur in EIGENEN
+ * Einträgen (Objekt mit eigener Personen-Kennung bzw. eigener Pfad der Route) und an den begründeten Stellen unten.
+ */
+const ABW_WORT_ERLAUBT = [
+  // Ablehnungstexte („Abwesenheiten anderer erfasst das Büro.“, „Urlaubskonten pflegen Büro bzw. Lohnverrechnung.“):
+  // allgemeine Begründung ohne Zahl – Namen und Zählungen darin meldet textAbwesenheit trotzdem
+  // (Feldangaben wie „personal[0].code“ zählen nicht als Zahl)
+  { route: '*', pfad: /^\$\.fehler$/, wert: (x) => !/\d/.test(x.replace(/\b\w+(?:\[\d+\])+(?:\.\w+)*/g, '')), grund: 'allgemeiner Ablehnungstext ohne Zahl' }
+];
+// Antworten, die als Ganzes Einträge des Aufrufers sind: seine Benachrichtigungen (Posteingang) und Push-Meldungen –
+// Namen und Zählungen darin prüft textAbwesenheit weiter
+const EIGENER_POSTEINGANG = /^\w+ \/api\/(benachrichtigungen|push)\b|^DB benachrichtigung$|^PUSH$/;
+function abwWortAusserhalbEigener(daten, ao, k, wo) {
+  if (EIGENER_POSTEINGANG.test(k.route)) return [];
+  const v = [];
+  const lauf = (x, pfad, eigen) => {
+    if (typeof x === 'string') {
+      if (eigen) return;
+      x = x.replace(/(?:https?:\/\/|#\/|\/api\/)[^\s"']*/g, ' '); // Adressen (#/urlaub, /api/urlaub/…) sind kein Inhalt
+      if (!W.ABW_WORT_G2.test(x)) return;
+      if (ABW_WORT_ERLAUBT.some((a) => (a.route === '*' || a.route === k.route) && a.pfad.test(pfad) && (!a.wert || a.wert(x)))) return;
+      if (process.env.BAUTAG_G2_LOG) require('node:fs').appendFileSync(process.env.BAUTAG_G2_LOG, `${k.route}\t${pfad}\t${x.slice(0, 120).replace(/\s+/g, ' ')}\n`);
+      v.push(`${wo}: Abwesenheitswort außerhalb eigener Einträge bei ${pfad}: „${x.slice(0, 100)}“`);
+      return;
+    }
+    if (Array.isArray(x)) return x.forEach((e, i) => lauf(e, `${pfad}[${i}]`, eigen));
+    if (x && typeof x === 'object') {
+      // eigen: Objekt mit eigener Personen-Kennung (vererbt an Unterobjekte ohne Kennung) oder genau ein eigener Pfad der
+      // Route (EIGENE_PFADE, z. B. $.abwesenheit in /zeit/status – nicht vererbt: $.team darunter ist nicht „eigen“)
+      const p = W.personVon(x, ao.namen);
+      const pfadEigen = Boolean(EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad));
+      const e2 = p !== undefined ? (p === ao.ich ? 'person' : false) : eigen === 'person' ? 'person' : pfadEigen ? 'pfad' : false;
+      for (const [kk, w] of Object.entries(x)) {
+        if (typeof w === 'string') lauf(w, `${pfad}.${kk}`, e2);
+        else lauf(w, `${pfad}.${kk}`, e2 === 'person' ? 'person' : false);
+      }
+    }
+  };
+  lauf(daten, '$', false);
+  return process.env.BAUTAG_G2_LOG ? [] : v;
+}
+
+/**
+ * Prüft eine Antwort. Liefert Verstöße als Texte.
+ * @param {string} rolle
+ * @param {{status:number, daten:any, headers:any}} r
+ * @param {{route:string, variante?:string, url?:string}} k
+ */
+async function scanne(rolle, r0, k) {
+  const v = [];
+  const r = ohneEigenenLieferscheinText(rolle, r0, k);
+  const wo = `${rolle} ${k.url || k.route}${k.variante ? ` [${k.variante}]` : ''} → ${r.status}`;
+  // 1) Schlüssel (nur JSON)
+  if (r.daten && typeof r.daten === 'object' && !Buffer.isBuffer(r.daten)) {
+    const geld = geldErlaubt(rolle, k.variante), lohn = lohnErlaubt(rolle);
+    const lauf = (x, pfad) => {
+      if (Array.isArray(x)) return x.forEach((e, i) => lauf(e, `${pfad}[${i}]`));
+      if (x && typeof x === 'object') {
+        for (const [key, wert] of Object.entries(x)) {
+          const p = `${pfad}.${key}`;
+          if (!geld && GELD_SCHLUESSEL.test(key) && geldWert(wert) && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: €-Schlüssel ${p}=${JSON.stringify(wert).slice(0, 80)}`);
+          // 14.11.2026: Rechnungs-/Belegnummern (Werkstatt, Lieferant) im Fuhrpark nur mit preise_sehen – auch als Text, auch leer gilt der Schlüssel als Leck
+          if (!geld && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /rechnung|beleg|lieferant/i.test(key) && typeof wert !== 'boolean' && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Rechnungs-/Beleg-Schlüssel ${p}=${JSON.stringify(wert).slice(0, 80)} im Fuhrpark`);
+          if (!lohn && LOHN_SCHLUESSEL.test(key) && wert != null && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Lohngruppe ${p}=${JSON.stringify(wert).slice(0, 80)}`);
+          lauf(wert, p);
+        }
+      }
+    };
+    lauf(r.daten, '$');
+    // Krankenstand (Code K) anderer Personen nur für stammdaten/lohn (API.md 12.19/12.24)
+    if (!lohn) {
+      const eigeneId = k.ich !== undefined ? k.ich : ID[rolle];
+      const kLauf = (x, pfad, person) => {
+        if (Array.isArray(x)) return x.forEach((e, i) => kLauf(e, `${pfad}[${i}]`, person));
+        if (x && typeof x === 'object') {
+          const p2 = x.benutzerId !== undefined ? x.benutzerId : person;
+          const eigeneRoute = p2 === undefined && EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad);
+          if (x.code === 'K' && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Krankenstand (Code K) einer anderen Person (${p2}) bei ${pfad}`);
+          if (x.pnr != null && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${p2}) bei ${pfad}`);
+          // Mitarbeiter: Zeiten, Abwesenheiten und Urlaub nur von sich selbst (API.md 7 B-07, 12.19)
+          if (rolle === 'mitarbeiter' && !k.mitAusnahmen && x.benutzerId !== undefined && x.benutzerId !== eigeneId && /(GET|POST) \/api\/(abwesenheiten|urlaub|zeit)\b/.test(k.route)) v.push(`${wo}: Daten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+          // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht (auch nicht „abwesend“)
+          // Ausnahme: die eigene SW-Meldung des Poliers (Echo seiner Eingabe, neutral, ohne Auskunft über Abwesenheiten)
+          const eigeneSwMeldung = rolle === 'polier' && x.code === 'SW' && (x.status === 'gemeldet' || x.vorschau === true) && x.text === 'Schlechtwetter gemeldet – das Büro bestätigt.' && !('uebersprungen' in x);
+          if (['polier', 'mitarbeiter'].includes(rolle) && x.benutzerId !== undefined && x.benutzerId !== eigeneId && !eigeneSwMeldung) {
+            if (/(GET|POST) \/api\/(abwesenheiten|urlaub)\b/.test(k.route) && !/sw-meldungen/.test(k.route)) v.push(`${wo}: Abwesenheits-/Urlaubsdaten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+            if (['K', 'U', 'ZA', 'abwesend', 'BU'].includes(x.code)) v.push(`${wo}: Abwesenheits-Code ${x.code} einer anderen Person (${x.benutzerId}) bei ${pfad}`);
+            if (x.kolonneMoeglich === undefined && x.code === 'SW' && /\/api\/zeit\/kolonne/.test(k.route)) v.push(`${wo}: Code SW einer anderen Person in der Kolonne bei ${pfad}`);
+          }
+          for (const [key, wert] of Object.entries(x)) kLauf(wert, `${pfad}.${key}`, p2);
+        }
+      };
+      kLauf(r.daten, '$', undefined);
+    }
+    // Inhaber 13.11.2026: keine Aggregate über fremde Abwesenheiten (Zählungen, partie_viele, plan_konflikt, „x von y … abwesend“)
+    if (['polier', 'mitarbeiter'].includes(rolle)) {
+      const aLauf = (x, pfad) => {
+        if (typeof x === 'string') { if (/\b\d+\s+von\s+\d+\b[^"]{0,40}(abwesend|Urlaub|krank)/i.test(x)) v.push(`${wo}: Zählung von Abwesenheiten „${x.slice(0, 80)}“ bei ${pfad}`); return; }
+        if (Array.isArray(x)) return x.forEach((e, i) => aLauf(e, `${pfad}[${i}]`));
+        if (x && typeof x === 'object') {
+          if (['partie_viele', 'plan_konflikt'].includes(x.typ)) v.push(`${wo}: Abwesenheits-Warnung ${x.typ} bei ${pfad}`);
+          // API.md 15.1: Konflikte Bericht ↔ Abwesenheit sieht nur das Büro
+          if ('abwesenheitHinweise' in x) v.push(`${wo}: abwesenheitHinweise (nur Büro/Lohn/GF/Bauleiter) bei ${pfad}`);
+          for (const [key, wert] of Object.entries(x)) aLauf(wert, `${pfad}.${key}`);
+        }
+      };
+      aLauf(r.daten, '$');
+      // F-040: wertbasiert – fremde Person (jede Kennung) + Abwesenheitswert unter beliebigem Schlüssel
+      const ao = abwOpt(rolle, k);
+      v.push(...W.abwesenheitJson(r.daten, ao, wo));
+      // G2-004/G2-006: Korrelation mit den Abwesenheiten der Testdaten (ID-Listen, Merker in Personenlisten, Tageswerte)
+      v.push(...W.abwesenheitKorrelation(r.daten, ao, wo, W.personVon));
+      // G2-005/G2-006: jeder Text der Antwort – fremde Namen in jeder Schreibweise neben Kürzel/Wort, Zählungen
+      jsonTexte(r.daten, '$', (x, pfad) => { for (const b of W.textAbwesenheit(x, ao)) v.push(`${wo}: ${b} bei ${pfad}`); });
+      // G2-006: Abwesenheitswörter nur in eigenen Einträgen (und an begründeten Stellen)
+      v.push(...abwWortAusserhalbEigener(r.daten, ao, k, wo));
+    }
+  }
+  // 2) Text: €-Beträge und Kanarienvögel (alle Formate, auch Fehlermeldungen)
+  const text = await antwortText(r);
+  const feld = ['mitarbeiter', 'polier'].includes(rolle);
+  // F-022: Geld-Kanarien (jede Preis-Spalte der Test-DB) in jeder Schreibweise, unter jedem Schlüssel, in jedem Format
+  // 15.5/15.8: Sitzungs-Token, Geräteschlüssel und Push-Endpunkte ANDERER Personen – für jede Rolle (auch die GF), jedes Format
+  const ichSelbst = k.ich !== undefined ? k.ich : ID[rolle];
+  for (const g of ZUSTAND.geheim || []) if (g.id !== ichSelbst && text.includes(g.wert)) v.push(`${wo}: ${g.art} von Person ${g.id} in der Antwort an ${ichSelbst}`);
+  const geldFunde = feld ? W.findeGeld(text, ZUSTAND.geld) : [];
+  for (const g of geldFunde.slice(0, 5)) v.push(`${wo}: Geld-Kanarie ${g.name} als „${g.form}“ („…${text.slice(Math.max(0, g.stelle - 50), g.stelle + g.form.length + 20).replace(/\s+/g, ' ')}…“)`);
+  // G2-007: Anteil abgeleiteter €-Summen an der Auftragssumme („… 12,34 %“)
+  if (feld) for (const g of W.findeProzent(text, ZUSTAND.prozente).slice(0, 3)) v.push(`${wo}: Prozent aus €-Beträgen (${g.name}) als „${g.form}“`);
+  // G2-009: fremde Liefer-/Wiegeschein-Bilder (Datei, Bilddaten im PDF, Pixelzeilen, Base64, Bild-Adresse)
+  if (feld) for (const b of W.findeBild(r, ZUSTAND.bilder.filter((x) => x.von !== ichSelbst))) v.push(`${wo}: Bild-Kanarie ${b.name} gefunden (${b.fund})`);
+  if (k.nurKanarien) {
+    for (const kan of verboteneKanarien(rolle)) for (const f of kan.formen) if (text.includes(f)) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden`); break; }
+    return v;
+  }
+  if (feld) {
+    const pe = PREIS_JE_EINHEIT.exec(text);
+    if (pe) v.push(`${wo}: Betrag je Einheit „${pe[0]}“ im Text („…${text.slice(Math.max(0, pe.index - 40), pe.index + 40).replace(/\s+/g, ' ')}…“)`);
+    // F-023: Textformate (PDF/CSV/XLSX/Text) – Name einer anderen Person neben einem Abwesenheitswert
+    if (typeof r.daten === 'string' || Buffer.isBuffer(r.daten)) {
+      const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+      const inhalt = await antwortText(r, { ohneKopf: true });
+      v.push(...W.abwesenheitText(inhalt, abwOpt(rolle, k), wo, { fenster: /pdf/.test(ct) ? 6 : 0 }));
+      // G2-005/G2-006: Zeile (PDF: Textstück + folgende bis zum nächsten Namen) – jede Schreibweise, Kürzel, Zählungen
+      if (!/^image\//.test(ct)) v.push(...textFormatAbwesenheit(inhalt, abwOpt(rolle, k), wo, /pdf/.test(ct) ? 6 : 0));
+    }
+    v.push(...W.abwesenheitText(kopfText(r.headers), abwOpt(rolle, k), `${wo} (Kopfzeilen)`));
+  }
+  if (!geldErlaubt(rolle, k.variante === 'fremd' && rolle === 'bauleiter' ? 'fremd' : k.variante) && rolle !== 'bauleiter') {
+    const m = GELD_TEXT.exec(text);
+    if (m) v.push(`${wo}: €-Betrag im Text „${text.slice(Math.max(0, m.index - 40), m.index + 40).replace(/\s+/g, ' ')}“`);
+  }
+  if (['mitarbeiter', 'polier'].includes(rolle) && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /Rechnungs?-?nr|Rechnungsnummer/i.test(text)) v.push(`${wo}: Rechnungsnummer (Spalte/Text) im Fuhrpark ohne preise_sehen`);
+  // API.md 15.1: Bericht-PDFs (jede Fassung) für Polier/Mitarbeiter ohne Abwesenheits-Legende und ohne Abwesenheits-Kürzel.
+  // Voraussetzung: der Aufrufer selbst ist am Berichtstag nicht abwesend (so in der Matrix-Basis); die genaue Prüfung
+  // gegen die Datenbank (eigene Zeile erlaubt, verborgene Namen) macht berichtPdfAbwesenheitVerstoesse.
+  if (['mitarbeiter', 'polier'].includes(rolle) && /\/berichte\/\d+\/pdf/.test(k.url || '') && Buffer.isBuffer(r.daten) && !k.eigeneAbwesenheit) {
+    const lg = /abw\. = abwesend|U = Urlaub|ZA = Zeitausgleich/.exec(text);
+    if (lg) v.push(`${wo}: Abwesenheits-Legende „${lg[0]}“ im Bericht-PDF`);
+    const kz = text.split('\n').map((x) => x.trim()).find((x) => /^(\d+(,\d+)?\s+)?(abw\.|U|ZA|K|abwesend)$/.test(x));
+    if (kz) v.push(`${wo}: Abwesenheits-Kürzel „${kz}“ im Bericht-PDF`);
+  }
+  if (['mitarbeiter', 'polier'].includes(rolle)) { // Bauleiter wie Büro (Inhaber 13.11.2026): sieht den Grund
+    const m = /\bKrank(enstand|meldung)?\b/.exec(text);
+    if (m) v.push(`${wo}: Wort „${m[0]}“ (Gesundheitsdaten) im Text „…${text.slice(Math.max(0, m.index - 60), m.index + 40).replace(/\s+/g, ' ')}…“`);
+  }
+  // 15.17 (H-T8): PDF-Text kommt als ein Textstück je Zeile – eine Kanarie, die in einer schmalen Tabellenzelle am
+  // Bindestrich oder Leerzeichen umbricht („LG-“ | „KANARIE-1-POL“), steht in keiner Zeile ganz. Darum zusätzlich im Text
+  // mit ohne Umbruch verbundenen Zeilen (direkt und mit Leerzeichen) suchen.
+  const ct0 = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+  const texte = [['', text]];
+  if (Buffer.isBuffer(r.daten) && /pdf/.test(ct0)) texte.push([' (über Zeilenumbruch)', text.replace(/\s*\n\s*/g, '')], [' (über Zeilenumbruch)', text.replace(/\s*\n\s*/g, ' ')]);
+  for (const kan of verboteneKanarien(rolle).filter((x) => !(k.erlaubteKanarien || []).includes(x.name))) {
+    let gefunden = false;
+    for (const [art, t] of texte) {
+      for (const f of kan.formen) {
+        const i = t.indexOf(f);
+        if (i >= 0) { v.push(`${wo}: Kanarienvogel ${kan.name} gefunden${art} („…${t.slice(Math.max(0, i - 60), i + f.length + 20).replace(/\s+/g, ' ')}…“)`); gefunden = true; break; }
+      }
+      if (gefunden) break;
+    }
+  }
+  return v;
+}
+
+/* ------------------------------------------------------------------ Ausgänge: Benachrichtigungen, Push, Mails mit Anhängen */
+
+// F-039: Mail-Anhänge (Bericht-PDF an den Auftraggeber) – der Test-Ausgang speichert nur Name und Größe. Der Inhalt wird
+// hier im Testprozess an der Quelle (routes/berichte.agPdf, zur Laufzeit über das Modul aufgerufen) mitgeschnitten und
+// über die Größe dem Ausgang zugeordnet. Ein Anhang ohne passenden Mitschnitt ist ein Befund (neuer, ungeprüfter Weg).
+const ANHAENGE = new Map(); // Größe → Buffer[]
+(() => {
+  const B = require('../../server/routes/berichte');
+  if (B.agPdf && !B.agPdf.__mitschnitt) {
+    const orig = B.agPdf;
+    B.agPdf = async (...a) => { const buf = await orig(...a); if (Buffer.isBuffer(buf)) { const l = ANHAENGE.get(buf.length) || []; l.push(buf); ANHAENGE.set(buf.length, l); } return buf; };
+    B.agPdf.__mitschnitt = true;
+  }
+})();
+
+/**
+ * Neue Benachrichtigungen (DB) an Polier/Mitarbeiter, neue Push-Meldungen an Nicht-Büro-Empfänger und neue Mails (mit
+ * Anhang-Inhalt) seit dem letzten Aufruf für diesen Server prüfen. Mails gehen an Externe → strengste Prüfung.
+ */
+async function pruefeAusgaenge(s, wo) {
+  const v = [];
+  const st = s.__ausgang || (s.__ausgang = { benachrichtigung: 0, push: 0, mails: 0 });
+  const rollen = new Map(s.db.alle('SELECT id, rolle FROM benutzer').map((b) => [b.id, b.rolle]));
+  const neu = s.db.alle('SELECT * FROM benachrichtigung WHERE id > ? ORDER BY id', st.benachrichtigung);
+  for (const n of neu) {
+    st.benachrichtigung = n.id;
+    const rolle = rollen.get(n.benutzer_id);
+    if (!['mitarbeiter', 'polier'].includes(rolle)) continue;
+    if (n.typ === 'budget') v.push(`${wo}: Budget-Benachrichtigung an ${rolle} ${n.benutzer_id}: ${n.titel}`);
+    const fuhrpark = hatRecht(s.db, n.benutzer_id, 'fuhrpark');
+    v.push(...await scanne(rolle, { status: 200, daten: { titel: n.titel, text: n.text, link: n.link }, headers: new Map() }, { route: 'DB benachrichtigung', url: `${wo}: Benachrichtigung ${n.id} an ${n.benutzer_id}`, ich: n.benutzer_id, erlaubteKanarien: fuhrpark ? ['Text schadenFremd'] : [] }));
+  }
+  const aus = s.app.bt.testAusgang;
+  for (const p of aus.push.slice(st.push)) {
+    const rolle = rollen.get(p.benutzerId);
+    if (rolle === 'buero' || rolle === 'gf' || !rolle) continue;
+    v.push(...await scanne(rolle, { status: 200, daten: p, headers: new Map() }, { route: 'PUSH', url: `${wo}: Push an ${p.benutzerId}`, ich: p.benutzerId, variante: rolle === 'bauleiter' ? 'fremd' : undefined }));
+  }
+  st.push = aus.push.length;
+  for (const m of aus.mails.slice(st.mails)) {
+    v.push(...await scanne('mitarbeiter', { status: 200, daten: { an: m.an, betreff: m.betreff, text: m.text, anhaenge: m.anhaenge }, headers: new Map() }, { route: 'MAIL', url: `${wo}: Mail an ${m.an}`, ich: -1 }));
+    for (const a of m.anhaenge || []) {
+      const kandidaten = ANHAENGE.get(a.groesse) || [];
+      if (!kandidaten.length) { v.push(`${wo}: Mail-Anhang ${a.dateiname} (${a.groesse} Byte) nicht mitgeschnitten – Inhalt ungeprüft`); continue; }
+      const buf = kandidaten[kandidaten.length - 1];
+      v.push(...await scanne('mitarbeiter', { status: 200, daten: buf, headers: new Map([['content-type', 'application/pdf']]) }, { route: 'MAIL-ANHANG', url: `${wo}: Anhang ${a.dateiname} an ${m.an}`, ich: -1 }));
+    }
+  }
+  st.mails = aus.mails.length;
+  return v;
+}
+
+/* ------------------------------------------------------------------ Bericht und fremde Abwesenheiten (API.md 15.1) */
+
+const ABW_CODES = ['K', 'U', 'ZA', 'abwesend'];
+/** Name so, wie er im PDF steht (WinAnsi der Standardschriften) */
+const pdfName = (n) => require('../../server/pdf').winAnsi(n);
+/**
+ * Bericht-PDF (Text) für Polier/Mitarbeiter gegen die Datenbank prüfen (Inhaber 13.11.2026, Regel 3): keine Namen
+ * verborgener Abwesender (fremd, K/U/ZA ohne Stunden), keine Abwesenheits-Kürzel außer in der eigenen Zeile, keine
+ * Abwesenheits-Legende außer für eigene Kürzel. Gilt für jede Fassung (intern, AG) und jede Ausnahme.
+ * @returns {string[]} Verstöße
+ */
+function berichtPdfAbwesenheitVerstoesse(db, berichtId, ichId, text, wo) {
+  const zeilen = db.alle('SELECT bp.benutzer_id, bp.code, bp.stunden, bp.von1, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id WHERE bp.bericht_id = ?', berichtId);
+  const v = [];
+  for (const z of zeilen) {
+    if (z.benutzer_id === ichId || !ABW_CODES.includes(z.code) || z.stunden || z.von1) continue;
+    if (text.includes(pdfName(z.name))) v.push(`${wo}: verborgene abwesende Person ${z.name} (${z.code}) im PDF`);
+  }
+  const eigene = zeilen.filter((z) => z.benutzer_id === ichId && ABW_CODES.includes(z.code));
+  const kuerzel = text.split('\n').map((x) => x.trim()).filter((x) => /^(\d+(,\d+)?\s+)?(abw\.|U|ZA|K|abwesend)$/.test(x));
+  if (kuerzel.length > eigene.length) v.push(`${wo}: ${kuerzel.length} Abwesenheits-Kürzel im PDF (${kuerzel.join(' | ')}), eigene Zeilen mit Code: ${eigene.length}`);
+  for (const [lg, codes] of [['abw. = abwesend', ['K', 'abwesend']], ['U = Urlaub', ['U']], ['ZA = Zeitausgleich', ['ZA']]]) {
+    if (text.includes(lg) && !eigene.some((z) => codes.includes(z.code))) v.push(`${wo}: Legende „${lg}“ im PDF ohne eigene Zeile mit diesem Kürzel`);
+  }
+  return v;
+}
+
+/**
+ * JSON-Antwort mit Bericht-Personal für Polier/Mitarbeiter: keine verborgenen Abwesenden (auch nicht ohne Code),
+ * keine Abwesenheits-Hinweise des Büros, personalAnzahl in Listen = sichtbare Zeilen.
+ */
+function berichtJsonAbwesenheitVerstoesse(db, ichId, daten, wo) {
+  const v = [];
+  const lauf = (x, pfad) => {
+    if (Array.isArray(x)) return x.forEach((e, i) => lauf(e, `${pfad}[${i}]`));
+    if (!x || typeof x !== 'object') return;
+    if ('abwesenheitHinweise' in x) v.push(`${wo}: abwesenheitHinweise (nur Büro) bei ${pfad}`);
+    if (Number.isInteger(x.id) && Array.isArray(x.personal) && x.datum) {
+      for (const z of db.alle('SELECT benutzer_id, code, stunden, von1 FROM bericht_personal WHERE bericht_id = ?', x.id)) {
+        if (z.benutzer_id === ichId || !ABW_CODES.includes(z.code) || z.stunden || z.von1) continue;
+        if (x.personal.some((p) => p.benutzerId === z.benutzer_id)) v.push(`${wo}: verborgene abwesende Person ${z.benutzer_id} in ${pfad}.personal`);
+      }
+    }
+    for (const [k, w] of Object.entries(x)) lauf(w, `${pfad}.${k}`);
+  };
+  lauf(daten, '$');
+  return v;
+}
+
+/* ------------------------------------------------------------------ DB-Fingerabdruck */
+
+/**
+ * F-041: „unverändert“ heißt ALLE Tabellen (auch sitzung, push_abo, login_*), dazu Upload-Dateien und Test-Ausgang
+ * (Push, Mails, KI). Ausgenommen sind nur einzelne Spalten, die jede Anfrage rechtmäßig berührt – je mit Grund:
+ */
+const DB_FLUECHTIG = {
+  'sitzung.letzte_aktivitaet': 'letzter Zugriff der eigenen Sitzung wird bei jeder angemeldeten Anfrage gesetzt (auth.js)',
+  'push_abo.zuletzt': 'Zeitpunkt des letzten Zustellversuchs (push.js, auch durch Hintergrund-Zustellung)',
+  'push_abo.fehler': 'Ergebnis des letzten Zustellversuchs (push.js)'
+};
+function dbHash(x) {
+  const db = x && x.app ? x.db : x;
+  const tabellen = db.alle("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").map((t) => t.name);
+  const je = {};
+  for (const t of tabellen) {
+    const spalten = db.alle(`PRAGMA table_info("${t}")`).map((c) => c.name).filter((c) => !DB_FLUECHTIG[`${t}.${c}`]);
+    const h = crypto.createHash('sha256');
+    for (const z of db.alle(`SELECT ${spalten.map((c) => `"${c}"`).join(', ')} FROM "${t}" ORDER BY rowid`)) h.update(JSON.stringify(z));
+    je[t] = h.digest('hex');
+  }
+  if (x && x.app) {
+    const bt = x.app.bt;
+    // Dateien (uploads/): Liste mit Größe und Inhalt
+    const h = crypto.createHash('sha256');
+    const lauf = (d, rel) => {
+      let e; try { e = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+      for (const f of e.sort((a, b) => a.name.localeCompare(b.name))) {
+        const p = path.join(d, f.name);
+        if (f.isDirectory()) lauf(p, `${rel}${f.name}/`);
+        else { h.update(`${rel}${f.name}\0`); try { h.update(fs.readFileSync(p)); } catch (_) { /* gelöscht */ } }
+      }
+    };
+    lauf(bt.uploads, '');
+    je['[Dateien uploads/]'] = h.digest('hex');
+    // Test-Ausgang (Push-Warteschlange/-Versand, Mails, KI) – liegt im Speicher, nicht in der DB
+    for (const k of Object.keys(bt.testAusgang || {})) je[`[Ausgang ${k}]`] = crypto.createHash('sha256').update(JSON.stringify(bt.testAusgang[k])).digest('hex');
+  }
+  return je;
+}
+function dbUnterschied(a, b) {
+  return Object.keys({ ...a, ...b }).filter((t) => a[t] !== b[t]);
+}
+
+/* ------------------------------------------------------------------ Basis-Datenbank */
+
+const b64 = (b) => Buffer.from(b).toString('base64');
+function kleinesPdf(text = 'Dokument') {
+  return Buffer.from(`%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n% ${text}\ntrailer << /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+}
+
+async function erwarte(r, status, was) {
+  const ok = Array.isArray(status) ? status.includes(r.status) : r.status === status;
+  if (!ok) throw new Error(`Vorbereitung „${was}“: Status ${r.status} statt ${status}: ${JSON.stringify(r.daten).slice(0, 400)}`);
+  return r.daten;
+}
+
+/**
+ * Legt die Basis-Datenbank an (Demo-Seed + Objekte für eigene/fremde Varianten + Kanarienvögel).
+ * @returns {Promise<{ordner:string, datei:string, F:object}>}
+ */
+async function erstelleBasis() {
+  const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-rechte-basis-'));
+  const datei = path.join(ordner, 'basis.db');
+  const s = await starte({ dbPath: datei, test: true, testToken: TOKEN, pdfUnkomprimiert: false });
+  const F = {};
+  try {
+    const c = {};
+    for (const r of ROLLEN) c[r] = await s.login(ID[r]);
+    const gf = c.gf, buero = c.buero;
+    const ver = async (p) => (await gf.get(p)).daten.version;
+
+    // --- Auftragssummen, Nachträge, Fremdleistungen, Haftrücklass (€ je Baustelle)
+    for (const [bs, g, t] of [[BS.pitten, GELD.bs1, 'Bs1'], [BS.reisinger, GELD.bs3, 'Bs3']]) {
+      await erwarte(await gf.put(`/baustellen/${bs}/auftrag`, { version: await ver(`/baustellen/${bs}`), auftragssumme: g.auftragssumme }), 200, 'Auftrag');
+      await erwarte(await gf.post(`/baustellen/${bs}/nachtraege`, { text: TEXT[`nachtrag${t}`], betrag: g.nachtrag }), 201, 'Nachtrag');
+      await erwarte(await gf.post(`/baustellen/${bs}/fremdleistungen`, { text: TEXT[`fremd${t}`], betrag: g.fremdleistung, datum: '2026-11-10' }), 201, 'Fremdleistung');
+      await erwarte(await gf.put(`/baustellen/${bs}/abschluss`, { version: await ver(`/baustellen/${bs}`), haftruecklass: { betrag: g.haftruecklass, prozent: 3 } }), 200, 'Haftrücklass');
+    }
+    // --- Rechnungen + Zahlung + Mahnung
+    F.rechnung = {};
+    for (const [bs, g, nr, k] of [[BS.pitten, GELD.bs1, TEXT.rechnungNrBs1, 'bs1'], [BS.reisinger, GELD.bs3, TEXT.rechnungNrBs3, 'bs3']]) {
+      const r = await erwarte(await buero.post(`/baustellen/${bs}/rechnungen`, { nr, typ: 'abschlag', datum: '2026-09-01', netto: g.rechnungNetto, zahlungszielTage: 30 }), 201, 'Rechnung');
+      F.rechnung[k] = r.id;
+      const z = await erwarte(await buero.post(`/rechnungen/${r.id}/zahlungen`, { datum: '2026-10-01', betrag: g.zahlung }), 201, 'Zahlung');
+      F.rechnung[`${k}Zahlung`] = (z.zahlungen || []).slice(-1)[0] ? z.zahlungen.slice(-1)[0].id : null;
+      await erwarte(await buero.post(`/rechnungen/${r.id}/mahnungen`, { stufe: 1, datum: '2026-11-05' }), [200, 201], 'Mahnung');
+    }
+    // --- Preise (global, Bauleiter darf lesen)
+    await erwarte(await gf.put('/preise/leistungen/1', { feld: 'ep', wert: GELD.global.leistungEp }), 200, 'Preis');
+    await erwarte(await gf.put('/preise/leistungen/2', { feld: 'ep', wert: GELD.global.geplantEp, gueltigAb: '2027-01-01' }), 200, 'geplanter Preis');
+    await erwarte(await gf.put('/preise/geraete/1', { feld: 'kostensatz', wert: GELD.global.geraetSatz }), 200, 'Gerätesatz');
+    F.preisStand = s.db.eins("SELECT id FROM preis_stand WHERE gueltig_ab = '2027-01-01'").id;
+    const kat = await erwarte(await gf.get('/positionen/katalog'), 200, 'Katalog');
+    F.katalogPos = kat.gruppen[0].positionen[0].id;
+    await erwarte(await gf.put(`/positionen/katalog/${F.katalogPos}`, { ep: GELD.global.katalogEp, gueltigAb: '2027-02-01' }), 200, 'Katalog-EP');
+    F.katalogStand = (await erwarte(await gf.get(`/positionen/katalog/${F.katalogPos}/verlauf`), 200, 'Katalog-Verlauf')).slice(-1)[0].id;
+    // --- Projektpositionen: EP + PA-Menge je Baustelle
+    F.pos = {};
+    for (const [bs, g, k] of [[BS.pitten, GELD.bs1, 'bs1'], [BS.reisinger, GELD.bs3, 'bs3']]) {
+      const p = await erwarte(await gf.get(`/baustellen/${bs}/positionen`), 200, 'Positionen');
+      const alle = p.gruppen.flatMap((x) => x.positionen);
+      const pos = alle.find((x) => x.einheit === 'm2' || x.einheit === 'm²') || alle[0];
+      const pa = alle.find((x) => x.einheit === 'PA');
+      await erwarte(await gf.put(`/baustellen/${bs}/positionen/${pos.id}`, { version: pos.version, ep: g.posEp, gueltigAb: '2027-03-01' }), 200, 'Pos-EP');
+      const m = await erwarte(await gf.post(`/baustellen/${bs}/positionen/${pa.id}/mengen`, { datum: '2026-11-02', menge: g.mengePa, notiz: 'Lieferantenrechnung' }), 201, 'PA-Menge');
+      F.pos[k] = pos.id; F.pos[`${k}Pa`] = pa.id;
+      F.pos[`${k}Menge`] = m.id || (m.eintraege ? m.eintraege.slice(-1)[0].id : null);
+      F.pos[`${k}Stand`] = (await erwarte(await gf.get(`/baustellen/${bs}/positionen/${pos.id}/verlauf`), 200, 'Pos-Verlauf')).slice(-1)[0].id;
+    }
+    F.pos.bs3MengePos = (await erwarte(await gf.post(`/baustellen/${BS.reisinger}/positionen/${F.pos.bs3}/mengen`, { datum: '2026-11-03', menge: 2, notiz: 'GF' }), 201, 'Menge BS3')).id;
+    // Bauleiter-eigene Menge (für Storno-Proben)
+    const blm = await erwarte(await c.bauleiter.post(`/baustellen/${BS.pitten}/positionen/${F.pos.bs1}/mengen`, { datum: '2026-11-03', menge: 3, notiz: 'BL' }), 201, 'BL-Menge');
+    F.pos.bs1MengeBl = blm.id || null;
+    // Koordinaten (Wetter-Attrappe im Testbetrieb)
+    for (const bs of [BS.pitten, BS.reisinger]) await erwarte(await gf.put(`/baustellen/${bs}`, { version: await ver(`/baustellen/${bs}`), lat: 47.71, lng: 16.1 }), 200, 'Koordinaten');
+    // --- Leistungsmeldungen je Baustelle
+    F.leistung = {};
+    for (const [bs, k] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) F.leistung[k] = (await erwarte(await gf.post(`/baustellen/${bs}/leistungen`, { leistungId: 3, menge: 1.5, datum: '2026-11-10' }), 201, 'Leistung')).id;
+    F.nachtrag = { bs1: s.db.eins('SELECT id FROM nachtrag WHERE baustelle_id = ? ORDER BY id DESC', BS.pitten).id, bs3: s.db.eins('SELECT id FROM nachtrag WHERE baustelle_id = ? ORDER BY id DESC', BS.reisinger).id };
+    F.fremd = { bs1: s.db.eins('SELECT id FROM fremdleistung WHERE baustelle_id = ? ORDER BY id DESC', BS.pitten).id, bs3: s.db.eins('SELECT id FROM fremdleistung WHERE baustelle_id = ? ORDER BY id DESC', BS.reisinger).id };
+
+    // --- LV mit Kanarien-Kurztext je Baustelle
+    F.lv = {};
+    for (const [bs, k] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) {
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><onlv><lv><position oz="01.01"><kurztext>${TEXT.lvKurztext}</kurztext><einheit>PA</einheit><menge>1</menge><ep>${k === 'bs1' ? '2222.22' : '2323.23'}</ep></position></lv></onlv>`;
+      await erwarte(await buero.post(`/baustellen/${bs}/lv-import`, { dateiBase64: b64(xml), dateiname: 'lv.onlv', vorschau: false }), 200, 'LV');
+      F.lv[k] = (await erwarte(await buero.get(`/baustellen/${bs}/lv`), 200, 'LV lesen')).positionen[0].id;
+    }
+
+    // --- Projektdokumente
+    F.dok = {};
+    const dok = async (bs, kategorie, titel) => (await erwarte(await gf.post(`/baustellen/${bs}/dokumente`, { kategorie, titel, dateiBase64: b64(kleinesPdf(titel)), dateiname: `${titel}.pdf` }), 201, `Dokument ${titel}`)).id;
+    F.dok.finBs1 = await dok(BS.pitten, 'angebot', TEXT.dokFinBs1);
+    F.dok.finBs3 = await dok(BS.reisinger, 'angebot', TEXT.dokFinBs3);
+    F.dok.svBs1 = await dok(BS.pitten, 'schriftverkehr', TEXT.dokSvBs1);
+    F.dok.planBs1 = await dok(BS.pitten, 'plaene', TEXT.dokPlanBs1);
+    F.dok.planBs3 = await dok(BS.reisinger, 'plaene', TEXT.dokPlanBs3);
+    F.dok.eingangBs1 = await dok(BS.pitten, 'eingangsrechnungen', TEXT.dokFinBs1 + '-ER');
+    // eigene Kategorie (GF) für Kategorie-Proben
+    F.kategorie = (await erwarte(await gf.post('/dokument-kategorien', { name: 'Rechte-Test-Kategorie', finanziell: false, polier: false }), 201, 'Kategorie')).schluessel;
+
+    // --- Personen: Telefon, Abwesenheiten (Krank mit Notiz = Gesundheitsdaten), Urlaubsanträge
+    await erwarte(await gf.put(`/benutzer/${ANDERER_MA}`, { telefon: TEXT.telefonAnderer }), 200, 'Telefon anderer');
+    await erwarte(await gf.put(`/benutzer/${U.polier}`, { telefon: TEXT.telefonPolier }), 200, 'Telefon Polier');
+    const k = await erwarte(await buero.post('/abwesenheiten/zeitraum', { benutzerId: ANDERER_MA, von: '2026-11-16', bis: '2026-11-17', code: 'K', notiz: TEXT.krank }), 201, 'Krank');
+    F.krankAntrag = k.antragId;
+    F.krankTag = s.db.eins('SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = ? ORDER BY id', ANDERER_MA, 'K').id;
+    const ma3 = await s.login(ANDERER_MA);
+    const u3 = await erwarte(await ma3.post('/abwesenheiten/zeitraum', { benutzerId: ANDERER_MA, von: '2026-12-01', bis: '2026-12-02', code: 'U', notiz: TEXT.urlaubAnderer }), 201, 'Urlaub anderer');
+    F.urlaubAnderer = u3.antragId;
+    // Schlechtwetter-Meldung des Poliers für seine Partie (Inhaber 13.11.2026)
+    F.swMeldung = (await erwarte(await c.polier.post('/abwesenheiten', { benutzerId: ANDERER_MA, datum: '2026-11-12', code: 'SW' }), 201, 'SW-Meldung')).meldungId;
+    F.urlaubAndererTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id", ANDERER_MA).id;
+    // F-024: heute (12.11., Kolonne der Partie Pitten) neben dem genehmigten Urlaub von Person 3 auch K sowie beantragte U/ZA
+    await erwarte(await buero.post('/abwesenheiten/zeitraum', { benutzerId: 6, von: '2026-11-12', bis: '2026-11-12', code: 'K', notiz: TEXT.abwKheute }), 201, 'K heute');
+    for (const [id, code, notiz] of [[4, 'U', TEXT.abwUbHeute], [5, 'ZA', TEXT.abwZAbHeute]]) await erwarte(await (await s.login(id)).post('/abwesenheiten/zeitraum', { benutzerId: id, von: '2026-11-12', bis: '2026-11-12', code, notiz }), 201, `${code} beantragt heute`);
+    const u2 = await erwarte(await c.mitarbeiter.post('/abwesenheiten/zeitraum', { benutzerId: U.mitarbeiter, von: '2026-12-03', bis: '2026-12-04', code: 'U', notiz: 'eigener Urlaub' }), 201, 'eigener Urlaub');
+    F.urlaubEigen = u2.antragId;
+    F.urlaubEigenTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id DESC", U.mitarbeiter).id;
+    const ma14 = await s.login(FREMDER_MA);
+    const u14 = await erwarte(await ma14.post('/abwesenheiten/zeitraum', { benutzerId: FREMDER_MA, von: '2026-12-07', bis: '2026-12-07', code: 'U', notiz: 'Urlaub 14' }), 201, 'Urlaub fremd');
+    F.urlaubFremd = u14.antragId;
+    F.urlaubFremdTag = s.db.eins("SELECT id FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' ORDER BY id DESC", FREMDER_MA).id;
+
+    // eintägige Anträge (Entscheidung je Tag) und eigene Anträge von Polier/Bauleiter (Zurückziehen)
+    const u3e = await erwarte(await ma3.post('/abwesenheiten/zeitraum', { benutzerId: ANDERER_MA, von: '2026-12-10', bis: '2026-12-10', code: 'U' }), 201, 'Urlaub 1 Tag');
+    F.urlaubAnderer1 = u3e.antragId;
+    F.urlaubAnderer1Tag = s.db.eins('SELECT id FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', ANDERER_MA, '2026-12-10').id;
+    F.urlaubEigenRolle = {};
+    for (const [r, d] of [['polier', '2026-12-14'], ['bauleiter', '2026-12-15'], ['buero', '2026-12-16'], ['gf', '2026-12-17']]) {
+      const a = await erwarte(await c[r].post('/abwesenheiten/zeitraum', { benutzerId: ID[r], von: d, bis: d, code: 'U' }), 201, `Urlaub ${r}`);
+      F.urlaubEigenRolle[r] = { antrag: a.antragId, tag: s.db.eins('SELECT id FROM abwesenheit WHERE benutzer_id = ? AND datum = ?', ID[r], d).id };
+    }
+    F.urlaubEigenRolle.mitarbeiter = { antrag: F.urlaubEigen, tag: F.urlaubEigenTag };
+
+    // --- Baustellenplaner: Einsätze morgen (Fr 13.11.) auf BS 1 und BS 3, veröffentlicht; Fuhren
+    const morgen = '2026-11-13';
+    F.datumMorgen = morgen;
+    const e1 = await erwarte(await gf.post('/plan/einsaetze', {
+      datum: morgen, baustelleId: BS.pitten, beginn: '06:30', treffpunkt: 'Bauhof', arbeit: 'Pflaster', benoetigt: 'Rüttelplatte', notiz: 'Zufahrt hinten',
+      benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW], anlageIds: [4], notizen: { [ANDERER_MA]: TEXT.planNotizAnderer, [U.mitarbeiter]: TEXT.planNotizEigen }, fahrer: { 4: U.mitarbeiter }
+    }), 201, 'Einsatz BS1');
+    F.einsatz = { bs1: e1.id };
+    // F-057 (15.7): Gast aus fremder Partie (Polier 8, Partie Kogler) im Einsatz BS 1 mit Personen-Notiz – Polier 1 und
+    // Mitarbeiter sehen diese Notiz nie (dieselbe Notizregel wie das Polier-PDF)
+    await erwarte(await gf.post(`/plan/einsaetze/${e1.id}/personen`, { benutzerIds: [U.polier2], notizen: { [U.polier2]: TEXT.planNotizGastFremd } }), [200, 201], 'Gast fremder Partie BS1');
+    // F-024: auch am Montag 16.11. (Probe /plan/partie in rechte-umgehung, Varianten) ein veröffentlichter Einsatz derselben Partie
+    const mo = await gf.post('/plan/einsaetze', { datum: '2026-11-16', baustelleId: BS.pitten, beginn: '06:30', arbeit: 'Pflaster', benutzerIds: [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW] });
+    if (mo.status === 409 && mo.daten.id) { // Seed hat am 16.11. schon einen Einsatz Pitten: Partie ergänzen
+      F.einsatz.bs1Mo = mo.daten.id;
+      const da = new Set(s.db.alle('SELECT benutzer_id FROM plan_person WHERE einsatz_id = ?', mo.daten.id).map((x) => x.benutzer_id));
+      const fehlt = [U.polier, U.mitarbeiter, ANDERER_MA, ...PARTIE_ABW].filter((x) => !da.has(x));
+      if (fehlt.length) await erwarte(await gf.post(`/plan/einsaetze/${mo.daten.id}/personen`, { benutzerIds: fehlt }), [200, 201], 'Partie 16.11.');
+    } else F.einsatz.bs1Mo = (await erwarte(mo, 201, 'Einsatz BS1 16.11.')).id;
+    const e3 = await erwarte(await gf.post('/plan/einsaetze', { datum: morgen, baustelleId: BS.reisinger, beginn: '07:00', benutzerIds: [13, FREMDER_MA], anlageIds: [5] }), 201, 'Einsatz BS3');
+    F.einsatz.bs3 = e3.id;
+    const f1 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 4, fahrerId: U.mitarbeiter, materialId: 4, menge: 12, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.pitten } }), 201, 'Fuhre BS1');
+    const f3 = await erwarte(await gf.post('/plan/fuhren', { datum: morgen, anlageId: 5, materialId: 4, menge: 8, einheit: 't', nach: { art: 'baustelle', baustelleId: BS.reisinger } }), 201, 'Fuhre BS3');
+    F.fuhre = { bs1: f1.id, bs3: f3.id };
+    await erwarte(await gf.post('/plan/veroeffentlichen', { von: morgen, bis: '2026-11-16' }), 200, 'Veröffentlichen');
+    // F-024: fremde Abwesenheiten aller Arten GENAU an den geprüften Planer-Tagen (13.11. und 16.11.), Personen im Einsatz
+    for (const [id, code, wer, notiz, tage] of ABW_PLAN) {
+      for (const [von, bis] of tage) {
+        if (code === 'BU') await erwarte(await buero.post('/urlaub/betriebsurlaub', { von, bis, benutzerIds: [id], code: 'BU', notiz, vorschau: false }), 200, `Betriebsurlaub ${id}`);
+        else {
+          const cl = wer === 'selbst' ? await s.login(id) : buero;
+          await erwarte(await cl.post('/abwesenheiten/zeitraum', { benutzerId: id, von, bis, code, notiz }), 201, `Abwesenheit ${code} ${id} ${von}`);
+        }
+      }
+    }
+    F.abschnitt = {};
+    for (const [bs, kk] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) F.abschnitt[kk] = (await erwarte(await gf.post(`/baustellen/${bs}/abschnitte`, { art: 'erdbau', von: '2026-11-16', bis: '2026-11-20' }), 201, 'Abschnitt')).id;
+    F.anfrage = { bs1: (await erwarte(await c.polier.post('/plan/anfragen', { datum: morgen, einsatzId: e1.id, text: 'Bitte einen LKW mehr' }), 201, 'Anfrage')).id };
+    const pol13 = await s.login(13);
+    F.anfrage.bs3 = (await erwarte(await pol13.post('/plan/anfragen', { datum: morgen, einsatzId: e3.id, text: 'Bitte Bagger tauschen' }), 201, 'Anfrage BS3')).id;
+    F.fuhreFoto = {};
+    // N-112 (15.7): Wiegeschein der Fuhre BS1 lädt der eingeteilte Fahrer (Mitarbeiter 2) selbst hoch, den der Fuhre BS3 die GF
+    // G2-009: der Wiegeschein der GF trägt ein eindeutiges Pixelmuster (Bild-Kanarie)
+    for (const k of ['bs1', 'bs3']) F.fuhreFoto[k] = (await erwarte(await (k === 'bs1' ? c.mitarbeiter : gf).post(`/plan/fuhren/${F.fuhre[k]}/foto`, { bildBase64: b64(k === 'bs1' ? testJpeg() : W.musterPng('fuhre-bs3-gf')), dateiname: k === 'bs1' ? 'ls.jpg' : 'ws.png' }), 201, 'Fuhren-Foto')).id;
+
+    // --- Berichte: je Baustelle ein Entwurf von heute (für Schreibproben) + bestehende (unterschrieben/freigegeben)
+    F.bericht = {};
+    for (const [bs, kk] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) {
+      const vorhanden = s.db.eins('SELECT id FROM bericht WHERE baustelle_id = ? AND datum = ?', bs, '2026-11-12');
+      F.bericht[kk] = vorhanden ? vorhanden.id : (await erwarte(await gf.post('/berichte', { baustelleId: bs, datum: '2026-11-12' }), 201, 'Bericht')).id;
+      F.bericht[`${kk}Alt`] = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status <> 'entwurf' ORDER BY datum DESC", bs).id;
+      const foto = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/fotos`, { bildBase64: b64(testJpeg()), dateiname: 'foto.jpg', beschreibung: 'Foto' }), 201, 'Berichtsfoto');
+      F.bericht[`${kk}Foto`] = foto.id;
+      { // N-112 (15.7): Lieferschein der GF (Preis im OCR-Text, Kanarie in der Beschreibung) – vor dem Fern-Link (Version)
+        // G2-009: je Baustelle ein eigenes, eindeutiges Pixelmuster (Bild-Kanarie), damit das BILD auch ohne Text erkannt wird
+        await erwarte(await gf.post('/test/ocr', { text: `${TEXT.lieferschein}\nKies 16/32 12,5 t Preis 12,50 EUR/t` }), 200, 'OCR-Attrappe');
+        F.bericht[`${kk}Lieferschein`] = (await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/lieferschein`, { bildBase64: b64(W.musterPng(`lieferschein-${kk}-gf`)), dateiname: 'ls.png', beschreibung: TEXT.lieferschein }), 201, 'Lieferschein')).foto.id;
+        await erwarte(await gf.post('/test/ocr', { text: null }), 200, 'OCR-Attrappe zurück');
+      }
+      const link = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/unterschrift-link`, { rolle: 'bh', name: 'Bauherr' }), 201, 'Fern-Link');
+      F.bericht[`${kk}Link`] = link.id;
+      F.bericht[`${kk}Token`] = link.url.split('/').pop();
+    }
+    // --- N-112 (15.7): Dokument „Lieferscheine“ auf BS 1, hochgeladen von der GF – Polier/Mitarbeiter sehen es nie
+    F.dok.lieferscheinBs1 = await dok(BS.pitten, 'lieferscheine', `${TEXT.lieferschein}-DOK`);
+    // --- Fuhrpark: Schäden (Mitarbeiter 2 eigener, Mitarbeiter 14 fremder), Mängel
+    const sch2 = await erwarte(await c.mitarbeiter.post('/fuhrpark/schaeden', { anlageId: 4, baustelleId: BS.pitten, art: 'defekt', ursache: TEXT.schadenEigen, einsatzfaehig: 'ja', fotos: [{ bildBase64: b64(testJpeg()), dateiname: 's.jpg' }] }), 201, 'Schaden eigen');
+    const sch14 = await erwarte(await ma14.post('/fuhrpark/schaeden', { anlageId: 5, baustelleId: BS.reisinger, art: 'defekt', ursache: TEXT.schadenFremd, einsatzfaehig: 'ja', fotos: [{ bildBase64: b64(testJpeg()), dateiname: 's.jpg' }] }), 201, 'Schaden fremd');
+    F.schaden = { eigen: sch2.id, eigenFoto: sch2.fotos[0].id, fremd: sch14.id, fremdFoto: sch14.fotos[0].id };
+    // Servicebuch-Eintrag mit Reparaturkosten (€ global)
+    const a30 = (await gf.get('/fuhrpark/anlagen/30')).daten;
+    const eintrag = await erwarte(await gf.post('/fuhrpark/eintraege', { anlageId: 30, zaehler: a30.zaehler.filter((z) => z.aktiv !== false).map((z) => ({ art: z.art, anzeige: Math.ceil(z.aktuell || 0) })), art: 'reparatur', datum: '2026-11-10', titel: 'Reparatur Hydraulik', werkstatt: 'eigen', kosten: GELD.global.reparatur, rechnungNr: TEXT.rechnungServicebuch }), 201, 'Servicebuch-Eintrag');
+    F.eintrag = eintrag.id;
+    F.anlage = 4;
+    F.zaehler = s.db.eins('SELECT id FROM zaehler WHERE anlage_id = 4 ORDER BY id').id;
+    F.zaehlerstand = s.db.eins('SELECT id FROM zaehlerstand WHERE zaehler_id = ? ORDER BY id DESC', F.zaehler).id;
+    F.planposition = s.db.eins('SELECT id FROM planposition WHERE anlage_id = 4 ORDER BY id').id;
+    F.vorlage = s.db.eins('SELECT id FROM plan_vorlage ORDER BY id').id;
+    F.mangel = s.db.eins("SELECT id FROM mangel WHERE typ IS NULL OR typ <> 'schaden' ORDER BY id").id;
+    // --- Einstellungen mit Kanarien (nur GF)
+    await erwarte(await gf.put('/einstellungen/email', { host: TEXT.smtp, port: 587, sicher: false, absender: 'bautag@example.test', alarmAn: TEXT.alarmAn, aktiv: true }), 200, 'SMTP');
+    // --- Push-Abos je Rolle
+    for (const r of ROLLEN) await erwarte(await c[r].post('/push/abo', { endpoint: `https://push.example.invalid/abo/${r}`, keys: { p256dh: 'BPx1-abc_DEF', auth: 'aBc-12_x' }, geraet: `Gerät ${r}` }), [200, 201], 'Push-Abo');
+    F.pushAbo = {};
+    for (const r of ROLLEN) F.pushAbo[r] = s.db.eins('SELECT id FROM push_abo WHERE benutzer_id = ? ORDER BY id DESC', ID[r]).id;
+    // --- Lohngruppen-Verlauf (künftiger Eintrag) und Lohn-Vorlage
+    await erwarte(await gf.put(`/benutzer/${ANDERER_MA}`, { lohngruppe: 'va', lohngruppeGueltigAb: '2027-01-01' }), 200, 'Lohngruppe künftig');
+    F.lohngruppeVerlauf = s.db.eins('SELECT id FROM benutzer_lohngruppe WHERE benutzer_id = ? AND gueltig_ab = ?', ANDERER_MA, '2027-01-01').id;
+    F.lohnVorlage = (await erwarte(await buero.post('/lohn-vorlagen', { name: 'Rechte-Test-Vorlage', spalten: [{ feld: 'pnr' }, { feld: 'stunden' }] }), 201, 'Lohn-Vorlage')).id;
+    // --- Benachrichtigungen je Rolle (eine ID je Rolle)
+    F.benachrichtigung = {};
+    for (const r of ROLLEN) { const n = s.db.eins('SELECT id FROM benachrichtigung WHERE benutzer_id = ? ORDER BY id DESC', ID[r]); F.benachrichtigung[r] = n ? n.id : null; }
+    F.fremdeBenachrichtigung = s.db.eins('SELECT id FROM benachrichtigung WHERE benutzer_id = ? ORDER BY id DESC', U.gf).id;
+    // --- Zeit: Buchungen/Schichten je Person
+    F.buchung = { mitarbeiter: s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', U.mitarbeiter).id, anderer: s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', ANDERER_MA).id };
+    F.schicht = { anderer: s.db.eins("SELECT id FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY id DESC", ANDERER_MA).id };
+    F.bsVersion = { bs1: await ver(`/baustellen/${BS.pitten}`), bs3: await ver(`/baustellen/${BS.reisinger}`) };
+    F.dummyBenutzer = (await erwarte(await gf.post('/benutzer', { name: 'Rechte Dummy', rolle: 'mitarbeiter', pin: '482915' }), 201, 'Dummy')).id;
+    // F-053: gleichrangige Konten (zweites Büro, zweiter Bauleiter) für Selbst-/Peer-Proben der Verwaltungsrouten
+    F.peer = {};
+    for (const [rolle, name] of [['buero', 'Büro Zwei'], ['bauleiter', 'Bauleiter Zwei']]) {
+      F.peer[rolle] = (await erwarte(await gf.post('/benutzer', { name, rolle, pin: '482915' }), 201, `Peer ${rolle}`)).id;
+      s.db.lauf('UPDATE benutzer SET pin_hash = (SELECT pin_hash FROM benutzer WHERE id = ?), muss_pin_aendern = 0 WHERE id = ?', U.buero, F.peer[rolle]);
+    }
+    await Promise.allSettled(s.app.bt.laufend || []);
+    // G2-008: je Person eine eigene Lohngruppe mit Kanarien-ID/-Name/-KV (vor den Geld-Kanarien: Sätze werden Kanarien)
+    F.lohnKanarien = W.pflanzeLohnKanarien(s.db);
+    // F-022: Kanarien-Beträge in JEDER Preis-Spalte (Positionen-EP, Kostensätze, Rechnungen, Zahlungen, Reparaturkosten, Budget …)
+    const hand = [];
+    for (const g of Object.keys(GELD)) hand.push(...Object.values(GELD[g]));
+    F.geldKanarien = W.pflanzeGeldKanarien(s.db, hand);
+    // G2-007: Beträge, die sich aus den Kanarien-Preisen und den Mengen/Stunden der Testdaten ergeben
+    const abg = W.abgeleiteteBetraege(s.db);
+    F.abgeleitet = abg.betraege;
+    F.prozente = abg.prozente;
+    F.personen = s.db.alle('SELECT id, name, pnr FROM benutzer ORDER BY id');
+    F.firma = s.db.einstellung('firma', { name: 'BauTag' }).name;
+    // Sitzungen in der Basis: jede Kopie hat sie schon (keine Anmeldung je Probe, spart Laufzeit)
+    F.cookie = {};
+    for (const id of [...new Set([...ROLLEN.map((r) => ID[r]), ANDERER_MA, FREMDER_MA, 13, F.peer.buero, F.peer.bauleiter])]) F.cookie[id] = (await s.login(id)).cookie;
+    // 15.5 (F-029, F-046, F-014) / 15.8: persönliche Geheimnisse je Person – Sitzungs-Token, Geräteschlüssel (Gerätespeicher),
+    // Push-Endpunkt. Wertbasiert: nie in einer Antwort an eine ANDERE Person, für jede Rolle (auch GF, Büro, Bauleiter).
+    F.geheim = [];
+    for (const [id, ck] of Object.entries(F.cookie)) {
+      for (const m of String(ck).matchAll(/=([^;\s]{16,})/g)) F.geheim.push({ id: Number(id), art: 'Sitzungs-Token', wert: m[1] });
+      const gs = await s.client(ck).get(`/auth/geraet-schluessel?benutzerId=${id}`);
+      if (gs.status !== 200 || typeof gs.daten.schluessel !== 'string' || gs.daten.schluessel.length < 16) throw new Error(`Vorbereitung Geräteschlüssel ${id}: ${gs.status}`);
+      F.geheim.push({ id: Number(id), art: 'Geräteschlüssel', wert: gs.daten.schluessel });
+    }
+    for (const r of ROLLEN) F.geheim.push({ id: ID[r], art: 'Push-Endpunkt', wert: `https://push.example.invalid/abo/${r}` });
+    // G2-004/G2-006: Abwesenheiten, Einsätze, Stamm-Baustellen (Korrelation mit Antworten an Polier/Mitarbeiter)
+    F.abwDaten = W.abwesenheitsDaten(s.db);
+    // G2-009: Bild-Kanarien aus den GESPEICHERTEN Dateien (nach Bereinigung durch den Server)
+    F.bildKanarien = [];
+    const dateiIn = (unter, datei) => fs.readFileSync(path.join(s.app.bt.uploads, unter, datei));
+    for (const f of s.db.alle("SELECT f.id, f.bericht_id AS b, f.datei, f.erstellt_von AS von FROM bericht_foto f WHERE f.art = 'lieferschein'")) {
+      F.bildKanarien.push(W.bildKanarie(`Lieferschein-Foto ${f.id} (Bericht ${f.b}, von ${f.von})`, dateiIn('berichte', f.datei), { von: f.von, lieferscheinId: f.id, urls: [`/berichte/${f.b}/fotos/${f.id}(?![0-9])`] }));
+    }
+    for (const f of s.db.alle('SELECT id, fuhre_id AS fu, datei, erstellt_von AS von FROM plan_fuhre_foto WHERE id = ?', F.fuhreFoto.bs3)) {
+      F.bildKanarien.push(W.bildKanarie(`Wiegeschein-Foto ${f.id} (Fuhre ${f.fu}, von ${f.von})`, dateiIn('fuhren', f.datei), { von: f.von, urls: [`/plan/fuhren/${f.fu}/foto/${f.id}(?![0-9])`] }));
+    }
+    if (F.bildKanarien.length < 3) throw new Error(`Vorbereitung Bild-Kanarien: nur ${F.bildKanarien.length}`);
+  } finally {
+    await s.stop();
+  }
+  fs.writeFileSync(path.join(ordner, 'fixtures.json'), JSON.stringify(F, null, 1));
+  ladeZustand(F);
+  return { ordner, datei, F };
+}
+
+/** Effektives Recht eines Benutzers (für Ausnahmen wie `fuhrpark`) */
+function hatRecht(db, benutzerId, recht) {
+  const b = db.eins('SELECT * FROM benutzer WHERE id = ?', benutzerId);
+  return Boolean(b) && require('../../server/rechte').ladeRechteFuer(db, b).has(recht);
+}
+
+/** Startet einen Server auf einer Kopie der Basis (DB + Uploads) */
+async function starteKopie(basis, opt = {}) {
+  const ziel = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-rechte-lauf-'));
+  fs.copyFileSync(basis.datei, path.join(ziel, 'basis.db'));
+  const up = path.join(basis.ordner, 'uploads');
+  if (fs.existsSync(up)) fs.cpSync(up, path.join(ziel, 'uploads'), { recursive: true });
+  const s = await starte({ dbPath: path.join(ziel, 'basis.db'), seed: false, test: true, testToken: TOKEN, ...opt });
+  if (basis.F) ladeZustand(basis.F);
+  // angemeldete Clients aus den Sitzungen der Basis (s.als(rolle | id))
+  s.als = (wer) => { const id = typeof wer === 'number' ? wer : ID[wer]; const ck = basis.F && basis.F.cookie && basis.F.cookie[id]; if (!ck) throw new Error(`keine Sitzung für ${wer} in der Basis`); return s.client(ck); };
+  // Hintergrund-Arbeit des Starts (Push-Zustellung) abwarten, damit Vorher/Nachher-Vergleiche nur die Probe sehen
+  s.ruhe = () => Promise.allSettled(s.app.bt.laufend || []);
+  await s.ruhe();
+  // Ausgänge ab hier (pruefeAusgaenge prüft nur Neues; den Bestand prüft rechte-matrix.test.js vollständig)
+  s.__ausgang = { benachrichtigung: (s.db.eins('SELECT MAX(id) AS m FROM benachrichtigung') || {}).m || 0, push: s.app.bt.testAusgang.push.length, mails: s.app.bt.testAusgang.mails.length };
+  const stop = s.stop;
+  s.ordner = ziel;
+  s.stopOhneAufraeumen = stop;
+  s.aufraeumen = () => fs.rmSync(ziel, { recursive: true, force: true });
+  s.stop = async () => { await stop(); s.aufraeumen(); };
+  return s;
+}
+
+module.exports = {
+  ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, PARTIE_ABW, PLAN_TAGE, ABW_PLAN, ZUSTAND, ladeZustand, kopfText, EIGENE_PFADE, W, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
+  routenAusApp, hatRecht, pruefeAusgaenge, ANHAENGE, berichtPdfAbwesenheitVerstoesse, berichtJsonAbwesenheitVerstoesse, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
+};
