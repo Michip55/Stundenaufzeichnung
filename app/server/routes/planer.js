@@ -1063,7 +1063,7 @@ module.exports = function planerRouten(api, bt) {
   function bsFilterAus(q) {
     if (q.baustelleIds === undefined || q.baustelleIds === '') return null;
     const ids = String(q.baustelleIds).split(',').map((x) => x.trim()).filter(Boolean);
-    if (!ids.length || ids.length > 100 || ids.some((x) => !/^\d{1,9}$/.test(x))) throw ungueltig('baustelleIds: Liste von IDs (Komma).');
+    if (!ids.length || ids.length > 100 || ids.some((x) => !/^\d{1,16}$/.test(x))) throw ungueltig('baustelleIds: Liste von IDs (Komma).');
     return new Set(ids.map(Number));
   }
   function druckRolle(ctx) {

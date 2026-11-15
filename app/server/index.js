@@ -94,6 +94,11 @@ function createApp(opt = {}) {
   if (bestand.kopiert.length || bestand.alarmeGeloescht) require('./budget').pruefeAlleBudgets(bt, { anlass: 'Umstellung auf Nachkalkulation nach Positionen' });
   if (opt.seed) require('./seed').seed(db, { uhr: uhr(), demo: bt.demo });
   require('./kostenstellen').bueroSicherstellen(db, uhr().toISOString()); // 12.25: interne Kostenstelle „Büro“ (KST 90-000)
+  // 15.15 (ID-Nachtrag): ab hier Zeit-IDs statt fortlaufender IDs (server/db.js). Mit gesteuerter Test-Uhr (opt.uhr als
+  // Funktion) zählt nur diese Uhr (ms × 1000, reproduzierbar); sonst die Wanduhr in µs, verschoben wie BAUTAG_UHR.
+  db.idUhr = typeof opt.uhr === 'function' ? () => uhr().getTime() * 1000
+    : () => Math.floor((performance.timeOrigin + performance.now()) * 1000) + (uhr().getTime() - Date.now()) * 1000;
+  db.zeitIds = true;
   // Fotos der Schadensmeldungen: nicht öffentlicher Ordner (nie statisch ausgeliefert)
   bt.uploadsTemp = !opt.uploads && !process.env.BAUTAG_UPLOADS && db.pfad === ':memory:';
   bt.uploads = opt.uploads || process.env.BAUTAG_UPLOADS

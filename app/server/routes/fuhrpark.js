@@ -871,7 +871,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     const e = eintragAus(req.params.id);
     const body = v.objekt(req.body);
     if (e.storniert) throw konflikt('Der Eintrag ist storniert.');
-    pruefeVersion(body, e, 'Der Eintrag');
+    // 15.15 (ID-Nachtrag): ohne preise_sehen die Sichtversion (Kosten/Rechnungs-Nr. zählen für sie nicht)
+    pruefeVersion(body, D.euro(req.ctx) ? e : { version: e.sicht_version }, 'Der Eintrag');
     for (const k of ['datum', 'zaehler', 'planpositionIds', 'maengelIds', 'anlageId', 'art', 'pruefErgebnis']) {
       if (body[k] !== undefined) throw ungueltig(`${k} ist nur per Storno und Neuerfassung änderbar.`);
     }
@@ -890,7 +891,9 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (!Object.keys(set).length) throw ungueltig('Keine änderbaren Felder angegeben.');
     db.transaktion(() => {
       const k = Object.keys(set);
-      db.lauf(`UPDATE servicebuch_eintrag SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...k.map((x) => set[x]), e.id);
+      // 15.15: sicht_version nur bei Feldern, die auch Aufrufer ohne preise_sehen sehen (nicht kosten/rechnung_nr)
+      const sichtbar = k.some((x) => !['kosten', 'rechnung_nr'].includes(x)) ? 1 : 0;
+      db.lauf(`UPDATE servicebuch_eintrag SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1, sicht_version = sicht_version + ? WHERE id = ?`, ...k.map((x) => set[x]), sichtbar, e.id);
       const alt = {}; for (const x of k) alt[x] = e[x];
       protokoll(req, 'fuhrpark_eintrag', `eintrag:${e.id}`, `Servicebuch-Eintrag ${e.titel} geändert`, alt, set);
     });
@@ -904,7 +907,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (e.storniert) throw konflikt('Der Eintrag ist bereits storniert.');
     const z0 = zeit();
     db.transaktion(() => {
-      db.lauf('UPDATE servicebuch_eintrag SET storniert = ?, storno_grund = ?, storno_von = ?, version = version + 1 WHERE id = ?', z0, g, req.ctx.benutzer.id, e.id);
+      db.lauf('UPDATE servicebuch_eintrag SET storniert = ?, storno_grund = ?, storno_von = ?, version = version + 1, sicht_version = sicht_version + 1 WHERE id = ?', z0, g, req.ctx.benutzer.id, e.id);
       // F-04: nur Stände, die der Eintrag selbst angelegt hat, werden ungültig; übernommene nur gelöst
       db.lauf("UPDATE zaehlerstand SET status = 'ungueltig', grund = ? WHERE eintrag_id = ? AND quelle = 'eintrag'", `Eintrag storniert: ${g}`, e.id);
       db.lauf("UPDATE zaehlerstand SET eintrag_id = NULL WHERE eintrag_id = ? AND quelle <> 'eintrag'", e.id);

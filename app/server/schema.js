@@ -1390,6 +1390,16 @@ CREATE TABLE bericht_sicht (
   PRIMARY KEY (bericht_id, benutzer_id)
 );
 `
+  },
+  {
+    version: 46,
+    name: '15.15 (ID-Nachtrag): Sichtversion der Servicebuch-Einträge ohne Kosten/Rechnungs-Nr.',
+    // Aufrufer ohne preise_sehen (Polier/Mitarbeiter mit Ausnahme fuhrpark) sehen Kosten und Rechnungs-Nr. nicht – eine
+    // Änderung nur daran erhöht deshalb nur version (Büro), nicht sicht_version (ihre Version und Konfliktprüfung)
+    sql: `
+ALTER TABLE servicebuch_eintrag ADD COLUMN sicht_version INTEGER NOT NULL DEFAULT 1;
+UPDATE servicebuch_eintrag SET sicht_version = version;
+`
   }
 ];
 

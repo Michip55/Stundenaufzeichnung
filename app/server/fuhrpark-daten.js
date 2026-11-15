@@ -298,7 +298,8 @@ function eintragJson(db, e, S, ctx) {
     art: e.art, datum: e.datum, werkstatt: e.werkstatt, titel: e.titel, arbeiten: e.arbeiten, teile: e.teile, arbeitsstundenIntern: e.arbeitsstunden_intern,
     pruefErgebnis: e.pruef_ergebnis, pruefer: e.pruefer, zaehler, erledigt, maengel,
     ...(e.storniert ? { storniert: { zeit: e.storniert, grund: e.storno_grund, von: person(S.namen, e.storno_von) } } : {}),
-    erfasst: e.erfasst, erfasstVon: person(S.namen, e.erfasst_von), version: e.version
+    // 15.15 (ID-Nachtrag): ohne preise_sehen Sichtversion – eine reine Kosten-/Rechnungsnummern-Änderung bleibt unsichtbar
+    erfasst: e.erfasst, erfasstVon: person(S.namen, e.erfasst_von), version: euro(ctx) ? e.version : e.sicht_version
   };
   // Kosten und Rechnungs-/Belegnummer der Werkstatt nur mit preise_sehen (14.11.2026, wie die Oberfläche)
   if (euro(ctx)) { o.kosten = e.kosten; o.rechnungNr = e.rechnung_nr; }
