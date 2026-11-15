@@ -23,9 +23,16 @@ export class VeraltetFehler extends Error {
 // das Abmelden wartet ausdrücklich auf sie, und ihre Antwort ändert nur die Warteschlange dieser Person (nie die Anzeige einer anderen).
 let generation = 0;
 let abbruch = typeof AbortController === 'function' ? new AbortController() : null;
+// 15.16 (H-S2): Person, deren Rahmen diese Seite gerade zeigt. Jede an die Generation gebundene Anfrage nennt sie im Kopf
+// X-BauTag-Ich; hat sich im selben Browser (anderer Tab) inzwischen jemand anderer angemeldet, antwortet der Server 409
+// ANMELDUNG_ANDERS – die Antwort wird verworfen und die Seite sperrt sich (Ereignis bt:fremd).
+let angemeldet = null;
+export function setzAngemeldet(benutzerId) { angemeldet = benutzerId != null && Number.isInteger(Number(benutzerId)) ? Number(benutzerId) : null; }
+const OHNE_ICH = ['/auth/login', '/auth/login/2fa', '/auth/logout', '/auth/benutzerliste'];
 export const sitzungGeneration = () => generation;
 export function sitzungWechsel() {
   generation++;
+  angemeldet = null; // erst GET /auth/ich der neuen Anmeldung nennt die Person wieder
   const alt = abbruch;
   abbruch = typeof AbortController === 'function' ? new AbortController() : null;
   if (alt) { try { alt.abort(); } catch (e) { /* egal */ } }
@@ -70,24 +77,43 @@ export function geraetArtInhaber() {
   try { const v = localStorage.getItem(GERAET_ART_BENUTZER); return v != null && /^\d+$/.test(v) ? Number(v) : null; } catch (e) { return null; }
 }
 /**
- * 15.12 (G2-021): Gerätewahl bei der Anmeldung von `benutzerId`. Die Wahl gehört der Person, die sie getroffen hat (bzw., wenn sie
- * vor der Anmeldung getroffen wurde, der zuletzt am Gerät angemeldeten Person `letzterBenutzer`). Meldet sich eine ANDERE Person an,
- * gilt wieder „geteilt“ – so kann niemand „Eigenes Handy“ für die nächste Person still voreinstellen. Dieselbe Person behält ihre Wahl.
- * → {art, zurueckgesetzt}  zurueckgesetzt = „eigen“ wurde eben auf „geteilt“ zurückgesetzt (die App zeigt die Wahl dann deutlich an)
+ * 15.16 (H-S4): wirksame Gerätewahl für die angemeldete Person `benutzerId` – „eigen“ nur, wenn genau diese Person es nach ihrer
+ * Anmeldung gewählt bzw. bestätigt hat (Inhaber = ID). Eine Wahl ohne Inhaber (Anmeldeseite) oder einer anderen Person gilt als „geteilt“.
  */
-export function geraetArtBeiAnmeldung(benutzerId, letzterBenutzer = null) {
+export function geraetArtFuer(benutzerId) {
+  return benutzerId != null && geraetArt() === 'eigen' && geraetArtInhaber() === Number(benutzerId) ? 'eigen' : 'geteilt';
+}
+/**
+ * 15.16 (H-S4): Wahl auf der Anmeldeseite (vor der Anmeldung). „Geteiltes Gerät“ gilt sofort (sicherer). „Eigenes Handy“ wird nur
+ * vorgemerkt (ohne Inhaber) und gilt erst, wenn die Person es nach ihrer Anmeldung bestätigt. Ist das Gerät schon „eigen“
+ * (Wahl einer Person nach ihrer Anmeldung), ändert ein erneuter Klick nichts – er nimmt den Inhaber nie weg.
+ */
+export function geraetVorwahl(art) {
+  if (art === 'eigen') return geraetArt() === 'eigen' ? 'eigen' : setzGeraetArt('eigen', null);
+  return setzGeraetArt('geteilt', null);
+}
+/**
+ * 15.12 (G2-021) / 15.16 (H-S4): Gerätewahl bei der Anmeldung von `benutzerId`. „Eigenes Handy“ gilt nur, wenn genau diese Person es
+ * nach einer Anmeldung gewählt hat (Inhaber = ID). Sonst gilt „geteilt“ (und wird mit dieser Person gespeichert):
+ *  - Wahl einer ANDEREN Person → zurueckgesetzt (Hinweis: „war von einer anderen Person eingestellt“);
+ *  - Wahl ohne Inhaber (auf der Anmeldeseite vor der Anmeldung, auch Altbestand) → bestaetigen (Hinweis: erst nach Bestätigung).
+ * Niemand kann „Eigenes Handy“ für eine Person vor ihrer Anmeldung einstellen – auch nicht für die zuletzt angemeldete.
+ * Der zweite Parameter (zuletzt angemeldete Person) wird seit 15.16 nicht mehr verwendet.
+ * → {art, zurueckgesetzt, bestaetigen}
+ */
+export function geraetArtBeiAnmeldung(benutzerId) {
+  const id = Number(benutzerId);
   const art = geraetArt();
   const inhaber = geraetArtInhaber();
-  const vorher = inhaber != null ? inhaber : (letzterBenutzer != null && Number.isInteger(Number(letzterBenutzer)) ? Number(letzterBenutzer) : null);
-  const wechsel = vorher != null && vorher !== Number(benutzerId);
+  if (art === 'eigen' && inhaber === id) return { art: 'eigen', zurueckgesetzt: false, bestaetigen: false };
+  if (art === 'eigen') {
+    setzGeraetArt('geteilt', id);
+    return { art: 'geteilt', zurueckgesetzt: inhaber != null, bestaetigen: inhaber == null };
+  }
   let gespeichert = false;
   try { gespeichert = localStorage.getItem(GERAET_ART) != null || inhaber != null; } catch (e) { gespeichert = false; }
-  if (wechsel) {
-    if (gespeichert) setzGeraetArt('geteilt', benutzerId); // nie gewählt: nichts speichern, es gilt ohnehin „geteilt“
-    return { art: 'geteilt', zurueckgesetzt: art === 'eigen' };
-  }
-  if (gespeichert && inhaber !== Number(benutzerId)) setzGeraetArt(art, benutzerId); // die Wahl gehört ab jetzt dieser Person
-  return { art, zurueckgesetzt: false };
+  if (gespeichert && inhaber !== id) setzGeraetArt('geteilt', id); // nie gewählt: nichts speichern, es gilt ohnehin „geteilt“
+  return { art: 'geteilt', zurueckgesetzt: false, bestaetigen: false };
 }
 // 15.12: „Push auf diesem Gerät gewünscht“ – je Person, nur am Gerät (Liste von Benutzer-IDs), bleibt beim Abmelden erhalten.
 // Mit der Sitzung endet das Abo (G2-019); nach der nächsten Anmeldung DERSELBEN Person auf ihrem eigenen Handy schaltet die App
@@ -110,8 +136,8 @@ export function setzPushWunsch(benutzerId, an) {
  * (`erlaubnis === 'granted'`), (2) genau diese Person Push an diesem Gerät eingeschaltet hatte und (3) das Gerät für diese
  * Person ein „Eigenes Handy“ ist (nach geraetArtBeiAnmeldung: Wahl dieser Person). Sonst nichts – die Person entscheidet selbst.
  */
-export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArt()) {
-  return erlaubnis === 'granted' && art === 'eigen' && geraetArtInhaber() === Number(benutzerId) && pushGewuenscht(benutzerId);
+export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArtFuer(benutzerId)) {
+  return erlaubnis === 'granted' && art === 'eigen' && geraetArtFuer(benutzerId) === 'eigen' && pushGewuenscht(benutzerId);
 }
 
 /**
@@ -128,6 +154,8 @@ export function sperreMinutenFuer(ich, art) {
 }
 
 let nachholen = null;
+/** 15.16 (H-S1): vorgemerktes Abmelden jetzt senden (wirft NetzFehler ohne Verbindung – der Merker bleibt dann) */
+export const abmeldenSenden = () => abmeldenNachholen();
 async function abmeldenNachholen() {
   const m = merker();
   if (!m) return;
@@ -158,6 +186,8 @@ export async function api(methode, pfad, body, opt0 = {}) {
   const opt = { method: methode, credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (signal) opt.signal = signal;
   if (opt0.ersteller != null) opt.headers['X-BauTag-Ersteller'] = String(opt0.ersteller);
+  const ich = gebunden ? angemeldet : null;
+  if (ich != null && !OHNE_ICH.includes(pfad)) opt.headers['X-BauTag-Ich'] = String(ich);
   if (methode !== 'GET') {
     opt.headers['Content-Type'] = 'application/json';
     opt.body = JSON.stringify(body === undefined ? {} : body);
@@ -181,6 +211,11 @@ export async function api(methode, pfad, body, opt0 = {}) {
     const warten = Number(antwort.headers.get('retry-after'));
     if (warten > 0) daten = { ...(daten || {}), retryAfter: warten }; // Sperrdauer (429/423) für die Anzeige „läuft ab um …“
     const fehler = new ApiFehler(antwort.status, daten);
+    // 15.16 (H-S2): unter dem Cookie einer anderen Person – nichts übernehmen, die Seite sperrt sich
+    if (antwort.status === 409 && fehler.code === 'ANMELDUNG_ANDERS' && opt.headers['X-BauTag-Ich']) {
+      window.dispatchEvent(new CustomEvent('bt:fremd', { detail: { benutzerId: null, anders: true } }));
+      throw new VeraltetFehler();
+    }
     if (antwort.status === 403 && fehler.code === 'PIN_AENDERN') window.dispatchEvent(new CustomEvent('bt:pin'));
     if (antwort.status === 403 && fehler.code === '2FA_EINRICHTEN') window.dispatchEvent(new CustomEvent('bt:2fa'));
     if (antwort.status === 401 && !pfad.startsWith('/auth/')) {

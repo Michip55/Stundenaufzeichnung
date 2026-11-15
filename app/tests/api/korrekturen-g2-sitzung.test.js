@@ -170,7 +170,8 @@ test('15.12 G2-019: „Eigenes Handy“ – Abo lebt so lange wie die Sitzung (h
   t.after(() => s.stop());
   const ep = 'https://handy.example.test/push/eigen-g2';
   const a = await appLogin(s, U.polier, { geraet: 'eigen' });
-  assert.equal((await a.c.post('/push/abo', { endpoint: ep, keys: KEYS })).status, 201);
+  // 15.16 (H-S3): die App meldet ein Abo auf dem eigenen Handy mit geteilt:false (ohne Angabe gilt eine App-Sitzung als geteilt)
+  assert.equal((await a.c.post('/push/abo', { endpoint: ep, keys: KEYS, geteilt: false })).status, 201);
   s.uhr.plus(10 * 60);
   const tag = meldung(s, U.polier, 'nach 10 h');
   assert.ok((await versand(s, ep)).some((p) => p.tag === tag), 'innerhalb der Sitzung zugestellt');
@@ -178,7 +179,7 @@ test('15.12 G2-019: „Eigenes Handy“ – Abo lebt so lange wie die Sitzung (h
   meldung(s, U.polier, 'nach Ablauf');
   assert.deepEqual(await versand(s, ep), []);
   const b = await appLogin(s, U.polier, { pushEndpoint: ep });
-  assert.equal((await b.c.post('/push/abo', { endpoint: ep, keys: KEYS })).status, 201, 'nach der nächsten Anmeldung neu einschalten');
+  assert.equal((await b.c.post('/push/abo', { endpoint: ep, keys: KEYS, geteilt: false })).status, 201, 'nach der nächsten Anmeldung neu einschalten');
   const tag2 = meldung(s, U.polier, 'neue Sitzung');
   assert.ok((await versand(s, ep)).some((p) => p.tag === tag2));
 });

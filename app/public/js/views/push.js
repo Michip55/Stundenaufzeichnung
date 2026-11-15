@@ -1,5 +1,5 @@
 // Push-Benachrichtigungen (API.md 12.3): auf diesem Gerät einschalten, Kategorien wählen, Test senden, Geräte verwalten.
-import { get, post, put, del, api, setzPushWunsch } from '../api.js';
+import { get, post, put, del, api, setzPushWunsch, geraetArtFuer } from '../api.js';
 import { ic, esc, fmt, banner, toast, bestaetigen, $ } from '../ui.js';
 import { installStatus } from '../installieren.js';
 
@@ -24,14 +24,26 @@ const geraetName = () => { const ua = navigator.userAgent; return `${/iPhone/.te
  * 15.12: Push nach der Anmeldung still wieder einschalten (ohne Rückfrage – der Browser hat schon erlaubt). Das neue Abo gehört
  * zur neuen Sitzung (POST /push/abo). Ob überhaupt, entscheidet pushNachAnmeldung (api.js). → true, wenn eingeschaltet
  */
-export async function pushStillEinschalten() {
+export async function pushStillEinschalten({ geteilt = false } = {}) {
   if (!pushMoeglich() || Notification.permission !== 'granted') return false;
   const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((ok) => setTimeout(() => ok(null), 3000))]);
   if (!reg || !reg.pushManager) return false;
   const { publicKey } = await get('/push/schluessel');
   const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) }));
   const j = sub.toJSON();
-  await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName() });
+  await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName(), geteilt: !!geteilt });
+  return true;
+}
+/**
+ * 15.16 (H-S3): Gerätewahl geändert – das Abo dieses Geräts (falls vorhanden) erfährt, ob es ein geteiltes Gerät ist. Am geteilten
+ * Gerät stellt der Server nur zu, solange die Sitzung innerhalb der Sperre nach Untätigkeit benutzt wurde. → true, wenn gemeldet
+ */
+export async function pushGeraetArtMelden(geteilt) {
+  const sub = await geraetPushAbo();
+  if (!sub) return false;
+  const j = sub.toJSON();
+  if (!j || !j.endpoint || !j.keys) return false;
+  await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName(), geteilt: !!geteilt });
   return true;
 }
 
@@ -82,7 +94,8 @@ export default async function push(el, ctx) {
       const reg = await navigator.serviceWorker.ready;
       const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(publicKey) }));
       const j = sub.toJSON();
-      await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName() });
+      // 15.16 (H-S3): geteiltes Gerät → Zustellung nur innerhalb der Sperre nach Untätigkeit (sperreMinuten)
+      await post('/push/abo', { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth }, geraet: geraetName(), geteilt: geraetArtFuer(ctx.ich.benutzer.id) !== 'eigen' });
       setzPushWunsch(ctx.ich.benutzer.id, true); // 15.12: nach der nächsten eigenen Anmeldung (eigenes Handy) still wieder ein
       toast('Push ist auf diesem Gerät eingeschaltet.');
     } catch (e) { toast(e.status ? e.message : 'Push konnte auf diesem Gerät nicht eingeschaltet werden. Bitte später erneut versuchen.', 'warn'); }

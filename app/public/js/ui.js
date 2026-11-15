@@ -191,17 +191,19 @@ export const GERAET_TEXT = {
   geteilt: 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.'
 };
 // 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – bei einer anderen Anmeldung wieder „geteilt“
-export const geraetInfo = (art) => art === 'eigen'
-  ? `${GERAET_TEXT.eigen} Gilt nur für die Person, die es gewählt hat: Meldet sich jemand anderer an, ist das Gerät wieder ein „Geteiltes Gerät“.`
+// 15.16 (H-S4): auf der Anmeldeseite gilt „Eigenes Handy“ erst, wenn die Person es nach ihrer Anmeldung bestätigt
+export const GERAET_VORWAHL_TEXT = 'Vor der Anmeldung gewählt, gilt es erst, wenn Sie es nach der Anmeldung bestätigen.';
+export const geraetInfo = (art, { anmeldeseite = false } = {}) => art === 'eigen'
+  ? `${GERAET_TEXT.eigen} Gilt nur für die Person, die es gewählt hat: Meldet sich jemand anderer an, ist das Gerät wieder ein „Geteiltes Gerät“.${anmeldeseite ? ` ${GERAET_VORWAHL_TEXT}` : ''}`
   : `${GERAET_TEXT.geteilt} Die Wahl gilt für dieses Gerät.`;
-export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '' } = {}) => `
-  <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}">
+export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '', anmeldeseite = false } = {}) => `
+  <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}"${anmeldeseite ? ' data-anmeldeseite="1"' : ''}>
     <legend>${esc(titel)}</legend>
     <div class="geraet-opt">
       <label><input type="radio" class="vh" name="geraet-art" value="eigen" ${art === 'eigen' ? 'checked' : ''}><span>${ic('user')}<b>Eigenes Handy</b><small>nur ich benutze es</small></span></label>
       <label><input type="radio" class="vh" name="geraet-art" value="geteilt" ${art === 'eigen' ? '' : 'checked'}><span>${ic('users')}<b>Geteiltes Gerät</b><small>z. B. Tablet im Bauhof</small></span></label>
     </div>
-    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt'))}</p>
+    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt', { anmeldeseite }))}</p>
   </fieldset>`;
 /** Radiogruppe der Gerätewahl in `wurzel` binden; `beiWahl(art)` wird bei jeder Änderung aufgerufen */
 export function bindeGeraetWahl(wurzel, beiWahl) {
@@ -209,7 +211,7 @@ export function bindeGeraetWahl(wurzel, beiWahl) {
     const r = e.target.closest && e.target.closest('input[name="geraet-art"]');
     if (!r) return;
     const box = r.closest('.geraet-wahl'); const art = r.value === 'eigen' ? 'eigen' : 'geteilt';
-    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art); }
+    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art, { anmeldeseite: box.dataset.anmeldeseite === '1' }); }
     beiWahl(art);
   });
 }

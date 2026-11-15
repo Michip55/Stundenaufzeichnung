@@ -1632,6 +1632,11 @@ async function laufe(browser, g) {
       console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
       try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Nachkontrolle Sitzung/Gerät: sofortiges Abmelden bei langsamem Netz, zweiter Tab (tests/e2e/sitzung-n2.js, API.md 15.16)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
+      console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
+      try { const sn = await require('./sitzung-n2').laufe(browser, g); r.fehler.push(...sn.fehler); r.schritte += sn.schritte; } catch (e) { r.fehler.push('Abbruch Sitzung N2: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {
       console.log('    Korrekturen G2 (Zahlungsstand, Tafel, gesperrte Bericht-Adresse) …');

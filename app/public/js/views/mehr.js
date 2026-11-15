@@ -1,5 +1,5 @@
 // Mehr: Konto, alle Bereiche, Einstellungen, Zusatzdienste (ehrlich: noch nicht angebunden), Abmelden.
-import { get, put, geraetArt, setzGeraetArt, sperreMinutenFuer } from '../api.js';
+import { get, put, geraetArtFuer, setzGeraetArt, sperreMinutenFuer } from '../api.js';
 import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, integZustand, geraetWahl, bindeGeraetWahl, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
@@ -36,7 +36,7 @@ export default async function mehr(el, ctx) {
     </nav>
     <section class="card" aria-labelledby="einst-h">
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
-      ${geraetWahl(geraetArt(), { klasse: 'im-menue' })}
+      ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue' })}
       <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
       <a class="switch-row link" href="#/push" id="push-link"><span><b>Push-Benachrichtigungen</b><small>Auf diesem Gerät einschalten, Kategorien wählen, Test senden.</small></span>${ic('right')}</a>
@@ -57,7 +57,7 @@ export default async function mehr(el, ctx) {
   });
   // 15.8: Gerätewahl – gilt sofort für die Sperre nach Untätigkeit an diesem Gerät (nicht für die Sitzung am Server)
   bindeGeraetWahl($('#geraet-wahl', el), (art) => {
-    setzGeraetArt(art, u.id); // 15.12 (G2-021): die Wahl gehört dieser Person
+    if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021): die Wahl gehört dieser Person (15.16: samt Push-Abo)
     const min = sperreMinutenFuer(ctx.ich, art);
     toast(art === 'eigen' ? `Eigenes Handy: angemeldet bis zum Abmelden (längstens ${min >= 120 ? Math.round(min / 60) + ' Std.' : min + ' Min.'} ohne Bedienung, wie am Server).` : `Geteiltes Gerät: Abmeldung nach ${min} Minuten ohne Bedienung.`);
   });

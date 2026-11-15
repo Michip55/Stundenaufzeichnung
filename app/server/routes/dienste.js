@@ -32,10 +32,15 @@ module.exports = function diensteRouten(api, bt) {
     const ich = req.ctx.benutzer.id;
     // 15.12 (G2-019): das Abo gehört zur Sitzung, die es anlegt – endet sie, endet das Abo (Trigger sitzung_ende_push)
     const sitzung = require('../auth').sha256(req.token);
+    // 15.16 (H-S3): Abo eines „Geteilten Geräts“ – zugestellt wird nur, solange die Sitzung innerhalb der Sperre nach Untätigkeit
+    // (sperreMinuten) benutzt wurde. Der Wunsch der App nach WENIGER Zustellung wird befolgt; ohne Angabe gilt eine App-Sitzung
+    // (gebunden, bt_bindung) als geteilt – der sichere Standard der Gerätewahl (15.8). API-Clients ohne Bindung bleiben wie bisher.
+    const gebunden = !!(db.eins('SELECT bindung_hash FROM sitzung WHERE token_hash = ?', sitzung) || {}).bindung_hash;
+    const geteilt = body.geteilt == null ? gebunden : v.bool(body.geteilt, 'geteilt');
     const alt = db.eins('SELECT id FROM push_abo WHERE endpoint = ?', endpoint);
     db.transaktion(() => {
-      if (alt) db.lauf('UPDATE push_abo SET benutzer_id = ?, p256dh = ?, auth = ?, geraet = ?, fehler = NULL, sitzung_hash = ? WHERE id = ?', ich, p256dh, auth, geraet, sitzung, alt.id);
-      else db.lauf('INSERT INTO push_abo (benutzer_id, endpoint, p256dh, auth, geraet, erstellt, sitzung_hash) VALUES (?, ?, ?, ?, ?, ?, ?)', ich, endpoint, p256dh, auth, geraet, jetzt(), sitzung);
+      if (alt) db.lauf('UPDATE push_abo SET benutzer_id = ?, p256dh = ?, auth = ?, geraet = ?, fehler = NULL, sitzung_hash = ?, geteilt = ? WHERE id = ?', ich, p256dh, auth, geraet, sitzung, geteilt ? 1 : 0, alt.id);
+      else db.lauf('INSERT INTO push_abo (benutzer_id, endpoint, p256dh, auth, geraet, erstellt, sitzung_hash, geteilt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ich, endpoint, p256dh, auth, geraet, jetzt(), sitzung, geteilt ? 1 : 0);
       const ueber = db.alle('SELECT id FROM push_abo WHERE benutzer_id = ? ORDER BY erstellt DESC, id DESC', ich).slice(10);
       for (const u of ueber) db.lauf('DELETE FROM push_abo WHERE id = ?', u.id);
     });
