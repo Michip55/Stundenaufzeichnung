@@ -314,7 +314,7 @@ module.exports = function benutzerRouten(api, bt) {
   /* ---------- Lohngruppen-Verlauf (12.22, vertraulich) ---------- */
   const darfLohngruppeSehen = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn') || ctx.hat('benutzer');
   api.get('/benutzer/:id/lohngruppen-verlauf', (req, res) => {
-    if (!darfLohngruppeSehen(req.ctx)) throw keinZugriff('Die Lohngruppe ist vertraulich.');
+    if (!darfLohngruppeSehen(req.ctx)) throw keinZugriff('Diese Angabe ist vertraulich.'); // 15.15 (H-G6): kein Lohn-/Kalkulationsbegriff im Fehlertext
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', id)) throw nichtGefunden('Benutzer nicht gefunden.');
     res.json(L.verlaufJson(db, id, wienDatum(bt.uhr())));

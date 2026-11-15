@@ -163,7 +163,8 @@ test('Bautagesbericht: keine fremden Abwesenheiten für Polier/Mitarbeiter – a
       assert.equal(s.db.eins('SELECT gast FROM bericht_personal WHERE bericht_id = ? AND benutzer_id = ?', BID, ERWIN).gast, 1);
       // „Personal aus Stempelungen übernehmen“ löscht die verborgene Gast-Zeile des Büros nicht
       zuruecksetzen();
-      const pa = await c.post(`/berichte/${BID}/personal-aktualisieren`, { version: VERSION });
+      // 15.15 (H-G4): die Version, die der Aufrufer sieht (Sichtversion – die verborgene Büro-Änderung zählt für ihn nicht)
+      const pa = await c.post(`/berichte/${BID}/personal-aktualisieren`, { version: (await c.get(`/berichte/${BID}`)).daten.version });
       assert.equal(pa.status, 200, JSON.stringify(pa.daten));
       assert.ok(!JSON.stringify(pa.daten).includes('Pürrer'));
       assert.deepEqual(s.db.eins('SELECT code, gast FROM bericht_personal WHERE bericht_id = ? AND benutzer_id = ?', BID, ERWIN), { code: 'U', gast: 1 }, 'verborgene Gast-Zeile beim Aktualisieren verloren');

@@ -99,7 +99,7 @@ module.exports = function stammdatenVerwaltung(api, bt) {
     if (!d) throw nichtGefunden('Unbekannte Stammdaten-Art (geraete, materialien, lohngruppen, leistungen).');
     const ctx = req.ctx;
     if (a === 'lohngruppen') {
-      if (schreiben ? !ctx.hat('preise_bearbeiten') : !ctx.hat('preise_sehen')) throw keinZugriff('Lohngruppen sind vertraulich (Preisrecht).');
+      if (schreiben ? !ctx.hat('preise_bearbeiten') : !ctx.hat('preise_sehen')) throw keinZugriff('Diese Angabe ist vertraulich.'); // 15.15 (H-G6)
     } else if (schreiben ? !ctx.hat('stammdaten') && !ctx.hat('preise_bearbeiten') : !ctx.hat('stammdaten') && !ctx.hat('preise_sehen')) throw keinZugriff();
     return { a, d };
   }

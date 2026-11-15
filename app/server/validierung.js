@@ -41,13 +41,14 @@ function zahl(wert, feld, { min = -Infinity, max = Infinity, pflicht = true, gan
 }
 
 function id(wert, feld) {
-  if (typeof wert === 'number' && Number.isFinite(wert) && !(Number.isInteger(wert) && wert >= 1 && wert <= 1e12)) throw ungueltig(`${feldname(feld)} ist ungültig.`);
-  return zahl(wert, feld, { min: 1, max: 1e12, ganz: true });
+  // 15.15 (ID-Nachtrag): Zeit-IDs haben 15 Stellen – Grenze ist die größte exakte Ganzzahl
+  if (typeof wert === 'number' && Number.isFinite(wert) && !(Number.isSafeInteger(wert) && wert >= 1)) throw ungueltig(`${feldname(feld)} ist ungültig.`);
+  return zahl(wert, feld, { min: 1, max: Number.MAX_SAFE_INTEGER, ganz: true });
 }
 
 /** ID aus URL-Parameter */
 function pfadId(wert, feld = 'ID') {
-  if (typeof wert !== 'string' || !/^\d{1,12}$/.test(wert)) throw ungueltig(`${feldname(feld)} ist ungültig.`);
+  if (typeof wert !== 'string' || !/^\d{1,16}$/.test(wert) || !Number.isSafeInteger(Number(wert))) throw ungueltig(`${feldname(feld)} ist ungültig.`);
   return Number(wert);
 }
 

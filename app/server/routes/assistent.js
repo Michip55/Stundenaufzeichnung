@@ -108,7 +108,7 @@ module.exports = function assistentRouten(api, bt) {
     // Lieferschein ist ein Berichtsfoto (zählt zu den 10, steht im PDF) → Version +1 wie POST …/fotos
     const r = db.transaktion(() => { const x = Foto.fotoSpeichern(bt, req, b, body, 'lieferschein'); if (x.neu) Foto.berichtGeaendert(bt, b.id); return x; });
     const foto = Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name])));
-    const berichtVersion = Foto.berichtVersion(db, b.id);
+    const berichtVersion = Foto.berichtVersion(db, b.id, req.ctx);
     const daten = r.bild ? r.bild.daten : require('node:fs').readFileSync(require('node:path').join(Foto.ordner(bt), r.foto.datei));
     const s = stamm();
     let kiH = {}, kiText = null;
@@ -158,7 +158,7 @@ module.exports = function assistentRouten(api, bt) {
     const e = await papierErkennen(req, r.foto.mime, daten);
     if (e.text && r.neu) db.lauf('UPDATE bericht_foto SET ocr_text = ? WHERE id = ?', e.text.slice(0, 20000), r.foto.id); // N-116: nur beim neu angelegten Foto
     if (e.vorschlag) e.vorschlag.passt = e.vorschlag.datum === b.datum && (!e.vorschlag.kst || e.vorschlag.kst === b.baustelle.kst);
-    res.status(r.neu ? 201 : 200).json({ foto: Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]))), ...e, berichtVersion: Foto.berichtVersion(db, b.id) });
+    res.status(r.neu ? 201 : 200).json({ foto: Foto.fotoJson(r.foto, new Map(db.alle('SELECT id, name FROM benutzer').map((x) => [x.id, x.name]))), ...e, berichtVersion: Foto.berichtVersion(db, b.id, req.ctx) });
   });
   api.post('/berichte/papier', async (req, res) => {
     if (!req.ctx.hat('bericht_erstellen')) throw keinZugriff();

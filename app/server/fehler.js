@@ -22,7 +22,9 @@ const nichtAngebunden = (text) => new ApiFehler(501, 'NICHT_ANGEBUNDEN', text);
  * Ausnahmen), bekommt keinen Fehlertext mit Geldwörtern oder Währungszeichen. Sicherheitsnetz in der Fehlerbehandlung
  * (server/index.js) zusätzlich zu geldfreien Texten an der Quelle; Zusatzfelder fallen dann bis auf `version` weg.
  */
-const GELD_WORTE = /€|\bEUR\b|\bEuro|Preis|preise_|Rechnung|Zahlung|bezahlt|\bKosten\b|Kostensatz|Lohnkosten|Betrag|Beträge|Rücklass|Ruecklass|Skonto|Auftragssumme|Nachtr[aä]g|Gutschrift|\bbrutto\b|\bnetto\b|\bUSt\b|Umsatzsteuer|Verrechnungssatz|Regiesatz/i;
+// 15.15 (H-G6): auch Lohn-/Kalkulationsbegriffe (Lohngruppe, Nachkalkulation, Budget, …kosten – nicht Kostenstelle),
+// Bankgarantie, Angebot und Rechtenamen kalk_*
+const GELD_WORTE = /€|\bEUR\b|\bEuro|Preis|preise_|Rechnung|Zahlung|bezahlt|\bKosten\b|Kostensatz|Lohnkosten|Betrag|Beträge|Rücklass|Ruecklass|Skonto|Auftragssumme|Nachtr[aä]g|Gutschrift|\bbrutto\b|\bnetto\b|\bUSt\b|Umsatzsteuer|Verrechnungssatz|Regiesatz|Lohngruppe|Lohnsatz|Stundenlohn|Kalkulation|kalk_|Budget|[a-zäöüß]kosten\b|Bankgarantie|\bAngebot/i;
 const GELDFREI_403 = 'Diese Funktion ist für Ihr Konto nicht freigegeben.';
 const GELDFREI_SONST = 'Die Anfrage lässt sich so nicht ausführen – bitte im Büro klären.';
 const enthaeltGeld = (text) => GELD_WORTE.test(String(text || ''));

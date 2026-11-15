@@ -60,7 +60,7 @@ module.exports = function urlaubRouten(api, bt) {
       const p = map.get(a.benutzer_id);
       // 15.11 (G2-017): ohne stammdaten/lohn keine fortlaufenden Tabellen-IDs (auch nicht im Bestands-Antrag „e<id>“)
       const tab = DS.stufe(req.ctx) === 'voll';
-      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: tab ? a.id : O.kennung(db, 'abwesenheit', a.id), antragId: a.antrag_id || (tab ? `e${a.id}` : O.kennung(db, 'antrag', a.id)), ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
+      if (p) p.tage[a.datum] = { code: code(a, req.ctx, req.ctx.benutzer.id), status: a.status, id: tab ? a.id : O.kennung(db, 'abwesenheit', a), antragId: a.antrag_id || (tab ? `e${a.id}` : O.kennung(db, 'antrag', a)), ...(a.betriebsurlaub ? { art: 'betriebsurlaub' } : {}) };
     }
     res.json({ tage, personen, warnungen: warnungen(req.ctx, von, bis, ids) });
   });

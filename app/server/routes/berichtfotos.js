@@ -66,8 +66,8 @@ function fotoSpeichern(bt, req, b, body, art = 'foto') {
 function berichtGeaendert(bt, berichtId) {
   return require('./berichte').berichtGeaendert(bt.db, berichtId, bt.uhr().toISOString());
 }
-/** aktuelle Berichtsversion für Antworten der Anhang-Routen (`berichtVersion`) */
-const berichtVersion = (db, berichtId) => db.eins('SELECT version FROM bericht WHERE id = ?', berichtId).version;
+/** aktuelle Berichtsversion für Antworten der Anhang-Routen (`berichtVersion`) – 15.15 (H-G4): wie ctx sie sieht */
+const berichtVersion = (db, berichtId, ctx) => require('../berichtsicht').stand(db, ctx, db.eins('SELECT id, version, geaendert FROM bericht WHERE id = ?', berichtId)).version;
 
 /** Fotoanhang für das PDF (Fotos und Lieferscheine, ohne Papierbericht) – Lieferscheine nur, wenn für ctx sichtbar (N-112) */
 function fotoAnhang(bt, berichtId, ctx = null) {
@@ -105,7 +105,7 @@ module.exports = function berichtFotoRouten(api, bt) {
   api.post('/berichte/:id/fotos', (req, res) => {
     const b = bericht(req, true);
     const r = db.transaktion(() => { const x = fotoSpeichern(bt, req, b, v.objekt(req.body), 'foto'); if (x.neu) geaendert(b); return x; });
-    res.status(r.neu ? 201 : 200).json({ ...fotoJson(r.foto, namen()), berichtVersion: berichtVersion(db, b.id) });
+    res.status(r.neu ? 201 : 200).json({ ...fotoJson(r.foto, namen()), berichtVersion: berichtVersion(db, b.id, req.ctx) });
   });
 
   api.put('/berichte/:id/fotos/:fid', (req, res) => {
@@ -114,7 +114,7 @@ module.exports = function berichtFotoRouten(api, bt) {
     const body = v.objekt(req.body);
     const beschreibung = body.beschreibung == null ? null : v.text(body.beschreibung, 'beschreibung', { max: 300, pflicht: false });
     db.transaktion(() => { db.lauf('UPDATE bericht_foto SET beschreibung = ? WHERE id = ?', beschreibung, f.id); geaendert(b); });
-    res.json({ ...fotoJson(db.eins('SELECT * FROM bericht_foto WHERE id = ?', f.id), namen()), berichtVersion: berichtVersion(db, b.id) });
+    res.json({ ...fotoJson(db.eins('SELECT * FROM bericht_foto WHERE id = ?', f.id), namen()), berichtVersion: berichtVersion(db, b.id, req.ctx) });
   });
 
   api.delete('/berichte/:id/fotos/:fid', (req, res) => {
@@ -135,7 +135,7 @@ module.exports = function berichtFotoRouten(api, bt) {
       db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`, alt: { fotoId: f.id, art: f.art, sha256: f.sha256 }, text: `Foto ${f.id} vom Bericht ${b.baustelle.kst} ${b.datum} gelöscht` });
     });
     try { fs.unlinkSync(Bild.dateiPfad(ordner(bt), f.datei)); } catch (_) { /* weg */ }
-    res.json({ ok: true, berichtVersion: berichtVersion(db, b.id) });
+    res.json({ ok: true, berichtVersion: berichtVersion(db, b.id, req.ctx) });
   });
 
   api.get('/berichte/:id/fotos/:fid', (req, res) => {

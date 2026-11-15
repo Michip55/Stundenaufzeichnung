@@ -28,7 +28,7 @@ function schreibRouten(teil, teile) {
 
 /**
  * Konkrete Erfolgs-Probe für Polier/Mitarbeiter (F-025): `erfolg` ersetzt pfad/body; {version} = aktuelle Version der
- * Ressource (versionVon, sonst der Pfad selbst bzw. ohne letzten Abschnitt), gelesen als GF.
+ * Ressource (versionVon, sonst der Pfad selbst bzw. ohne letzten Abschnitt), gelesen als die Rolle selbst (sonst als GF).
  */
 async function erfolgsAnfrage(k, schluessel, e, F, rolle, variante) {
   const a = anfrage(schluessel, e, F, rolle, variante);
@@ -39,8 +39,17 @@ async function erfolgsAnfrage(k, schluessel, e, F, rolle, variante) {
   const mitVersion = async (body, quelle) => {
     if (!JSON.stringify(body || {}).includes('{version}')) return body;
     const q = ersetze(quelle, P).replace(/^\/api/, '');
-    const g = await gf.get(q);
-    const ver = g.daten && g.daten.version !== undefined ? g.daten.version : (await gf.get(q.replace(/\/[^/]+$/, ''))).daten.version;
+    // 15.15 (H-G4): zuerst die Version, die die Rolle selbst sieht (Berichte: Sichtversion ohne verborgene Änderungen) –
+    // wie die App; nur wenn die Rolle die Ressource nicht lesen kann, die der GF
+    const eigen = async () => {
+      for (const pfad of [q, q.replace(/\/[^/]+$/, '')]) {
+        const r = await k.als(rolle).get(pfad);
+        if (r.status < 300 && r.daten && r.daten.version !== undefined) return r.daten.version;
+      }
+      return undefined;
+    };
+    let ver = await eigen();
+    if (ver === undefined) { const g = await gf.get(q); ver = g.daten && g.daten.version !== undefined ? g.daten.version : (await gf.get(q.replace(/\/[^/]+$/, ''))).daten.version; }
     return JSON.parse(JSON.stringify(body).split('"{version}"').join(String(ver)));
   };
   // Vorbereitung (als dieselbe Rolle); die ID der ersten Antwort steht danach als {vorherId} zur Verfügung

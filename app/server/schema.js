@@ -1367,6 +1367,48 @@ INSERT INTO login_konto_fehler (benutzer_id, zeit) SELECT b, e FROM z;
     sql: `
 ALTER TABLE push_abo ADD COLUMN geteilt INTEGER NOT NULL DEFAULT 1;
 `
+  },
+  {
+    version: 45,
+    name: '15.15 (H-G1, H-G4): zufällige öffentliche Kennung je Abwesenheit; Sichtstand des Bautagesberichts',
+    // H-G1: SQLite vergibt die rowid einer gelöschten letzten Zeile neu – eine aus der Tabellen-ID abgeleitete Kennung
+    // verriete so die Zahl fremder Einträge dazwischen. Jede Zeile bekommt deshalb beim Anlegen (Trigger, gleich welcher
+    // Code einfügt) einen zufälligen Wert; die öffentlichen Kennungen (server/oeffentlich.js) leiten sich nur davon ab.
+    // H-G4: Sichtstand für Aufrufer ohne Sicht auf fremde Abwesenheiten und fremde Belege (server/berichtsicht.js):
+    // sicht_version/sicht_geaendert/sicht_hash = allgemeine eingeschränkte Sicht, sicht_real = zuletzt nachgeführte echte Version,
+    // bericht_sicht = eigene Zeilen/Belege je Person (Zusatzzähler).
+    // Bestand: Sichtstand = bisherige Version; sicht_hash wird beim ersten Laden gesetzt.
+    sql: `
+ALTER TABLE abwesenheit ADD COLUMN oeffentlich TEXT;
+UPDATE abwesenheit SET oeffentlich = lower(hex(randomblob(10)));
+CREATE UNIQUE INDEX abwesenheit_oeffentlich ON abwesenheit(oeffentlich);
+CREATE TRIGGER abwesenheit_oeffentlich_neu AFTER INSERT ON abwesenheit FOR EACH ROW WHEN NEW.oeffentlich IS NULL BEGIN
+  UPDATE abwesenheit SET oeffentlich = lower(hex(randomblob(10))) WHERE id = NEW.id;
+END;
+ALTER TABLE bericht ADD COLUMN sicht_version INTEGER;
+ALTER TABLE bericht ADD COLUMN sicht_geaendert TEXT;
+ALTER TABLE bericht ADD COLUMN sicht_hash TEXT;
+ALTER TABLE bericht ADD COLUMN sicht_real INTEGER;
+UPDATE bericht SET sicht_version = version, sicht_geaendert = geaendert;
+CREATE TABLE bericht_sicht (
+  bericht_id INTEGER NOT NULL REFERENCES bericht(id) ON DELETE CASCADE,
+  benutzer_id INTEGER NOT NULL,
+  extra INTEGER NOT NULL DEFAULT 0,
+  hash TEXT NOT NULL,
+  geaendert TEXT,
+  PRIMARY KEY (bericht_id, benutzer_id)
+);
+`
+  },
+  {
+    version: 46,
+    name: '15.15 (ID-Nachtrag): Sichtversion der Servicebuch-Einträge ohne Kosten/Rechnungs-Nr.',
+    // Aufrufer ohne preise_sehen (Polier/Mitarbeiter mit Ausnahme fuhrpark) sehen Kosten und Rechnungs-Nr. nicht – eine
+    // Änderung nur daran erhöht deshalb nur version (Büro), nicht sicht_version (ihre Version und Konfliktprüfung)
+    sql: `
+ALTER TABLE servicebuch_eintrag ADD COLUMN sicht_version INTEGER NOT NULL DEFAULT 1;
+UPDATE servicebuch_eintrag SET sicht_version = version;
+`
   }
 ];
 

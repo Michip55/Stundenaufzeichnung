@@ -22,12 +22,13 @@ const tagKurz = (d) => `${WT[wochentag(d)]} ${d.slice(8, 10)}.${d.slice(5, 7)}.`
 /** 15.11 (G2-017): Tabellen-IDs nur für Aufrufer mit Sicht auf alle Abwesenheiten (stammdaten/lohn) */
 const mitTabellenIds = (ctx) => DS.stufe(ctx) === 'voll';
 /** Kennung eines Eintrags für ctx */
-const idFuer = (db, ctx, id) => (mitTabellenIds(ctx) ? id : O.kennung(db, 'abwesenheit', id));
+// 15.15 (H-G1): Kennung aus dem Zufallswert der Zeile (a.oeffentlich), nie aus der Tabellen-ID – `a` ist Zeile oder Tabellen-ID
+const idFuer = (db, ctx, a) => (mitTabellenIds(ctx) ? (a && typeof a === 'object' ? a.id : a) : O.kennung(db, 'abwesenheit', a));
 /** Antrags-ID für ctx: zufällige antrag_id unverändert; Bestand ohne antrag_id („e<id>“) ohne Tabellen-ID */
-const antragIdFuer = (db, ctx, a) => (a.antrag_id || mitTabellenIds(ctx) ? antragId(a) : O.kennung(db, 'antrag', a.id));
+const antragIdFuer = (db, ctx, a) => (a.antrag_id || mitTabellenIds(ctx) ? antragId(a) : O.kennung(db, 'antrag', a));
 
 function json(a, db = null, ctx = null) {
-  const o = { id: db && ctx ? idFuer(db, ctx, a.id) : a.id, antragId: db && ctx ? antragIdFuer(db, ctx, a) : antragId(a), benutzerId: a.benutzer_id, name: a.name, datum: a.datum, code: a.code, status: a.status, erfasst: a.erfasst, erfasstVon: a.erfasst_von };
+  const o = { id: db && ctx ? idFuer(db, ctx, a) : a.id, antragId: db && ctx ? antragIdFuer(db, ctx, a) : antragId(a), benutzerId: a.benutzer_id, name: a.name, datum: a.datum, code: a.code, status: a.status, erfasst: a.erfasst, erfasstVon: a.erfasst_von };
   if (a.notiz) o.notiz = a.notiz;
   if (a.antwort) o.antwort = a.antwort;
   // Betriebsurlaub: zählt (Konto, Monat, Lohn, BUAK) als U, ist aber eigens gekennzeichnet (API.md 12.19)
@@ -47,8 +48,8 @@ module.exports = function abwesenheitsRouten(api, bt) {
   function abwIdAusPfad(ctx, roh) {
     if (!O.istKennung('abwesenheit', roh)) return v.pfadId(roh, 'ID');
     // Büro/Lohn (sehen alle) lösen auch Kennungen auf, die eine andere Person bekommen hat – sonst nur die eigenen
-    const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id FROM abwesenheit').map((x) => x.id)
-      : db.alle('SELECT id FROM abwesenheit WHERE benutzer_id = ?', ctx.benutzer.id).map((x) => x.id);
+    const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id, oeffentlich FROM abwesenheit')
+      : db.alle('SELECT id, oeffentlich FROM abwesenheit WHERE benutzer_id = ?', ctx.benutzer.id);
     return O.aufloesen(db, 'abwesenheit', roh, kandidaten);
   }
   const ENTSCHEIDEN_TEXT = 'Anträge entscheidet, wer das Recht stammdaten oder lohn hat (Büro, Bauleiter, Lohnverrechnung, GF).';
@@ -164,7 +165,8 @@ module.exports = function abwesenheitsRouten(api, bt) {
         }
       }
     });
-    res.status(vorhanden ? 200 : 201).json({ id: idFuer(db, ctx, id), antragId: antragIdFuer(db, ctx, db.eins('SELECT id, antrag_id FROM abwesenheit WHERE id = ?', id)), benutzerId, datum, code, status });
+    const neu = db.eins('SELECT id, antrag_id, oeffentlich FROM abwesenheit WHERE id = ?', id);
+    res.status(vorhanden ? 200 : 201).json({ id: idFuer(db, ctx, neu), antragId: antragIdFuer(db, ctx, neu), benutzerId, datum, code, status });
   });
 
   api.put('/abwesenheiten/:id', (req, res) => {
@@ -322,7 +324,7 @@ module.exports = function abwesenheitsRouten(api, bt) {
         von: l[0].datum, bis: l[l.length - 1].datum, arbeitstage: l.length, status: st[0],
         notiz: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.notiz) || {}).notiz || '') || '', antwort: DS.notiz(ctx, l[0].benutzer_id, (l.find((a) => a.antwort) || {}).antwort || '') || '',
         erfasst: erst.erfasst, erfasstVon: erst.erfasst_von, ...(l.some((a) => a.betriebsurlaub) ? { art: 'betriebsurlaub' } : {}),
-        tage: l.map((a) => ({ id: idFuer(db, ctx, a.id), datum: a.datum, status: a.status }))
+        tage: l.map((a) => ({ id: idFuer(db, ctx, a), datum: a.datum, status: a.status }))
       };
     });
   }
@@ -334,8 +336,8 @@ module.exports = function abwesenheitsRouten(api, bt) {
   function antragAusPfad(ctx, roh) {
     const x = antragPfad(roh);
     if (O.istKennung('antrag', x)) {
-      const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id FROM abwesenheit WHERE antrag_id IS NULL').map((z) => z.id)
-        : db.alle('SELECT id FROM abwesenheit WHERE benutzer_id = ? AND antrag_id IS NULL', ctx.benutzer.id).map((z) => z.id);
+      const kandidaten = mitTabellenIds(ctx) ? db.alle('SELECT id, oeffentlich FROM abwesenheit WHERE antrag_id IS NULL')
+        : db.alle('SELECT id, oeffentlich FROM abwesenheit WHERE benutzer_id = ? AND antrag_id IS NULL', ctx.benutzer.id);
       const id = O.aufloesen(db, 'antrag', x, kandidaten);
       return id == null ? '-' : `e${id}`;
     }

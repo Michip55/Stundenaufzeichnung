@@ -10,6 +10,19 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { MIGRATIONEN } = require('./schema');
 
+/*
+ * 15.15 (ID-Nachtrag, Inhaberregel 3): Tabellen-IDs aus der Zeit statt fortlaufend. Fortlaufende IDs verrieten über die
+ * Lücke zwischen zwei eigenen Einträgen, wie viele Einträge andere Personen dazwischen angelegt haben (Benachrichtigungen,
+ * Fotos, Berichte, Buchungen, Planeinträge …). Neue Zeilen bekommen deshalb – sobald zeitIds eingeschaltet ist (nach dem
+ * Einrichten in createApp; Testdaten und Grundausstattung bleiben fortlaufend) – die ID max(größte ID + 1, Zeit in µs seit
+ * 2020). Die ID hängt damit nur vom Zeitpunkt ab (monoton – Reihenfolge nach ID bleibt die Reihenfolge des Anlegens), nicht
+ * von der Zahl fremder Einträge. Gilt für jede Tabelle mit INTEGER PRIMARY KEY „id“, wenn das INSERT keine id angibt.
+ * Ausnahme: abwesenheit – nach außen nur die zufälligen Kennungen aus server/oeffentlich.js (15.11, H-G1).
+ */
+const ID_EPOCHE_US = Date.UTC(2020, 0, 1) * 1000;
+const ZEIT_ID_AUSNAHMEN = new Set(['abwesenheit']);
+const INSERT_RE = /^(\s*INSERT\s+(?:OR\s+[A-Za-z]+\s+)?INTO\s+)([A-Za-z_][A-Za-z0-9_]*)(\s*\()([^()]*)(\)\s*VALUES\s*\()/i;
+
 function param(v) {
   if (v === undefined) return null;
   if (typeof v === 'boolean') return v ? 1 : 0;
@@ -29,6 +42,10 @@ class Datenbank {
     if (this.pfad !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL');
     this.cache = new Map();
     this.tiefe = 0;
+    this.zeitIds = false; // createApp schaltet nach dem Einrichten ein
+    this.idUhr = () => Math.floor((performance.timeOrigin + performance.now()) * 1000); // µs (Wanduhr)
+    this.umschrift = new Map();
+    this.idTabelle = new Map();
     this.migrieren(opt.bisVersion);
     if (!opt.bisVersion) this.nachMigration();
   }
@@ -55,8 +72,38 @@ class Datenbank {
 
   /** Schreibende Anweisung; liefert {changes, lastInsertRowid} */
   lauf(sql, ...p) {
-    const r = this.stmt(sql).run(...p.map(param));
+    const u = this.zeitIds ? this.mitZeitId(sql) : null;
+    const r = u ? this.stmt(u.sql).run(this.neueId(u.tabelle), ...p.map(param)) : this.stmt(sql).run(...p.map(param));
     return { changes: Number(r.changes), id: Number(r.lastInsertRowid) };
+  }
+
+  /** Hat die Tabelle eine INTEGER-PRIMARY-KEY-Spalte „id“ (rowid)? */
+  hatIdSpalte(tabelle) {
+    if (!this.idTabelle.has(tabelle)) {
+      const pk = this.alle(`PRAGMA table_info(${tabelle})`).filter((c) => c.pk);
+      this.idTabelle.set(tabelle, pk.length === 1 && pk[0].name === 'id' && /^INTEGER$/i.test(pk[0].type));
+    }
+    return this.idTabelle.get(tabelle);
+  }
+
+  /** INSERT ohne id in eine Tabelle mit Zeit-IDs → {sql mit id als erstem Wert, tabelle}; sonst null */
+  mitZeitId(sql) {
+    if (this.umschrift.has(sql)) return this.umschrift.get(sql);
+    let u = null;
+    const m = INSERT_RE.exec(sql);
+    if (m && !ZEIT_ID_AUSNAHMEN.has(m[2]) && this.hatIdSpalte(m[2]) && !m[4].split(',').some((c) => c.trim().toLowerCase() === 'id')) {
+      const rest = sql.slice(m[0].length);
+      // nur einzeilige VALUES (mehrere Zeilen in einer Anweisung gibt es im Server-Code nicht)
+      if (!/\)\s*,\s*\(/.test(rest)) u = { sql: `${m[1]}${m[2]}${m[3]}id, ${m[4]}${m[5]}?, ${rest}`, tabelle: m[2] };
+    }
+    this.umschrift.set(sql, u);
+    return u;
+  }
+
+  /** Neue ID: Zeitpunkt in µs seit 2020, mindestens größte vorhandene ID + 1 */
+  neueId(tabelle) {
+    const max = this.eins(`SELECT MAX(id) AS m FROM ${tabelle}`).m || 0;
+    return Math.max(max + 1, this.idUhr() - ID_EPOCHE_US);
   }
 
   /** Führt fn in einer Transaktion aus (verschachtelt = Teil der äußeren). */
