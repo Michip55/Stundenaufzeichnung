@@ -53,9 +53,9 @@ Das Skript richtet automatisch ein: HTTPS-Zertifikat, Firewall, Schutz gegen Pas
 ## Schritt 5: Erste Schritte in der App
 
 1. Im Browser `https://bautag.ihre-firma.at` öffnen und mit Personalnummer und PIN anmelden.
-2. **Zweites Verwaltungs-Konto** anlegen (Büro oder zweite Geschäftsführung) – wichtig, damit gesperrte Konten entsperrt werden können.
-3. Unter *Einstellungen → Sicherheit* die **Zwei-Faktor-Anmeldung** für Büro und Geschäftsführung einrichten.
-4. Unter *Einstellungen → E-Mail* den Mailserver eintragen (Daten vom E-Mail-Anbieter, z. B. „SMTP-Server“), Test-Mail schicken.
+2. **Zweites Geschäftsführungs-Konto** anlegen (*Benutzer & Rechte → Benutzer*). Ein gesperrtes Geschäftsführungs-Konto kann niemand in der App entsperren – nur am Server (`docker compose run --rm app node server/entsperren.js <Personalnummer>`). Mit zwei Konten bleibt die Verwaltung trotzdem erreichbar.
+3. Unter *Mehr → Zwei-Faktor-Anmeldung* die **Zwei-Faktor-Anmeldung** für Geschäftsführung, Büro und Bauleiter einrichten (jede Person am eigenen Handy).
+4. Unter *Benutzer & Rechte → Dienste & Sicherheit* den Mailserver eintragen (Daten vom E-Mail-Anbieter, z. B. „SMTP-Server“), Test-Mail schicken. Dort auch – falls gewünscht – den KI-Schlüssel (Anthropic) eintragen.
 5. Preise, Baustellen (mit Koordinaten für das Wetter) und Mitarbeiter erfassen.
 
 ## Schritt 6: Handys der Mitarbeiter einrichten
@@ -64,7 +64,7 @@ Das Skript richtet automatisch ein: HTTPS-Zertifikat, Firewall, Schutz gegen Pas
 2. **iPhone:** unten auf das Teilen-Symbol (Quadrat mit Pfeil) → **„Zum Home-Bildschirm“** → „Hinzufügen“.
    **Android:** oben rechts ⋮ → **„Zum Startbildschirm hinzufügen“** bzw. „App installieren“.
 3. Das BauTag-Symbol erscheint am Startbildschirm. Ab jetzt nur noch dieses Symbol verwenden.
-4. Beim ersten Öffnen anmelden; für Benachrichtigungen in der App unter *Einstellungen → Benachrichtigungen* „Erlauben“ tippen (iPhone: erst nach Schritt 2 möglich).
+4. Beim ersten Öffnen anmelden und **„Eigenes Handy“** wählen (nach der Anmeldung bestätigen); für Benachrichtigungen unter *Mehr → Push-Benachrichtigungen* einschalten und „Erlauben“ tippen (iPhone: erst nach Schritt 2 möglich).
 
 ## Aktualisieren
 
@@ -88,7 +88,7 @@ Mit 40 GB reicht der Platz also für etwa 2–3 Jahre, mit 80 GB deutlich länge
 
 ## Notfall-E-Mail (wenn die App selbst ausfällt)
 
-Normalerweise meldet die App Probleme der Sicherung selbst (Meldung, Push und E-Mail über *Einstellungen → E-Mail*). Ist die App aber nicht erreichbar, schickt `backup.sh` die Warnung mit dem Programm `sendmail` an `ALARM_EMAIL` (in `deploy/.env`). **Die Installation richtet dafür kein Mailprogramm ein** – ohne steht im Protokoll nur „Kein Notfall-Versand möglich“. Einrichten (Daten vom E-Mail-Anbieter, wie in der App):
+Normalerweise meldet die App Probleme der Sicherung selbst (Meldung, Push und E-Mail über *Benutzer & Rechte → Dienste & Sicherheit*). Ist die App aber nicht erreichbar, schickt `backup.sh` die Warnung mit dem Programm `sendmail` an `ALARM_EMAIL` (in `deploy/.env`). **Die Installation richtet dafür kein Mailprogramm ein** – ohne steht im Protokoll nur „Kein Notfall-Versand möglich“. Einrichten (Daten vom E-Mail-Anbieter, wie in der App):
 ```
 sudo apt-get install -y msmtp-mta
 sudo nano /etc/msmtprc

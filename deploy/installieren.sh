@@ -200,8 +200,8 @@ if [[ "$MODUS" == --wiederherstellen ]]; then
   bash "$ZIEL/deploy/wiederherstellen.sh" --extern
   if [[ -n "${NEUER_SCHLUESSEL:-}" ]]; then
     rot "ACHTUNG – neuer BAUTAG_SCHLUESSEL: Die mit dem alten Schlüssel gespeicherten Geheimnisse sind nicht mehr lesbar."
-    rot "  Neu einrichten müssen Sie: die Zwei-Faktor-Anmeldung (2FA) aller Personen, das SMTP-Passwort (Einstellungen → E-Mail)"
-    rot "  und den KI-API-Schlüssel (Einstellungen → KI). Push wird neu eingerichtet (Geräte schalten Push neu ein)."
+    rot "  Neu einrichten müssen Sie: die Zwei-Faktor-Anmeldung (2FA) aller Personen, das SMTP-Passwort (Benutzer & Rechte → Dienste & Sicherheit)"
+    rot "  und den KI-API-Schlüssel (ebenda). Push wird neu eingerichtet (Geräte schalten Push neu ein)."
     rot "  Mit 2FA kann sich bis dahin nur anmelden, wer einen Wiederherstellungscode hat."
     A="$(frage '2FA jetzt für ALLE Personen zurücksetzen (Anmeldung dann nur mit PIN, danach neu einrichten)? [J/n]')"
     if [[ ! "$A" =~ ^[nN] ]]; then

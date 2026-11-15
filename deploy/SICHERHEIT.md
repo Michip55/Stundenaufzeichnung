@@ -37,10 +37,10 @@ Die Sicherung ist **„konsistent“**: Sie wird bei laufender App erstellt, ohn
   - der letzte erfolgreiche Wiederherstellungstest älter als 8 Tage ist, oder
   - die Server-Festplatte zu **85 %** belegt ist bzw. weniger als 3 GB frei sind (Meldung „Speicherplatz knapp“).
 - Ist die App selbst nicht erreichbar, schickt der Server die Warnung direkt an die bei der Installation angegebene E-Mail-Adresse (`ALARM_EMAIL`). Das geht nur mit einem Mailprogramm auf dem Server – die Installation richtet keines ein: ANLEITUNG.md, „Notfall-E-Mail“.
-- Den Stand sieht die Geschäftsführung in der App unter *Einstellungen → Datensicherung*.
+- Die Warnung erscheint bei der Geschäftsführung in der App (Glocke, Push) und per E-Mail. Den genauen Stand jeder Sicherung zeigt das Protokoll am Server: `sudo tail -50 /var/log/bautag-sicherung.log`.
 
 ### Wenn ein Alarm kommt
-1. In der App *Einstellungen → Datensicherung* öffnen: Welcher Schritt ist rot, welcher Text steht dabei?
+1. Die Meldung in der App (Glocke) lesen und am Server das Protokoll ansehen: `sudo tail -50 /var/log/bautag-sicherung.log` – welcher Schritt ist fehlgeschlagen, welcher Text steht dabei?
 2. Häufige Ursachen: Speicher beim Sicherungs-Anbieter voll oder Rechnung offen; Server-Festplatte voll (`df -h`); Zugangsdaten geändert.
 3. Sicherung von Hand starten: `sudo bash /opt/bautag/deploy/backup.sh` – Ergebnis in `/var/log/bautag-sicherung.log`.
 4. Kommt der Alarm am nächsten Tag wieder: Ihren IT-Betreuer mit dieser Datei und dem Protokoll beauftragen.
