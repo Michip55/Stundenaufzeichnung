@@ -44,9 +44,12 @@ function ohneFremdeAbwesenheiten(db, ich, dummy) {
   return weg.length;
 }
 
-/** Antwort vergleichbar machen: Zufallswerte (Antrags-IDs, Tokens, Port) neutralisieren; PDF/XLSX als Text */
+/** Antwort vergleichbar machen: Zufallswerte (Antrags-IDs, Tokens, Port) neutralisieren; PDF/XLSX als Text.
+ *  Öffentliche Kennungen (p…/x… + 20 hex, 15.15 H-G1) sind je Zeile zufällig: je Antwort in der Reihenfolge des ersten
+ *  Auftretens nummeriert – gleiche Kennung bleibt gleich, Anzahl und Reihenfolge werden weiter verglichen. */
 async function vergleichbar(r) {
-  const text = (s) => s.replace(/\ba[0-9a-f]{12}\b/g, '<ANTRAG>').replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, '<TOKEN>').replace(/http:\/\/127\.0\.0\.1:\d+/g, '<HOST>');
+  const kennungen = new Map();
+  const text = (s) => s.replace(/\b[px][0-9a-f]{20}\b/g, (k) => { if (!kennungen.has(k)) kennungen.set(k, `<KENNUNG${kennungen.size + 1}>`); return kennungen.get(k); }).replace(/\ba[0-9a-f]{12}\b/g, '<ANTRAG>').replace(/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, '<TOKEN>').replace(/http:\/\/127\.0\.0\.1:\d+/g, '<HOST>');
   const lauf = (w) => {
     if (Array.isArray(w)) return w.map(lauf);
     if (w && typeof w === 'object') return Object.fromEntries(Object.entries(w).map(([k, x]) => [k, k === 'id' && typeof x === 'string' && /^[a-z0-9]{10,16}$/.test(x) ? '<ZUFALL>' : lauf(x)]));
