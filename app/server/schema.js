@@ -1358,6 +1358,15 @@ WITH RECURSIVE z(b, e, i, n) AS (
 )
 INSERT INTO login_konto_fehler (benutzer_id, zeit) SELECT b, e FROM z;
 `
+  },
+  {
+    version: 44,
+    name: '15.16 (H-S3): Push-Abo eines geteilten Geräts endet mit der Sperre nach Untätigkeit',
+    // push_abo.geteilt = 1: das Abo stammt von einem „Geteilten Gerät“ (Wunsch der App, POST /push/abo {geteilt}). Zugestellt wird
+    // dann nur, solange die Sitzung des Abos innerhalb von sperreMinuten (Feld 30 min) zuletzt benutzt wurde. Bestand: sicher „geteilt“.
+    sql: `
+ALTER TABLE push_abo ADD COLUMN geteilt INTEGER NOT NULL DEFAULT 1;
+`
   }
 ];
 

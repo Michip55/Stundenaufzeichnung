@@ -101,7 +101,7 @@ function endpointErlaubt(endpoint, { test = false } = {}) {
 const zustellFehler = (status) => `Zustellung fehlgeschlagen${status ? ` (HTTP ${status})` : ''}`;
 
 /** Ein Abo beliefern → 'ok' | 'weg' (410/404 bzw. unzulässige Adresse) | Fehlertext */
-async function sende(bt, abo, daten) {
+async function sende(bt, abo, daten, ttl = TTL_MAX_S) {
   if (!endpointErlaubt(abo.endpoint, { test: bt.test })) return 'weg'; // Altbestand mit unzulässiger Adresse
   if (bt.test) {
     bt.testAusgang.push.push({ benutzerId: abo.benutzer_id, endpoint: abo.endpoint, ...daten, zeit: bt.uhr().toISOString() });
@@ -111,7 +111,7 @@ async function sende(bt, abo, daten) {
   if (!k.privateKey) return 'VAPID-Schlüssel nicht lesbar (BAUTAG_SCHLUESSEL geändert?)';
   try {
     await require('web-push').sendNotification({ endpoint: abo.endpoint, keys: { p256dh: abo.p256dh, auth: abo.auth } }, JSON.stringify(daten), {
-      TTL: 12 * 3600, urgency: 'normal', timeout: 10000,
+      TTL: ttl, urgency: 'normal', timeout: 10000,
       vapidDetails: { subject: bt.url && /^https:/.test(bt.url) ? bt.url : 'mailto:bautag@example.invalid', publicKey: k.publicKey, privateKey: k.privateKey }
     });
     return 'ok';
@@ -127,15 +127,43 @@ async function sende(bt, abo, daten) {
  * ist nicht diese Person. Eine abgelaufene, noch nicht aufgeräumte Sitzung wird dabei gelöscht (Trigger löscht ihre Abos).
  */
 function aboSitzungLebt(bt, abo) {
+  return aboZustellbar(bt, abo) !== null;
+}
+
+/** Höchste Haltedauer einer Meldung beim Push-Dienst (Sekunden), wenn das Gerät gerade nicht erreichbar ist */
+const TTL_MAX_S = 12 * 3600;
+
+/**
+ * Darf an dieses Abo JETZT zugestellt werden? → null (nein; Abo und Meldung verwerfen) oder {ttl} (Sekunden, die der Push-Dienst
+ * die Meldung höchstens halten darf). G2-019: die Sitzung des Abos lebt (aboSitzungLebt). 15.16 (H-S3): Abo eines „Geteilten
+ * Geräts“ (push_abo.geteilt) nur, solange die Sitzung innerhalb der Sperre nach Untätigkeit (sperreMinuten der Rolle, Feld 30 min)
+ * zuletzt benutzt wurde – danach hätte die App am Gerät ohnehin abgemeldet; wer das Tablet dann hält, ist nicht diese Person.
+ * Die Haltedauer endet mit dieser Frist, damit ein ausgeschaltetes Tablet die Meldung nicht später auf den Sperrbildschirm bekommt.
+ */
+function aboZustellbar(bt, abo) {
   const { db } = bt;
-  if (!abo.sitzung_hash) return false;
+  if (!abo.sitzung_hash) return null;
   const s = db.eins('SELECT s.token_hash, s.benutzer_id, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', abo.sitzung_hash);
-  if (!s || s.benutzer_id !== abo.benutzer_id) return false;
-  if (auth.sitzungAbgelaufen(s, bt.uhr(), bt.sitzung || auth.sitzungsKonfig())) {
+  if (!s || s.benutzer_id !== abo.benutzer_id) return null;
+  const k = bt.sitzung || auth.sitzungsKonfig();
+  const jetzt = bt.uhr();
+  if (auth.sitzungAbgelaufen(s, jetzt, k)) {
     db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash);
-    return false;
+    return null;
   }
-  return true;
+  if (Number(abo.geteilt) === 0) return { ttl: TTL_MAX_S };
+  const rest = auth.sperreMinuten(s.rolle, k) * 60000 - (jetzt.getTime() - new Date(s.letzte_aktivitaet).getTime());
+  if (!(rest > 0)) return null;
+  return { ttl: Math.max(1, Math.min(TTL_MAX_S, Math.floor(rest / 1000))) };
+}
+
+/** 15.16 (H-S3): stündlich – Abos geteilter Geräte, deren Sitzung länger als die Sperre nach Untätigkeit unbenutzt ist, löschen → Anzahl */
+function geteilteAbosAufraeumen(bt) {
+  let n = 0;
+  for (const a of bt.db.alle('SELECT * FROM push_abo WHERE geteilt <> 0')) {
+    if (aboZustellbar(bt, a) === null) n += bt.db.lauf('DELETE FROM push_abo WHERE id = ?', a.id).changes;
+  }
+  return n;
 }
 
 /**
@@ -148,8 +176,10 @@ async function anBenutzer(bt, benutzerId, daten, { vorSenden = null } = {}) {
   for (const a of db.alle('SELECT * FROM push_abo WHERE benutzer_id = ?', benutzerId)) {
     if (vorSenden && !vorSenden()) { abgebrochen = true; break; }
     // G2-019: vor JEDEM Abo (auch nach dem await des vorigen) prüfen, ob seine Sitzung noch lebt – sonst Abo und Meldung verwerfen
-    if (!aboSitzungLebt(bt, a)) { db.lauf('DELETE FROM push_abo WHERE id = ?', a.id); continue; }
-    const r = await sende(bt, a, daten);
+    // 15.16 (H-S3): geteiltes Gerät – nur innerhalb der Sperre nach Untätigkeit, Haltedauer beim Push-Dienst bis dahin
+    const ok = aboZustellbar(bt, a);
+    if (!ok) { db.lauf('DELETE FROM push_abo WHERE id = ?', a.id); continue; }
+    const r = await sende(bt, a, daten, ok.ttl);
     if (r === 'ok') { gesendet++; db.lauf('UPDATE push_abo SET zuletzt = ?, fehler = NULL WHERE id = ?', bt.uhr().toISOString(), a.id); } else if (r === 'weg') db.lauf('DELETE FROM push_abo WHERE id = ?', a.id);
     else { fehler++; db.lauf('UPDATE push_abo SET fehler = ? WHERE id = ?', r, a.id); }
   }
@@ -214,4 +244,4 @@ function anstossen(bt) {
   setImmediate(() => { verteilen(bt).catch(() => {}); });
 }
 
-module.exports = { aboSitzungLebt, abosLoeschen, endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };
+module.exports = { aboSitzungLebt, aboZustellbar, geteilteAbosAufraeumen, abosLoeschen, endpointErlaubt, zustellFehler, TYPEN, typenFuerRolle, vapid, einstellungen, pushTyp, ohneBetraege, payload, anBenutzer, pushErlaubt, zustellen, verteilen, anstossen };

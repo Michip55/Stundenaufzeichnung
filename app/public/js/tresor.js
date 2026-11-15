@@ -51,7 +51,10 @@ export async function schluesselHolen(benutzerId) {
  * Alle Einträge der Person, deren Schlüssel am Gerät liegt, versiegeln – danach den Schlüssel löschen.
  * Ohne Schlüssel (nie abgerufen) bleiben die Einträge, wie sie sind: sie werden nur der Person selbst angezeigt und gesendet.
  */
-export async function versiegeln() {
+// 15.16 (H-S2): mehrere Tabs desselben Browsers versiegeln/entsiegeln nie gleichzeitig (Web Locks, wo vorhanden)
+const exklusiv = (f) => (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function' ? navigator.locks.request('bautag-tresor', f) : f());
+export function versiegeln() { return exklusiv(versiegelnJetzt); }
+async function versiegelnJetzt() {
   const s = await schluessel();
   if (s) {
     for (const k of LISTEN) {
@@ -74,7 +77,8 @@ export async function versiegeln() {
  * frisch = nach einer neuen Anmeldung: eigene Einträge, die UNVERSIEGELT am Gerät lagen, stammen nicht aus der eigenen Sitzung
  * (z. B. von jemand anderem am Gerät angelegt) – sie werden nicht gesendet, sondern als „nicht übernommen“ zur Prüfung gezeigt.
  */
-export async function entsiegeln(benutzerId, { frisch = false } = {}) {
+export function entsiegeln(benutzerId, opt = {}) { return exklusiv(() => entsiegelnJetzt(benutzerId, opt)); }
+async function entsiegelnJetzt(benutzerId, { frisch = false } = {}) {
   const s = await schluessel();
   const offen = s && s.id === benutzerId;
   for (const k of LISTEN) {

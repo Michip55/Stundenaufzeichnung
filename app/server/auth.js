@@ -32,6 +32,8 @@ const COOKIE = 'bt_session';
 const BINDUNG = 'bt_bindung';
 /** 15.5 (F-030): Kopf, mit dem die App bei nachgesendeten Einträgen den Ersteller angibt */
 const ERSTELLER_KOPF = 'x-bautag-ersteller';
+/** 15.16 (H-S2): Kopf, mit dem die App die Person nennt, deren Rahmen sie gerade zeigt */
+const ICH_KOPF = 'x-bautag-ich';
 const MAX_FEHLVERSUCHE = 5;
 /** steigende Sperrdauer je (Benutzer, IP): 5 min, 15 min, danach 60 min */
 const SPERRSTUFEN_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
@@ -235,6 +237,12 @@ function sitzungMiddleware(bt) {
     const ersteller = req.headers[ERSTELLER_KOPF];
     if (ersteller !== undefined && req.ctx && String(ersteller).trim() !== String(req.ctx.benutzer.id)) {
       return next(new ApiFehler(409, 'ERSTELLER_ANDERS', 'Dieser Eintrag wurde von einer anderen Person an diesem Gerät erfasst. Er wird nur gesendet, wenn diese Person angemeldet ist.'));
+    }
+    // 15.16 (H-S2): die App nennt bei jeder Anfrage die Person, für die sie gerade anzeigt. Hat sich im selben Browser (anderer
+    // Tab) inzwischen jemand anderer angemeldet, geht keine Antwort dieser Person in den Rahmen der vorigen – 409, die App sperrt.
+    const ichKopf = req.headers[ICH_KOPF];
+    if (ichKopf !== undefined && req.ctx && String(ichKopf).trim() !== String(req.ctx.benutzer.id) && req.path.toLowerCase() !== '/auth/logout') { // Abmelden geht immer
+      return next(new ApiFehler(409, 'ANMELDUNG_ANDERS', 'An diesem Gerät ist inzwischen eine andere Person angemeldet.'));
     }
     next();
   };
@@ -443,7 +451,7 @@ class LoginBremse {
 }
 
 module.exports = { kontoStufe, entsperrHinweis,
-  COOKIE, BINDUNG, ERSTELLER_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  COOKIE, BINDUNG, ERSTELLER_KOPF, ICH_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse

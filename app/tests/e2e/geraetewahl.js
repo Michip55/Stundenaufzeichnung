@@ -17,6 +17,9 @@
  *     dieselbe Person behält ihre Wahl.
  *  7. 15.12: Eigenes Handy mit Push – die Sitzung läuft ab (Abo weg), dieselbe Person meldet sich an: Push ist ohne Klick wieder
  *     da (neues Abo an der neuen Sitzung). Eine andere Person am selben Gerät bekommt kein Abo, bis sie selbst einschaltet.
+ *  8. 15.16 (H-S3/H-S4): das Push-Abo meldet „geteilt“/„eigen“ (auch beim Wechsel in „Mehr“); „Eigenes Handy“ auf der Anmeldeseite
+ *     gilt erst nach der Bestätigung durch die angemeldete Person – vorher „geteilt“, Hinweis, kein stilles Push, 30-min-Sperre.
+ *     (Schritt 3 und 4: eine Wahl vor der Anmeldung wird nach der Anmeldung im Hinweis bzw. in „Mehr“ bestätigt.)
  * Die Untätigkeit wird wie in tests/e2e/geraet.js über die gemerkte letzte Bedienung (bt_aktiv) simuliert; Browser- und
  * Server-Uhr laufen gemeinsam (ctx.clock).
  */
@@ -138,7 +141,14 @@ async function laufe(browser, g) {
     await waehle('eigen');
     pruef(await ls('bt_geraet_art') === 'eigen', `Wahl „Eigenes Handy“ nicht gespeichert (${await ls('bt_geraet_art')})`);
     pruef(/Nur wählen, wenn sonst niemand/.test(await page.locator('#geraet-info').innerText()), 'Erklärung zum eigenen Handy fehlt');
+    pruef(/erst, wenn Sie es nach der Anmeldung bestätigen/.test(await page.locator('#geraet-info').innerText()), '15.16 (H-S4): Anmeldeseite sagt nicht, dass „Eigenes Handy“ erst nach der Bestätigung gilt');
     await anmelden(U.polier, { laden: false });
+    // 15.16 (H-S4): eine Wahl vor der Anmeldung gilt erst, wenn die angemeldete Person sie bestätigt – bis dahin „geteilt“
+    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === String(U.polier), `H-S4: „Eigenes Handy“ von der Anmeldeseite gilt ohne Bestätigung (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    pruef(await page.locator('#geraet-hinweis[data-grund="bestaetigen"]').isVisible() && /bis Sie „Eigenes Handy“ bestätigen/.test(await page.locator('#geraet-hinweis').innerText()), 'H-S4: kein Hinweis zur Bestätigung nach der Anmeldung');
+    await page.click('#geraet-hinweis [data-geraet="eigen"]');
+    await sleep(150);
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier) && await page.locator('#geraet-hinweis').isHidden(), 'H-S4: Bestätigung „Eigenes Handy“ im Hinweis nicht übernommen');
     pruef(gebunden(U.polier) === 1, 'eigenes Handy: Anmeldung ohne gebundene Sitzung');
     pruef(/bt_bindung=[0-9a-f]{64}/.test(await page.evaluate(() => document.cookie)), 'eigenes Handy: kein Bindungs-Cookie');
     await untaetig(31);
@@ -172,9 +182,11 @@ async function laufe(browser, g) {
     pruef(await gewaehlt() === 'geteilt', 'Anmeldeseite zeigt die in „Mehr“ geänderte Wahl nicht');
     await waehle('eigen');
     await anmelden(U.polier, { laden: false });
+    pruef(await ls('bt_geraet_art') === 'geteilt', 'H-S4: Voreinstellung der Anmeldeseite gilt ohne Bestätigung');
     await geh('/mehr');
-    await waehle('eigen'); // schon gewählt – keine Änderung
-    pruef(await ls('bt_geraet_art') === 'eigen', 'Vorbedingung: eigenes Handy');
+    pruef(await gewaehlt() === 'geteilt', `„Mehr“ zeigt eine unbestätigte Wahl als wirksam (${await gewaehlt()})`);
+    await waehle('eigen'); // die angemeldete Person wählt in „Mehr“ – das gilt als Bestätigung
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Vorbedingung: eigenes Handy');
 
     /* ---- 5) eigenes Handy: Benutzerwechsel – Abmelden ohne Netz, Versiegeln, Push, Nachholen ---- */
     // Push an diesem Handy (wieder) eingeschaltet – die Abmeldungen oben haben das Abo jeweils beendet (15.5, auch auf „eigen“)
@@ -294,6 +306,42 @@ async function laufe(browser, g) {
     await sleep(1500);
     pruef(!db.eins('SELECT 1 AS x FROM push_abo WHERE endpoint = ?', EP) && !(await aboE()).aktiv, 'andere Person: Push-Wunsch des Poliers wurde für den Mitarbeiter eingeschaltet');
     pruef(!JSON.parse(await ls('bt_push_wunsch') || '[]').includes(U.mitarbeiter), 'Push-Wunsch dem Mitarbeiter zugeschrieben');
+    await abmelden();
+
+    /* ---- 8) 15.16 (H-S3/H-S4): Push-Abo kennt die Gerätewahl; „Eigenes Handy“ vor der Anmeldung schaltet nichts still ein ---- */
+    const aboS = () => db.eins('SELECT * FROM push_abo WHERE endpoint = ?', EP);
+    await anmelden(U.polier, { laden: false }); // Gerät „geteilt“ (Wahl des Mitarbeiters) – kein stilles Push
+    await sleep(800);
+    pruef(!aboS(), 'H-S4: geteiltes Gerät – Push des Poliers ohne Klick eingeschaltet');
+    await geh('/push');
+    await page.click('#push-an');
+    pruef(await warteAuf(() => !!aboS()) && aboS().geteilt === 1, `H-S3: Abo am geteilten Gerät nicht als geteilt gemeldet (${JSON.stringify(aboS() && aboS().geteilt)})`);
+    await geh('/mehr');
+    await waehle('eigen'); // Polier bestätigt sein eigenes Handy → das Abo gilt wieder bis zum Sitzungsende
+    pruef(await warteAuf(() => aboS() && aboS().geteilt === 0), 'H-S3: Wechsel auf „Eigenes Handy“ nicht an das Abo gemeldet');
+    await waehle('geteilt');
+    pruef(await warteAuf(() => aboS() && aboS().geteilt === 1), 'H-S3: Wechsel auf „Geteiltes Gerät“ nicht an das Abo gemeldet');
+    await abmelden();
+    pruef(!aboS(), 'Abo nach dem Abmelden noch am Server');
+    // Befund H-S4: jemand stellt auf der Anmeldeseite (ohne Anmeldung) „Eigenes Handy“ ein, bevor sich der Polier anmeldet
+    await waehle('eigen');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === null, 'Vorbedingung: Voreinstellung ohne Person');
+    const subVorher = (await aboE()).angemeldet;
+    await anmelden(U.polier, { laden: false });
+    await sleep(1500);
+    pruef(await ls('bt_geraet_art') === 'geteilt', 'H-S4: Voreinstellung „Eigenes Handy“ gilt für den zuletzt angemeldeten Polier');
+    pruef(await page.locator('#geraet-hinweis[data-grund="bestaetigen"]').isVisible(), 'H-S4: kein Hinweis zur Bestätigung');
+    pruef(!aboS() && (await aboE()).angemeldet === subVorher, 'H-S4: Push des Poliers nach der Voreinstellung still wieder eingeschaltet');
+    await untaetig(31);
+    pruef(await abgemeldet(), 'H-S4: Polier nach der Voreinstellung „Eigenes Handy“ nach 31 min weiter angemeldet');
+    // bestätigt der Polier selbst nach seiner Anmeldung, gilt „eigen“ und sein Push kommt zurück (an der neuen Sitzung, nicht geteilt)
+    await zurAnmeldung();
+    await waehle('eigen');
+    await anmelden(U.polier, { laden: false });
+    await page.click('#geraet-hinweis [data-geraet="eigen"]');
+    pruef(await warteAuf(() => !!aboS()) && aboS().geteilt === 0 && aboS().benutzer_id === U.polier, 'Bestätigung „Eigenes Handy“: Push kommt nicht (als eigenes Handy) zurück');
+    const sitzungJetzt = db.eins('SELECT token_hash FROM sitzung WHERE benutzer_id = ? AND bindung_hash IS NOT NULL', U.polier);
+    pruef(sitzungJetzt && aboS() && aboS().sitzung_hash === sitzungJetzt.token_hash, 'Abo nach der Bestätigung gehört nicht zur Sitzung');
     await abmelden();
 
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);
