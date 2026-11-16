@@ -1650,6 +1650,11 @@ async function laufe(browser, g) {
       console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
       try { const sn = await require('./sitzung-n2').laufe(browser, g); r.fehler.push(...sn.fehler); r.schritte += sn.schritte; } catch (e) { r.fehler.push('Abbruch Sitzung N2: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Handy-Layout: kein seitlicher Überlauf, Eingabefelder ≥ 16 px, App bleibt fest (tests/e2e/handy-layout.js, API.md 15.19)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_HANDY_LAYOUT && g.width <= 719) {
+      console.log('    Handy-Layout (Überlauf, Schriftgröße, feste App) …');
+      try { const hl = await require('./handy-layout').laufe(browser, g); r.fehler.push(...hl.fehler); r.schritte += hl.schritte; } catch (e) { r.fehler.push('Abbruch Handy-Layout: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {
       console.log('    Korrekturen G2 (Zahlungsstand, Tafel, gesperrte Bericht-Adresse) …');

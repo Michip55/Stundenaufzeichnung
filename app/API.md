@@ -1303,3 +1303,13 @@ Lücken im dauerhaften Rechte-Testnetz aus der Nachkontrolle (Befunde H-T1 … H
 - **PC und Tablet** (Seitenleiste): unverändert, Startseite Übersicht.
 - Wechsel der Breite (Drehen, Fenstergröße) ordnet die Tab-Leiste ohne Neuladen neu. Keine Rechte-Änderung: Reihenfolge und Startseite entstehen aus derselben rechtegeprüften Navigationsliste.
 - **Tests:** `tests/e2e/run.js` Abschnitt Büro – Startseite je Gerät (Handy `#/stempeln`, Tablet/PC `#/dashboard`), Handy-Tab-Leiste genau `stempeln, dashboard, baustellen, plan, mehr`, Berichte über „Mehr“ erreichbar und markiert.
+
+### 15.19 Handy-Layout (Inhaber-Entscheidung 16.11.2026)
+„Teilweise ist es hängen geblieben bzw. kann man nach links und rechts wischen und es verschiebt sich. Es muss fixiert sein und sich immer an den Handybildschirm anpassen.“ (Bild vom iPhone: Kopfleiste fehlt, unter der Tab-Leiste Leerraum.)
+- **App fest am Bildschirm** (nur Handy-Breite ≤ 719 px): `html`/`body` `position: fixed; inset: 0; overflow: hidden; overscroll-behavior: none`; gescrollt wird ausschließlich in `#view` (`overscroll-behavior: contain`).
+- **Sicherheitsnetz** (`app.js`): Verschiebt iOS das Dokument (nach Tastatur, Auswahlliste, Drehen, Rückkehr in die App), springt es auf 0/0 zurück – nicht während ein Eingabefeld den Fokus hat.
+- **Statusleiste** der installierten App: `apple-mobile-web-app-status-bar-style` = `default` (statt `black-translucent`) – Inhalt beginnt unter der Statusleiste, kein Überdecken der Kopfleiste.
+- **Kein automatisches Hineinzoomen:** alle Eingabefelder (`input`, `select`, `textarea`) am Handy mindestens **16 px**. Zwei-Finger-Zoom bleibt erlaubt (kein `maximum-scale`/`user-scalable=no`).
+- **Nichts breiter als der Bildschirm:** Knöpfe dürfen umbrechen (`.btn` am Handy `white-space: normal`, `max-width: 100%`), Werkzeugleisten-Elemente höchstens 100 % breit, lange Wörter brechen um, Bilder/Canvas/Video höchstens 100 %. `-webkit-text-size-adjust: 100%`.
+- **PC und Tablet:** unverändert.
+- **Tests:** `tests/e2e/handy-layout.js` (in `run.js`, abschaltbar `E2E_OHNE_HANDY_LAYOUT=1`): Büro, Polier, Mitarbeiter je 320×640, 360×740, 390×844 und quer 667×375 auf allen Seiten der Navigation – kein seitlicher Überlauf (Dokument, body, `#view`, jedes Element außerhalb eines eigenen Scroll-/Clip-Bereichs), Eingabefelder ≥ 16 px, verschobenes Dokument springt zurück, Kopfleiste oben, Tab-Leiste unten. Gegenprobe auf dem alten Stand: 6 Befunde (u. a. „Offene Posten aus BMD importieren“ 5 px zu breit bei 320 px, Preis-Felder 14 px). Grenze: Das echte iOS-Verrutschen lässt sich in Chromium nicht nachstellen (dort verhindert `overflow: hidden` das Dokument-Scrollen) – geprüft wird das Zurückspringen; die Wirkung am iPhone bestätigt der Inhaber im Testbetrieb.

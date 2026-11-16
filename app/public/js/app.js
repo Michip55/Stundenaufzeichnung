@@ -240,6 +240,23 @@ function markiereNav(id) {
     if (an) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
 }
+// 15.19 (Inhaber 16.11.2026): iOS schiebt das Dokument nach Tastatur/Auswahlliste/Drehen gelegentlich hoch und lässt es dort
+// („Kopfleiste weg, unten Leerraum“). Gescrollt wird nur in #view – das Dokument selbst gehört immer auf 0/0.
+{
+  const eingabeAktiv = () => { const a = document.activeElement; return !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable); };
+  const zurueck = () => {
+    if (eingabeAktiv()) return; // während der Eingabe darf iOS das Feld über die Tastatur schieben
+    const d = document.documentElement, b = document.body;
+    if (window.scrollX || window.scrollY || d.scrollTop || d.scrollLeft || (b && (b.scrollTop || b.scrollLeft))) {
+      window.scrollTo(0, 0); d.scrollTop = 0; d.scrollLeft = 0; if (b) { b.scrollTop = 0; b.scrollLeft = 0; }
+    }
+  };
+  const spaeter = () => { setTimeout(zurueck, 60); setTimeout(zurueck, 400); };
+  window.addEventListener('scroll', zurueck, { passive: true });
+  ['focusout', 'orientationchange', 'pageshow', 'resize'].forEach((e) => window.addEventListener(e, spaeter, { passive: true }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) spaeter(); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', spaeter, { passive: true });
+}
 // Wechsel zwischen Handy- und Breitbild (Drehen, Fenstergröße): Tab-Leiste neu ordnen, Markierung behalten
 if (window.matchMedia) {
   const mq = window.matchMedia(HANDY);
