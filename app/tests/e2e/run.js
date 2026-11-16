@@ -586,6 +586,19 @@ async function laufe(browser, g) {
     ich = await anmelden('buero');
     nav = await navIds();
     pruef(['dashboard', 'berichte', 'baustellen', 'kalkulation', 'preise', 'monat', 'benutzer'].every((n) => nav.includes(n)), `Büro-Navigation falsch: ${nav}`);
+    { // 15.18 (Inhaber 16.11.2026): am Handy Startseite Stempeluhr, Tab-Leiste Stempeln · Übersicht · Baustellen · Planer · Mehr; sonst Übersicht
+      const handyBreite = g.width <= 719;
+      const startHash = await page.evaluate(() => location.hash);
+      pruef(startHash === (handyBreite ? '#/stempeln' : '#/dashboard'), `15.18: Startseite Büro (${g.name}) ist ${startHash}`);
+      if (handyBreite) {
+        const tabs = await page.evaluate(() => [...document.querySelectorAll('#nav-tab .nav-item')].map((a) => a.dataset.nav));
+        pruef(JSON.stringify(tabs) === JSON.stringify(['stempeln', 'dashboard', 'baustellen', 'plan', 'mehr']), `15.18: Handy-Tab-Leiste Büro: ${tabs}`);
+        await geh('/berichte');
+        pruef(await page.locator('#nav-tab [data-nav="mehr"].active').count() === 1, '15.18: Berichte am Handy unter „Mehr“ markiert');
+        await geh('/mehr');
+        pruef(await page.locator('.menu-list a[href="#/berichte"]').count() === 1, '15.18: Berichte unter „Mehr“ erreichbar');
+      }
+    }
     await geh('/dashboard');
     pruef(await page.locator('[data-kpi="freigabe"] b').innerText() !== '0', 'Übersicht: kein Bericht zur Freigabe angezeigt');
     pruef(await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');

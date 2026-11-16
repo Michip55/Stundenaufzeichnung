@@ -95,7 +95,25 @@ const navErlaubt = () => {
   }
   return liste;
 };
-const start = () => { const n = navErlaubt()[0]; return n ? n.pfad : '/mehr'; };
+// Handy (Inhaber-Entscheidung 16.11.2026, API.md 15.18): Startseite für alle ist die Stempeluhr; in der Tab-Leiste der
+// Büro-Rollen „Stempeln · Übersicht · …“ – „Berichte“ rückt unter „Mehr“. Grenze wie die Tab-Leiste in app.css.
+const HANDY = '(max-width: 719px)';
+const istHandy = () => !!(window.matchMedia && window.matchMedia(HANDY).matches);
+const handyReihenfolge = (nav) => {
+  if (!istHandy()) return nav;
+  const st = nav.find((n) => n.id === 'stempeln');
+  if (!st) return nav;
+  const rest = nav.filter((n) => n !== st);
+  if (rest[0] && rest[0].id === 'dashboard') return [st, ...rest.filter((n) => n.id !== 'berichte'), ...rest.filter((n) => n.id === 'berichte')];
+  return [st, ...rest];
+};
+const start = () => { const n = handyReihenfolge(navErlaubt())[0]; return n ? n.pfad : '/mehr'; };
+const MEHR_NAV = { id: 'mehr', pfad: '/mehr', text: 'Mehr', kurz: 'Mehr', icon: 'more' };
+function tabLeiste() {
+  const tabNav = handyReihenfolge(navErlaubt()).filter((n) => !n.nurMehr);
+  const tabs = tabNav.length > 4 ? [...tabNav.slice(0, 4), MEHR_NAV] : [...tabNav, MEHR_NAV];
+  return tabs.map((n) => navLink(n)).join('');
+}
 
 const ROUTEN = [
   { muster: /^\/stempeln$/, nav: 'stempeln', titel: 'Stempeluhr', view: stempeln, darf: eines('zeit_eigen') },
@@ -137,9 +155,6 @@ function navLink(n, aktiv) {
 function rahmen() {
   const u = ich.benutzer;
   const nav = navErlaubt();
-  const MEHR = { id: 'mehr', pfad: '/mehr', text: 'Mehr', kurz: 'Mehr', icon: 'more' };
-  const tabNav = nav.filter((n) => !n.nurMehr);
-  const tabs = tabNav.length > 4 ? [...tabNav.slice(0, 4), MEHR] : [...tabNav, MEHR];
   root.innerHTML = `
   <a class="skip" href="#view">Zum Inhalt springen</a>
   <div class="app">
@@ -161,7 +176,7 @@ function rahmen() {
       <div id="install-hinweis" hidden></div>
       <div id="geraet-hinweis" class="geraet-hinweis" role="alert" hidden></div>
       <main class="view" id="view" tabindex="-1"></main>
-      <nav class="tabbar" id="nav-tab" aria-label="Hauptnavigation">${tabs.map((n) => navLink(n)).join('')}</nav>
+      <nav class="tabbar" id="nav-tab" aria-label="Hauptnavigation">${tabLeiste()}</nav>
     </div>
   </div>`;
   $('#glocke').addEventListener('click', glockeAuf);
@@ -214,7 +229,9 @@ function geraetGewaehlt(art) {
   else pushGeraetArtMelden(neu !== 'eigen').catch(() => {});
   return neu;
 }
+let navAktiv = '';
 function markiereNav(id) {
+  navAktiv = id;
   const tabIds = $$('#nav-tab .nav-item').map((a) => a.dataset.nav);
   $$('.nav-item, .nav-user').forEach((a) => {
     // Auf dem Handy liegt alles, was nicht in der Tab-Leiste ist, unter "Mehr"
@@ -222,6 +239,12 @@ function markiereNav(id) {
     a.classList.toggle('active', an);
     if (an) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+}
+// Wechsel zwischen Handy- und Breitbild (Drehen, Fenstergröße): Tab-Leiste neu ordnen, Markierung behalten
+if (window.matchMedia) {
+  const mq = window.matchMedia(HANDY);
+  const neu = () => { const t = $('#nav-tab'); if (t && ich) { t.innerHTML = tabLeiste(); markiereNav(navAktiv); } };
+  if (mq.addEventListener) mq.addEventListener('change', neu); else if (mq.addListener) mq.addListener(neu);
 }
 function tick() {
   const u = $('#uhr'); if (!u) return;
