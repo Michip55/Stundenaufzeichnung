@@ -160,6 +160,8 @@ function createApp(opt = {}) {
       // Push-Schlüssel neu erzeugen; alte Abos passen nicht mehr und werden entfernt (Geräte melden sich beim nächsten Öffnen neu an)
       db.setzeEinstellung('vapid', null);
       db.lauf('DELETE FROM push_abo');
+      // sofort mit dem aktuellen Schlüssel neu erzeugen – sonst gilt Push bis zum nächsten Neustart als „nicht eingerichtet“
+      try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }
       bt.warnungen.push('Push-Schlüssel (VAPID) war mit dem aktuellen BAUTAG_SCHLUESSEL nicht lesbar – neu erzeugt; Geräte müssen Push neu einschalten.');
     }
   } catch (e) { console.error('[BauTag] Geheimnisse prüfen:', e.message); }

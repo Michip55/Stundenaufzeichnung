@@ -121,3 +121,22 @@ test('G-03: entsperren.js --2fa und --2fa-alle als Kommando', async (t) => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /bei 0 Person\(en\) zurückgesetzt/);
 });
+
+test('Neuer BAUTAG_SCHLUESSEL: Push-Schlüssel (VAPID) sofort neu erzeugt – Push bleibt eingerichtet (Inbetriebnahme 16.11.2026)', async (t) => {
+  const { d, db } = tmpDb();
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const s1 = await starte({ dbPath: db, schluessel: A });
+  const alt = s1.db.einstellung('vapid', null);
+  assert.ok(alt && alt.publicKey);
+  await s1.stop();
+  const s2 = await starte({ dbPath: db, seed: false, schluessel: B });
+  t.after(() => s2.stop());
+  assert.ok(s2.app.bt.warnungen.some((w) => /Push-Schlüssel \(VAPID\)/.test(w)));
+  const neu = s2.db.einstellung('vapid', null);
+  assert.ok(neu && neu.publicKey, 'VAPID muss nach dem Schlüsselwechsel sofort wieder vorhanden sein');
+  assert.notEqual(neu.publicKey, alt.publicKey);
+  assert.ok(require('../../server/push').vapid(s2.app.bt).privateKey, 'neuer privater Schlüssel lesbar');
+  const gf = await s2.login(U.gf);
+  const integ = (await gf.get('/integrationen')).daten;
+  assert.equal(integ.find((i) => i.schluessel === 'push').angebunden, true);
+});
