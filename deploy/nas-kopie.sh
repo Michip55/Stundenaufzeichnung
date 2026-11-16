@@ -8,7 +8,7 @@
 #   Täglich:   nas-kopie.sh                  (z. B. per Aufgabenplanung um 06:00)
 #
 # Einstellungen in nas-kopie.env neben diesem Skript (chmod 600):
-#   QUELLE=sftp:u123456@u123456.your-storagebox.de:/bautag   (= RESTIC_REPOSITORY des Servers)
+#   QUELLE=sftp:u123456@u123456.your-storagebox.de:/home/bautag   (= RESTIC_REPOSITORY des Servers)
 #   QUELLE_PASSWORT_DATEI=/pfad/restic-passwort              (Passwort vom Notfallblatt)
 #   ZIEL=/volume1/sicherung/bautag                           (Ordner auf dem NAS/PC)
 #   AWS_ACCESS_KEY_ID=… / AWS_SECRET_ACCESS_KEY=…           (nur bei S3)
