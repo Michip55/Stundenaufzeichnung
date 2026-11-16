@@ -52,6 +52,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 **Stempeln im Büro**
 - [ ] Stempeluhr: Kostenstelle **„Büro“** ist vorgewählt.
+- [ ] **Am Handy** öffnet BauTag nach der Anmeldung direkt die **Stempeluhr**; unten: Stempeln · Übersicht · Baustellen · Planer · Mehr (Berichte unter „Mehr“). Am PC startet weiter die Übersicht.
 
 **Benutzer**
 - [ ] Büro/Bauleiter verwalten nur Mitarbeiter und Poliere. Büro- und Bauleiter-Konten verwaltet nur die Geschäftsführung; beim eigenen Konto steht statt „Bearbeiten“ ein Hinweis.

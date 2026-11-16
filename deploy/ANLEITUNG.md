@@ -28,7 +28,7 @@ Laufende Kosten: Server ca. 5–10 € im Monat, externe Sicherung ca. 3–5 €
 
 ## Schritt 3: Speicher für die externe Sicherung mieten (empfohlen)
 
-Ein **zweiter Anbieter** an einem anderen Ort, damit die Daten auch bei einem Totalausfall des Servers erhalten bleiben – z. B. eine **Hetzner Storage Box** (BX11, ca. 4 €/Monat) oder S3-Speicher in der EU. Auch hier den **AVV** abschließen. Notieren Sie die Zugangsadresse, z. B. `sftp:u123456@u123456.your-storagebox.de:/bautag`. Details: SICHERHEIT.md.
+Ein **zweiter Anbieter** an einem anderen Ort, damit die Daten auch bei einem Totalausfall des Servers erhalten bleiben – z. B. eine **Hetzner Storage Box** (BX11, ca. 4 €/Monat) oder S3-Speicher in der EU. Auch hier den **AVV** abschließen. In den Einstellungen der Storage Box **„SSH-Support“** und **„Äußere Erreichbarkeit“** einschalten (SMB und WebDAV aus) und das **Storage-Box-Passwort** notieren. Ihre Sicherungsadresse lautet (Benutzer einsetzen) `sftp:u123456@u123456.your-storagebox.de:/home/bautag` – bei der Storage Box ist nur `/home` beschreibbar. Details: SICHERHEIT.md.
 
 ## Schritt 4: Ein Befehl installiert alles
 
@@ -38,7 +38,7 @@ Ein **zweiter Anbieter** an einem anderen Ort, damit die Daten auch bei einem To
    ```
 2. Diesen einen Befehl einfügen und Enter drücken:
    ```
-   git clone https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh
+   git clone -b main https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh
    ```
    Ist das Programm-Verzeichnis (Repository) nicht öffentlich, fragt `git` nach Benutzername und einem Zugangs-Token (GitHub → Settings → Developer settings → Personal access tokens, Recht „Contents: Read“). Alternativ den Ordner per USB/SFTP nach `/opt/bautag` kopieren und nur `sudo bash /opt/bautag/deploy/installieren.sh` ausführen.
 3. Das Skript fragt:
@@ -117,7 +117,7 @@ Die tägliche Sicherung (`/etc/cron.d/bautag`) findet `sendmail` in `/usr/sbin`.
 Siehe **SICHERHEIT.md, Abschnitt „Notfall: Wiederherstellung“**. Kurzfassung:
 - **Daten eines Tages zurückholen** (Server läuft): `sudo bash /opt/bautag/deploy/wiederherstellen.sh --liste`, dann `… --datei /var/lib/bautag/sicherung/bautag-JJJJ-MM-TT.db`.
 - **Server komplett verloren:** neuen Server mieten (Schritt 1), DNS auf die neue IP ändern (Schritt 2), dann
-  `git clone https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh --wiederherstellen`
+  `git clone -b main https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh --wiederherstellen`
   und Passwort sowie Schlüssel vom **Notfallblatt** eingeben.
 
 ## Hilfe bei Problemen

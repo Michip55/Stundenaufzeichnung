@@ -586,6 +586,19 @@ async function laufe(browser, g) {
     ich = await anmelden('buero');
     nav = await navIds();
     pruef(['dashboard', 'berichte', 'baustellen', 'kalkulation', 'preise', 'monat', 'benutzer'].every((n) => nav.includes(n)), `Büro-Navigation falsch: ${nav}`);
+    { // 15.18 (Inhaber 16.11.2026): am Handy Startseite Stempeluhr, Tab-Leiste Stempeln · Übersicht · Baustellen · Planer · Mehr; sonst Übersicht
+      const handyBreite = g.width <= 719;
+      const startHash = await page.evaluate(() => location.hash);
+      pruef(startHash === (handyBreite ? '#/stempeln' : '#/dashboard'), `15.18: Startseite Büro (${g.name}) ist ${startHash}`);
+      if (handyBreite) {
+        const tabs = await page.evaluate(() => [...document.querySelectorAll('#nav-tab .nav-item')].map((a) => a.dataset.nav));
+        pruef(JSON.stringify(tabs) === JSON.stringify(['stempeln', 'dashboard', 'baustellen', 'plan', 'mehr']), `15.18: Handy-Tab-Leiste Büro: ${tabs}`);
+        await geh('/berichte');
+        pruef(await page.locator('#nav-tab [data-nav="mehr"].active').count() === 1, '15.18: Berichte am Handy unter „Mehr“ markiert');
+        await geh('/mehr');
+        pruef(await page.locator('.menu-list a[href="#/berichte"]').count() === 1, '15.18: Berichte unter „Mehr“ erreichbar');
+      }
+    }
     await geh('/dashboard');
     pruef(await page.locator('[data-kpi="freigabe"] b').innerText() !== '0', 'Übersicht: kein Bericht zur Freigabe angezeigt');
     pruef(await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
@@ -1636,6 +1649,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
       console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
       try { const sn = await require('./sitzung-n2').laufe(browser, g); r.fehler.push(...sn.fehler); r.schritte += sn.schritte; } catch (e) { r.fehler.push('Abbruch Sitzung N2: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Handy-Layout: kein seitlicher Überlauf, Eingabefelder ≥ 16 px, App bleibt fest (tests/e2e/handy-layout.js, API.md 15.19)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_HANDY_LAYOUT && g.width <= 719) {
+      console.log('    Handy-Layout (Überlauf, Schriftgröße, feste App) …');
+      try { const hl = await require('./handy-layout').laufe(browser, g); r.fehler.push(...hl.fehler); r.schritte += hl.schritte; } catch (e) { r.fehler.push('Abbruch Handy-Layout: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {

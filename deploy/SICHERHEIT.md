@@ -20,7 +20,7 @@ Die Sicherung ist **„konsistent“**: Sie wird bei laufender App erstellt, ohn
 - Das Programm **restic** verschlüsselt alle Daten auf dem Server mit einem **Sicherungs-Passwort**. Der Speicher-Anbieter sieht nur unlesbaren Datensalat.
 - Das Passwort erzeugt die Installation automatisch und zeigt es **einmal** an. **Ohne dieses Passwort ist keine Wiederherstellung möglich** – auch nicht durch uns oder den Anbieter. Darum gehört es auf das Notfallblatt (Abschnitt 4).
 - Einrichtung nachträglich: Datei `/etc/bautag/restic.env` nach Vorlage `deploy/restic.env.beispiel` anlegen (Rechte 600), dann einmalig `sudo bash -c 'set -a; . /etc/bautag/restic.env; restic init'`.
-- **Storage Box (SFTP):** Bei Hetzner im Storage-Box-Menü „SSH-Support“ einschalten und den öffentlichen Schlüssel des Servers (zeigt die Installation an) hinterlegen. Adresse: `sftp:uXXXXXX@uXXXXXX.your-storagebox.de:/bautag` (Port 23: in `/root/.ssh/config` „Host uXXXXXX.your-storagebox.de / Port 23“ eintragen).
+- **Storage Box (SFTP):** Bei Hetzner im Storage-Box-Menü „SSH-Support“ einschalten und den öffentlichen Schlüssel des Servers (zeigt die Installation an) hinterlegen. Adresse: `sftp:uXXXXXX@uXXXXXX.your-storagebox.de:/home/bautag` (nur `/home` ist beschreibbar). Die Schlüssel-Anmeldung gilt nur auf Port 23: Die Installation trägt dafür „Host uXXXXXX.your-storagebox.de / Port 23“ in `/root/.ssh/config` ein und zeigt den Befehl `ssh-copy-id -p 23 -s uXXXXXX@uXXXXXX.your-storagebox.de` zum Hinterlegen des Server-Schlüssels.
 - **S3-kompatibel:** Bucket in einem EU-Rechenzentrum anlegen, Zugangsschlüssel mit Rechten nur für diesen Bucket erzeugen.
 
 ### Kopie 3: Büro-Kopie (NAS/PC)
@@ -60,7 +60,7 @@ Das Skript prüft den Stand, hält die App kurz an, legt die aktuelle Datenbank 
 3. DNS-Eintrag auf die **neue IP** ändern (ANLEITUNG.md Schritt 2).
 4. Am neuen Server:
    ```
-   git clone https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh --wiederherstellen
+   git clone -b main https://github.com/Michip55/Stundenaufzeichnung.git /opt/bautag && sudo bash /opt/bautag/deploy/installieren.sh --wiederherstellen
    ```
    Eingeben: Adresse, E-Mail, **Adresse der externen Sicherung**, **Sicherungs-Passwort** und **BAUTAG_SCHLUESSEL** vom Notfallblatt.
 5. Das Skript holt den neuesten externen Stand, prüft ihn und startet BauTag. Ist der externe Speicher nicht erreichbar: die **Büro-Kopie** (Kopie 3) verwenden – `RESTIC_REPOSITORY` in `/etc/bautag/restic.env` auf den Büro-Ordner stellen (z. B. per SFTP vom NAS) und `wiederherstellen.sh --extern` ausführen.

@@ -42,7 +42,14 @@ if [[ "$MODUS" != --wiederherstellen ]]; then
   GF_PIN2="$(frage_geheim 'PIN wiederholen:')"
   [[ "$GF_PIN" == "$GF_PIN2" ]] || fehler "Die PINs stimmen nicht überein."
 fi
-OFFSITE="$(frage 'Externe Sicherung (restic) jetzt einrichten? Adresse z. B. sftp:u123456@u123456.your-storagebox.de:/bautag  (leer = später):')"
+OFFSITE="$(frage 'Externe Sicherung (restic) jetzt einrichten? Adresse z. B. sftp:u123456@u123456.your-storagebox.de:/home/bautag  (leer = später):')"
+# Hetzner Storage Box: schreibbar ist nur /home (Pfad ergänzen); Schlüssel gelten nur auf Port 23 (ssh-Konfiguration, Schritt 8)
+if [[ "$OFFSITE" =~ ^sftp:([^@]+)@([^:]+\.your-storagebox\.de):(.*)$ ]]; then
+  SB_PFAD="${BASH_REMATCH[3]}"
+  [[ "$SB_PFAD" == /home/* ]] || SB_PFAD="/home/${SB_PFAD#/}"
+  OFFSITE="sftp:${BASH_REMATCH[1]}@${BASH_REMATCH[2]}:${SB_PFAD}"
+  echo "Sicherungsadresse: $OFFSITE"
+fi
 
 schritt "1/9 System aktualisieren und Pakete installieren"
 export DEBIAN_FRONTEND=noninteractive
@@ -122,7 +129,7 @@ if [[ -f "$(dirname "$0")/../app/package.json" && "$(cd "$(dirname "$0")/.." && 
   mkdir -p "$ZIEL"
   cp -a "$(cd "$(dirname "$0")/.." && pwd)/." "$ZIEL/"
 elif [[ ! -d "$ZIEL/.git" ]]; then
-  git clone "$REPO_URL" "$ZIEL"
+  git clone --branch main "$REPO_URL" "$ZIEL"
 fi
 cd "$ZIEL/deploy"
 mkdir -p "$DATEN" "$SICHERUNG" "$ETC"
@@ -162,8 +169,20 @@ if [[ -n "$OFFSITE" && ! -f "$ETC/restic.env" ]]; then
     echo "AWS_SECRET_ACCESS_KEY=$(frage_geheim 'S3-Geheimschlüssel (Secret Key):')" >> "$ETC/restic.env"
   elif [[ "$OFFSITE" == sftp:* ]]; then
     [[ -f /root/.ssh/id_ed25519 ]] || ssh-keygen -t ed25519 -N '' -C "bautag-sicherung@$DOMAIN" -f /root/.ssh/id_ed25519 >/dev/null
-    echo "Öffentlicher Schlüssel des Servers (beim Speicher-Anbieter hinterlegen):"
-    cat /root/.ssh/id_ed25519.pub
+    SB_ZIEL="${OFFSITE#sftp:}"; SB_ZIEL="${SB_ZIEL%%:*}"; SB_HOST="${SB_ZIEL#*@}"
+    if [[ "$SB_HOST" == *.your-storagebox.de ]]; then
+      # Hetzner Storage Box: Schlüssel-Anmeldung nur auf Port 23
+      mkdir -p /root/.ssh && chmod 700 /root/.ssh
+      grep -qsx "Host $SB_HOST" /root/.ssh/config || printf 'Host %s\n  Port 23\n' "$SB_HOST" >> /root/.ssh/config
+      chmod 600 /root/.ssh/config
+      echo "Schlüssel des Servers bei der Storage Box hinterlegen – in einem ZWEITEN Fenster (ssh root@<Server-IP>):"
+      echo "  ssh-copy-id -p 23 -s $SB_ZIEL"
+      echo "  (Frage „Are you sure…“ mit yes beantworten, dann das Storage-Box-Passwort eingeben;"
+      echo "   Erfolg: „Number of key(s) added: 1“. Prüfen: sftp $SB_ZIEL – ohne Passwortfrage.)"
+    else
+      echo "Öffentlicher Schlüssel des Servers (beim Speicher-Anbieter hinterlegen):"
+      cat /root/.ssh/id_ed25519.pub
+    fi
     frage 'Schlüssel hinterlegt? Weiter mit Enter.' >/dev/null
   fi
   chmod 600 "$ETC/restic.env"
