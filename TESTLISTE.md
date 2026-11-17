@@ -39,6 +39,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] Ein Material **anlegen**, den **Preis mit „gültig ab“** ändern, einen **Code umbenennen** (Hinweis auf angepasste Verweise).
 - [ ] Ein verwendetes Material **löschen** → Angebot „stattdessen deaktivieren“. Danach fehlt es in der Auswahl, alte Berichte zeigen es weiter.
 - [ ] „Excel herunterladen“ → Preis ändern → „Excel hochladen“ → Vorschau → übernehmen.
+- [ ] **Vordefinierte Pausen** (unten „Weitere Stammdaten“): Dauern z. B. auf „30, 45, 60“ lassen oder ändern – die Stempeluhr bietet genau diese plus „offen“ an.
 
 **Nachkalkulation & Rechnungen**
 - [ ] Baustelle öffnen → Nachkalkulation nach Positionen, Budget-Anzeige, Landschaftsabgabe.
@@ -65,6 +66,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 - [ ] **Meine Partie morgen**: wer eingeteilt ist, wer gelesen/bestätigt hat, Geräte mit Service-Hinweis, Fuhren mit Status.
 - [ ] **Alle einstempeln** für die Partie. Jede Person wird angenommen – ob jemand laut Büro abwesend ist, erfährt nur das Büro.
+- [ ] **Alle in Pause** (Kolonne): Auswahl **30 Min · 45 Min · 60 Min · offen** → bei jeder Person „Pause bis …“; nach Ablauf sind alle wieder eingestempelt, ohne dass jemand tippt. Wer früher fertig ist, beendet seine Pause selbst.
 - [ ] **Bautagesbericht** ausfüllen, Fuhren-Mengen „aus Fuhre“ übernehmen, Foto anhängen, **Unterschrift per Link** an den Auftraggeber schicken.
 - [ ] **Schlechtwetter melden** → Antwort „Schlechtwetter gemeldet – das Büro bestätigt.“
 - [ ] **Lieferschein fotografieren**: Den eigenen sieht er wieder (auch mit Preisen), Lieferscheine anderer nicht.
@@ -75,6 +77,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Mein Einsatz**: morgen, Uhrzeit, Treffpunkt, Polier anrufen, Route öffnen, meine Notiz.
 - [ ] **Kollegen** in „Mein Einsatz“: Zeile **„Mit dir eingeteilt: …“** mit den Namen der Kollegen am selben veröffentlichten Einsatz (nur Namen – keine Notizen, keine Telefonnummern, keine Abwesenheiten). Erst nach dem Veröffentlichen sichtbar.
 - [ ] **Stempeln** (auch im Flugmodus testen: Stempelung wird nachgereicht).
+- [ ] **Pause mit fester Dauer**: „Pause“ → **30 Min** wählen → Uhr zeigt „Pause bis …“. Handy weglegen (auch Flugmodus oder ausschalten) – nach 30 Minuten läuft die Arbeitszeit von selbst weiter, in „Heute“ steht „Pause beendet – automatisch“. **„Pause beenden“** geht jederzeit früher; **„offen“** läuft wie bisher, bis man sie beendet. Es kommt keine Erinnerung.
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.
 - [ ] **PIN ändern** (Mehr → PIN ändern): 4 Ziffern reichen für alle Rollen (z. B. 4826; nicht 1234 oder 7777).

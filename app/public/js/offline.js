@@ -70,6 +70,7 @@ async function nachsendenLauf() {
         const body = { typ: e.typ, zeit: e.zeit, quelle: 'offline' };
         if (e.baustelleId != null) body.baustelleId = e.baustelleId;
         if (e.standort) body.standort = e.standort;
+        if (e.dauerMin != null) body.dauerMin = e.dauerMin; // 15.22: geplante Pausendauer – der Server trägt das Ende ein
         await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
         gesendet++;
         online = true;

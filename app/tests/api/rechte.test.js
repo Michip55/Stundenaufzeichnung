@@ -231,7 +231,7 @@ test('Rechte je Rolle und Route (serverseitig)', async (t) => {
     assert.ok(alle.length > 5);
     for (const a of alle) {
       assert.ok(['arbeit', 'pause'].includes(a.status));
-      assert.deepEqual(Object.keys(a).sort(), ['baustelleId', 'benutzerId', 'name', 'rolle', 'schichtBeginn', 'seit', 'status']);
+      assert.deepEqual(Object.keys(a).sort(), ['baustelleId', 'benutzerId', 'name', 'pauseBis', 'rolle', 'schichtBeginn', 'seit', 'status']); // 15.22: pauseBis
     }
     const bl = (await c.bauleiter.get('/zeit/anwesend')).daten;
     assert.deepEqual(bl, alle);

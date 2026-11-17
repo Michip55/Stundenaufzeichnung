@@ -57,7 +57,7 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}</b><small>${esc(bsName(x.baustelleId))}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
         <button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }
