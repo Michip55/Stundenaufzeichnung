@@ -308,6 +308,7 @@ function createApp(opt = {}) {
   require('./routes/dienste')(api, bt);
   require('./routes/berichtfotos')(api, bt);
   require('./routes/stammdatenverwaltung')(api, bt);
+  require('./routes/arbeitszeit')(api, bt); // 15.23: Arbeitszeitmodelle
   require('./routes/planer')(api, bt);
   require('./routes/dokumente')(api, bt);
   require('./routes/rechnungen')(api, bt);

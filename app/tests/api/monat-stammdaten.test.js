@@ -45,7 +45,8 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     assert.ok(lukas.length >= 8);
     assert.ok(lukas.some((z) => /;03\.11\.2026;Di;07:00;11:00;0;4;SW;26-041$/.test(z)), lukas.join('\n'));
     assert.ok(zeilen.some((z) => /;8,5;/.test(z)));
-    assert.ok(zeilen.includes('Personalnummer;Name;Lohngruppe;Monat;Summe Stunden;Normalstunden;Überstunden (Vorschlag);SW-Tage;SW-Stunden;K-Tage;U-Tage;ZA-Tage;SEG-Stunden'));
+    // 15.23: Mehrstunden und Arbeitszeitmodell am Ende angefügt (bisherige Spalten unverändert an ihrer Stelle)
+    assert.ok(zeilen.includes('Personalnummer;Name;Lohngruppe;Monat;Summe Stunden;Normalstunden;Überstunden (Vorschlag);SW-Tage;SW-Stunden;K-Tage;U-Tage;ZA-Tage;SEG-Stunden;Mehrstunden (Vorschlag);Arbeitszeitmodell'));
     assert.ok(!roh.includes('€'));
   });
 

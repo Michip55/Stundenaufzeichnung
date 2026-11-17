@@ -139,6 +139,12 @@
     "PUT /api/benutzer/:id": { "r": "N N J J J", "pfad": "/api/benutzer/{dummy}", "body": { "name": "Dummy Umbenannt" }, "grund": "8/9" },
     "GET /api/benutzer/:id/lohngruppen-verlauf": { "r": "N N J J J", "pfad": "/api/benutzer/{person}/lohngruppen-verlauf", "grund": "12.22: stammdaten/lohn/benutzer" },
     "DELETE /api/benutzer/:id/lohngruppen-verlauf/:vid": { "r": "N N J J J", "pfad": "/api/benutzer/3/lohngruppen-verlauf/{lohngruppeVerlauf}", "grund": "12.22: Schreibrecht" },
+    "GET /api/benutzer/:id/arbeitszeit-verlauf": { "r": "N N J J J", "pfad": "/api/benutzer/{person}/arbeitszeit-verlauf", "grund": "15.23: stammdaten/lohn/benutzer – nie Polier/Mitarbeiter" },
+    "DELETE /api/benutzer/:id/arbeitszeit-verlauf/:vid": { "r": "N N J J J", "pfad": "/api/benutzer/3/arbeitszeit-verlauf/{arbeitszeitVerlauf}", "grund": "15.23: Benutzerverwaltung (stammdaten, Büro/Bauleiter nur Polier/Mitarbeiter)" },
+    "GET /api/arbeitszeitmodelle": { "r": "N N J J J", "varianten": [{"query": "?inaktiv=1"}], "grund": "15.23: stammdaten/lohn/benutzer" },
+    "POST /api/arbeitszeitmodelle": { "r": "N N J J J", "body": { "name": "Probe 20 Std.", "wochenstunden": 20, "stunden": { "mo": 5, "di": 5, "mi": 5, "do": 5 }, "regel": "woche", "vollzeitWochenstunden": 39 }, "grund": "15.23: stammdaten" },
+    "PUT /api/arbeitszeitmodelle/:id": { "r": "N N J J J", "pfad": "/api/arbeitszeitmodelle/3", "body": { "version": 1, "name": "Teilzeit Probe" }, "grund": "15.23: stammdaten" },
+    "DELETE /api/arbeitszeitmodelle/:id": { "r": "N N J J J", "pfad": "/api/arbeitszeitmodelle/3", "grund": "15.23: stammdaten (nur unbenutzt)" },
     "POST /api/benutzer/:id/entsperren": { "r": "N N J J J", "pfad": "/api/benutzer/{dummy}/entsperren", "body": {}, "grund": "8/9" },
 
     "GET /api/integrationen": { "r": "J J J J J", "grund": "12.14: Zustand ohne Einstellungen" },

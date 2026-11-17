@@ -36,6 +36,7 @@ const KEINE_PREIS_SPALTEN = {
   'bericht_material.menge': 'Menge', 'bericht_personal.stunden': 'Stunden', 'bericht_personal.seg_stunden': 'Stunden', 'bericht_regie.stunden': 'Stunden',
   'buchung.lat': 'Koordinate', 'buchung.lng': 'Koordinate', 'buchung.genauigkeit': 'GPS-Genauigkeit (m)',
   'budget_alarm.verbrauch': 'Prozent', 'budget_alarm.leistungsstand': 'Prozent', 'leistungsmeldung.menge': 'Menge', 'lv_position.menge': 'Menge',
+  'arbeitszeitmodell.wochenstunden': 'Stunden (15.23)', 'arbeitszeitmodell.vollzeit': 'Stunden (15.23)',
   'material.dichte': 't/m³', 'plan_fuhre.menge': 'Menge', 'plan_fuhre.bericht_menge': 'Menge', 'projektposition_menge.menge': 'Menge',
   'rechnung.ust_satz': 'Prozent', 'rechnung.skonto_prozent': 'Prozent', 'rechnung.ruecklass_prozent': 'Prozent',
   'servicebuch_eintrag.arbeitsstunden_intern': 'Stunden', 'urlaub_konto.anspruch': 'Tage', 'urlaub_konto.uebertrag': 'Tage', 'urlaub_konto.buak_stand': 'Tage',

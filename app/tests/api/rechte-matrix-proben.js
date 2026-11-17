@@ -69,7 +69,7 @@ function platzhalter(F, rolle, variante, ueber = {}) {
     pushAbo: e ? F.pushAbo[rolle] : F.pushAbo[anderRolle],
     // ohne Bereich
     anlage: F.anlage, zaehler: F.zaehler, zaehlerstand: F.zaehlerstand, planposition: F.planposition, vorlage: F.vorlage, mangel: F.mangel, eintrag: F.eintrag,
-    katalogPos: F.katalogPos, katalogStand: F.katalogStand, preisStand: F.preisStand, kategorie: F.kategorie, lohnVorlage: F.lohnVorlage, lohngruppeVerlauf: F.lohngruppeVerlauf,
+    katalogPos: F.katalogPos, katalogStand: F.katalogStand, preisStand: F.preisStand, kategorie: F.kategorie, lohnVorlage: F.lohnVorlage, lohngruppeVerlauf: F.lohngruppeVerlauf, arbeitszeitVerlauf: F.arbeitszeitVerlauf,
     swMeldung: F.swMeldung,
     dummy: F.dummyBenutzer, buchungAnderer: F.buchung.anderer, schichtAnderer: F.schicht.anderer, token: F.bericht.bs1Token,
     jpeg: testJpeg().toString('base64'), pdf: H.kleinesPdf('Probe').toString('base64'),

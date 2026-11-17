@@ -17,9 +17,14 @@ const LV_VORLAGE = { name: 'LV-Export (Excel/CSV)', trennzeichen: ';', kodierung
 const BMD_LOHN = {
   id: 'bmd-ntcs', name: 'BMD NTCS (Vorschlag – mit Lohnverrechnung abstimmen)', trennzeichen: ';', kodierung: 'windows-1252', dezimal: ',', kopfzeile: true,
   spalten: [{ feld: 'pnr' }, { feld: 'monat' }, { feld: 'lohnart' }, { feld: 'stunden' }, { feld: 'tage' }, { feld: 'kst' }],
-  lohnarten: { normal: '100', ueberstunden: '200', sw: '310', u: '400', k: '500', za: '450', seg: '600', taggeld: '700' },
+  // 15.23: mehrstunden = Mehrstunden bei Teilzeit (Vorschlag 210 – Lohnart mit der Lohnverrechnung abstimmen)
+  lohnarten: { normal: '100', ueberstunden: '200', mehrstunden: '210', sw: '310', u: '400', k: '500', za: '450', seg: '600', taggeld: '700' },
   zeileJe: 'person_lohnart'
 };
+
+const LOHNARTEN = ['normal', 'ueberstunden', 'mehrstunden', 'sw', 'u', 'k', 'za', 'seg', 'taggeld'];
+/** 15.23: Vorlagen von vor den Mehrstunden haben keinen Schlüssel „mehrstunden“ – dann gilt der Vorschlag der BMD-Vorlage */
+const mitMehrstunden = (vl) => ({ ...vl, lohnarten: { ...(vl.lohnarten || {}), mehrstunden: vl.lohnarten && vl.lohnarten.mehrstunden != null ? vl.lohnarten.mehrstunden : BMD_LOHN.lohnarten.mehrstunden } });
 
 module.exports = function importRouten(api, bt) {
   const { db } = bt;
@@ -265,7 +270,7 @@ module.exports = function importRouten(api, bt) {
 
   /* ---------- Lohn-Vorlagen ---------- */
   function vorlagen() {
-    const eigene = db.alle('SELECT * FROM lohn_vorlage ORDER BY name').map((z) => ({ id: z.id, ...JSON.parse(z.daten), eingebaut: z.eingebaut === 1 }));
+    const eigene = db.alle('SELECT * FROM lohn_vorlage ORDER BY name').map((z) => mitMehrstunden({ id: z.id, ...JSON.parse(z.daten), eingebaut: z.eingebaut === 1 }));
     return eigene.some((x) => x.id === BMD_LOHN.id) ? eigene : [{ ...BMD_LOHN, eingebaut: true }, ...eigene];
   }
   function vorlagePruefen(body) {
@@ -285,7 +290,7 @@ module.exports = function importRouten(api, bt) {
       lohnarten: {}
     };
     const l = v.objekt(o.lohnarten ?? {}, 'lohnarten');
-    for (const k of ['normal', 'ueberstunden', 'sw', 'u', 'k', 'za', 'seg', 'taggeld']) f.lohnarten[k] = l[k] == null ? '' : v.text(String(l[k]), `lohnarten.${k}`, { max: 20, pflicht: false });
+    for (const k of LOHNARTEN) f.lohnarten[k] = l[k] == null ? (k === 'mehrstunden' ? BMD_LOHN.lohnarten.mehrstunden : '') : v.text(String(l[k]), `lohnarten.${k}`, { max: 20, pflicht: false });
     return f;
   }
   api.get('/lohn-vorlagen', (req, res) => { if (!req.ctx.hat('lohn')) throw keinZugriff(); res.json(vorlagen()); });
@@ -320,7 +325,7 @@ module.exports = function importRouten(api, bt) {
     const vl = vorlagen().find((x) => x.id === vorlageId);
     if (!vl) throw nichtGefunden('Lohn-Vorlage nicht gefunden.');
     const zahlTxt = (x) => (x == null || x === '' ? '' : vl.dezimal === ',' ? String(x).replace('.', ',') : String(x));
-    const ARTEN = [['normal', 'normal', 'stunden'], ['ueberstunden', 'ueberstunden', 'stunden'], ['sw', 'swStunden', 'stunden'], ['u', 'u', 'tage'], ['k', 'k', 'tage'], ['za', 'za', 'tage'], ['seg', 'seg', 'stunden']];
+    const ARTEN = [['normal', 'normal', 'stunden'], ['ueberstunden', 'ueberstunden', 'stunden'], ['mehrstunden', 'mehrstunden', 'stunden'], ['sw', 'swStunden', 'stunden'], ['u', 'u', 'tage'], ['k', 'k', 'tage'], ['za', 'za', 'tage'], ['seg', 'seg', 'stunden']];
     const zeilen = [];
     if (vl.kopfzeile) zeilen.push(vl.spalten.map((s) => s.titel || s.feld));
     for (const p of daten.mitarbeiter) {

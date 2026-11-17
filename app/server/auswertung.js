@@ -1,8 +1,17 @@
 'use strict';
 /**
  * Tages-/Wochen-/Monatswerte aus Buchungen und Abwesenheiten.
- * Annahme Überstunden (im Konzept als „Prüfen“ markiert, konfigurierbar über Einstellung 'arbeitszeit'):
- * über der Normalarbeitszeit je Tag (Mo–Do 8 Std., Fr 7 Std.) bzw. über der Wochenarbeitszeit 39 Std.
+ *
+ * Überstunden und Mehrstunden (API.md 15.23, Inhaber 17.11.2026): je Person nach ihrem ARBEITSZEITMODELL, das am
+ * jeweiligen Tag gilt (stichtaggenau, server/arbeitszeit.js) – nicht mehr nach einer Regel für alle. Vorgabe: Mitarbeiter/
+ * Polier „Bau-Arbeiter (KV Bau)“ (Mo–Do 8, Fr 7 Std., 39 Std./Woche, Tages- ODER Wochenüberschreitung, die größere –
+ * die bisherige Regel, Ergebnisse unverändert), alle anderen „Büro (Mo–Do 8,5 · Fr 5)“ (Mo–Do 8,5, Fr 5 Std., 39 Std./Woche,
+ * ebenfalls Tages- ODER Wochenüberschreitung – Inhaber 17.11.2026: „Dienstag 9,5 Std. = 1 Überstunde“). Teilzeit (z. B. 32 Std. mit Vollzeit 39): Stunden über den Wochenstunden bis zur Vollzeit sind
+ * Mehrstunden, darüber Überstunden. Gerechnet wird je Kalenderwoche (Mo–So) und darin je Abschnitt gleichen Modells:
+ * Soll = Σ Normalstunden der Tage des Abschnitts (Feiertag 0); in der Monatsauswertung gehören – wie bisher – nur die Tage
+ * des Monats zur Woche (angeschnittene Wochen am Monatsrand sind eigene Abschnitte). Die Einstellung 'arbeitszeit' dient
+ * nur noch als Ersatz, falls ein Modell fehlt. Gesetzliche Grenzen (AZG, server/azg.js) bleiben davon unberührt.
+ * Die Regeln sind mit der Lohnverrechnung zu bestätigen („Prüfen“).
  *
  * Stunden je Person und Tag (M-07): Für Baustellen mit einem FREIGEGEBENEN Bericht, der eine Zeile dieser
  * Person enthält, gelten die Berichtsstunden; sonst die Stempelzeiten. Unplausible Schichten (> 16 Std.,
@@ -12,6 +21,7 @@
 const { schichten, plausibilisieren, bloeckeAlsZeitpunkte } = require('./stempel');
 const { azgWarnungen } = require('./azg');
 const { wienZuDate, plusTage, wochentag, wochenbeginn, tageImMonat, feiertag, WT_KURZ, wienZeit } = require('./datum');
+const AZ = require('./arbeitszeit');
 
 const STANDARD_ARBEITSZEIT = { tagNormal: [0, 8, 8, 8, 8, 7, 0], wocheNormal: 39 };
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
@@ -21,32 +31,22 @@ function arbeitszeitConfig(db) {
   return c && Array.isArray(c.tagNormal) && c.tagNormal.length === 7 ? c : STANDARD_ARBEITSZEIT;
 }
 
+/** bisherige Konfiguration {tagNormal, wocheNormal} als Rechenmodell (Regel „Tag oder Woche“, ohne Mehrstunden) */
+const alsModell = (cfg) => ({ id: null, tagNormal: cfg.tagNormal, wochenstunden: cfg.wocheNormal, regel: 'tag_oder_woche', vollzeit: null });
+
 /**
- * Überstunden für einen Wochen(abschnitt): max(Σ Tagesüberschreitungen, Σ Stunden − Σ Soll der Tage)
+ * Überstunden für einen Wochen(abschnitt) nach der Regel „Tag oder Woche“ (KV Bau):
+ * max(Σ Tagesüberschreitungen, Σ Stunden − Σ Soll der Tage)
  * @param {Array<{datum:string, stunden:number}>} tage  Tage einer Kalenderwoche (Mo–So, ggf. Teil)
  */
 function ueberstundenWoche(tage, cfg = STANDARD_ARBEITSZEIT) {
-  let taeglich = 0, summe = 0, soll = 0;
-  for (const t of tage) {
-    const n = feiertag(t.datum) ? 0 : cfg.tagNormal[wochentag(t.datum)];
-    taeglich += Math.max(0, t.stunden - n);
-    summe += t.stunden;
-    soll += n;
-  }
-  return r2(Math.max(taeglich, summe - soll, 0));
+  return AZ.abschnitt(tage, alsModell(cfg)).ueberstunden;
 }
 
-/** Überstunden über mehrere Tage, je Kalenderwoche gerechnet */
-function ueberstundenZeitraum(tage, cfg) {
-  const wochen = new Map();
-  for (const t of tage) {
-    const w = wochenbeginn(t.datum);
-    if (!wochen.has(w)) wochen.set(w, []);
-    wochen.get(w).push(t);
-  }
-  let u = 0;
-  for (const w of wochen.values()) u += ueberstundenWoche(w, cfg);
-  return r2(u);
+/** Überstunden über mehrere Tage, je Kalenderwoche gerechnet (eine Regel für alle Tage) */
+function ueberstundenZeitraum(tage, cfg = STANDARD_ARBEITSZEIT) {
+  const m = alsModell(cfg);
+  return AZ.zeitraum(tage, () => m).ueberstunden;
 }
 
 /**
@@ -224,16 +224,19 @@ function woche(db, benutzerId, datum, jetzt) {
     if (f) o.feiertag = f;
     return o;
   });
-  const cfg = arbeitszeitConfig(db);
+  // 15.23: Modell der Person je Tag; sollStunden = Σ Normalstunden der Woche (Feiertag 0) – nur die eigene Woche, ohne Modellname
+  const modellAm = AZ.zeitachse(db, benutzerId);
   const summe = r2(tage.reduce((x, t) => x + t.stunden, 0));
-  return { von: daten[0], bis: daten[6], tage, summe, ueberstunden: ueberstundenWoche(tage, cfg), sollStunden: cfg.wocheNormal };
+  const z = AZ.zeitraum(tage, modellAm);
+  return { von: daten[0], bis: daten[6], tage, summe, ueberstunden: z.ueberstunden, mehrstunden: z.mehrstunden, sollStunden: z.soll };
 }
 
 /** Monatsauswertung für alle (aktiven oder mit Buchungen/Berichtszeilen) Mitarbeiter */
 function monat(db, monatStr, jetzt) {
   const daten = tageImMonat(monatStr);
   const erster = daten[0], letzter = daten[daten.length - 1];
-  const cfg = arbeitszeitConfig(db);
+  const alleModelle = AZ.modelle(db);
+  const verwendet = new Map(); // Modelle, die in diesem Monat gelten (annahmen.modelle)
   const bsMap = baustellenMap(db);
   const tage = daten.map((d) => ({ datum: d, wochentag: WT_KURZ[wochentag(d)], feiertag: feiertag(d), arbeitstag: wochentag(d) >= 1 && wochentag(d) <= 5 && !feiertag(d) }));
   const vonIso = wienZuDate(erster).toISOString();
@@ -241,7 +244,7 @@ function monat(db, monatStr, jetzt) {
   const ber = berichtsZeilen(db, erster, letzter);
   const mitDaten = new Set(db.alle('SELECT DISTINCT benutzer_id FROM buchung WHERE zeit >= ? AND zeit < ?', vonIso, bisIso).map((z) => z.benutzer_id));
   for (const k of ber.zeilen.keys()) mitDaten.add(Number(k.split('|')[0]));
-  const benutzer = db.alle('SELECT id, name, rolle, lohngruppe_id, pnr, aktiv FROM benutzer ORDER BY name')
+  const benutzer = db.alle('SELECT id, name, rolle, lohngruppe_id, pnr, aktiv, buak_pflichtig FROM benutzer ORDER BY name')
     .filter((b) => mitDaten.has(b.id) || (b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle)));
   // M-01: SEG-Stunden nur aus freigegebenen Berichten
   const seg = new Map(db.alle(`SELECT bp.benutzer_id, SUM(bp.seg_stunden) AS s FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
@@ -259,6 +262,7 @@ function monat(db, monatStr, jetzt) {
     const gedecktFuer = (d) => (feld ? ber.gedeckt.get(d) : null);
     const tw = tagesuebergreifend(tageswerte(sch, daten, bsMap).map((t) => mitBericht(t, zeilenFuer(t.datum), gedecktFuer(t.datum), bsMap)), zeilenFuer, gedecktFuer);
     const abw = new Map(db.alle("SELECT datum, code, status FROM abwesenheit WHERE benutzer_id = ? AND datum BETWEEN ? AND ? AND status <> 'abgelehnt'", b.id, erster, letzter).map((a) => [a.datum, a]));
+    const modellAm = AZ.zeitachse(db, b.id, alleModelle); // 15.23: Arbeitszeitmodell des Tages
     const tageObj = {};
     let sw = 0, k = 0, u = 0, za = 0, swStunden = 0;
     for (const t of tw) {
@@ -284,7 +288,7 @@ function monat(db, monatStr, jetzt) {
           text: t.stunden > 0 ? `Genehmigte Abwesenheit „${a.code}“ und ${t.stunden.toLocaleString('de-AT')} Arbeitsstunden am selben Tag – bitte prüfen.${zusatz}` : `Genehmigte Abwesenheit „${a.code}“ und Stempelung am selben Tag (0 Std. gezählt) – bitte klären.` });
       }
       if (genehmigt) {
-        if (a.code === 'SW') { sw++; swStunden += Math.max(0, (feiertag(t.datum) ? 0 : cfg.tagNormal[wochentag(t.datum)]) - t.stunden); }
+        if (a.code === 'SW') { sw++; swStunden += Math.max(0, AZ.tagSoll(modellAm(t.datum), t.datum) - t.stunden); }
         if (a.code === 'K') k++;
         if (a.code === 'U') u++;
         if (a.code === 'ZA') za++;
@@ -302,13 +306,21 @@ function monat(db, monatStr, jetzt) {
       if (tageObj[d] && lg !== lgMonat) tageObj[d].lohngruppe = lg;
     }
     const summe = r2(tw.reduce((x, t) => x + t.stunden, 0));
-    const ueberstunden = ueberstundenZeitraum(tw, cfg);
+    const mu = AZ.zeitraum(tw, modellAm);
+    const ueberstunden = mu.ueberstunden, mehrstunden = mu.mehrstunden;
+    // 15.23: Modell am Monatsletzten, Abschnitte bei einem Wechsel im Monat (Tageszeilen tragen dann das abweichende Modell)
+    const azMonat = modellAm(letzter);
+    const azAbschnitte = AZ.abschnitteUeberTage(daten, modellAm, (d) => (tageObj[d] ? tageObj[d].stunden || 0 : 0));
+    for (const a of azAbschnitte) if (!verwendet.has(a.id)) verwendet.set(a.id, modellAm(a.von));
+    if (azAbschnitte.length > 1) for (const d of Object.keys(tageObj)) { const m = modellAm(d); if (m.id !== azMonat.id) tageObj[d].arbeitszeitmodell = m.name; }
     for (const w of azgWarnungen(roh, { jetzt })) {
       if (w.datum >= erster && w.datum <= letzter) warnungen.push({ benutzerId: b.id, name: b.name, ...w });
     }
     return {
       id: b.id, name: b.name, pnr: b.pnr, lohngruppe: lgMonat, ...(abschnitte.length > 1 ? { lohngruppen: abschnitte.map((a) => ({ ...a, stunden: r2(a.stunden) })) } : {}), tage: tageObj, summe,
-      normal: r2(summe - ueberstunden), ueberstunden, sw, swStunden: r2(swStunden), k, u, za, seg: r2(seg.get(b.id) || 0)
+      normal: r2(summe - ueberstunden - mehrstunden), ueberstunden, mehrstunden, sw, swStunden: r2(swStunden), k, u, za, seg: r2(seg.get(b.id) || 0),
+      arbeitszeitmodell: { id: azMonat.id, name: azMonat.name }, ...(azAbschnitte.length > 1 ? { arbeitszeitmodelle: azAbschnitte } : {}),
+      buakPflichtig: AZ.buakPflichtig(b)
     };
   });
   // D-10: GF-Selbstfreigaben kennzeichnen
@@ -319,8 +331,10 @@ function monat(db, monatStr, jetzt) {
   return {
     monat: monatStr, tage, mitarbeiter, warnungen, beantragt, offeneSchichten,
     annahmen: {
-      tagNormal: cfg.tagNormal, wocheNormal: cfg.wocheNormal,
-      hinweis: 'Überstunden-Regel ist eine Annahme (Prüfen mit Lohnverrechnung). Stunden aus freigegebenen Berichten haben Vorrang vor Stempelzeiten. Nur genehmigte Abwesenheiten zählen.'
+      // bisherige Felder: Vorgabe-Modell für Mitarbeiter/Polier (KV Bau)
+      tagNormal: (alleModelle.get(AZ.VORGABE.feld) || AZ.ersatzModell(db)).tagNormal, wocheNormal: (alleModelle.get(AZ.VORGABE.feld) || AZ.ersatzModell(db)).wochenstunden,
+      modelle: [...verwendet.values()].map((m) => ({ id: m.id, name: m.name, wochenstunden: m.wochenstunden, stunden: Object.fromEntries(AZ.TAGE.map(([k, i]) => [k, m.tagNormal[i]])), regel: m.regel, vollzeitWochenstunden: m.vollzeit })),
+      hinweis: 'Über- und Mehrstunden nach dem Arbeitszeitmodell der Person am jeweiligen Tag (Stammdaten → Arbeitszeitmodelle, Zuordnung unter Benutzer & Rechte) – die Regeln sind mit der Lohnverrechnung zu bestätigen. Stunden aus freigegebenen Berichten haben Vorrang vor Stempelzeiten. Nur genehmigte Abwesenheiten zählen.'
     }
   };
 }

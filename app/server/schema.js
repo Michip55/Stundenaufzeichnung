@@ -1422,6 +1422,47 @@ ALTER TABLE buchung ADD COLUMN pause_auto_bis TEXT;
 ALTER TABLE buchung ADD COLUMN automatisch INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX buchung_pause_auto ON buchung(pause_auto_bis) WHERE pause_auto_bis IS NOT NULL;
 `
+  },
+  {
+    version: 48,
+    name: '15.23: Arbeitszeitmodelle je Person (stichtaggenau) und BUAK-Pflicht je Person',
+    // tag_normal: JSON-Liste [So, Mo, Di, Mi, Do, Fr, Sa] (Index wie datum.wochentag). regel: tag_oder_woche = größere von
+    // Tages- und Wochenüberschreitung (bisherige Regel), woche = nur Wochenüberschreitung. vollzeit: nur Teilzeit – Stunden
+    // über wochenstunden bis vollzeit sind Mehrstunden. Grundausstattung: 1 = bisherige Regel (aus der Einstellung
+    // 'arbeitszeit', falls gesetzt), 2 = Büro/Angestellte (Mo–Do 8,5, Fr 5, Tag oder Woche – Inhaber 17.11.2026), 3 = Teilzeit. Zuordnung: ohne Einträge gilt die Vorgabe nach der Rolle
+    // (server/arbeitszeit.js) – bestehende Personen rechnen dadurch unverändert. buak_pflichtig NULL = Vorgabe nach der Rolle.
+    sql: `
+CREATE TABLE arbeitszeitmodell (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  wochenstunden REAL NOT NULL CHECK (wochenstunden > 0 AND wochenstunden <= 60),
+  tag_normal TEXT NOT NULL,
+  regel TEXT NOT NULL DEFAULT 'tag_oder_woche' CHECK (regel IN ('tag_oder_woche','woche')),
+  vollzeit REAL CHECK (vollzeit IS NULL OR vollzeit > wochenstunden),
+  aktiv INTEGER NOT NULL DEFAULT 1,
+  sortierung INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  erstellt TEXT NOT NULL,
+  geaendert TEXT
+);
+INSERT INTO arbeitszeitmodell (id, name, wochenstunden, tag_normal, regel, vollzeit, sortierung, erstellt) VALUES
+  (1, 'Bau-Arbeiter (KV Bau)',
+    COALESCE((SELECT json_extract(wert, '$.wocheNormal') FROM einstellung WHERE schluessel = 'arbeitszeit' AND json_valid(wert) AND json_type(wert, '$.wocheNormal') IN ('integer','real') AND json_extract(wert, '$.wocheNormal') > 0 AND json_extract(wert, '$.wocheNormal') <= 60), 39),
+    COALESCE((SELECT json_extract(wert, '$.tagNormal') FROM einstellung WHERE schluessel = 'arbeitszeit' AND json_valid(wert) AND json_type(wert, '$.tagNormal') = 'array' AND json_array_length(wert, '$.tagNormal') = 7), '[0,8,8,8,8,7,0]'),
+    'tag_oder_woche', NULL, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  (2, 'Büro (Mo–Do 8,5 · Fr 5)', 39, '[0,8.5,8.5,8.5,8.5,5,0]', 'tag_oder_woche', NULL, 2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  (3, 'Teilzeit 32 Std.', 32, '[0,8,8,8,8,0,0]', 'woche', 39, 3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+CREATE TABLE benutzer_arbeitszeitmodell (
+  id INTEGER PRIMARY KEY,
+  benutzer_id INTEGER NOT NULL REFERENCES benutzer(id) ON DELETE CASCADE,
+  modell_id INTEGER NOT NULL REFERENCES arbeitszeitmodell(id),
+  gueltig_ab TEXT NOT NULL,
+  erstellt TEXT NOT NULL,
+  erstellt_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX benutzer_arbeitszeitmodell_b ON benutzer_arbeitszeitmodell(benutzer_id, gueltig_ab);
+ALTER TABLE benutzer ADD COLUMN buak_pflichtig INTEGER CHECK (buak_pflichtig IS NULL OR buak_pflichtig IN (0, 1));
+`
   }
 ];
 
