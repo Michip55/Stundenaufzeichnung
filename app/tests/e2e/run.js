@@ -600,8 +600,10 @@ async function laufe(browser, g) {
       }
     }
     await geh('/dashboard');
-    pruef(await page.locator('[data-kpi="freigabe"] b').innerText() !== '0', 'Übersicht: kein Bericht zur Freigabe angezeigt');
-    pruef(await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
+    // 15.20: neue Übersicht – Zahl im Kopf „Zur Freigabe“, je Bericht eine Zeile; „Eingestempelt“ klappt die Liste auf
+    pruef(Number(await page.locator('[data-kpi="freigabe"]').getAttribute('data-wert')) > 0 && await page.locator('[data-bericht-zeile]').count() >= 1, 'Übersicht: kein Bericht zur Freigabe angezeigt');
+    await page.click('[data-kpi="anwesend"]');
+    pruef(await page.locator('#anwesend-karte').isVisible() && await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
     // Glocke: Bericht zur Freigabe
     await page.waitForSelector('#glocke.has');
     await page.click('#glocke');
@@ -1654,6 +1656,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_HANDY_LAYOUT && g.width <= 719) {
       console.log('    Handy-Layout (Überlauf, Schriftgröße, feste App) …');
       try { const hl = await require('./handy-layout').laufe(browser, g); r.fehler.push(...hl.fehler); r.schritte += hl.schritte; } catch (e) { r.fehler.push('Abbruch Handy-Layout: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Neue Übersicht: ruhig, Veröffentlichen über die Bestätigung, Freigeben in der Zeile, klassische Ansicht (tests/e2e/uebersicht.js, API.md 15.20)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_UEBERSICHT) {
+      console.log('    Neue Übersicht (ruhig, Veröffentlichen, Freigeben, klassische Ansicht, kein Geld für Polier) …');
+      try { const ue = await require('./uebersicht').laufe(browser, g); r.fehler.push(...ue.fehler); r.schritte += ue.schritte; } catch (e) { r.fehler.push('Abbruch Übersicht: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {

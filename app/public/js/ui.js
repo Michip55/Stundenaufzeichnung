@@ -174,9 +174,9 @@ export const speicher = {
   raeumeBenutzer() {
     // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
     // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
-    // 15.12 (G2-021): bt_geraet_art_benutzer = wer die Gerätewahl getroffen hat (sie gilt nur für diese Person);
+    // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
     // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch'];
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
@@ -187,15 +187,15 @@ export const speicher = {
 };
 // 15.8: Gerätewahl (Anmeldeseite und „Mehr“) – zwei Optionen als Radiogruppe, mit kurzer Erklärung zur gewählten
 export const GERAET_TEXT = {
-  eigen: 'Angemeldet bleiben bis zum Abmelden – längstens so lange, wie der Server die Sitzung hält. Nur wählen, wenn sonst niemand dieses Gerät benutzt.',
+  eigen: 'Angemeldet bleiben bis zum Abmelden – längstens so lange, wie der Server die Sitzung hält. Benutzen mehrere Personen dieses Gerät, „Geteiltes Gerät“ wählen.',
   geteilt: 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.'
 };
-// 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – bei einer anderen Anmeldung wieder „geteilt“
-// 15.16 (H-S4): auf der Anmeldeseite gilt „Eigenes Handy“ erst, wenn die Person es nach ihrer Anmeldung bestätigt
-export const GERAET_VORWAHL_TEXT = 'Vor der Anmeldung gewählt, gilt es erst, wenn Sie es nach der Anmeldung bestätigen.';
+// 15.21: „Eigenes Handy“ ist der Standard und gilt ab der Anmeldung für die Person, die sich anmeldet (ohne Bestätigung);
+// „Geteiltes Gerät“ bleibt für das Gerät eingestellt, bis jemand „Eigenes Handy“ wählt
+export const GERAET_ANMELDUNG_TEXT = 'Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet.';
 export const geraetInfo = (art, { anmeldeseite = false } = {}) => art === 'eigen'
-  ? `${GERAET_TEXT.eigen} Gilt nur für die Person, die es gewählt hat: Meldet sich jemand anderer an, ist das Gerät wieder ein „Geteiltes Gerät“.${anmeldeseite ? ` ${GERAET_VORWAHL_TEXT}` : ''}`
-  : `${GERAET_TEXT.geteilt} Die Wahl gilt für dieses Gerät.`;
+  ? `${GERAET_TEXT.eigen}${anmeldeseite ? ` ${GERAET_ANMELDUNG_TEXT}` : ' Gilt für Sie an diesem Gerät.'}`
+  : `${GERAET_TEXT.geteilt} Bleibt für dieses Gerät eingestellt.`;
 export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '', anmeldeseite = false } = {}) => `
   <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}"${anmeldeseite ? ' data-anmeldeseite="1"' : ''}>
     <legend>${esc(titel)}</legend>

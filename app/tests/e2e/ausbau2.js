@@ -216,8 +216,11 @@ async function stammdatenUndLebenslauf(h, z) {
   await toastWeg();
   // Übersicht: Kacheln
   await geh('/dashboard');
-  pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 1 && Number(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"] b').innerText()) >= 1, 'A2-Leben: Kachel „Offene Schlussrechnungen“ fehlt oder zählt nicht');
-  pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Kacheln Abnahme/Gewährleistung fehlen');
+  // 15.20: neue Übersicht – Offenes als eigene Zeile (Wert rechts), was passt, in der Zeile „… – in Ordnung“ (data-wert 0)
+  const srZeile = page.locator('#bv-kacheln a.ue-row[data-kpi="schlussrechnungen"]');
+  pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 1 && await srZeile.count() === 1 && Number(await srZeile.getAttribute('data-wert')) >= 1 && Number(await srZeile.locator('.ue-wert').innerText()) >= 1, 'A2-Leben: Zeile „Schlussrechnung offen“ fehlt oder zählt nicht');
+  pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Abnahme/Gewährleistung fehlen in der Übersicht');
+  { const kzS = (await api('GET', '/baustellen-kennzahlen')).json; pruef(Number(await srZeile.getAttribute('data-wert')) === kzS.offeneSchlussrechnungen.anzahl && Number(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').getAttribute('data-wert')) === kzS.abnahmeOhneSchlussrechnung, 'A2-Leben: Zahlen der Übersicht weichen vom Server ab'); }
   await ueberlauf('dashboard kacheln'); await shot('dashboard-bauvorhaben');
   // bezahlt → archiviert (über die Schnittstelle), dann Archiv-Ansicht
   for (const phase of ['bezahlt', 'archiviert']) { const yb = (await api('GET', `/baustellen/${z.y.id}`)).json; const r = await api('POST', `/baustellen/${z.y.id}/phase`, { phase, version: yb.version }); pruef(r.status === 200, `A2-Leben: Phase ${phase} → ${r.status}`); }
@@ -956,7 +959,11 @@ async function dokumenteUndRechnungen(h, z) {
   pruef(lcsv.ok() && (await lcsv.body()).toString('latin1').includes('1000'), `A2-Lohn: Export mit Vorlage → ${lcsv.status()}`);
   await ueberlauf('lohn vorlagen'); await toastWeg();
   await geh('/dashboard');
-  pruef(await page.locator('#bv-kacheln [data-kpi="offene-posten"]').count() === 1 && (await page.locator('#bv-kacheln [data-kpi="offene-posten"]').innerText()).includes('überfällig'), 'A2-Re: Kachel „Offene Posten“ mit Überfälligen fehlt');
+  { // 15.20: Überfälliges als rote Zeile „Überfällig € …“ mit Anzahl wie der Server
+    const opD = (await api('GET', '/offene-posten')).json;
+    const ue = page.locator('#bv-kacheln a.ue-row[data-kpi="ueberfaellig"]');
+    pruef(opD.anzahlUeberfaellig > 0 && await ue.count() === 1 && (await ue.innerText()).includes('Überfällig') && (await ue.locator('.ue-wert.rot').innerText()).includes('€') && Number(await ue.getAttribute('data-wert')) === opD.anzahlUeberfaellig, 'A2-Re: Zeile „Überfällig“ fehlt oder zählt anders als der Server');
+  }
   await geh(`/baustelle/${W}`);
   pruef(await page.locator('[data-wert="verrechnet"]').count() === 1 && (await page.locator('[data-wert="verrechnet"]').innerText()).includes('12.000,00'), 'A2-Re: Nachkalkulation zeigt „verrechnet“ nicht');
   await abmelden();
@@ -1558,6 +1565,11 @@ async function geteilt(h) {
   });
   const ichP = await anmelden('polier');
   const P = ichP.benutzer.id, name = ichP.benutzer.name;
+  // 15.21: Standard ist „Eigenes Handy“ – dieses Gerät wird in „Mehr“ bewusst als „Geteiltes Gerät“ gewählt (gilt für das Gerät)
+  await geh('/mehr');
+  await page.click('#geraet-wahl label:has(input[value="geteilt"])');
+  await page.waitForTimeout(150);
+  pruef(await page.evaluate(() => localStorage.getItem('bt_geraet_art') === 'geteilt' && localStorage.getItem('bt_geraet_art_benutzer') === null), 'R-08: Wahl „Geteiltes Gerät“ in „Mehr“ nicht für das Gerät gespeichert');
   // der Polier arbeitet: Einsatz, Partie, Stempeluhr, Bericht, Urlaub – und hat eine Fuhren-Meldung ohne Netz in der Warteschlange
   const entwurf = (await api('GET', '/berichte?status=entwurf')).json[0];
   for (const r of ['/stempeln', '/einsatz', '/partie', '/berichte', ...(entwurf ? [`/bericht/${entwurf.id}`] : []), '/urlaub', '/fuhrpark', '/baustellen']) await geh(r);
@@ -1575,10 +1587,11 @@ async function geteilt(h) {
   await page.click('dialog[open] [data-ok]');
   await page.waitForSelector('.login-user');
   const nach = await lager();
-  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_geraet_art', 'bt_uebersicht_klassisch', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const fremd = Object.keys(nach.ls).filter((x) => !ERLAUBT.includes(x));
   pruef(fremd.length === 0, `R-08: nach dem Abmelden bleiben Schlüssel im localStorage: ${fremd.join(', ')}`);
+  pruef(nach.ls.bt_geraet_art === 'geteilt', `R-08: Gerätewahl „Geteiltes Gerät“ nach dem Abmelden nicht erhalten (${nach.ls.bt_geraet_art})`);
   const mitDaten = Object.entries(nach.ls).filter(([x, w]) => !WARTEND.includes(x) && (w.includes(name) || /"uid":|"benutzer":\{|"einsatz"|"rechte"/.test(w)));
   pruef(mitDaten.length === 0 && Object.keys(nach.ss).length === 0 && nach.cache.length === 0 && !nach.cookie, `R-08: Daten des Vorbenutzers lesbar (localStorage ${mitDaten.map(([x]) => x).join(',')}, sessionStorage ${Object.keys(nach.ss).join(',')}, Cache ${nach.cache.length}, Cookie „${nach.cookie}“)`);
   // anderer Benutzer am selben Gerät: sieht nichts vom Polier, dessen Warteschlange wird nicht mit seiner Sitzung gesendet

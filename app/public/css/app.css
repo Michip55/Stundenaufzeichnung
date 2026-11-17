@@ -1071,12 +1071,6 @@ td .chip[data-geplant] { display: flex; width: fit-content; margin: 3px 0 0 auto
 .geraet-opt input:focus-visible + span { outline: 3px solid rgba(31, 85, 196, .45); outline-offset: 2px; }
 .geraet-info { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; line-height: 1.35; }
 .geraet-wahl.im-menue { margin: 0; padding: 14px 18px; }
-/* 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – deutlich zeigen */
-.geraet-wahl[data-art="eigen"] .geraet-info { background: var(--amber-bg); color: #7a4204; font-weight: 600; padding: 8px 10px; border-radius: 10px; }
-.geraet-hinweis:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--amber-bg); color: #7a4204; border-bottom: 1px solid #f3d58a; }
-.geraet-hinweis > .ic { width: 20px; height: 20px; flex: none; }
-.geraet-hinweis .gh-txt { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; line-height: 1.35; }
-.geraet-hinweis .gh-txt b { font-size: 14.5px; }
 
 /* 15.19 Handy-Layout (Inhaber 16.11.2026): App fest am Bildschirm, nur #view scrollt; kein seitliches Verschieben,
    kein automatisches Hineinzoomen (iOS zoomt bei Eingabefeldern unter 16 px); Zwei-Finger-Zoom bleibt erlaubt. */
@@ -1092,3 +1086,60 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   .toolbar > * { max-width: 100%; }
   img, canvas, video { max-width: 100%; }
 }
+
+/* 15.20 Neue Übersicht (Inhaber 17.11.2026): ruhig, ganze Zeilen tippbar, keine unterstrichenen Links,
+   Farbe nur für Handlungsbedarf (rot: Freigaben/Überfälliges, gelb: Warnungen). Ab 720 px zwei Spalten, höchstens ~1100 px. */
+.ue-page { max-width: 1100px; gap: 20px; }
+.ue-page a, .ue-page a:hover { color: inherit; text-decoration: none; }
+.ue-kopf { margin: 0 4px; font-size: 14px; color: var(--muted); } .ue-kopf b { color: var(--text); font-weight: 600; }
+.ue-erledigt { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 14px 16px; border-radius: var(--r); background: var(--green-bg); color: #0f5f2c; font-weight: 600; font-size: 15px; }
+.ue-erledigt .ic { width: 22px; height: 22px; stroke-width: 2.4; }
+.ue-abschnitt { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ue-h { margin: 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); } .ue-h .rot { color: var(--red); }
+.ue-h3 { margin: 6px 16px 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.ue-karte { background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; min-width: 0; }
+.ue-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 16px; border-bottom: 1px solid var(--line-2); text-align: left; color: var(--text); text-decoration: none; background: none; font: inherit; }
+.ue-karte > .ue-row:last-child, .ue-karte > :last-child .ue-row:last-child { border-bottom: 0; }
+a.ue-row:hover, button.ue-row:hover { background: #fafbfc; } a.ue-row:active, button.ue-row:active { background: var(--line-2); }
+.ue-row.still { min-height: 52px; cursor: default; }
+.ue-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; color: inherit; }
+.ue-t { font-size: 16px; line-height: 1.3; } .ue-row.fett .ue-t { font-weight: 600; }
+.ue-sub { font-size: 13px; color: var(--muted); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.amber-t { color: var(--amber); font-weight: 600; }
+.ue-wert { flex: none; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; } .ue-wert small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.ue-wert.rot { color: var(--red-d); font-size: 17px; }
+.ue-chev { width: 18px; height: 18px; color: var(--faint); flex: none; }
+button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-auf { transition: transform .15s; }
+.ue-badge { min-width: 28px; height: 26px; padding: 0 8px; border-radius: 99px; display: inline-grid; place-items: center; font-size: 14px; font-weight: 700; }
+.ue-badge.amber { background: var(--amber-bg); color: var(--amber); } .ue-badge.rot { background: var(--red-bg); color: var(--red-d); }
+.ue-liste { border-bottom: 1px solid var(--line-2); padding: 4px 0; } .ue-liste .plain.rows > li { padding: 8px 16px; min-height: 50px; }
+.ue-leer { padding: 12px 16px; color: var(--muted); font-size: 14px; }
+.ue-frei { padding: 10px 12px 10px 16px; gap: 10px; } .ue-frei .ue-t { font-size: 15px; font-weight: 600; }
+.ue-ok-btn { flex: none; height: 40px; padding: 0 14px; border-radius: 10px; background: var(--green-bg); color: var(--green); font-size: 14px; font-weight: 700; }
+.ue-ok-btn:hover { background: #d3efdd; } .ue-ok-btn:disabled { opacity: .5; }
+.ue-pfeil { flex: none; display: grid; place-items: center; width: 40px; height: 40px; }
+.ue-ok-zeile { display: flex; align-items: flex-start; gap: 10px; min-height: 52px; padding: 14px 16px; font-size: 14px; color: var(--muted); line-height: 1.35; }
+.ue-ok-zeile > .ic { color: var(--green); width: 20px; height: 20px; stroke-width: 2.4; } .ue-ok-zeile b { color: var(--green); font-weight: 600; }
+/* Einteilung für morgen: oben und gelb umrandet, wenn etwas zu veröffentlichen ist (oder 16:00–17:30); sonst kompakt unten */
+.ue-plan .ue-karte { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1.5px solid transparent; }
+.ue-plan.amber .ue-karte { border-color: var(--amber-strong); }
+.ue-plan-kopf { display: flex; align-items: center; gap: 10px; } .ue-plan-kopf > .ic { width: 22px; height: 22px; color: var(--muted); } .ue-plan.amber .ue-plan-kopf > .ic { color: var(--amber); }
+.ue-plan-kopf b { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; }
+.ue-plan .ue-sub { font-size: 14px; -webkit-line-clamp: 3; }
+.ue-stand { flex: none; font-size: 12.5px; font-weight: 700; padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.ue-stand.amber { background: var(--amber-bg); color: var(--amber); } .ue-stand.gruen { background: var(--green-bg); color: var(--green); } .ue-stand.grau { background: #eceef1; color: #4a525c; }
+.ue-plan-knoepfe { display: flex; gap: 8px; } .ue-plan-knoepfe .btn { flex: 1; height: 44px; font-size: 15px; }
+.ue-plan-knoepfe .btn.ghost { background: var(--bg); border-color: var(--bg); color: var(--text); } .ue-plan-knoepfe .btn.primary { color: #fff; }
+.ue-plan.kompakt .ue-plan-zeile { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; } .ue-plan.kompakt .ue-plan-zeile .ue-sub { grid-column: 1; } .ue-plan.kompakt .ue-plan-zeile > .ue-chev { grid-column: 2; grid-row: 1 / span 2; }
+.ue-plan.kompakt .ue-plan-kopf b { font-size: 15px; font-weight: 600; }
+@media (min-width: 720px) {
+  .ue-page { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: start; align-content: start; }
+  .ue-voll { grid-column: 1 / -1; }
+  .ue-voll .ue-plan { max-width: 640px; }
+}
+
+/* 15.21 (Inhaber 17.11.2026): kein Hineinzoomen per Doppeltipp – auf jedem Element (touch-action wird nicht vererbt, iOS wertet
+   es je angetipptem Element aus). „manipulation“ = Wischen/Scrollen und Zwei-Finger-Zoom bleiben erlaubt, nur der Doppeltipp-Zoom
+   (und die Wartezeit auf einen zweiten Tipp) entfällt. Strengere Werte bleiben, weil spezifischer: Unterschriftsfeld
+   (.sig-pad canvas: none), Ziehen im Planer ([data-zieh]). Die App reagiert nirgends auf Doppelklick. */
+*, html, body, #view { touch-action: manipulation; }

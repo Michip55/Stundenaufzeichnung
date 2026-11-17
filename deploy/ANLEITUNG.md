@@ -44,7 +44,7 @@ Ein **zweiter Anbieter** an einem anderen Ort, damit die Daten auch bei einem To
 3. Das Skript fragt:
    - die Adresse (`bautag.ihre-firma.at`),
    - eine E-Mail-Adresse (für das HTTPS-Zertifikat und Alarme),
-   - Name, Personalnummer und PIN der Geschäftsführung (erstes Konto),
+   - Name, Personalnummer und PIN der Geschäftsführung (erstes Konto; PIN 4–12 Ziffern, keine Folge wie 1234 und nicht lauter gleiche Ziffern),
    - die Adresse der externen Sicherung (Schritt 3; leer lassen = später).
 4. Nach ca. 5–10 Minuten erscheint **„BauTag ist installiert“** und darunter das **Notfallblatt**: Passwort der externen Sicherung und Schlüssel. **Bitte sofort auf Papier abschreiben und in den Tresor legen** (siehe SICHERHEIT.md). Ohne dieses Passwort kann niemand die externe Sicherung wiederherstellen.
 

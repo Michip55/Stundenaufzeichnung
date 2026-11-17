@@ -106,25 +106,35 @@ test('D-02, D-11, D-12: Rollenwechsel nur durch GF, PIN-Pflicht, Zuordnungen rä
     assert.equal((await buero.put('/benutzer/2', { rolle: 'mitarbeiter' })).status, 200);
   });
 
-  await t.test('D-02: GF macht Polier zum Bauleiter → 4-stellige PIN muss geändert werden', async () => {
+  await t.test('D-02 / 15.21: GF macht Polier zum Bauleiter → 4-stellige PIN bleibt gültig (4 Ziffern für alle Rollen)', async () => {
     assert.equal((await gf.put('/benutzer/13', { rolle: 'bauleiter' })).status, 200);
+    assert.equal(s.db.eins('SELECT muss_pin_aendern FROM benutzer WHERE id = 13').muss_pin_aendern, 0, 'Rollenwechsel erzwingt keinen PIN-Wechsel mehr');
     const c = s.client();
     const l = await c.post('/auth/login', { benutzerId: 13, pin: '1234' });
-    assert.equal(l.daten.mussPinAendern, true);
-    assert.equal((await c.get('/kalkulation')).daten.code, 'PIN_AENDERN');
-    assert.equal((await c.post('/auth/pin', { alt: '1234', neu: '5829' })).status, 400); // zu kurz für Bauleiter
-    assert.equal((await c.post('/auth/pin', { alt: '1234', neu: '582916' })).status, 200);
+    assert.equal(l.status, 200);
+    assert.equal(l.daten.mussPinAendern, false);
     assert.equal((await c.get('/kalkulation')).status, 200);
+    // eigene PIN: 4 Ziffern reichen auch für den Bauleiter, triviale Folgen und zu kurze PINs weiter nicht
+    assert.equal((await c.post('/auth/pin', { alt: '1234', neu: '582' })).status, 400);
+    assert.equal((await c.post('/auth/pin', { alt: '1234', neu: '4321' })).status, 400);
+    assert.equal((await c.post('/auth/pin', { alt: '1234', neu: '5829' })).status, 200);
+    const c2 = s.client();
+    assert.equal((await c2.post('/auth/login', { benutzerId: 13, pin: '5829' })).daten.mussPinAendern, false);
+    assert.equal((await c2.get('/kalkulation')).status, 200);
+    // für die folgenden Teile wieder wie in den Testdaten
+    assert.equal((await c2.post('/auth/pin', { alt: '5829', neu: '1357' })).status, 200);
+    s.db.lauf('UPDATE benutzer SET pin_hash = (SELECT pin_hash FROM benutzer WHERE id = ?), pin_laenge = 4 WHERE id = 13', U.mitarbeiter);
   });
 
-  await t.test('D-02: ohne Demo-Modus erzwingt auch die Anmeldung mit zu kurzer PIN den Wechsel', async () => {
+  await t.test('D-02 / 15.21: ohne Demo-Modus erzwingt die Anmeldung mit 4-stelliger PIN keinen Wechsel mehr – für keine Rolle', async () => {
     const s2 = await starte({ demo: false });
     try {
-      s2.db.lauf('UPDATE benutzer SET muss_pin_aendern = 0 WHERE id = ?', U.bauleiter);
-      const l = await s2.client().post('/auth/login', { benutzerId: U.bauleiter, pin: '1234' });
-      assert.equal(l.daten.mussPinAendern, true);
-      s2.db.lauf('UPDATE benutzer SET muss_pin_aendern = 0 WHERE id = ?', U.mitarbeiter);
-      assert.equal((await s2.client().post('/auth/login', { benutzerId: U.mitarbeiter, pin: '1234' })).daten.mussPinAendern, false);
+      for (const id of [U.bauleiter, U.buero, U.gf, U.mitarbeiter]) {
+        s2.db.lauf('UPDATE benutzer SET muss_pin_aendern = 0 WHERE id = ?', id);
+        const l = await s2.client().post('/auth/login', { benutzerId: id, pin: '1234' });
+        assert.equal(l.status, 200, String(id));
+        assert.equal(l.daten.mussPinAendern, false, String(id));
+      }
     } finally { await s2.stop(); }
   });
 

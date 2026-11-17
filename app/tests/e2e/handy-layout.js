@@ -9,12 +9,27 @@
  *  2. jedes sichtbare Eingabefeld hat mindestens 16 px Schrift (sonst zoomt iOS beim Antippen hinein und bleibt dort),
  *  3. die App bleibt fest: wird das Dokument verschoben (wie iOS nach Tastatur/Auswahlliste), springt es auf 0/0 zurück,
  *     die Kopfleiste bleibt oben sichtbar und die Tab-Leiste unten.
+ *  4. 15.21 (Inhaber 17.11.2026): kein Doppeltipp-Zoom – jedes Element der Seite (auch Anmeldeseite mit PIN-Feld) hat
+ *     `touch-action: manipulation`; nur das Unterschriftsfeld (`.sig-pad canvas`) `none`. Zwei-Finger-Zoom bleibt erlaubt:
+ *     das Viewport-Meta hat weder `maximum-scale` noch `user-scalable=no`. (Chromium zoomt bei width=device-width ohnehin nicht
+ *     per Doppeltipp – geprüft wird daher die Eigenschaft, die Safari am iPhone auswertet.)
  */
 const { chromium } = require('playwright');
 const { starte, U, START } = require('../api/hilfe');
 
 const BREITEN = [{ w: 320, h: 640 }, { w: 360, h: 740 }, { w: 390, h: 844 }, { w: 667, h: 375 }];
 const ROLLEN = [['buero', U.buero], ['polier', U.polier], ['mitarbeiter', U.mitarbeiter]];
+/** 15.21: Elemente ohne touch-action „manipulation“ (Unterschriftsfeld: „none“) – im Browser ausgeführt */
+function ohneManipulation() {
+  const falsch = [];
+  for (const el of [document.documentElement, document.body, ...document.querySelectorAll('body *')]) {
+    if (['SCRIPT', 'STYLE', 'TEMPLATE', 'svg', 'path', 'use', 'NOSCRIPT'].includes(el.tagName)) continue;
+    const ta = getComputedStyle(el).touchAction;
+    const soll = el.matches('.sig-pad canvas') ? 'none' : 'manipulation';
+    if (ta !== soll) falsch.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.className && typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).join('.') : ''}: ${ta}`);
+  }
+  return falsch.slice(0, 4);
+}
 
 async function laufe(browser, g) {
   const fehler = [];
@@ -31,6 +46,14 @@ async function laufe(browser, g) {
         const wo = `${rolle} ${b.w}×${b.h}`;
         try {
           await page.goto(s.basis + '/#/login', { waitUntil: 'domcontentloaded' });
+          // 4. Anmeldeseite mit PIN-Feld: kein Doppeltipp-Zoom (schnelles Tippen gleicher Ziffern), Zwei-Finger-Zoom erlaubt
+          await page.waitForSelector('#login-card .login-user');
+          await page.click('#login-card .login-user');
+          await page.waitForSelector('.pin-pad');
+          const anm = await page.evaluate(ohneManipulation);
+          pruef(anm.length === 0, `[${wo} Anmeldung] touch-action nicht „manipulation“ (Doppeltipp zoomt): ${anm.join(' | ')}`);
+          const vp = await page.evaluate(() => (document.querySelector('meta[name="viewport"]') || {}).content || '');
+          pruef(/width=device-width/.test(vp) && !/maximum-scale|user-scalable\s*=\s*(no|0)/i.test(vp), `[${wo}] Viewport verbietet Zwei-Finger-Zoom oder fehlt: „${vp}“`);
           const st = await page.evaluate(async (id) => (await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benutzerId: id, pin: '1234' }) })).status, bid);
           if (st !== 200) throw new Error(`Anmeldung ${rolle}: ${st}`);
           await page.evaluate(() => localStorage.setItem('bt_ich', '{}'));
@@ -63,6 +86,8 @@ async function laufe(browser, g) {
             pruef(m.doc <= 1 && m.body <= 1 && m.view <= 1, `[${wo} ${r}] seitlicher Überlauf (doc ${m.doc}, body ${m.body}, view ${m.view})`);
             pruef(m.raus.length === 0, `[${wo} ${r}] Element ragt über den Bildschirm: ${m.raus.join(' | ')}`);
             pruef(m.klein.length === 0, `[${wo} ${r}] Eingabefeld unter 16 px (iOS zoomt hinein): ${m.klein.join(' | ')}`);
+            const ta = await page.evaluate(ohneManipulation);
+            pruef(ta.length === 0, `[${wo} ${r}] touch-action nicht „manipulation“ (Doppeltipp zoomt): ${ta.join(' | ')}`);
           }
           // 3. App bleibt fest: Dokument verschieben wie iOS nach Tastatur/Auswahlliste
           await page.evaluate(() => { location.hash = '#/mehr'; });

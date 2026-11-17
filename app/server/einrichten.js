@@ -60,7 +60,7 @@ if (require.main === module) {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       if (!name) name = await frage(rl, 'Name der Geschäftsführung: ');
       if (!pnr) pnr = await frage(rl, 'Personalnummer: ');
-      if (!pin) pin = await frage(rl, 'PIN (6–12 Ziffern, keine Folge wie 123456): ');
+      if (!pin) pin = await frage(rl, 'PIN (4–12 Ziffern, keine Folge wie 1234): ');
       rl.close();
     }
     const dbPfad = process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');

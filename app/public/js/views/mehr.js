@@ -5,6 +5,7 @@ import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
 import { fuhrenWartend } from './fuhren.js';
+import { KLASSISCH, klassischAn } from './dashboard.js';
 
 const INTEG_ICON = { diktat: 'mic', lieferschein: 'scan', papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud', fernunterschrift: 'sign', ki: 'spark', scan_lieferschein: 'scan', scan_papier: 'camera' };
 // Wohin „Einrichten“ führt – je nach Dienst und Recht
@@ -39,6 +40,8 @@ export default async function mehr(el, ctx) {
       ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue' })}
       <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
+      ${ctx.navErlaubt().some((n) => n.id === 'dashboard') ? `<label class="switch-row" id="klassisch-zeile"><span><b>Klassische Übersicht verwenden</b><small>Die bisherige Übersicht mit Kacheln statt der neuen, ruhigen Ansicht. Gilt auf diesem Gerät bis zum Abmelden.</small></span>
+        <input type="checkbox" class="vh" id="opt-klassisch" ${klassischAn() ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <a class="switch-row link" href="#/push" id="push-link"><span><b>Push-Benachrichtigungen</b><small>Auf diesem Gerät einschalten, Kategorien wählen, Test senden.</small></span>${ic('right')}</a>
       ${['bauleiter', 'buero', 'gf'].includes(u.rolle) ? `<a class="switch-row link" href="#/zwei-faktor" id="zf-link"><span><b>Zwei-Faktor-Anmeldung</b><small>${ctx.ich.zweiFaktor && ctx.ich.zweiFaktor.aktiv ? 'Eingeschaltet – Code aus der Authenticator-App bei jeder Anmeldung.' : 'Zusätzlicher Schutz für Preise und Lohndaten: PIN plus Code vom Handy.'}</small></span>${ctx.ich.zweiFaktor && ctx.ich.zweiFaktor.aktiv ? '<span class="chip xs st-green">an</span>' : ''}${ic('right')}</a>` : ''}
       <a class="switch-row link" href="#/pin" id="pin-link"><span><b>PIN ändern</b><small>Eigene PIN neu festlegen. Niemand sonst kennt sie.</small></span>${ic('right')}</a>
@@ -55,9 +58,15 @@ export default async function mehr(el, ctx) {
     speicher.setz('bt_standort', e.target.checked);
     toast(e.target.checked ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Standort wird nicht mehr erfasst.');
   });
+  // 15.20: alte Übersicht vorübergehend wiederherstellbar (je Gerät; beim Abmelden wie alle bt_-Einstellungen gelöscht)
+  const kl = $('#opt-klassisch', el);
+  if (kl) kl.addEventListener('change', (e) => {
+    if (e.target.checked) speicher.setz(KLASSISCH, true); else speicher.weg(KLASSISCH);
+    toast(e.target.checked ? 'Die klassische Übersicht wird verwendet.' : 'Die neue Übersicht wird verwendet.');
+  });
   // 15.8: Gerätewahl – gilt sofort für die Sperre nach Untätigkeit an diesem Gerät (nicht für die Sitzung am Server)
   bindeGeraetWahl($('#geraet-wahl', el), (art) => {
-    if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021): die Wahl gehört dieser Person (15.16: samt Push-Abo)
+    if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021) / 15.21: „eigen“ gilt für diese Person, „geteilt“ für das Gerät (15.16: samt Push-Abo)
     const min = sperreMinutenFuer(ctx.ich, art);
     toast(art === 'eigen' ? `Eigenes Handy: angemeldet bis zum Abmelden (längstens ${min >= 120 ? Math.round(min / 60) + ' Std.' : min + ' Min.'} ohne Bedienung, wie am Server).` : `Geteiltes Gerät: Abmeldung nach ${min} Minuten ohne Bedienung.`);
   });

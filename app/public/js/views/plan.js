@@ -536,6 +536,12 @@ export default async function plan(el, ctx) {
   const loeseZp = zeitplanBinden(el, ctx, () => zp, zeigZeitplan);
   zeichne();
   if (ansicht === 'zeitplan') zeigZeitplan();
+  // 15.20: „Veröffentlichen“ auf der Übersicht öffnet hier die gewohnte Bestätigung (Probelauf, Empfängerliste) – gesendet
+  // wird erst mit „Jetzt veröffentlichen“. Der Parameter verschwindet aus der Adresse, damit Neu laden nicht erneut fragt.
+  if (planer && ansicht === 'tag' && ctx.query.get('veroeffentlichen') === '1') {
+    try { const q = new URLSearchParams(ctx.query); q.delete('veroeffentlichen'); history.replaceState(null, '', `#/plan?${q}`); } catch (x) { /* Adresse bleibt */ }
+    pubVorschau(tagWahl);
+  }
   return () => { loese(); loeseZp(); };
 }
 

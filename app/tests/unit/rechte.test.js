@@ -85,10 +85,19 @@ test('B-01: benutzer nur GF; stammdaten für Polier/Mitarbeiter gesperrt', () =>
   assert.equal(R.effektiveRechte('mitarbeiter', {}, ['stammdaten']).has('stammdaten'), false);
 });
 
-test('B-03: PIN-Regeln je Rolle', () => {
-  const { pinFehler } = require('../../server/auth');
-  assert.equal(pinFehler('4826', 'mitarbeiter'), null);
-  assert.match(pinFehler('4826', 'gf'), /6 bis 12/);
+test('B-03 / 15.21: PIN-Regeln – 4 bis 12 Ziffern für alle Rollen, keine trivialen Folgen', () => {
+  const { pinFehler, pinMinLaenge } = require('../../server/auth');
+  // 15.21 (Inhaber 17.11.2026): 4 Ziffern reichen für jede Rolle (vorher Bauleiter/Büro/GF mindestens 6)
+  for (const rolle of ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf']) {
+    assert.equal(pinMinLaenge(rolle), 4, rolle);
+    assert.equal(pinFehler('4826', rolle), null, rolle);
+    assert.equal(pinFehler('482619', rolle), null, rolle);
+    assert.equal(pinFehler('482619375102', rolle), null, `${rolle}: 12 Ziffern`);
+    assert.match(pinFehler('482', rolle), /4 bis 12/, `${rolle}: 3 Ziffern zu kurz`);
+    assert.match(pinFehler('4826193751023', rolle), /4 bis 12/, `${rolle}: 13 Ziffern zu lang`);
+    for (const trivial of ['1234', '4321', '7890', '0987', '9012', '123456', '654321']) assert.match(pinFehler(trivial, rolle), /Zahlenfolge/, `${rolle}: ${trivial}`);
+    for (const gleich of ['0000', '7777', '999999']) assert.match(pinFehler(gleich, rolle), /gleichen/, `${rolle}: ${gleich}`);
+  }
   assert.equal(pinFehler('482619', 'buero'), null);
   assert.match(pinFehler('1234', 'polier'), /Zahlenfolge/);
   assert.match(pinFehler('987654', 'gf'), /Zahlenfolge/);

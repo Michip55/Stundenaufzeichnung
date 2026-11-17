@@ -1,6 +1,7 @@
 'use strict';
 /**
- * Geteiltes Tablet (API.md 15.5; Befunde F-014, F-029, F-030, F-046):
+ * Geteiltes Tablet (API.md 15.5; Befunde F-014, F-029, F-030, F-046) – auf der Anmeldeseite als „Geteiltes Gerät“ gewählt
+ * (15.21: Standard ist „Eigenes Handy“; die Wahl „Geteiltes Gerät“ bleibt für das Gerät gemerkt):
  *   node tests/e2e/geraet.js        (im Ordner app; E2E_NUR=handy|tablet|pc; Exit-Code 1 bei Befunden)
  * Wird auch von run.js je Bildschirmgröße aufgerufen (abschaltbar mit E2E_OHNE_GERAET=1).
  *
@@ -90,10 +91,17 @@ async function laufe(browser, g) {
     const bereit = async () => { await page.waitForFunction(() => !document.querySelector('#view .view-box > .state .spinner, #root > .state .spinner'), null, { timeout: 15000 }); await sleep(80); };
     const geh = async (h) => { await page.evaluate((x) => { location.hash = x; }, '#' + h); await page.waitForFunction((x) => location.hash === '#' + x, h); await bereit(); };
     let ladeNr = 0;
+    let geteiltGewaehlt = 0; // 15.21: wie oft „Geteiltes Gerät“ angeklickt werden musste (nur beim ersten Mal – dann gemerkt)
     NAME[U.buero] = db.eins('SELECT name FROM benutzer WHERE id = ?', U.buero).name;
     async function anmelden(id, { laden = true } = {}) {
       if (laden) await page.goto(`${s.basis}/?anmelden=${++ladeNr}#/login`);
       try { await page.waitForSelector('.login-user'); } catch (e) { throw new Error(`Anmeldeseite ohne Namensliste: ${(await page.evaluate(() => document.body.innerText)).slice(-300)} | ${seitenfehler.join(' | ')}`); }
+      // 15.21: Standard ist „Eigenes Handy“ – dieses Tablet wird bewusst als „Geteiltes Gerät“ gewählt (bleibt für das Gerät gemerkt)
+      if (await page.locator('#geraet-wahl input[value="geteilt"]:checked').count() === 0) {
+        await page.click('#geraet-wahl label:has(input[value="geteilt"])');
+        geteiltGewaehlt++;
+      }
+      pruef(await page.evaluate(() => localStorage.getItem('bt_geraet_art') === 'geteilt' && localStorage.getItem('bt_geraet_art_benutzer') === null), '15.21: Wahl „Geteiltes Gerät“ auf der Anmeldeseite nicht gespeichert');
       await page.fill('#login-suche', NAME[id].split(' ')[1]);
       await page.click(`.login-user:has-text("${NAME[id]}")`);
       await page.waitForSelector('.pin-pad');
@@ -341,6 +349,7 @@ async function laufe(browser, g) {
     await page.keyboard.press('Escape');
     await ctx.setOffline(false);
 
+    pruef(geteiltGewaehlt === 1, `15.21: „Geteiltes Gerät“ musste ${geteiltGewaehlt}-mal gewählt werden (bleibt nicht für das Gerät gemerkt)`);
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);
   } finally {
     clearInterval(takt);

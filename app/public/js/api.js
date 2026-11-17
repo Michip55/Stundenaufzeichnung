@@ -53,23 +53,34 @@ export function bindungLoeschen() {
   try { document.cookie = `bt_bindung=; Path=/; Max-Age=0; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) { /* egal */ }
 }
 
-// 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ – je Gerät (nicht je Person), bleibt beim Abmelden erhalten.
-// Ohne Wahl gilt „geteilt“ (sicherer Standard). Die Wahl ändert nur die Sperre nach Untätigkeit AM GERÄT; der Server erfährt
-// sie nicht und vertraut ihr nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.
+// 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ – je Gerät, bleibt beim Abmelden erhalten. Die Wahl ändert nur die
+// Sperre nach Untätigkeit AM GERÄT (und das stille Wiedereinschalten von Push); der Server erfährt sie nicht und vertraut ihr
+// nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.
+// 15.21 (Inhaber 17.11.2026): Standard auf der Anmeldeseite ist „Eigenes Handy“; „Geteiltes Gerät“ wird für das Gerät gemerkt.
 export const GERAET_ART = 'bt_geraet_art';
-// 15.12 (G2-021): wer die Wahl getroffen hat (Benutzer-ID; fehlt, wenn auf der Anmeldeseite vor der Anmeldung gewählt)
+// 15.12 (G2-021): für wen „Eigenes Handy“ gilt (Benutzer-ID der Person, die sich damit angemeldet bzw. es gewählt hat)
 export const GERAET_ART_BENUTZER = 'bt_geraet_art_benutzer';
+const gespeicherteArt = () => { try { return localStorage.getItem(GERAET_ART); } catch (e) { return null; } };
+/**
+ * 15.21: Gerätewahl des Geräts – das zeigt die Anmeldeseite, und das gilt für die nächste Anmeldung. „geteilt“ nur, wenn jemand
+ * „Geteiltes Gerät“ gewählt hat (gespeichert ohne Person); sonst „eigen“ – auch ohne Wahl, bei unbekanntem Wert und bei
+ * „geteilt“ MIT Person (Altbestand vor 15.21: so setzte die App es nach einem Benutzerwechsel bzw. einer unbestätigten Vormerkung
+ * selbst). Speicher gesperrt: „geteilt“ (ohne Speicher kann „Eigenes Handy“ ohnehin nicht gelten, siehe geraetArtFuer).
+ */
 export function geraetArt() {
-  try { return localStorage.getItem(GERAET_ART) === 'eigen' ? 'eigen' : 'geteilt'; } catch (e) { return 'geteilt'; }
+  try { return localStorage.getItem(GERAET_ART) === 'geteilt' && localStorage.getItem(GERAET_ART_BENUTZER) == null ? 'geteilt' : 'eigen'; } catch (e) { return 'geteilt'; }
 }
-/** @param {number|null} benutzerId  angemeldete Person, die wählt (null = Anmeldeseite, noch niemand angemeldet) */
+/**
+ * @param {number|null} benutzerId  Person, für die „Eigenes Handy“ gilt (null = Anmeldeseite, noch niemand angemeldet).
+ * „Geteiltes Gerät“ gilt für das Gerät und wird immer ohne Person gespeichert (15.21).
+ */
 export function setzGeraetArt(art, benutzerId = null) {
   const neu = art === 'eigen' ? 'eigen' : 'geteilt';
   try {
     localStorage.setItem(GERAET_ART, neu);
-    if (benutzerId != null && Number.isInteger(Number(benutzerId))) localStorage.setItem(GERAET_ART_BENUTZER, String(Number(benutzerId)));
+    if (neu === 'eigen' && benutzerId != null && Number.isInteger(Number(benutzerId))) localStorage.setItem(GERAET_ART_BENUTZER, String(Number(benutzerId)));
     else localStorage.removeItem(GERAET_ART_BENUTZER);
-  } catch (e) { /* gesperrt: es bleibt beim sicheren Standard */ }
+  } catch (e) { /* gesperrt: es bleibt beim sicheren „geteilt“ (geraetArtFuer) */ }
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('bt:geraet-art', { detail: neu }));
   return neu;
 }
@@ -77,43 +88,36 @@ export function geraetArtInhaber() {
   try { const v = localStorage.getItem(GERAET_ART_BENUTZER); return v != null && /^\d+$/.test(v) ? Number(v) : null; } catch (e) { return null; }
 }
 /**
- * 15.16 (H-S4): wirksame Gerätewahl für die angemeldete Person `benutzerId` – „eigen“ nur, wenn genau diese Person es nach ihrer
- * Anmeldung gewählt bzw. bestätigt hat (Inhaber = ID). Eine Wahl ohne Inhaber (Anmeldeseite) oder einer anderen Person gilt als „geteilt“.
+ * Wirksame Gerätewahl für die angemeldete Person `benutzerId` – „eigen“ nur, wenn es für genau diese Person gespeichert ist
+ * (bei ihrer Anmeldung über die Anmeldeseite oder in „Mehr“, 15.21). Ohne Person, für eine andere Person oder ohne lesbaren
+ * Speicher: „geteilt“.
  */
 export function geraetArtFuer(benutzerId) {
-  return benutzerId != null && geraetArt() === 'eigen' && geraetArtInhaber() === Number(benutzerId) ? 'eigen' : 'geteilt';
+  return benutzerId != null && gespeicherteArt() === 'eigen' && geraetArtInhaber() === Number(benutzerId) ? 'eigen' : 'geteilt';
 }
 /**
- * 15.16 (H-S4): Wahl auf der Anmeldeseite (vor der Anmeldung). „Geteiltes Gerät“ gilt sofort (sicherer). „Eigenes Handy“ wird nur
- * vorgemerkt (ohne Inhaber) und gilt erst, wenn die Person es nach ihrer Anmeldung bestätigt. Ist das Gerät schon „eigen“
- * (Wahl einer Person nach ihrer Anmeldung), ändert ein erneuter Klick nichts – er nimmt den Inhaber nie weg.
+ * Wahl auf der Anmeldeseite (vor der Anmeldung) – gilt für das Gerät und damit für die nächste Anmeldung (15.21).
+ * „Eigenes Handy“ bei schon gespeichertem „eigen“ ändert nichts (es wird bei der Anmeldung der Person zugeordnet).
  */
 export function geraetVorwahl(art) {
-  if (art === 'eigen') return geraetArt() === 'eigen' ? 'eigen' : setzGeraetArt('eigen', null);
+  if (art === 'eigen') return gespeicherteArt() === 'eigen' ? 'eigen' : setzGeraetArt('eigen', null);
   return setzGeraetArt('geteilt', null);
 }
 /**
- * 15.12 (G2-021) / 15.16 (H-S4): Gerätewahl bei der Anmeldung von `benutzerId`. „Eigenes Handy“ gilt nur, wenn genau diese Person es
- * nach einer Anmeldung gewählt hat (Inhaber = ID). Sonst gilt „geteilt“ (und wird mit dieser Person gespeichert):
- *  - Wahl einer ANDEREN Person → zurueckgesetzt (Hinweis: „war von einer anderen Person eingestellt“);
- *  - Wahl ohne Inhaber (auf der Anmeldeseite vor der Anmeldung, auch Altbestand) → bestaetigen (Hinweis: erst nach Bestätigung).
- * Niemand kann „Eigenes Handy“ für eine Person vor ihrer Anmeldung einstellen – auch nicht für die zuletzt angemeldete.
- * Der zweite Parameter (zuletzt angemeldete Person) wird seit 15.16 nicht mehr verwendet.
- * → {art, zurueckgesetzt, bestaetigen}
+ * 15.21: Gerätewahl bei der Anmeldung von `benutzerId` über die Anmeldeseite (nur bei einer frischen Anmeldung, nicht beim
+ * Neustart der App mit bestehender Sitzung). Es gilt sofort, was die Anmeldeseite gezeigt hat (geraetArt, Standard „eigen“):
+ *  - „eigen“ → gilt ab jetzt für DIESE Person (gespeichert mit ihrer ID), ohne Bestätigung. Galt es vorher für eine andere
+ *    Person (`vorher` = deren ID), gilt es für diese nicht mehr; ihre Daten, ihr Push-Abo und ihre Sitzung räumt der
+ *    Benutzerwechsel wie bisher ab (15.5/15.12/15.16), ihr Push-Wunsch geht nie auf die neue Person über.
+ *  - „geteilt“ → bleibt für das Gerät (ohne Person), es wird nichts gespeichert.
+ * → {art, vorher}
  */
 export function geraetArtBeiAnmeldung(benutzerId) {
   const id = Number(benutzerId);
-  const art = geraetArt();
+  if (!Number.isInteger(id) || geraetArt() !== 'eigen') return { art: 'geteilt', vorher: null };
   const inhaber = geraetArtInhaber();
-  if (art === 'eigen' && inhaber === id) return { art: 'eigen', zurueckgesetzt: false, bestaetigen: false };
-  if (art === 'eigen') {
-    setzGeraetArt('geteilt', id);
-    return { art: 'geteilt', zurueckgesetzt: inhaber != null, bestaetigen: inhaber == null };
-  }
-  let gespeichert = false;
-  try { gespeichert = localStorage.getItem(GERAET_ART) != null || inhaber != null; } catch (e) { gespeichert = false; }
-  if (gespeichert && inhaber !== id) setzGeraetArt('geteilt', id); // nie gewählt: nichts speichern, es gilt ohnehin „geteilt“
-  return { art: 'geteilt', zurueckgesetzt: false, bestaetigen: false };
+  setzGeraetArt('eigen', id);
+  return { art: geraetArtFuer(id), vorher: inhaber != null && inhaber !== id ? inhaber : null };
 }
 // 15.12: „Push auf diesem Gerät gewünscht“ – je Person, nur am Gerät (Liste von Benutzer-IDs), bleibt beim Abmelden erhalten.
 // Mit der Sitzung endet das Abo (G2-019); nach der nächsten Anmeldung DERSELBEN Person auf ihrem eigenen Handy schaltet die App
@@ -134,7 +138,7 @@ export function setzPushWunsch(benutzerId, an) {
 /**
  * Nach der Anmeldung von `benutzerId` Push still wieder einschalten? Nur wenn (1) der Browser es schon erlaubt hat
  * (`erlaubnis === 'granted'`), (2) genau diese Person Push an diesem Gerät eingeschaltet hatte und (3) das Gerät für diese
- * Person ein „Eigenes Handy“ ist (nach geraetArtBeiAnmeldung: Wahl dieser Person). Sonst nichts – die Person entscheidet selbst.
+ * Person ein „Eigenes Handy“ ist (geraetArtFuer: nach ihrer Anmeldung mit „Eigenes Handy“ bzw. ihrer Wahl in „Mehr“). Sonst nichts – die Person entscheidet selbst.
  */
 export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArtFuer(benutzerId)) {
   return erlaubnis === 'granted' && art === 'eigen' && geraetArtFuer(benutzerId) === 'eigen' && pushGewuenscht(benutzerId);
