@@ -463,7 +463,9 @@ module.exports = function berichtRouten(api, bt) {
         (SELECT COUNT(*) FROM bericht_personal bp WHERE bp.bericht_id = r.id) AS anzahl,
         (SELECT COALESCE(SUM(stunden), 0) FROM bericht_personal bp WHERE bp.bericht_id = r.id) AS stunden,
         (SELECT COUNT(*) FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'an') AS an,
-        (SELECT COUNT(*) FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'bh') AS bh
+        (SELECT COUNT(*) FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'bh') AS bh,
+        (SELECT u.erfasst_von FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'an') AS an_von,
+        (SELECT p.name FROM benutzer p WHERE p.id = b.polier_id) AS polier_name
       FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
       ${bedingungen.length ? 'WHERE ' + bedingungen.join(' AND ') : ''} ORDER BY r.datum DESC, b.kst LIMIT 1000`, ...p);
     const sichtbar = zeilen.filter((z) => baustelleImBereich(ctx.benutzer, { id: z.baustelle_id, polier_id: z.polier_id, bauleiter_id: z.bauleiter_id }));
@@ -477,10 +479,15 @@ module.exports = function berichtRouten(api, bt) {
       }
       for (const z of sichtbar) anzahl.set(z.id, DS.berichtPersonalAnzahl(ctx, jeBericht.get(z.id) || []));
     }
+    // API.md 15.20 (Übersicht): Polier der Baustelle (wie im Bericht selbst über polierId) und – nur mit bericht_freigeben –
+    // das Vier-Augen-Prinzip schon in der Liste (gleiche Regel wie GET /berichte/:id, 15.7 F-049)
+    const darfFrei = ctx.hat('bericht_freigeben');
     res.json(sichtbar
       .map((z) => ({
         id: z.id, baustelleId: z.baustelle_id, kst: z.kst, baustelle: z.kurz || z.name, datum: z.datum, status: z.status,
-        personalAnzahl: anzahl.has(z.id) ? anzahl.get(z.id) : z.anzahl, stunden: r2(z.stunden), unterschriften: { an: z.an > 0, bh: z.bh > 0 }, geaendertNachUnterschrift: Boolean(z.geaendert_nach_unterschrift)
+        personalAnzahl: anzahl.has(z.id) ? anzahl.get(z.id) : z.anzahl, stunden: r2(z.stunden), unterschriften: { an: z.an > 0, bh: z.bh > 0 }, geaendertNachUnterschrift: Boolean(z.geaendert_nach_unterschrift),
+        polierName: z.polier_name || null,
+        ...(darfFrei ? { freigabeVierAugen: Boolean(z.an_von != null && z.an_von === ctx.benutzer.id && ctx.benutzer.rolle !== 'gf') } : {})
       })));
   });
 

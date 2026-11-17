@@ -193,6 +193,28 @@ module.exports = function zeitRouten(api, bt) {
     res.json(out);
   });
 
+  /**
+   * API.md 15.20 (Übersicht „Heute“): wer laut VERÖFFENTLICHTEM Plan heute eingeteilt ist (dieselbe Quelle wie die Polier-Sicht,
+   * veroeffentlicht_stand – 15.10) und wer heute (Wiener Kalendertag) schon gestempelt hat (nur Benutzer-IDs) – daraus
+   * „Eingestempelt N / M“ und „Eingeteilte fehlen noch“. Allein das Recht stammdaten (wie Planer und /zeit/buchungen
+   * anderer; Bauleiter = Büro, 15.4). Keine Abwesenheitsgründe, keine Beträge.
+   */
+  api.get('/zeit/heute-eingeteilt', brauche('stammdaten'), (req, res) => {
+    const heute = wienDatum(bt.uhr());
+    const gestempelt = db.alle('SELECT DISTINCT benutzer_id FROM buchung WHERE zeit >= ? AND zeit < ? ORDER BY benutzer_id',
+      wienZuDate(heute).toISOString(), wienZuDate(plusTage(heute, 1)).toISOString()).map((x) => x.benutzer_id);
+    const je = new Map();
+    for (const e of db.alle('SELECT veroeffentlicht_stand FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL ORDER BY id', heute)) {
+      let st = null; try { st = JSON.parse(e.veroeffentlicht_stand); } catch (x) { continue; }
+      if (!st || !Array.isArray(st.personen)) continue;
+      const bs = st.baustelle || {};
+      for (const p of st.personen) {
+        if (!je.has(p.benutzerId)) je.set(p.benutzerId, { benutzerId: p.benutzerId, name: p.name, baustelleId: st.baustelleId, baustelle: bs.kurz || bs.name || '', beginn: st.beginn || null });
+      }
+    }
+    res.json({ datum: heute, eingeteilt: [...je.values()].sort((a, b) => a.benutzerId - b.benutzerId), gestempelt });
+  });
+
   api.get('/zeit/kolonne', brauche('kolonne'), (req, res) => {
     const bsId = v.id(Number(req.query.baustelleId), 'baustelleId');
     const bs = ladeBaustelle(db, bsId);
