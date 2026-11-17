@@ -1409,6 +1409,19 @@ CREATE TABLE bericht_sicht (
 ALTER TABLE servicebuch_eintrag ADD COLUMN sicht_version INTEGER NOT NULL DEFAULT 1;
 UPDATE servicebuch_eintrag SET sicht_version = version;
 `
+  },
+  {
+    version: 47,
+    name: '15.22: Vordefinierte Pausen – geplante Dauer, automatisches Pausenende',
+    // pause_plan_min: geplante Dauer einer „pause_start“-Buchung (NULL = offen). pause_auto_bis: geplantes Ende, solange es
+    // noch aussteht (Merker für den Teilindex; wird beim Eintragen des Endes bzw. bei früherem Ende gelöscht).
+    // automatisch = 1: „pause_ende“, das der Server zum geplanten Zeitpunkt eingetragen hat (server/pausen.js).
+    sql: `
+ALTER TABLE buchung ADD COLUMN pause_plan_min INTEGER;
+ALTER TABLE buchung ADD COLUMN pause_auto_bis TEXT;
+ALTER TABLE buchung ADD COLUMN automatisch INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX buchung_pause_auto ON buchung(pause_auto_bis) WHERE pause_auto_bis IS NOT NULL;
+`
   }
 ];
 

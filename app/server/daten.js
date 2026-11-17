@@ -113,17 +113,24 @@ function letzteBuchungen(db, benutzerId, anzahl = 200) {
  */
 function aktuellerStatus(db, benutzerId) {
   const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
-  const letzte = db.eins('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId);
-  if (!k) return { status: 'aus', seit: null, baustelleId: null, schichtBeginn: null, letzte };
+  const letzte = db.eins('SELECT id, typ, zeit, baustelle_id AS baustelleId, automatisch FROM buchung WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId);
+  if (!k) return { status: 'aus', seit: null, baustelleId: null, schichtBeginn: null, pauseBis: null, pauseDauerMin: null, letzte };
   const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, k.zeit);
-  return { ...statusAusBuchungen(b), letzte };
+  const st = statusAusBuchungen(b);
+  // 15.22: laufende Pause mit fester Dauer → geplantes Ende (das automatische Ende steht noch aus)
+  let pauseBis = null, pauseDauerMin = null;
+  if (st.status === 'pause') {
+    const p = db.eins("SELECT pause_auto_bis, pause_plan_min FROM buchung WHERE benutzer_id = ? AND typ = 'pause_start' AND zeit = ? ORDER BY id DESC LIMIT 1", benutzerId, st.seit);
+    if (p && p.pause_auto_bis) { pauseBis = p.pause_auto_bis; pauseDauerMin = p.pause_plan_min; }
+  }
+  return { ...st, pauseBis, pauseDauerMin, letzte };
 }
 
 /** Buchungen seit einem Zeitpunkt (mindestens die ganze laufende Schicht) */
 function buchungenSeit(db, benutzerId, vonIso) {
   const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
   const von = k && k.zeit < vonIso ? k.zeit : vonIso;
-  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
+  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, automatisch, pause_plan_min AS dauerMin FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
 }
 
 /** Zeitfenster rund um einen Tag (Vortag 00:00 bis übermorgen 00:00 Wiener Zeit) */

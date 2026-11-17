@@ -137,6 +137,11 @@ function createApp(opt = {}) {
   bt.stuendlich();
   bt.fuhrparkTimer = setInterval(() => bt.stuendlich(), 60 * 60 * 1000);
   bt.fuhrparkTimer.unref();
+  // 15.22: fällige automatische Pausenenden beim Start und minütlich eintragen (zusätzlich vor jeder API-Anfrage, unten)
+  const { pausenAbschliessenSicher } = require('./pausen');
+  pausenAbschliessenSicher(db, uhr());
+  bt.pausenTimer = setInterval(() => pausenAbschliessenSicher(db, uhr()), 60 * 1000);
+  bt.pausenTimer.unref();
 
   bt.warnungen = [];
   // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) beim Start deutlich warnen
@@ -213,6 +218,8 @@ function createApp(opt = {}) {
   // deshalb VOR dem Lesen des Bodys geprüft; Unangemeldete erhalten 413 statt 35 MB geparst zu bekommen. Ausnahme: die
   // öffentliche Fernunterschrift (12.9, ohne Anmeldung, Unterschriftsbild ≤ 12 MB).
   const dokumentPfad = /^\/(baustellen\/\d+\/(dokumente(\/\d+\/versionen)?|lv-import)|import\/bmd-op|stammdaten\/[a-z]+\/import)\/?$/i;
+  // 15.22: vor jeder Anfrage fällige automatische Pausenenden als Buchung eintragen – jede Auswertung sieht dieselben Buchungen
+  api.use((req, res, next) => { pausenAbschliessenSicher(db, uhr()); next(); });
   api.use(sitzungMiddleware(bt));
   api.use((req, res, next) => {
     const gross = req.method === 'POST' && Boolean(req.ctx);
@@ -345,6 +352,7 @@ function createApp(opt = {}) {
   app.schliessen = () => {
     bt.pushAus = true;
     clearInterval(bt.fuhrparkTimer);
+    clearInterval(bt.pausenTimer);
     require('./ocr').beenden();
     db.schliessen();
     if (bt.uploadsTemp) { try { fs.rmSync(bt.uploads, { recursive: true, force: true }); } catch (_) { /* egal */ } }
