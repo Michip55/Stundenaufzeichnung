@@ -61,6 +61,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 **Monat & Lohn**
 - [ ] Monatsauswertung → Lohn-CSV, Vorlage „BMD NTCS“ (Lohnarten sind Platzhalter, bitte mit der Lohnverrechnung abstimmen).
+- [ ] **Arbeitszeitmodelle** (Stammdaten & Preise → Reiter „Arbeitszeitmodelle“): ein Teilzeit-Modell anlegen (z. B. 20 Std., Mo–Do 5, nur Woche, Vollzeit 39) → unter **Benutzer** einer Person mit **„gültig ab“** zuordnen (rückwirkend wird eigens bestätigt), dort auch **„BUAK-pflichtig“** prüfen → Monatsauswertung zeigt unter dem Namen das Modell und in der Spalte **„Mehr“** die Mehrstunden; die BUAK-Grundlage enthält nur BUAK-pflichtige Personen. Bauarbeiter rechnen weiter nach KV Bau (8/8/8/8/7 Std.), Büro-Angestellte nach „Büro (Mo–Do 8,5 · Fr 5)“: z. B. Dienstag 9,5 Std. = 1 Überstunde.
 
 ## 2. Polier (Josef Haidbauer)
 

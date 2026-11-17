@@ -1,4 +1,4 @@
-// Meine Woche: Stunden je Tag, Summe, Überstunden, Abwesenheits-Antrag (Urlaub / Zeitausgleich).
+// Meine Woche: Stunden je Tag, Summe, Überstunden, eigenes Wochen-Soll (15.23, ohne Modellname), Abwesenheits-Antrag (Urlaub / Zeitausgleich).
 import { get } from '../api.js';
 import { ic, esc, fmt, laden, fehlerBox, $ } from '../ui.js';
 
@@ -32,6 +32,7 @@ export default async function woche(el, ctx) {
         <div class="kpi"><small>Stunden gesamt</small><b>${fmt.zahl(w.summe || 0)} <i>Std.</i></b></div>
         <div class="kpi"><small>davon Überstunden</small><b>${fmt.zahl(w.ueberstunden || 0)} <i>Std.</i></b></div>
       </div>
+      ${w.sollStunden != null ? `<p class="muted sm" id="woche-soll">Soll laut Arbeitszeitmodell: ${fmt.zahl(w.sollStunden)} Std.${w.mehrstunden ? ` · davon Mehrstunden: ${fmt.zahl(w.mehrstunden)} Std.` : ''}</p>` : ''}
       <section class="card week-list" aria-label="Tage der Woche">
         ${tage.length ? tage.map((t) => {
           const d = fmt.dt(t.datum);

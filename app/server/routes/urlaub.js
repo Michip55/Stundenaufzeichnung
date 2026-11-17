@@ -7,6 +7,7 @@ const { csv } = require('../export');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const DS = require('../datenschutz');
 const O = require('../oeffentlich'); // 15.11 (G2-017)
+const AZ = require('../arbeitszeit'); // 15.23: BUAK-Pflicht je Person
 
 const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const CODE_TEXT = { U: 'Urlaub', ZA: 'Zeitausgleich', K: 'Krank', SW: 'Schlechtwetter', BU: 'Betriebsurlaub' };
@@ -105,7 +106,8 @@ module.exports = function urlaubRouten(api, bt) {
   }
   function konto(b, jahr) {
     const k = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr);
-    const art = k ? k.art : (['mitarbeiter', 'polier'].includes(b.rolle) ? 'buak' : 'urlg');
+    // 15.23: ohne gespeichertes Konto entscheidet das Kennzeichen „BUAK-pflichtig“ der Person (Vorgabe Mitarbeiter/Polier), nicht die Rolle
+    const art = k ? k.art : (AZ.buakPflichtigVon(db, b) ? 'buak' : 'urlg');
     const einheit = k ? k.einheit : 'Arbeitstage';
     const anspruch = k && k.anspruch != null ? k.anspruch : art === 'buak' ? (k && k.buak_stand != null ? k.buak_stand : null) : 25;
     const z = zaehle(b.id, jahr, art === 'buak' && k && k.buak_datum ? k.buak_datum : null);
@@ -150,7 +152,7 @@ module.exports = function urlaubRouten(api, bt) {
     const body = v.objekt(req.body);
     const alt = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr) || {};
     // 14.3: der Beginn des Urlaubsjahres wird mit dem Konto gespeichert (Vorgabe zum Zeitpunkt des Anlegens)
-    const f = { art: alt.art || (['mitarbeiter', 'polier'].includes(b.rolle) ? 'buak' : 'urlg'), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null, beginn: alt.beginn || standardBeginn(jahr) };
+    const f = { art: alt.art || (AZ.buakPflichtigVon(db, b) ? 'buak' : 'urlg'), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null, beginn: alt.beginn || standardBeginn(jahr) };
     if (body.urlaubsjahrBeginn !== undefined) f.beginn = body.urlaubsjahrBeginn === null ? standardBeginn(jahr) : pruefeBeginn(body.urlaubsjahrBeginn, 'urlaubsjahrBeginn');
     if (body.art !== undefined) f.art = v.auswahl(body.art, 'art', ['buak', 'urlg']);
     if (body.anspruch !== undefined) f.anspruch = body.anspruch === null ? null : v.zahl(body.anspruch, 'anspruch', { min: 0, max: 100 });

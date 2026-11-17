@@ -276,6 +276,8 @@ async function antwortText(r, { ohneKopf = false } = {}) {
 // Feldnamen mit €-Bezug (Liste aus API.md 2/6/10–12 + Sicherheitsnetz EURO_FELDER, großzügig)
 const GELD_SCHLUESSEL = /preis|^eps?$|^ep[A-Z_]|^epAb$|kosten|^satz$|kostensatz|verrechnungssatz|regiesatz|stundensatz|betrag|summe|euro|€|budget|^auftrag(?!geber)|rechnung|zahlung|^ek$|^vk$|netto|brutto|^ust|skonto|r(ue|ü)ckla(ss|ß)|erloes|^db$|dbprozent|mahn|^gp$|^soll$|perioden|leistungsstand|verrechnet|offeneposten|^offen$|nachtr(ae|ä)ge/i;
 const LOHN_SCHLUESSEL = /^lohngruppe(n|Id|Verlauf|GueltigAb)?$/i;
+// 15.23: Arbeitszeitmodell und BUAK-Pflicht von Personen – nie für Polier/Mitarbeiter (die eigene Woche zeigt nur sollStunden/mehrstunden)
+const ARBEITSZEIT_SCHLUESSEL = /^(arbeitszeitmodell(e|Id|Name|GueltigAb|Rueckwirkend)?|arbeitszeitVerlauf|buakPflichtig(Vorgabe)?|vollzeitWochenstunden|wochenstunden)$/i;
 // Betrag mit Währung in Texten (z. B. „1.234,50 €“, „EUR 12“, „€ 5“)
 const GELD_TEXT = /\d[\d.,   ]*\s?(€|EUR\b)|(€|\bEUR)\s?-?\d/;
 
@@ -445,6 +447,7 @@ async function scanne(rolle, r0, k) {
           // 14.11.2026: Rechnungs-/Belegnummern (Werkstatt, Lieferant) im Fuhrpark nur mit preise_sehen – auch als Text, auch leer gilt der Schlüssel als Leck
           if (!geld && /fuhrpark/.test(`${k.route} ${k.url || ''}`) && /rechnung|beleg|lieferant/i.test(key) && typeof wert !== 'boolean' && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Rechnungs-/Beleg-Schlüssel ${p}=${JSON.stringify(wert).slice(0, 80)} im Fuhrpark`);
           if (!lohn && LOHN_SCHLUESSEL.test(key) && wert != null && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Lohngruppe ${p}=${JSON.stringify(wert).slice(0, 80)}`);
+          if (!lohn && ARBEITSZEIT_SCHLUESSEL.test(key) && wert != null && !schluesselErlaubt(k.route, p, key, wert)) v.push(`${wo}: Arbeitszeitmodell/BUAK-Pflicht ${p}=${JSON.stringify(wert).slice(0, 80)}`);
           lauf(wert, p);
         }
       }
@@ -931,6 +934,9 @@ async function erstelleBasis() {
     // --- Lohngruppen-Verlauf (künftiger Eintrag) und Lohn-Vorlage
     await erwarte(await gf.put(`/benutzer/${ANDERER_MA}`, { lohngruppe: 'va', lohngruppeGueltigAb: '2027-01-01' }), 200, 'Lohngruppe künftig');
     F.lohngruppeVerlauf = s.db.eins('SELECT id FROM benutzer_lohngruppe WHERE benutzer_id = ? AND gueltig_ab = ?', ANDERER_MA, '2027-01-01').id;
+    // 15.23: Arbeitszeitmodell-Verlauf (künftiger Eintrag) – Teilzeit ab 2027, BUAK-Kennzeichen ausdrücklich gesetzt
+    await erwarte(await gf.put(`/benutzer/${ANDERER_MA}`, { arbeitszeitmodell: 3, arbeitszeitmodellGueltigAb: '2027-01-01', buakPflichtig: true }), 200, 'Arbeitszeitmodell künftig');
+    F.arbeitszeitVerlauf = s.db.eins('SELECT id FROM benutzer_arbeitszeitmodell WHERE benutzer_id = ? AND gueltig_ab = ?', ANDERER_MA, '2027-01-01').id;
     F.lohnVorlage = (await erwarte(await buero.post('/lohn-vorlagen', { name: 'Rechte-Test-Vorlage', spalten: [{ feld: 'pnr' }, { feld: 'stunden' }] }), 201, 'Lohn-Vorlage')).id;
     // --- Benachrichtigungen je Rolle (eine ID je Rolle)
     F.benachrichtigung = {};
@@ -1023,6 +1029,6 @@ async function starteKopie(basis, opt = {}) {
 }
 
 module.exports = {
-  ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, PARTIE_ABW, PLAN_TAGE, ABW_PLAN, ZUSTAND, ladeZustand, kopfText, EIGENE_PFADE, W, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
+  ROLLEN, ID, TOKEN, ANDERER_MA, FREMDER_MA, PARTIE_ABW, PLAN_TAGE, ABW_PLAN, ZUSTAND, ladeZustand, kopfText, EIGENE_PFADE, W, GELD, TEXT, GELD_SCHLUESSEL, LOHN_SCHLUESSEL, ARBEITSZEIT_SCHLUESSEL, GELD_TEXT, SCHLUESSEL_AUSNAHMEN, DB_FLUECHTIG,
   routenAusApp, hatRecht, pruefeAusgaenge, ANHAENGE, berichtPdfAbwesenheitVerstoesse, berichtJsonAbwesenheitVerstoesse, verboteneKanarien, zahlFormen, pdfText, xlsxText, antwortText, scanne, dbHash, dbUnterschied, erstelleBasis, starteKopie, kleinesPdf, b64, geldErlaubt
 };

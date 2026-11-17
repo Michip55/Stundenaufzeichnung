@@ -5,12 +5,13 @@ import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, rolleText, ROLLEN, avatar, leer, banner, dialog, bestaetigen, toast, speicher, istIntern, $, $$ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
 import { diensteTab } from './dienste.js';
+import { modellKurz } from './arbeitszeitmodelle.js';
 
 export default async function benutzer(el, ctx) {
   const voll = ctx.kann('benutzer');
   const BUERO_ROLLEN = ['mitarbeiter', 'polier']; // diese Benutzer pflegt das Büro (15.9: Bauleiter = Büro → nur die GF)
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
-  let r = {}, leute, lohngruppen = [], baustellen = [];
+  let r = {}, leute, lohngruppen = [], baustellen = [], modelle = [];
   let tab = !voll ? 'benutzer' : ctx.query.get('reiter') === 'dienste' ? 'dienste' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
   // 15.9: der Server sagt je Konto, ob der Aufrufer es verwalten darf (nie das eigene, Büro/Bauleiter nur niedrigere Stufe)
   const istIch = (m) => Number(m.id) === Number(ctx.ich.benutzer.id);
@@ -22,7 +23,12 @@ export default async function benutzer(el, ctx) {
   async function lade() {
     [r, leute, baustellen] = await Promise.all([voll ? get('/rechte') : {}, get('/benutzer'), get('/baustellen').catch(() => [])]);
     if (!lohngruppen.length && ctx.kann('preise_sehen')) { try { lohngruppen = (await get('/preise')).lohngruppen || []; } catch (e) { /* optional */ } }
+    try { modelle = await get('/arbeitszeitmodelle?inaktiv=1'); } catch (e) { modelle = []; } // 15.23
   }
+  const modellName = (id) => (modelle.find((x) => x.id === id) || {}).name || '';
+  // 15.23: Vorgabe für neue Personen nach der Rolle (Datenvorgabe wie am Server – Mitarbeiter/Polier: KV Bau, BUAK-pflichtig)
+  const feldRolle = (rolle) => ['mitarbeiter', 'polier'].includes(rolle);
+  const vorgabeModell = (rolle) => (modelle.find((x) => x.vorgabe === (feldRolle(rolle) ? 'feld' : 'sonst')) || modelle.find((x) => x.aktiv !== false) || {}).id;
   await lade();
   // rolle-ok: Rollenwahl für die ZIEL-Person (nur die GF macht zum/vom Bauleiter, Server prüft)
   const rollen = (m) => (voll ? r.rollen || Object.keys(ROLLEN) : m && m.rolle === 'bauleiter' ? ['bauleiter'] : BUERO_VERGIBT).map((x) => (typeof x === 'string' ? { schluessel: x, name: rolleText(x) } : { schluessel: x.schluessel || x.id, name: x.name || x.text || rolleText(x.schluessel || x.id) }));
@@ -49,7 +55,7 @@ export default async function benutzer(el, ctx) {
   }
   function benutzerHtml() {
     const gesperrte = leute.filter(istGesperrt);
-    const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
+    const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.arbeitszeitmodell && modellName(m.arbeitszeitmodell) ? ' · ' + esc(modellName(m.arbeitszeitmodell)) : ''}${m.buakPflichtig ? ' · BUAK' : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
       ${istGesperrt(m) ? `<span class="chip st-red" title="${m.gesperrtBis ? 'läuft ab am ' + esc(fmt.zeitpunkt(m.gesperrtBis)) + ' Uhr' : ''}">${ic('lock')}Gesperrt${m.gesperrtBis ? ` bis ${esc(fmt.zeitpunkt(m.gesperrtBis).slice(0, 6))} ${esc(fmt.uhr(m.gesperrtBis))}` : ''}</span>${zuruecksetzbar(m) ? `<button type="button" class="btn primary sm" data-entsperren="${m.id}">Entsperren</button>` : `<span class="muted sm nw" data-nur-gf>${esc(nurDurch(m))}</span>`}` : ''}
       ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : (istIch(m) ? '<span class="muted sm nw" data-eigenes-konto>Eigenes Konto: PIN und Telefon unter „Mehr“</span>' : '<span class="muted sm nw">Bearbeiten nur durch GF</span>')}</li>`;
     return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter und Poliere an, pflegen ihre Daten, setzen PINs zurück und entsperren Konten. Konten von Büro, Bauleitern und Geschäftsführung sowie die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
@@ -82,6 +88,9 @@ export default async function benutzer(el, ctx) {
       ${m && lohngruppen.length ? `<div class="field" id="lg-ab-box" hidden><label><span class="field-label">Neue Lohngruppe gültig ab</span><input class="input lg" type="date" name="lohngruppeGueltigAb" id="lg-ab" value="${m.lohngruppe || m.lohngruppeId ? wienHeute() : ''}" min="2000-01-01" aria-describedby="lg-anfang"></label><small class="muted" id="lg-anfang" hidden>Erste Lohngruppe: leer lassen = gilt von Anfang an – auch für bereits erfasste Stunden.</small><small class="price-err" id="lg-rueck" hidden>Ändert die Kosten bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}
       <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label>
       <label class="field"><span class="field-label">Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc((m && m.telefon) || '')}" placeholder="+43 664 …"></label></div>
+      ${modelle.length ? `<div class="form-grid" id="az-box"><label class="field"><span class="field-label">Arbeitszeitmodell</span><select class="input lg" name="arbeitszeitmodell" id="az-wahl" aria-describedby="az-kurz">${modelle.filter((x) => x.aktiv !== false || (m && m.arbeitszeitmodell === x.id)).map((x) => `<option value="${x.id}" ${(m ? m.arbeitszeitmodell : vorgabeModell(m ? m.rolle : 'mitarbeiter')) === x.id ? 'selected' : ''}>${esc(x.name)}${x.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select><small class="muted" id="az-kurz"></small></label>
+      ${m ? `<div class="field" id="az-ab-box" hidden><label><span class="field-label">Neues Modell gültig ab</span><input class="input lg" type="date" name="arbeitszeitmodellGueltigAb" id="az-ab" value="${wienHeute()}" min="2000-01-01"></label><small class="price-err" id="az-rueck" hidden>Ändert Über- und Mehrstunden bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}</div>
+      <label class="switch-row flat" id="buak-zeile"><span><b>BUAK-pflichtig</b><small>Nur BUAK-pflichtige Personen stehen in der BUAK-Grundlage; ihr Urlaub zählt nach BUAK statt UrlG. Vorgabe: Mitarbeiter und Poliere.</small></span><input type="checkbox" class="vh" name="buakPflichtig" id="buak-pflichtig" ${(m ? m.buakPflichtig : true) ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <label class="field"><span class="field-label">Stamm-Baustelle (Partie)</span><select class="input lg" name="baustelleId"><option value="">– keine –</option>${baustellen.filter((x) => (x.status !== 'abgeschlossen' && !istIntern(x)) || (m && m.baustelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.baustelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}</option>`).join('')}</select></label>
       <label class="field"><span class="field-label">Standard-Kostenstelle beim Stempeln</span><select class="input lg" name="standardKostenstelleId" id="std-kst" aria-describedby="std-kst-hinweis"><option value="">– automatisch –</option>${baustellen.filter((x) => x.status !== 'abgeschlossen' || (m && m.standardKostenstelleId === x.id)).map((x) => `<option value="${x.id}" ${m && m.standardKostenstelleId === x.id ? 'selected' : ''}>${esc((x.kst ? x.kst + ' · ' : '') + x.name)}${istIntern(x) ? ' (intern)' : ''}</option>`).join('')}</select><small class="muted" id="std-kst-hinweis">Automatisch: Büro, Bauleiter und Geschäftsführung stempeln auf „Büro“, alle anderen auf ihre Stamm-Baustelle. Hier z. B. „Werkstatt“ fest vorgeben.</small></label>
       ${!m || zuruecksetzbar(m) ? `<label class="field"><span class="field-label">${m ? 'PIN zurücksetzen (leer lassen = unverändert)' : 'Start-PIN'}</span><input class="input lg" name="pin" inputmode="numeric" pattern="[0-9]{4,12}" maxlength="12" aria-describedby="pin-hinweis" ${m ? '' : 'required'} placeholder="••••" autocomplete="new-password"></label>
@@ -103,6 +112,40 @@ export default async function benutzer(el, ctx) {
       try { await post(`/benutzer/${m.id}/entsperren`); toast('Konto entsperrt – Anmeldung ist wieder möglich.'); lade(); }
       catch (x) { toast(x.message, 'warn'); entB.disabled = false; }
     });
+    // 15.23: Arbeitszeitmodell mit Stichtag, BUAK-Pflicht; neue Person: Vorgabe folgt der gewählten Rolle, bis man selbst wählt
+    const azWahl = $('#az-wahl', d.el);
+    const azAlt = azWahl ? azWahl.value : '';
+    let azBeruehrt = false, buakBeruehrt = false;
+    const azZeig = () => {
+      if (!azWahl) return;
+      $('#az-kurz', d.el).textContent = modellKurz(modelle.find((x) => String(x.id) === azWahl.value));
+      const box = $('#az-ab-box', d.el);
+      if (box) { box.hidden = azWahl.value === azAlt; const ab = $('#az-ab', d.el).value; $('#az-rueck', d.el).hidden = !(ab && ab < wienHeute()); }
+    };
+    if (azWahl) {
+      azZeig();
+      azWahl.addEventListener('change', () => { azBeruehrt = true; azZeig(); });
+      if ($('#az-ab', d.el)) $('#az-ab', d.el).addEventListener('input', azZeig);
+      $('#buak-pflichtig', d.el).addEventListener('change', () => { buakBeruehrt = true; });
+      if (!m) $('#bf [name="rolle"]', d.el).addEventListener('change', (ev) => {
+        if (!azBeruehrt) { const id = vorgabeModell(ev.target.value); if (id != null) azWahl.value = String(id); azZeig(); }
+        if (!buakBeruehrt) $('#buak-pflichtig', d.el).checked = feldRolle(ev.target.value);
+      });
+      if (m) {
+        const azVerlauf = (liste) => {
+          let box = $('#az-verlauf', d.el);
+          if (!box) { box = document.createElement('div'); box.id = 'az-verlauf'; box.className = 'stack-s'; $('#az-box', d.el).insertAdjacentElement('afterend', box); }
+          if (liste.length <= 1 && liste.every((v) => v.vorgabe)) { box.innerHTML = ''; return; }
+          box.innerHTML = `<h4 class="sub-h">Arbeitszeitmodell-Verlauf <span class="count">${liste.length}</span></h4><ul class="plain rows">${liste.slice().reverse().map((v) => `<li data-az-stand="${v.id ?? ''}" class="${v.kuenftig ? 'geplant' : ''}"><span class="grow"><b>${esc(v.name || '–')}</b><small>${v.gueltigAb <= '2000-01-01' ? 'von Anfang an' : 'ab ' + esc(fmt.datum(v.gueltigAb))}${v.vorgabe ? ' · Vorgabe der Rolle' : ''}${v.erstelltVon ? ' · ' + esc(v.erstelltVon.name) : ''}</small></span>${v.aktuell ? '<span class="chip xs st-green">gilt jetzt</span>' : v.kuenftig ? '<span class="chip xs st-blue">künftig</span>' : ''}${v.kuenftig && v.id != null ? `<button type="button" class="btn ghost sm" data-az-weg="${v.id}">Zurücknehmen</button>` : ''}</li>`).join('')}</ul>`;
+        };
+        get(`/benutzer/${m.id}/arbeitszeit-verlauf`).then(azVerlauf).catch(() => {});
+        d.el.addEventListener('click', async (ev) => {
+          const w = ev.target.closest('[data-az-weg]'); if (!w) return;
+          if (!(await bestaetigen('Künftiges Arbeitszeitmodell zurücknehmen?', 'Der geplante Wechsel wird gelöscht; das bisherige Modell gilt weiter.', 'Zurücknehmen', 'danger'))) return;
+          try { const r2 = await del(`/benutzer/${m.id}/arbeitszeit-verlauf/${w.dataset.azWeg}`); azVerlauf(r2.arbeitszeitVerlauf || []); toast('Geplanter Wechsel zurückgenommen.'); } catch (x) { toast(x.message, 'warn'); }
+        });
+      }
+    }
     const lgWahl = $('#bf [name="lohngruppe"]', d.el);
     const lgAlt = lgWahl ? lgWahl.value : '';
     const lgBox = $('#lg-ab-box', d.el);
@@ -144,6 +187,22 @@ export default async function benutzer(el, ctx) {
           if (!(await bestaetigen('Lohngruppe rückwirkend ändern?', `Ändert die Kosten bereits erfasster Tage ab diesem Datum (${fmt.datum(body.lohngruppeGueltigAb)}): Nachkalkulation, interne Kosten und Lohn-Auswertung werden neu gerechnet. Das wird protokolliert.`, 'Ja, rückwirkend ändern', 'danger'))) return;
           body.lohngruppeRueckwirkend = true;
         }
+      }
+      // 15.23: Arbeitszeitmodell (Stichtag, rückwirkend nur bestätigt) und BUAK-Pflicht – nur wenn geändert
+      if (azWahl) {
+        const azNeu = azWahl.value;
+        if (!m || azNeu !== azAlt) {
+          body.arbeitszeitmodell = Number(azNeu);
+          if (m && f.get('arbeitszeitmodellGueltigAb')) {
+            body.arbeitszeitmodellGueltigAb = f.get('arbeitszeitmodellGueltigAb');
+            if (body.arbeitszeitmodellGueltigAb < wienHeute()) {
+              if (!(await bestaetigen('Arbeitszeitmodell rückwirkend ändern?', `Über- und Mehrstunden bereits erfasster Tage ab ${fmt.datum(body.arbeitszeitmodellGueltigAb)} werden neu gerechnet (Monatsauswertung, Lohn-Export). Das wird protokolliert.`, 'Ja, rückwirkend ändern', 'danger'))) return;
+              body.arbeitszeitmodellRueckwirkend = true;
+            }
+          }
+        }
+        const buak = f.get('buakPflichtig') === 'on';
+        if (!m || buak !== m.buakPflichtig) body.buakPflichtig = buak;
       }
       try {
         const antwort = m ? await put(`/benutzer/${m.id}`, body) : await post('/benutzer', body);

@@ -3,7 +3,7 @@ import { get, post, put, del } from '../api.js';
 import { ic, esc, leer, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
 
 const FELDER = { pnr: 'Personalnummer', name: 'Name', monat: 'Monat', lohnart: 'Lohnart', stunden: 'Stunden', tage: 'Tage', betrag: 'Betrag', kst: 'Kostenstelle', datum: 'Datum', fest: 'Fester Wert' };
-const LOHNARTEN = { normal: 'Normalstunden', ueberstunden: 'Überstunden', sw: 'Schlechtwetter', u: 'Urlaub', k: 'Krank', za: 'Zeitausgleich', seg: 'SEG-Zulage', taggeld: 'Taggeld' };
+const LOHNARTEN = { normal: 'Normalstunden', ueberstunden: 'Überstunden', mehrstunden: 'Mehrstunden (Teilzeit)', sw: 'Schlechtwetter', u: 'Urlaub', k: 'Krank', za: 'Zeitausgleich', seg: 'SEG-Zulage', taggeld: 'Taggeld' };
 
 export default async function lohnvorlagen(el, ctx) {
   let liste = [];
