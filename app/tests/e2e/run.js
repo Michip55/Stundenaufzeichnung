@@ -185,7 +185,8 @@ async function laufe(browser, g) {
     await shot('stempeln-arbeit');
     // M-04: Serverfehler (503) beim Stempeln → Buchung bleibt in der Warteschlange und wird später gesendet
     await page.route('**/api/zeit/stempeln', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ fehler: 'Wartung', code: 'SERVER' }) }));
-    await absichtlich(async () => { await page.click('[data-stempel="pause_start"]'); await page.waitForSelector('#sync[data-ausstehend="1"]'); });
+    // 15.22: „Pause“ fragt die Dauer (30/45/60 Min · offen) – hier „offen“ (bisheriges Verhalten)
+    await absichtlich(async () => { await page.click('[data-stempel="pause_start"]'); await page.click('dialog[open] [data-pause-min="offen"]'); await page.waitForSelector('#sync[data-ausstehend="1"]'); });
     pruef((await status()).status === 'arbeit', 'M-04: Test-Vorbedingung – Server sollte die Pause noch nicht haben');
     pruef((await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'))).length === 1, 'M-04: Buchung nach 503 nicht in der Warteschlange behalten');
     await absichtlich(async () => { await page.click('#sync'); await sleep(400); });
@@ -1666,6 +1667,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {
       console.log('    Korrekturen G2 (Zahlungsstand, Tafel, gesperrte Bericht-Adresse) …');
       try { const kg = await require('./korrekturen-g2').laufe(browser, g); r.fehler.push(...kg.fehler); r.schritte += kg.schritte; } catch (e) { r.fehler.push('Abbruch Korrekturen G2: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Vordefinierte Pausen: Auswahl 30/45/60/offen, automatisches Ende, ohne Netz, Einstellung, Kolonne „Alle in Pause“ (tests/e2e/pausen.js, API.md 15.22)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAUSEN) {
+      console.log('    Vordefinierte Pausen (Auswahl, automatisches Ende, ohne Netz, Einstellung, Kolonne) …');
+      try { const pa = await require('./pausen').laufe(browser, g); r.fehler.push(...pa.fehler); r.schritte += pa.schritte; } catch (e) { r.fehler.push('Abbruch Pausen: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

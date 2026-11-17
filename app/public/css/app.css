@@ -1143,3 +1143,12 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
    (und die Wartezeit auf einen zweiten Tipp) entfällt. Strengere Werte bleiben, weil spezifischer: Unterschriftsfeld
    (.sig-pad canvas: none), Ziehen im Planer ([data-zieh]). Die App reagiert nirgends auf Doppelklick. */
 *, html, body, #view { touch-action: manipulation; }
+
+/* 15.22 Vordefinierte Pausen: Auswahl 30/45/60 Min · offen (Stempeluhr, Kolonne) */
+.pause-wahl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.pause-opt { min-height: 72px; border-radius: 16px; border: 1.5px solid var(--line); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px; }
+.pause-opt b { font-size: 20px; font-weight: 800; letter-spacing: -.01em; } .pause-opt small { font-size: 13px; color: var(--muted, #667); }
+.pause-opt:hover, .pause-opt:focus-visible { border-color: var(--graphite); }
+.pause-opt.offen { border-style: dashed; }
+.pause-bis { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-weight: 700; font-size: 15px; }
+.kol-dauer { margin-top: 4px; }

@@ -287,6 +287,8 @@
     "GET /api/urlaub/warnungen": { "r": "N N J J J", "varianten": [{"query": "?von=2026-11-01&bis=2026-12-31"}], "grund": "12.19: Planer (Bauleiter = Büro, 15.4)" },
     "GET /api/einstellungen/urlaub": { "r": "N N J J J", "grund": "12.19: stammdaten" },
     "PUT /api/einstellungen/urlaub": { "r": "N N J J J", "body": { "partieGrenze": 3 }, "grund": "12.19: stammdaten" },
+    "GET /api/einstellungen/pausen": { "r": "N N J J J", "grund": "15.22: Einstellung pflegen – allein Recht stammdaten (Stempeluhr/Kolonne erhalten die Auswahl über GET /zeit/status)" },
+    "PUT /api/einstellungen/pausen": { "r": "N N J J J", "body": { "auswahl": [30, 45, 60] }, "grund": "15.22: allein Recht stammdaten (Büro = Bauleiter = GF)" },
     "GET /api/urlaub/export.csv": { "r": "N N J J J", "varianten": [{"query": "?jahr=2026"}], "grund": "12.19: stammdaten/lohn" },
 
     "GET /api/import/bmd-op/zuordnung": { "r": "N N J J J", "grund": "12.20 (Zuordnung ohne Beträge; Lesen mit preise_sehen)" },

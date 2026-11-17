@@ -66,7 +66,7 @@ export default async function preise(el, ctx) {
         ${darfPflegen(t) && stamm[t.art] ? `<button type="button" class="btn ghost" id="stamm-import">${ic('file')}Excel hochladen</button><input type="file" id="stamm-datei" class="vh" accept=".xlsx" tabindex="-1" aria-hidden="true"><button type="button" class="btn primary" id="stamm-neu">${ic('plus')}Neu</button>` : ''}</div>` : ''}
       <section class="card" id="tabpanel" role="tabpanel" aria-labelledby="tab-${tab}">${t ? tabelle(t) : ''}</section>
       ${t && darf ? `<p class="fineprint">Preis ändern: Betrag überschreiben – es wird „gültig ab“ gefragt (Standard heute). Deaktivierte Einträge verschwinden aus allen Auswahllisten, bleiben aber in alten Berichten sichtbar. Die Verrechnungspreise der Nachkalkulation stehen im Positionskatalog bzw. je Bauvorhaben.</p>` : ''}
-      <nav class="chip-row" aria-label="Weitere Stammdaten" id="stamm-links"><span class="muted sm">Weitere Stammdaten:</span>${ctx.kann('benutzer') || ctx.kann('stammdaten') ? '<a class="chip-btn" href="#/benutzer">Mitarbeiter</a>' : ''}<a class="chip-btn" href="#/baustellen">Baustellen</a><a class="chip-btn" href="#/fuhrpark">Fuhrpark &amp; Geräte</a></nav>
+      <nav class="chip-row" aria-label="Weitere Stammdaten" id="stamm-links"><span class="muted sm">Weitere Stammdaten:</span>${ctx.kann('benutzer') || ctx.kann('stammdaten') ? '<a class="chip-btn" href="#/benutzer">Mitarbeiter</a>' : ''}<a class="chip-btn" href="#/baustellen">Baustellen</a><a class="chip-btn" href="#/fuhrpark">Fuhrpark &amp; Geräte</a>${darfStamm ? '<button type="button" class="chip-btn" id="stamm-pausen">Vordefinierte Pausen</button>' : ''}</nav>
     </div>`;
     if (tab === 'katalog') { const box = document.createElement('div'); $('#tabpanel', el).appendChild(box); katalogTab(box, ctx); }
   }
@@ -179,7 +179,28 @@ export default async function preise(el, ctx) {
     });
   }
 
+  /* ---------- 15.22: Vordefinierte Pausen (Recht stammdaten) ---------- */
+  async function pausenDialog() {
+    let ein; try { ein = await get('/einstellungen/pausen'); } catch (x) { toast(x.message, 'warn'); return; }
+    const dlg = dialog({ titel: 'Vordefinierte Pausen', inhalt: `<form id="pausen-form" class="stack-s" novalidate>
+      <p class="muted">Diese Dauern bietet die Stempeluhr (und die Kolonne) beim Tippen auf „Pause“ an. Mit fester Dauer endet die Pause von selbst; „offen“ wird immer zusätzlich angeboten.</p>
+      <label class="field"><span class="field-label">Dauern in Minuten (durch Komma getrennt)</span>
+        <input class="input lg" id="pausen-auswahl" name="auswahl" inputmode="numeric" autocomplete="off" value="${esc((ein.auswahl || []).join(', '))}" placeholder="30, 45, 60"></label>
+      <small class="muted">Je ${ein.minDauer || 5} bis ${ein.maxDauer || 240} Minuten, höchstens ${ein.maxEintraege || 6} Dauern. Leer = nur „offen“.</small>
+      <p class="form-err" id="pausen-err" role="alert" hidden></p></form>`,
+    fuss: '<button type="button" class="btn ghost" data-zu>Abbrechen</button><button type="submit" form="pausen-form" class="btn primary" id="pausen-ok">Speichern</button>' });
+    $('#pausen-form', dlg.el).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const err = $('#pausen-err', dlg.el);
+      const roh = $('#pausen-auswahl', dlg.el).value.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+      if (roh.some((x) => !/^\d{1,3}$/.test(x))) { err.hidden = false; err.textContent = 'Bitte nur ganze Minuten, z. B. 30, 45, 60.'; return; }
+      try { const r = await put('/einstellungen/pausen', { auswahl: roh.map(Number) }); dlg.zu(); toast(`Gespeichert: ${r.auswahl.length ? r.auswahl.map((x) => `${x} Min`).join(' · ') + ' · offen' : 'nur „offen“'}.`); }
+      catch (x) { err.hidden = false; err.textContent = x.message; }
+    });
+  }
+
   el.addEventListener('click', async (e) => {
+    if (e.target.closest('#stamm-pausen')) return pausenDialog();
     const tb = e.target.closest('[data-tab]');
     if (tb && !tb.closest('[data-katalog]')) { tab = tb.dataset.tab; suche = ''; speicher.setz('bt_preistab', tab); if (tab !== 'katalog' && stamm[tab] === undefined) await ladeStamm(tab); return zeichne(); }
     const t = tabs.find((x) => x.art === tab); if (!t || e.target.closest('[data-katalog]')) return;
