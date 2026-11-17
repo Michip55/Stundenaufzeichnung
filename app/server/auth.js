@@ -75,11 +75,16 @@ function sperreMinuten(rolle, k) {
 }
 const INAKTIV_MS = 12 * 60 * 60 * 1000; // Standard Mitarbeiter/Polier (Kompatibilität)
 
-/** PIN-Regeln: Mitarbeiter/Polier mind. 4, Bauleiter/Büro/GF mind. 6 Ziffern; keine trivialen Folgen */
+/** 15.21 (Inhaber 17.11.2026): Mindestlänge der PIN – 4 Ziffern für alle Rollen (vorher Bauleiter/Büro/GF 6) */
+const PIN_MIN = 4;
+const PIN_MAX = 12;
+/** Mindestlänge je Rolle (Aufrufer übergeben die Rolle; seit 15.21 für alle gleich) */
+function pinMinLaenge(/* rolle */) { return PIN_MIN; }
+/** PIN-Regeln: 4 bis 12 Ziffern für alle Rollen; keine trivialen Folgen (1234, 654321) und nicht lauter gleiche Ziffern */
 function pinFehler(pin, rolle) {
-  const min = FELD_ROLLEN.includes(rolle) ? 4 : 6;
+  const min = pinMinLaenge(rolle);
   if (typeof pin !== 'string' || !/^\d+$/.test(pin)) return 'Die PIN darf nur aus Ziffern bestehen.';
-  if (pin.length < min || pin.length > 12) return `Die PIN muss ${min} bis 12 Ziffern haben.`;
+  if (pin.length < min || pin.length > PIN_MAX) return `Die PIN muss ${min} bis ${PIN_MAX} Ziffern haben.`;
   if (/^(\d)\1+$/.test(pin)) return 'Die PIN darf nicht aus lauter gleichen Ziffern bestehen.';
   const d = [...pin].map(Number);
   const auf = d.every((x, i) => i === 0 || x === (d[i - 1] + 1) % 10);
@@ -452,7 +457,7 @@ class LoginBremse {
 
 module.exports = { kontoStufe, entsperrHinweis,
   COOKIE, BINDUNG, ERSTELLER_KOPF, ICH_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
-  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
+  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, pinMinLaenge, PIN_MIN, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse
 };

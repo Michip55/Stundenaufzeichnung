@@ -109,8 +109,8 @@ module.exports = function authRouten(api, bt) {
       fehlversuch(bt, b, ip);
       throw nichtAngemeldet('Benutzer oder PIN falsch.');
     }
-    // D-02: PIN kürzer als für die Rolle vorgeschrieben → Wechsel erzwingen
-    const zuKurz = !bt.demo && !auth.FELD_ROLLEN.includes(b.rolle) && body.pin.length < 6; // Demo-Modus: 1234 bleibt
+    // D-02: PIN kürzer als für die Rolle vorgeschrieben → Wechsel erzwingen (15.21: 4 Ziffern für alle Rollen)
+    const zuKurz = !bt.demo && body.pin.length < auth.pinMinLaenge(b.rolle); // Demo-Modus: 1234 bleibt
     db.lauf('UPDATE benutzer SET pin_laenge = ?, muss_pin_aendern = CASE WHEN ? THEN 1 ELSE muss_pin_aendern END WHERE id = ?', body.pin.length, zuKurz ? 1 : 0, b.id);
     if (zuKurz) b.muss_pin_aendern = 1;
     // API.md 12.7: mit aktiver Zwei-Faktor-Anmeldung erst nach dem Code anmelden

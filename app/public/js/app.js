@@ -1,7 +1,7 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
 import { get, post, abmeldenVormerken, abmeldenSenden, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
-import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, GERAET_TEXT, $, $$ } from './ui.js';
+import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
@@ -52,7 +52,6 @@ let integCache = null;
 let pollTimer = null;
 let schadenNeu = 0;        // neu gemeldete Schäden (für alle, die sie bearbeiten)
 let schadenWartet = 0;     // eigene Schadensmeldungen, die noch auf Verbindung warten
-let geraetHinweis = '';   // 15.12 (G2-021): 'wechsel' = „Eigenes Handy“ einer anderen Person auf „geteilt“ zurückgesetzt; 15.16 (H-S4): 'bestaetigen' = vor der Anmeldung gewählt, gilt erst nach Bestätigung
 
 const kann = (recht) => !!ich && ich.rechte.includes(recht);
 const eines = (...r) => () => r.some(kann);
@@ -174,14 +173,12 @@ function rahmen() {
         </div>
       </header>
       <div id="install-hinweis" hidden></div>
-      <div id="geraet-hinweis" class="geraet-hinweis" role="alert" hidden></div>
       <main class="view" id="view" tabindex="-1"></main>
       <nav class="tabbar" id="nav-tab" aria-label="Hauptnavigation">${tabLeiste()}</nav>
     </div>
   </div>`;
   $('#glocke').addEventListener('click', glockeAuf);
   zeigeInstallHinweis();
-  zeigeGeraetHinweis();
   zeigeSync();
   zeigeGlocke();
   zeigeBadge();
@@ -197,28 +194,10 @@ function zeigeInstallHinweis() {
   const zu = $('button', el); if (zu) zu.addEventListener('click', () => { speicher.setz('bt_install_weg', true); zeigeInstallHinweis(); });
 }
 window.addEventListener('bt:install', zeigeInstallHinweis);
-// 15.12 (G2-021): nach einem Benutzerwechsel deutlich zeigen, dass das Gerät wieder als „Geteiltes Gerät“ gilt – mit der Wahl
-// 15.16 (H-S4): „Eigenes Handy“ auf der Anmeldeseite gilt erst, wenn die angemeldete Person es hier bestätigt
-function zeigeGeraetHinweis() {
-  const el = $('#geraet-hinweis'); if (!el) return;
-  el.hidden = !(geraetHinweis && ich);
-  el.dataset.grund = el.hidden ? '' : geraetHinweis;
-  const text = geraetHinweis === 'bestaetigen'
-    ? '<b>Dieses Gerät ist ein „Geteiltes Gerät“, bis Sie „Eigenes Handy“ bestätigen.</b><span>„Eigenes Handy“ wurde vor der Anmeldung gewählt und gilt nur, wenn Sie es jetzt bestätigen. '
-    : '<b>Dieses Gerät ist jetzt ein „Geteiltes Gerät“.</b><span>Es war von einer anderen Person als „Eigenes Handy“ eingestellt. ';
-  el.innerHTML = el.hidden ? '' : `${ic('users')}<div class="gh-txt">${text}${esc(GERAET_TEXT.geteilt)}</span></div>
-    <div class="btn-zeile"><button type="button" class="btn primary sm" data-geraet="geteilt">Geteiltes Gerät – passt</button><button type="button" class="btn ghost sm" data-geraet="eigen">Das ist mein eigenes Handy</button></div>`;
-  el.querySelectorAll('[data-geraet]').forEach((b) => b.addEventListener('click', () => {
-    const art = geraetGewaehlt(b.dataset.geraet);
-    geraetHinweis = ''; zeigeGeraetHinweis();
-    toast(art === 'eigen' ? 'Eigenes Handy: angemeldet bis zum Abmelden (längstens wie die Sitzung am Server).' : 'Geteiltes Gerät: automatische Abmeldung ohne Bedienung.');
-  }));
-}
-window.addEventListener('bt:geraet-art', () => { if (geraetHinweis && ich) { geraetHinweis = ''; zeigeGeraetHinweis(); } });
 /**
- * Gerätewahl der angemeldeten Person (Hinweis oder „Mehr“) – sie gehört dieser Person (G2-021). 15.16 (H-S3): das Push-Abo dieses
- * Geräts erfährt die neue Art (geteilt → Zustellung nur innerhalb der Sperre nach Untätigkeit); bestätigt die Person „Eigenes Handy“
- * und hatte sie Push hier eingeschaltet, kommt es wie nach der Anmeldung still zurück (15.12).
+ * Gerätewahl der angemeldeten Person in „Mehr“ – „Eigenes Handy“ gilt für diese Person (G2-021), „Geteiltes Gerät“ für das Gerät
+ * (15.21). 15.16 (H-S3): das Push-Abo dieses Geräts erfährt die neue Art (geteilt → Zustellung nur innerhalb der Sperre nach
+ * Untätigkeit); wählt die Person „Eigenes Handy“ und hatte sie Push hier eingeschaltet, kommt es wie nach der Anmeldung still zurück (15.12).
  */
 function geraetGewaehlt(art) {
   if (!ich) return geraetArtFuer(null);
@@ -478,7 +457,7 @@ function fremdBeendet(anderePerson = false) {
   if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
   $$('dialog[open]').forEach((d) => d.close());
   toastsWeg();
-  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0; geraetHinweis = ''; ichGemerkt = false;
+  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0; ichGemerkt = false;
   setzBenutzer(null); clearInterval(pollTimer);
   lauf++;
   document.title = 'BauTag';
@@ -507,10 +486,9 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
       speicher.raeumeBenutzer(); stammVergessen();
       await pushAbmelden(await geraetPushAbo()); // 15.5 (F-014): ihr Push-Abo an diesem Gerät endet
     }
-    // 15.12 (G2-021) / 15.16 (H-S4): „Eigenes Handy“ gilt nur für die Person, die es nach ihrer Anmeldung gewählt hat –
-    // sonst „geteilt“; eine Wahl auf der Anmeldeseite muss die Person erst bestätigen
-    const wahl = geraetArtBeiAnmeldung(ich.benutzer.id);
-    if (wahl.zurueckgesetzt) geraetHinweis = 'wechsel'; else if (wahl.bestaetigen) geraetHinweis = 'bestaetigen';
+    // 15.21: bei der Anmeldung über die Anmeldeseite gilt deren Gerätewahl sofort für diese Person (Standard „Eigenes Handy“,
+    // ohne Bestätigung); beim Neustart mit bestehender Sitzung bleibt es bei der gespeicherten Wahl (geraetArtFuer)
+    if (frisch) geraetArtBeiAnmeldung(ich.benutzer.id);
     speicher.setz('bt_geraet_benutzer', ich.benutzer.id);
     if (frisch) { aktivMem = Date.now(); aktivGeschrieben = aktivMem; speicher.setz(AKTIV, aktivMem); } // Untätigkeit zählt ab der Anmeldung
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
@@ -570,7 +548,7 @@ function lokalAbmelden({ amServer = false } = {}) {
   $$('dialog[open]').forEach((d) => d.close());
   toastsWeg();
   lauf++; // ein noch laufender Renderlauf der Person zeichnet nichts mehr
-  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0; geraetHinweis = '';
+  ich = null; meldungen = []; integCache = null; schadenNeu = 0; schadenWartet = 0;
   setzBenutzer(null); clearInterval(pollTimer);
   bindungLoeschen();
   ichVergessen();
@@ -589,7 +567,7 @@ function lokalAbmelden({ amServer = false } = {}) {
 const AKTIV = 'bt_aktiv';
 let aktivMem = Date.now(), aktivGeschrieben = 0;
 const letzteBedienung = () => { const g = Number(speicher.lies(AKTIV, 0)) || 0; return g || aktivMem; };
-function untaetig() { const min = ich ? sperreMinutenFuer(ich, geraetArtFuer(ich.benutzer.id)) : 0; return !!ich && min > 0 && Date.now() - letzteBedienung() > min * 60000; } // 15.16 (H-S4): „eigen“ nur mit Wahl dieser Person
+function untaetig() { const min = ich ? sperreMinutenFuer(ich, geraetArtFuer(ich.benutzer.id)) : 0; return !!ich && min > 0 && Date.now() - letzteBedienung() > min * 60000; } // 15.21: „eigen“ nur, wenn es für diese Person gespeichert ist
 let sperrt = false;
 function sperrePruefen() {
   if (sperrt || !untaetig()) return false;

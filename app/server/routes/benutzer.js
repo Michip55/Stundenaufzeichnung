@@ -245,8 +245,9 @@ module.exports = function benutzerRouten(api, bt) {
       pruefeKontoZuruecksetzen(db, req.ctx, alt, { neueRolle: f.rolle || null }); // 15.5 (F-050)
       f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1;
     }
-    // D-02: neue Rolle mit Mindestlänge 6 und kürzere/unbekannte PIN → PIN-Wechsel erzwingen
-    if (rollenwechsel && !auth.FELD_ROLLEN.includes(f.rolle) && !pin && !(alt.pin_laenge >= 6)) f.muss_pin_aendern = 1;
+    // D-02: neue Rolle mit größerer Mindestlänge und bekannt kürzerer PIN → PIN-Wechsel erzwingen. 15.21: seit 4 Ziffern für alle
+    // Rollen gelten, ist eine gültige PIN beim Rollenwechsel nie zu kurz – die Regel bleibt für eine spätere andere Mindestlänge
+    if (rollenwechsel && !pin && alt.pin_laenge != null && alt.pin_laenge < auth.pinMinLaenge(f.rolle)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
     const entfernt = [];
     let lgErg = null;

@@ -57,7 +57,7 @@ const GELD_SICHTBAR = /€|\bEUR\b|\d+,\d{2}\s?€/;
 
 /* ---------- G2-011: Gerätespeicher ---------- */
 // nach dem Abmelden erlaubt (gehört zum Gerät bzw. ist versiegelt, ui.js abmelden: GERAET/WARTEND); Testattrappen e2e_*
-const SPEICHER_NACH_ABMELDEN = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
+const SPEICHER_NACH_ABMELDEN = new Set(['bt_uebersicht_klassisch', 'bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
 
 /* ---------- 15.17 (H-T2): Positivliste für IndexedDB und Cache Storage nach dem Abmelden ---------- */
 // IndexedDB: nur versiegelte Einträge der Schadens-Warteschlange (tresor.js) – ohne jede Angabe im Klartext
@@ -396,6 +396,11 @@ async function main() {
   {
     const ctx = await kontext(GROESSEN[0]);
     const page = await ctx.newPage();
+    // 15.21: Standard ist „Eigenes Handy“ – dieses Gerät wird auf der Anmeldeseite bewusst als „Geteiltes Gerät“ gewählt
+    await page.goto(s.basis + '/#/login', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#geraet-wahl', { timeout: 15000 });
+    await page.click('#geraet-wahl label:has(input[value="geteilt"])');
+    if (await page.evaluate(() => localStorage.getItem('bt_geraet_art')) !== 'geteilt') notiere('geteiltes Gerät: Wahl „Geteiltes Gerät“ auf der Anmeldeseite nicht gespeichert');
     await anmelden(page, U.polier);
     log('Polier angemeldet');
     const polierSitzung = (await ctx.cookies()).filter((c) => /session|sitzung|bindung/i.test(c.name)).map((c) => c.value).filter((x) => x && x.length >= 16);

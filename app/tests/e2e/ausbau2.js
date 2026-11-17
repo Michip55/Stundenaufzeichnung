@@ -1565,6 +1565,11 @@ async function geteilt(h) {
   });
   const ichP = await anmelden('polier');
   const P = ichP.benutzer.id, name = ichP.benutzer.name;
+  // 15.21: Standard ist „Eigenes Handy“ – dieses Gerät wird in „Mehr“ bewusst als „Geteiltes Gerät“ gewählt (gilt für das Gerät)
+  await geh('/mehr');
+  await page.click('#geraet-wahl label:has(input[value="geteilt"])');
+  await page.waitForTimeout(150);
+  pruef(await page.evaluate(() => localStorage.getItem('bt_geraet_art') === 'geteilt' && localStorage.getItem('bt_geraet_art_benutzer') === null), 'R-08: Wahl „Geteiltes Gerät“ in „Mehr“ nicht für das Gerät gespeichert');
   // der Polier arbeitet: Einsatz, Partie, Stempeluhr, Bericht, Urlaub – und hat eine Fuhren-Meldung ohne Netz in der Warteschlange
   const entwurf = (await api('GET', '/berichte?status=entwurf')).json[0];
   for (const r of ['/stempeln', '/einsatz', '/partie', '/berichte', ...(entwurf ? [`/bericht/${entwurf.id}`] : []), '/urlaub', '/fuhrpark', '/baustellen']) await geh(r);
@@ -1582,10 +1587,11 @@ async function geteilt(h) {
   await page.click('dialog[open] [data-ok]');
   await page.waitForSelector('.login-user');
   const nach = await lager();
-  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_geraet_art', 'bt_uebersicht_klassisch', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const fremd = Object.keys(nach.ls).filter((x) => !ERLAUBT.includes(x));
   pruef(fremd.length === 0, `R-08: nach dem Abmelden bleiben Schlüssel im localStorage: ${fremd.join(', ')}`);
+  pruef(nach.ls.bt_geraet_art === 'geteilt', `R-08: Gerätewahl „Geteiltes Gerät“ nach dem Abmelden nicht erhalten (${nach.ls.bt_geraet_art})`);
   const mitDaten = Object.entries(nach.ls).filter(([x, w]) => !WARTEND.includes(x) && (w.includes(name) || /"uid":|"benutzer":\{|"einsatz"|"rechte"/.test(w)));
   pruef(mitDaten.length === 0 && Object.keys(nach.ss).length === 0 && nach.cache.length === 0 && !nach.cookie, `R-08: Daten des Vorbenutzers lesbar (localStorage ${mitDaten.map(([x]) => x).join(',')}, sessionStorage ${Object.keys(nach.ss).join(',')}, Cache ${nach.cache.length}, Cookie „${nach.cookie}“)`);
   // anderer Benutzer am selben Gerät: sieht nichts vom Polier, dessen Warteschlange wird nicht mit seiner Sitzung gesendet

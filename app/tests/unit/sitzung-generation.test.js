@@ -157,59 +157,77 @@ test('15.16 H-S1: vorgemerktes Abmelden geht vor jeder anderen Anfrage hinaus �
   });
 });
 
-test('15.12 G2-021 / 15.16 H-S4: „Eigenes Handy“ gilt nur für die Person, die es nach ihrer Anmeldung gewählt hat', async () => {
+test('15.21 (ersetzt 15.16 H-S4): Standard „Eigenes Handy“ gilt sofort für die Person, die sich anmeldet – nie für eine andere', async () => {
   const A = await modul('api.js');
-  await mitUmgebung(async () => {
-    const nichts = { art: 'geteilt', zurueckgesetzt: false, bestaetigen: false };
-    // nie gewählt: ein Benutzerwechsel speichert nichts (R-08: nur nötige Gerätedaten), es gilt „geteilt“
-    assert.deepEqual(A.geraetArtBeiAnmeldung(2, 1), nichts);
-    assert.equal(localStorage.getItem(A.GERAET_ART), null);
-    assert.equal(localStorage.getItem(A.GERAET_ART_BENUTZER), null);
-    // 15.16 (H-S4): neues Gerät, auf der Anmeldeseite (ohne Anmeldung) „eigen“ gewählt → gilt NICHT, auch nicht für die erste Person:
-    // „geteilt“ (mit dieser Person gespeichert), die App fragt nach der Anmeldung nach (bestaetigen)
-    A.geraetVorwahl('eigen');
-    assert.equal(A.geraetArtInhaber(), null);
-    assert.equal(A.geraetArtFuer(1), 'geteilt', 'vor der Bestätigung nie „eigen“');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(1, null), { art: 'geteilt', zurueckgesetzt: false, bestaetigen: true });
-    assert.equal(A.geraetArt(), 'geteilt');
+  await mitUmgebung(async (ereignisse) => {
+    // neues Gerät (nichts gespeichert): Anmeldeseite zeigt „eigen“, wirksam ist es noch für niemanden
+    assert.equal(A.geraetArt(), 'eigen', 'Standard der Anmeldeseite: Eigenes Handy');
+    assert.equal(A.geraetArtFuer(1), 'geteilt', 'ohne Anmeldung über die Anmeldeseite (z. B. Neustart mit alter Sitzung) nie „eigen“');
+    assert.equal(A.geraetArtFuer(null), 'geteilt');
+    // erste Anmeldung mit dem Standard → sofort „eigen“ für genau diese Person, ohne Bestätigung
+    assert.deepEqual(A.geraetArtBeiAnmeldung(1), { art: 'eigen', vorher: null });
+    assert.equal(localStorage.getItem(A.GERAET_ART), 'eigen');
     assert.equal(A.geraetArtInhaber(), 1);
-    // die angemeldete Person bestätigt (Hinweis bzw. „Mehr“) → gehört ihr; dieselbe Person behält die Wahl beim erneuten Anmelden
-    A.setzGeraetArt('eigen', 1);
-    assert.deepEqual(A.geraetArtBeiAnmeldung(1, 1), { art: 'eigen', zurueckgesetzt: false, bestaetigen: false });
     assert.equal(A.geraetArtFuer(1), 'eigen');
-    assert.equal(A.geraetArtFuer(2), 'geteilt');
-    // ein Klick auf „Eigenes Handy“ an der Anmeldeseite nimmt der Person ihre Wahl nicht weg (kein stilles Umschreiben)
+    assert.equal(A.geraetArtFuer(2), 'geteilt', 'gilt nie für eine andere Person');
+    assert.ok(ereignisse.includes('bt:geraet-art'));
+    // dieselbe Person meldet sich wieder an → bleibt
+    assert.deepEqual(A.geraetArtBeiAnmeldung(1), { art: 'eigen', vorher: null });
+    // ein Klick auf „Eigenes Handy“ an der Anmeldeseite ändert nichts an der Zuordnung
     A.geraetVorwahl('eigen');
     assert.equal(A.geraetArtInhaber(), 1);
-    assert.deepEqual(A.geraetArtBeiAnmeldung(1, 1), { art: 'eigen', zurueckgesetzt: false, bestaetigen: false });
-    // eine andere Person meldet sich an → „geteilt“, deutlich zeigen
-    assert.deepEqual(A.geraetArtBeiAnmeldung(2, 1), { art: 'geteilt', zurueckgesetzt: true, bestaetigen: false });
-    assert.equal(A.geraetArt(), 'geteilt');
-    assert.equal(A.geraetArtInhaber(), 2);
-    assert.equal(localStorage.getItem(A.GERAET_ART), 'geteilt');
-    // Vorbenutzer 2 stellt auf der Anmeldeseite (ohne Anmeldung) „eigen“ ein → gilt nicht für Person 3
-    A.geraetVorwahl('eigen');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(3, 2), { art: 'geteilt', zurueckgesetzt: false, bestaetigen: true });
-    // 15.16 (H-S4): … und auch NICHT für die zuletzt angemeldete Person (Befund: Voreinstellung vor der Anmeldung des Poliers)
-    A.geraetVorwahl('eigen');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(3, 3), { art: 'geteilt', zurueckgesetzt: false, bestaetigen: true });
-    assert.equal(A.geraetArtFuer(3), 'geteilt');
-    // „Geteiltes Gerät“ auf der Anmeldeseite gilt sofort (sicherer)
-    A.setzGeraetArt('eigen', 3);
-    A.geraetVorwahl('geteilt');
-    assert.equal(A.geraetArt(), 'geteilt');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(3, 3), nichts);
-    // in „Mehr“ gewählt: gehört der angemeldeten Person, auch wenn bt_geraet_benutzer anders lautet
+    // eine andere Person meldet sich mit dem Standard an → „eigen“ gilt jetzt für SIE, nicht mehr für Person 1
+    assert.deepEqual(A.geraetArtBeiAnmeldung(2), { art: 'eigen', vorher: 1 });
+    assert.equal(A.geraetArtFuer(2), 'eigen');
+    assert.equal(A.geraetArtFuer(1), 'geteilt', 'die vorige Person verliert „eigen“ an diesem Gerät');
+    // „Geteiltes Gerät“ auf der Anmeldeseite: gilt sofort und für das Gerät (ohne Person), auch für die zuletzt angemeldete Person
+    assert.equal(A.geraetVorwahl('geteilt'), 'geteilt');
+    assert.equal(A.geraetArtInhaber(), null);
+    assert.equal(A.geraetArtFuer(2), 'geteilt');
+    assert.equal(A.geraetArt(), 'geteilt', 'Anmeldeseite zeigt danach „Geteiltes Gerät“');
+    assert.deepEqual(A.geraetArtBeiAnmeldung(3), { art: 'geteilt', vorher: null });
+    assert.equal(localStorage.getItem(A.GERAET_ART), 'geteilt', 'bleibt für die nächste Person');
+    assert.equal(A.geraetArtInhaber(), null);
+    assert.deepEqual(A.geraetArtBeiAnmeldung(2), { art: 'geteilt', vorher: null });
+    // in „Mehr“: „eigen“ gehört der angemeldeten Person; „geteilt“ gilt für das Gerät (auch mit übergebener Person ohne Inhaber)
     A.setzGeraetArt('eigen', 5);
-    assert.deepEqual(A.geraetArtBeiAnmeldung(3, 3), { art: 'geteilt', zurueckgesetzt: true, bestaetigen: false });
-    // gemerkter Altbestand ohne Inhaber: gilt für niemanden, auch nicht für die zuletzt angemeldete Person
+    assert.equal(A.geraetArtFuer(5), 'eigen');
+    A.setzGeraetArt('geteilt', 5);
+    assert.equal(A.geraetArtInhaber(), null);
+    assert.equal(A.geraetArt(), 'geteilt');
+    // wieder „Eigenes Handy“ auf der Anmeldeseite → gilt für die nächste Person, die sich anmeldet
+    assert.equal(A.geraetVorwahl('eigen'), 'eigen');
+    assert.equal(A.geraetArtInhaber(), null);
+    assert.equal(A.geraetArtFuer(5), 'geteilt', 'vor der Anmeldung für niemanden wirksam');
+    assert.deepEqual(A.geraetArtBeiAnmeldung(6), { art: 'eigen', vorher: null });
+    assert.equal(A.geraetArtFuer(6), 'eigen');
+    // Altbestand vor 15.21: „geteilt“ MIT Person hat die App selbst gesetzt (Benutzerwechsel/unbestätigte Vormerkung) →
+    // gilt nicht als Wahl „Geteiltes Gerät“, die Anmeldeseite zeigt den Standard „eigen“
+    localStorage.setItem(A.GERAET_ART, 'geteilt'); localStorage.setItem(A.GERAET_ART_BENUTZER, '7');
+    assert.equal(A.geraetArt(), 'eigen');
+    assert.equal(A.geraetArtFuer(7), 'geteilt', 'wirksam bleibt es bis zur nächsten Anmeldung „geteilt“');
+    assert.deepEqual(A.geraetArtBeiAnmeldung(7), { art: 'eigen', vorher: null });
+    // Altbestand „eigen“ ohne Person (Vormerkung vor 15.21) → gilt für die Person, die sich jetzt anmeldet
     localStorage.removeItem(A.GERAET_ART_BENUTZER); localStorage.setItem(A.GERAET_ART, 'eigen');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(6, 6), { art: 'geteilt', zurueckgesetzt: false, bestaetigen: true });
-    localStorage.removeItem(A.GERAET_ART_BENUTZER); localStorage.setItem(A.GERAET_ART, 'eigen');
-    assert.deepEqual(A.geraetArtBeiAnmeldung(7, 6), { art: 'geteilt', zurueckgesetzt: false, bestaetigen: true });
-    // bereits „geteilt“: Wechsel ohne Hinweis
-    assert.deepEqual(A.geraetArtBeiAnmeldung(8, 7), nichts);
+    assert.equal(A.geraetArtFuer(7), 'geteilt');
+    assert.deepEqual(A.geraetArtBeiAnmeldung(8), { art: 'eigen', vorher: null });
+    // unbekannter Wert → Standard „eigen“ auf der Anmeldeseite, wirksam erst nach der Anmeldung
+    localStorage.setItem(A.GERAET_ART, '"eigen"');
+    assert.equal(A.geraetArt(), 'eigen');
+    assert.equal(A.geraetArtFuer(8), 'geteilt');
+    // ungültige Person: nichts gespeichert
+    localStorage.removeItem(A.GERAET_ART); localStorage.removeItem(A.GERAET_ART_BENUTZER);
+    assert.deepEqual(A.geraetArtBeiAnmeldung('x'), { art: 'geteilt', vorher: null });
+    assert.equal(localStorage.getItem(A.GERAET_ART), null);
   });
+  // Speicher gesperrt (z. B. privater Modus): nichts kann gespeichert werden → sicher „geteilt“, auch nach der Anmeldung
+  const alt = globalThis.localStorage;
+  globalThis.localStorage = { getItem() { throw new Error('gesperrt'); }, setItem() { throw new Error('gesperrt'); }, removeItem() { throw new Error('gesperrt'); } };
+  try {
+    assert.equal(A.geraetArt(), 'geteilt');
+    assert.deepEqual(A.geraetArtBeiAnmeldung(1), { art: 'geteilt', vorher: null });
+    assert.equal(A.geraetArtFuer(1), 'geteilt');
+  } finally { if (alt === undefined) delete globalThis.localStorage; else globalThis.localStorage = alt; }
 });
 
 test('15.12 G2-021: Inhaber der Gerätewahl übersteht das Aufräumen beim Abmelden (R-08)', async () => {
@@ -222,7 +240,8 @@ test('15.12 G2-021: Inhaber der Gerätewahl übersteht das Aufräumen beim Abmel
       U.speicher.raeumeBenutzer();
       assert.equal(A.geraetArt(), 'eigen');
       assert.equal(A.geraetArtInhaber(), 4);
-      assert.match(U.geraetWahl('eigen'), /Gilt nur für die Person, die es gewählt hat/);
+      assert.match(U.geraetWahl('eigen', { anmeldeseite: true }), /Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet/);
+      assert.doesNotMatch(U.geraetWahl('eigen', { anmeldeseite: true }), /bestätigen/);
     } finally { delete globalThis.sessionStorage; }
   });
 });
@@ -248,9 +267,12 @@ test('15.12: Push nach der Anmeldung still wieder einschalten – nur dieselbe P
       assert.equal(A.pushNachAnmeldung(1, 'granted'), true);
       // Benutzerwechsel: Person 2 bekommt den Wunsch von Person 1 nie – auch nicht auf „eigen“
       assert.equal(A.pushNachAnmeldung(2, 'granted'), false, 'nie der Wunsch einer anderen Person');
-      A.geraetArtBeiAnmeldung(2, 1); // Wechsel → „geteilt“, Inhaber 2
-      assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
-      assert.equal(A.pushNachAnmeldung(1, 'granted'), false, 'Wahl gehört jetzt Person 2 – auch Person 1 nicht ohne eigene Wahl');
+      assert.deepEqual(A.geraetArtBeiAnmeldung(2), { art: 'eigen', vorher: 1 }); // 15.21: Person 2 meldet sich mit dem Standard an → „eigen“ für sie
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), false, 'eigen, aber ohne eigenen Push-Wunsch: nichts');
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), false, '„eigen“ gilt jetzt für Person 2 – für Person 1 nicht mehr');
+      // Person 1 meldet sich wieder an (Standard „eigen“) → ihr eigener Wunsch gilt wieder
+      A.geraetArtBeiAnmeldung(1);
+      assert.equal(A.pushNachAnmeldung(1, 'granted'), true);
       // geteiltes Gerät: auch derselben Person nie automatisch (dort schaltet sie Push nach jeder Anmeldung selbst ein)
       A.setzGeraetArt('geteilt', 1);
       assert.equal(A.pushNachAnmeldung(1, 'granted'), false);
@@ -261,12 +283,17 @@ test('15.12: Push nach der Anmeldung still wieder einschalten – nur dieselbe P
       // bewusst ausgeschaltet → nicht wieder ein
       A.setzPushWunsch(2, false);
       assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
-      // 15.16 (H-S4): Wahl „eigen“ ohne Inhaber (Anmeldeseite) → nie still Push, auch nicht für die Person mit Push-Wunsch
+      // Wahl „eigen“ auf der Anmeldeseite ohne Anmeldung → noch für niemanden still Push; nach der Anmeldung (15.21) sofort
       A.setzPushWunsch(2, true);
       A.geraetVorwahl('geteilt'); A.geraetVorwahl('eigen');
       assert.equal(A.geraetArt(), 'eigen');
       assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
       assert.equal(A.pushNachAnmeldung(2, 'granted', 'eigen'), false, 'auch nicht mit übergebener Art');
+      A.geraetArtBeiAnmeldung(2);
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), true, '15.21: nach der Anmeldung mit „Eigenes Handy“ ohne Bestätigung');
+      // „Geteiltes Gerät“ auf der Anmeldeseite → auch für die Person mit Wunsch kein stilles Push
+      A.geraetVorwahl('geteilt'); A.geraetArtBeiAnmeldung(2);
+      assert.equal(A.pushNachAnmeldung(2, 'granted'), false);
       // kaputter Speicher → sicher „nein“
       localStorage.setItem(A.PUSH_WUNSCH, '{"x":1}');
       assert.equal(A.pushGewuenscht(1), false);

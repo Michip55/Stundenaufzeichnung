@@ -1,7 +1,8 @@
 'use strict';
 /**
  * API.md 15.8 – Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (reine Regeln der App, public/js/api.js und ui.js).
- * Sperre nach Untätigkeit je Gerätewahl, sicherer Standard „geteilt“, Wahl gehört zum Gerät und übersteht das Abmelden.
+ * Sperre nach Untätigkeit je Gerätewahl, Wahl gehört zum Gerät und übersteht das Abmelden. 15.21: Standard der Anmeldeseite
+ * „Eigenes Handy“ (wirksam erst mit der Anmeldung einer Person); ohne lesbaren Speicher bleibt es „geteilt“.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -46,40 +47,45 @@ test('15.8: Sperre am Gerät – geteilt 30 min (Feld), eigenes Handy = Sitzungs
   assert.equal(A.sperreMinutenFuer(null, 'eigen'), 0);
 });
 
-test('15.8: Gerätewahl – Standard „geteilt“, gemerkt je Gerät, ungültige Werte = geteilt', async () => {
+test('15.8 / 15.21: Gerätewahl – Standard „Eigenes Handy“, gemerkt je Gerät, wirksam nur genau „eigen“ der Person', async () => {
   const A = await modul('api.js');
   mitSpeicher(() => {
-    assert.equal(A.geraetArt(), 'geteilt', 'Gerät ohne Wahl ist ein geteiltes Gerät');
-    assert.equal(A.setzGeraetArt('eigen'), 'eigen');
+    assert.equal(A.geraetArt(), 'eigen', '15.21: Gerät ohne Wahl zeigt „Eigenes Handy“');
+    assert.equal(A.geraetArtFuer(1), 'geteilt', '… wirksam aber erst mit der Anmeldung');
+    assert.equal(A.setzGeraetArt('geteilt'), 'geteilt');
+    assert.equal(A.geraetArt(), 'geteilt', '„Geteiltes Gerät“ wird für das Gerät gemerkt');
+    assert.equal(A.setzGeraetArt('eigen', 1), 'eigen');
     assert.equal(A.geraetArt(), 'eigen');
+    assert.equal(A.geraetArtFuer(1), 'eigen');
     assert.equal(localStorage.getItem(A.GERAET_ART), 'eigen');
-    assert.equal(A.setzGeraetArt('irgendwas'), 'geteilt');
+    assert.equal(A.setzGeraetArt('irgendwas', 1), 'geteilt');
     assert.equal(A.geraetArt(), 'geteilt');
-    localStorage.setItem(A.GERAET_ART, '"eigen"');
-    assert.equal(A.geraetArt(), 'geteilt', 'nur genau „eigen“ schaltet die Sperre ab');
+    assert.equal(A.geraetArtFuer(1), 'geteilt');
+    localStorage.setItem(A.GERAET_ART, '"eigen"'); localStorage.setItem(A.GERAET_ART_BENUTZER, '1');
+    assert.equal(A.geraetArtFuer(1), 'geteilt', 'nur genau „eigen“ schaltet die Sperre ab');
   });
   // Speicher gesperrt (z. B. privater Modus): sicherer Standard
   const alt = globalThis.localStorage;
   globalThis.localStorage = { getItem() { throw new Error('gesperrt'); }, setItem() { throw new Error('gesperrt'); } };
-  try { assert.equal(A.geraetArt(), 'geteilt'); } finally { if (alt === undefined) delete globalThis.localStorage; else globalThis.localStorage = alt; }
+  try { assert.equal(A.geraetArt(), 'geteilt'); assert.equal(A.geraetArtFuer(1), 'geteilt'); } finally { if (alt === undefined) delete globalThis.localStorage; else globalThis.localStorage = alt; }
 });
 
 test('15.8: die Gerätewahl übersteht das Aufräumen beim Abmelden (R-08), Benutzerdaten nicht', async () => {
   const U = await modul('ui.js');
   const A = await modul('api.js');
   mitSpeicher(() => {
-    A.setzGeraetArt('eigen');
+    A.setzGeraetArt('eigen', 1);
     localStorage.setItem('bt_ich', '{"benutzer":{"id":1}}');
     localStorage.setItem('bt_tresor', '{"benutzerId":1}');
     localStorage.setItem('bt_aktiv', '123');
     U.speicher.raeumeBenutzer();
     assert.equal(localStorage.getItem('bt_geraet_art'), 'eigen');
-    assert.equal(A.geraetArt(), 'eigen');
+    assert.equal(A.geraetArtFuer(1), 'eigen');
     for (const k of ['bt_ich', 'bt_tresor', 'bt_aktiv']) assert.equal(localStorage.getItem(k), null, k);
   });
 });
 
-test('15.8: Auswahl in der Oberfläche – zwei Optionen, gewählte markiert, Standard geteilt', async () => {
+test('15.8 / 15.21: Auswahl in der Oberfläche – zwei Optionen, gewählte markiert, Texte', async () => {
   const U = await modul('ui.js');
   const zaehle = (h, re) => (h.match(re) || []).length;
   const g = U.geraetWahl('geteilt');
@@ -92,4 +98,9 @@ test('15.8: Auswahl in der Oberfläche – zwei Optionen, gewählte markiert, St
   assert.match(U.geraetWahl('eigen'), /value="eigen" checked/);
   assert.match(U.geraetWahl(undefined), /value="geteilt" checked/);
   assert.match(U.geraetWahl('unsinn'), /data-art="geteilt"/);
+  // 15.21: kein „erst nach Bestätigung“ mehr; Anmeldeseite sagt, für wen es gilt
+  const anm = U.geraetWahl('eigen', { anmeldeseite: true });
+  assert.match(anm, /Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet/);
+  assert.doesNotMatch(anm, /bestätigen|wieder ein „Geteiltes Gerät“/);
+  assert.match(U.geraetWahl('geteilt', { anmeldeseite: true }), /30 Minuten/);
 });

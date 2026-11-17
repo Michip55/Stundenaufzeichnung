@@ -198,8 +198,10 @@ test('D-06: Testdaten nur im Demo-Modus, Einrichtung einer leeren Echt-Datenbank
 
   await t.test('D-06: einrichten() – erste GF, Stammlisten ohne Preise, Regeln', () => {
     const db = oeffneDatenbank(':memory:');
-    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '1234' }), /6 bis 12/);
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '482' }), /4 bis 12/); // 15.21: 4 Ziffern auch für die GF
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '1234' }), /Zahlenfolge/);
     assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '123456' }), /Zahlenfolge/);
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '5555' }), /gleichen/);
     assert.throws(() => einrichten(db, { name: 'MP', pnr: 1, pin: '582916' }), /Name/);
     const gf = einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '582916' });
     assert.equal(gf.pnr, 1);
