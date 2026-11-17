@@ -6,7 +6,7 @@ So probieren Sie die Testversion aus. Alle Namen, Baustellen und Zahlen sind **e
 
 1. Einmalig Node.js „LTS“ von https://nodejs.org installieren (immer „Weiter“).
 2. Im Ordner **`BauTag-starten-Windows.bat`** doppelklicken (Mac: `BauTag-starten-Mac.command`). Der Browser öffnet sich mit http://localhost:3000.
-3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm wählen Sie einmal **„Eigenes Handy“** (bleibt angemeldet) oder **„Geteiltes Gerät“** (Abmeldung nach 30 Minuten ohne Bedienung; Standard).
+3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm ist **„Eigenes Handy“** vorgewählt (bleibt angemeldet, gilt sofort nach der Anmeldung); nur für ein Tablet, das mehrere benutzen, **„Geteiltes Gerät“** wählen (Abmeldung nach 30 Minuten ohne Bedienung; bleibt für dieses Gerät eingestellt, änderbar auch unter „Mehr“).
 4. **Handy im selben WLAN:** Das Startfenster zeigt zusätzlich eine Adresse wie `192.168.0.23:3000` – diese am Handy mit `http://` davor öffnen. Fragt Windows nach der Firewall, „Zugriff zulassen“ (privates Netzwerk) wählen. Installieren am Startbildschirm, Push-Nachrichten und Offline-Betrieb gehen erst mit dem Server mit HTTPS.
 5. Zum Neuanfang: BauTag-Fenster schließen, **`BauTag-Testdaten-zuruecksetzen-Windows.bat`** doppelklicken, `JA` eingeben.
 
@@ -53,6 +53,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 **Stempeln im Büro**
 - [ ] Stempeluhr: Kostenstelle **„Büro“** ist vorgewählt.
 - [ ] **Am Handy** öffnet BauTag nach der Anmeldung direkt die **Stempeluhr**; unten: Stempeln · Übersicht · Baustellen · Planer · Mehr (Berichte unter „Mehr“). Am PC startet weiter die Übersicht.
+- [ ] **Am Handy** zoomt ein schneller Doppeltipp (z. B. auf „+“, Ziffern, Knöpfe) **nicht** hinein; mit zwei Fingern zoomen geht weiter.
 
 **Benutzer**
 - [ ] Büro/Bauleiter verwalten nur Mitarbeiter und Poliere. Büro- und Bauleiter-Konten verwaltet nur die Geschäftsführung; beim eigenen Konto steht statt „Bearbeiten“ ein Hinweis.
@@ -76,7 +77,8 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Stempeln** (auch im Flugmodus testen: Stempelung wird nachgereicht).
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.
-- [ ] **Geteiltes Tablet:** als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
+- [ ] **PIN ändern** (Mehr → PIN ändern): 4 Ziffern reichen für alle Rollen (z. B. 4826; nicht 1234 oder 7777).
+- [ ] **Geteiltes Tablet** (am Anmeldebildschirm „Geteiltes Gerät“ wählen): als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
 - [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter, Lohngruppe.
 
 ## 4. LKW-Fahrer (Karl Ungersböck)
@@ -86,7 +88,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 ## 5. Geschäftsführung (Michael Pichler)
 
-- [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro- und Bauleiter-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App).
+- [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro- und Bauleiter-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App) – sie ist freiwillig und lässt sich unter Mehr → Zwei-Faktor-Anmeldung mit PIN und Code wieder ausschalten, solange sie nicht für alle vorgeschrieben ist.
 - [ ] Hinweis: Das Geschäftsführungs-Konto kann niemand über die App entsperren oder zurücksetzen – nur direkt am Server (`node server/entsperren.js`). Empfehlung: zwei GF-Konten.
 
 ## Bekannte Punkte, die erst im Echtbetrieb gehen

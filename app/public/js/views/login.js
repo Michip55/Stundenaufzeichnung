@@ -49,8 +49,8 @@ export default async function login(root, { angemeldet }) {
     </main>
   </div>`;
   const card = $('#login-card', root);
-  // 15.8: Gerätewahl je Gerät – bleibt nach dem Abmelden erhalten. 15.16 (H-S4): „Eigenes Handy“ wird hier nur vorgemerkt und gilt
-  // erst, wenn die Person es nach ihrer Anmeldung bestätigt; „Geteiltes Gerät“ gilt sofort.
+  // 15.8: Gerätewahl je Gerät – bleibt nach dem Abmelden erhalten. 15.21: Standard „Eigenes Handy“; die hier gezeigte Wahl gilt
+  // nach der Anmeldung sofort für die Person, die sich anmeldet (ohne Bestätigung). „Geteiltes Gerät“ bleibt für das Gerät gemerkt.
   bindeGeraetWahl(card, geraetVorwahl);
   const untertitel = (b) => [b.rolle ? rolleText(b.rolle) : '', b.id === speicher.lies('bt_letzter') ? 'zuletzt angemeldet' : ''].filter(Boolean).join(' · ');
 

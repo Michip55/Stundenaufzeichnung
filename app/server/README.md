@@ -27,7 +27,7 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 ## Inbetriebnahme (Echtbetrieb)
 
 1. `cd app && npm install`
-2. Leere Datenbank mit der ersten Geschäftsführung anlegen (PIN selbst wählen, mind. 6 Ziffern, keine Folge):
+2. Leere Datenbank mit der ersten Geschäftsführung anlegen (PIN selbst wählen, mind. 4 Ziffern, keine Folge):
    ```bash
    node server/einrichten.js --name "Vorname Nachname" --pnr 1 --pin <eigene PIN>
    # oder ohne Argumente: interaktive Abfrage; oder BAUTAG_GF_NAME / BAUTAG_GF_PNR / BAUTAG_GF_PIN

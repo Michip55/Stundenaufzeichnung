@@ -38,7 +38,7 @@ EMAIL="$(frage 'E-Mail-Adresse für das HTTPS-Zertifikat und Alarme:')"
 if [[ "$MODUS" != --wiederherstellen ]]; then
   GF_NAME="$(frage 'Name der Geschäftsführung (erstes Konto):')"
   GF_PNR="$(frage 'Personalnummer der Geschäftsführung (z. B. 1):')"
-  GF_PIN="$(frage_geheim 'PIN der Geschäftsführung (6–12 Ziffern, keine Folge wie 123456):')"
+  GF_PIN="$(frage_geheim 'PIN der Geschäftsführung (4–12 Ziffern, keine Folge wie 1234):')"
   GF_PIN2="$(frage_geheim 'PIN wiederholen:')"
   [[ "$GF_PIN" == "$GF_PIN2" ]] || fehler "Die PINs stimmen nicht überein."
 fi

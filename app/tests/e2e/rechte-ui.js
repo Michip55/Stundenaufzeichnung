@@ -396,6 +396,11 @@ async function main() {
   {
     const ctx = await kontext(GROESSEN[0]);
     const page = await ctx.newPage();
+    // 15.21: Standard ist „Eigenes Handy“ – dieses Gerät wird auf der Anmeldeseite bewusst als „Geteiltes Gerät“ gewählt
+    await page.goto(s.basis + '/#/login', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#geraet-wahl', { timeout: 15000 });
+    await page.click('#geraet-wahl label:has(input[value="geteilt"])');
+    if (await page.evaluate(() => localStorage.getItem('bt_geraet_art')) !== 'geteilt') notiere('geteiltes Gerät: Wahl „Geteiltes Gerät“ auf der Anmeldeseite nicht gespeichert');
     await anmelden(page, U.polier);
     log('Polier angemeldet');
     const polierSitzung = (await ctx.cookies()).filter((c) => /session|sitzung|bindung/i.test(c.name)).map((c) => c.value).filter((x) => x && x.length >= 16);

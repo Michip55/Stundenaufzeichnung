@@ -57,7 +57,7 @@ export default async function mehr(el, ctx) {
   });
   // 15.8: Gerätewahl – gilt sofort für die Sperre nach Untätigkeit an diesem Gerät (nicht für die Sitzung am Server)
   bindeGeraetWahl($('#geraet-wahl', el), (art) => {
-    if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021): die Wahl gehört dieser Person (15.16: samt Push-Abo)
+    if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021) / 15.21: „eigen“ gilt für diese Person, „geteilt“ für das Gerät (15.16: samt Push-Abo)
     const min = sperreMinutenFuer(ctx.ich, art);
     toast(art === 'eigen' ? `Eigenes Handy: angemeldet bis zum Abmelden (längstens ${min >= 120 ? Math.round(min / 60) + ' Std.' : min + ' Min.'} ohne Bedienung, wie am Server).` : `Geteiltes Gerät: Abmeldung nach ${min} Minuten ohne Bedienung.`);
   });

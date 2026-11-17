@@ -1,25 +1,24 @@
 'use strict';
 /**
- * Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (API.md 15.8):
+ * Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (API.md 15.8, 15.12, 15.16; seit 15.21 Standard „Eigenes Handy“):
  *   node tests/e2e/geraetewahl.js     (im Ordner app; E2E_NUR=handy|tablet|pc; Exit-Code 1 bei Befunden)
  * Wird auch von run.js je Bildschirmgröße aufgerufen (abschaltbar mit E2E_OHNE_GERAETEWAHL=1).
  *
- *  1. Neues Gerät: Auswahl auf der Anmeldeseite sichtbar, Standard „Geteiltes Gerät“.
- *  2. Geteiltes Gerät: nach 31 min ohne Bedienung abgemeldet (wie 15.5).
- *  3. Eigenes Handy (auf der Anmeldeseite gewählt): nach 31 min und nach 10 h ohne Bedienung weiter angemeldet, auch nach
- *     einem Neustart der App – nach mehr als der Sitzungsdauer des Servers (12 h) aber abgemeldet.
- *  4. Die Wahl übersteht das Abmelden und das Neuladen; in „Mehr“ änderbar (zurück auf „geteilt“ → Sperre gilt wieder).
+ *  1. Neues Gerät: Auswahl auf der Anmeldeseite sichtbar, Standard „Eigenes Handy“ (15.21), nichts gespeichert, keine Bestätigung.
+ *  2. Anmeldung mit dem Standard: „eigen“ gilt sofort für genau diese Person (ohne Hinweis/Bestätigung) – nach 31 min und
+ *     nach 10 h ohne Bedienung weiter angemeldet, auch nach einem Neustart der App; nach mehr als 12 h (Server) abgemeldet.
+ *  3. Die Wahl übersteht Abmelden und Neuladen; „Geteiltes Gerät“ in „Mehr“ gilt sofort und für das Gerät – die Anmeldeseite
+ *     zeigt es danach, auch die nächste Person ist auf „geteilt“ (30-min-Sperre).
+ *  4. „Eigenes Handy“ auf der Anmeldeseite gewählt: gilt nach der Anmeldung sofort (keine Bestätigung).
  *  5. Eigenes Handy, Benutzerwechsel: gebundene Sitzung, Abmelden ohne Netz mit Nachholen, Versiegeln der Warteschlange,
- *     Push-Abo endet; der Mitarbeiter sieht und sendet nichts vom Polier; Benutzerwechsel nach Sitzungsablauf; der Polier sendet
- *     nach seiner Anmeldung alles. 15.12 (G2-021): der Benutzerwechsel setzt „Eigenes Handy“ auf „Geteiltes Gerät“ zurück.
- *  6. 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat – in „Mehr“ gewählt oder vom Vorbenutzer auf
- *     der Anmeldeseite voreingestellt: die nächste andere Person ist auf „Geteiltes Gerät“ (deutlicher Hinweis, 30-min-Sperre);
- *     dieselbe Person behält ihre Wahl.
+ *     Push-Abo endet; der Mitarbeiter (Standard „eigen“ – gilt dann für ihn) sieht und sendet nichts vom Polier, kein Push des
+ *     Poliers; Benutzerwechsel nach Sitzungsablauf; der Polier sendet nach seiner Anmeldung alles.
+ *  6. „Eigenes Handy“ gilt nur für die Person, die sich damit angemeldet hat: wählt die nächste Person „Geteiltes Gerät“, gilt
+ *     für sie die 30-min-Sperre; dieselbe Person behält ihre Wahl beim erneuten Anmelden.
  *  7. 15.12: Eigenes Handy mit Push – die Sitzung läuft ab (Abo weg), dieselbe Person meldet sich an: Push ist ohne Klick wieder
  *     da (neues Abo an der neuen Sitzung). Eine andere Person am selben Gerät bekommt kein Abo, bis sie selbst einschaltet.
- *  8. 15.16 (H-S3/H-S4): das Push-Abo meldet „geteilt“/„eigen“ (auch beim Wechsel in „Mehr“); „Eigenes Handy“ auf der Anmeldeseite
- *     gilt erst nach der Bestätigung durch die angemeldete Person – vorher „geteilt“, Hinweis, kein stilles Push, 30-min-Sperre.
- *     (Schritt 3 und 4: eine Wahl vor der Anmeldung wird nach der Anmeldung im Hinweis bzw. in „Mehr“ bestätigt.)
+ *  8. 15.16 (H-S3) / 15.21: das Push-Abo meldet „geteilt“/„eigen“ (auch beim Wechsel in „Mehr“); nach der Anmeldung mit
+ *     „Eigenes Handy“ kommt Push sofort still zurück, mit „Geteiltes Gerät“ nicht; Sperre nach Untätigkeit beendet das Abo.
  * Die Untätigkeit wird wie in tests/e2e/geraet.js über die gemerkte letzte Bedienung (bt_aktiv) simuliert; Browser- und
  * Server-Uhr laufen gemeinsam (ctx.clock).
  */
@@ -117,40 +116,30 @@ async function laufe(browser, g) {
       await page.waitForSelector('#view, #login-card');
     }
 
-    /* ---- 1) neues Gerät: Standard „Geteiltes Gerät“ ---- */
+    /* ---- 1) neues Gerät: Standard „Eigenes Handy“ (15.21) ---- */
     await zurAnmeldung();
     pruef(await page.locator('#geraet-wahl').isVisible(), 'Gerätewahl auf der Anmeldeseite nicht sichtbar');
     const txt = await page.locator('#geraet-wahl').innerText().catch(() => '');
     pruef(/Eigenes Handy/.test(txt) && /Geteiltes Gerät/.test(txt) && /Tablet im Bauhof/.test(txt), `Gerätewahl ohne beide Optionen/Erklärung: „${txt.slice(0, 160)}“`);
-    pruef(await gewaehlt() === 'geteilt', `Standard ist nicht „Geteiltes Gerät“ (${await gewaehlt()})`);
+    pruef(await gewaehlt() === 'eigen', `15.21: Standard ist nicht „Eigenes Handy“ (${await gewaehlt()})`);
     pruef(await ls('bt_geraet_art') === null, 'Gerätewahl ohne Zutun gespeichert');
-    pruef(/30 Minuten/.test(await page.locator('#geraet-info').innerText().catch(() => '')), 'Erklärung zum geteilten Gerät fehlt');
+    const info1 = await page.locator('#geraet-info').innerText().catch(() => '');
+    pruef(/Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet/.test(info1) && /Geteiltes Gerät“ wählen/.test(info1), `15.21: Erklärung zum eigenen Handy auf der Anmeldeseite fehlt („${info1.slice(0, 160)}“)`);
+    pruef(!/bestätigen/.test(info1), `15.21: Anmeldeseite verlangt noch eine Bestätigung („${info1.slice(0, 160)}“)`);
     const breite = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     pruef(breite <= 0, `Anmeldeseite mit Gerätewahl scrollt waagrecht (${breite}px)`);
 
-    /* ---- 2) geteiltes Gerät (Standard): Sperre nach 31 min ---- */
+    /* ---- 2) eigenes Handy (Standard, ohne Klick): gilt sofort, keine 30-min-Sperre, aber nie länger als der Server ---- */
     await anmelden(U.polier, { laden: false });
     const ich = await page.evaluate(async () => (await fetch('/api/auth/ich')).json());
     pruef(ich.sperreMinuten === 30 && ich.sitzungMinuten === 720, `Vorbedingung: Sperre/Sitzung ${ich.sperreMinuten}/${ich.sitzungMinuten} statt 30/720`);
-    await untaetig(31);
-    pruef(await abgemeldet(), 'geteiltes Gerät: nach 31 min ohne Bedienung weiter angemeldet');
-    pruef(gebunden(U.polier) === 0, 'geteiltes Gerät: Sperre beendet die Sitzung am Server nicht');
-
-    /* ---- 3) eigenes Handy: keine 30-min-Sperre, aber nie länger als der Server ---- */
-    await zurAnmeldung();
-    await waehle('eigen');
-    pruef(await ls('bt_geraet_art') === 'eigen', `Wahl „Eigenes Handy“ nicht gespeichert (${await ls('bt_geraet_art')})`);
-    pruef(/Nur wählen, wenn sonst niemand/.test(await page.locator('#geraet-info').innerText()), 'Erklärung zum eigenen Handy fehlt');
-    pruef(/erst, wenn Sie es nach der Anmeldung bestätigen/.test(await page.locator('#geraet-info').innerText()), '15.16 (H-S4): Anmeldeseite sagt nicht, dass „Eigenes Handy“ erst nach der Bestätigung gilt');
-    await anmelden(U.polier, { laden: false });
-    // 15.16 (H-S4): eine Wahl vor der Anmeldung gilt erst, wenn die angemeldete Person sie bestätigt – bis dahin „geteilt“
-    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === String(U.polier), `H-S4: „Eigenes Handy“ von der Anmeldeseite gilt ohne Bestätigung (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
-    pruef(await page.locator('#geraet-hinweis[data-grund="bestaetigen"]').isVisible() && /bis Sie „Eigenes Handy“ bestätigen/.test(await page.locator('#geraet-hinweis').innerText()), 'H-S4: kein Hinweis zur Bestätigung nach der Anmeldung');
-    await page.click('#geraet-hinweis [data-geraet="eigen"]');
-    await sleep(150);
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier) && await page.locator('#geraet-hinweis').isHidden(), 'H-S4: Bestätigung „Eigenes Handy“ im Hinweis nicht übernommen');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), `15.21: Standard „Eigenes Handy“ gilt nach der Anmeldung nicht sofort für den Polier (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    pruef(await page.locator('#geraet-hinweis').count() === 0, '15.21: nach der Anmeldung erscheint noch ein Hinweis zur Gerätewahl');
     pruef(gebunden(U.polier) === 1, 'eigenes Handy: Anmeldung ohne gebundene Sitzung');
     pruef(/bt_bindung=[0-9a-f]{64}/.test(await page.evaluate(() => document.cookie)), 'eigenes Handy: kein Bindungs-Cookie');
+    await geh('/mehr');
+    pruef(await gewaehlt() === 'eigen', `„Mehr“ zeigt nach der Anmeldung nicht „Eigenes Handy“ (${await gewaehlt()})`);
+    await geh('/stempeln');
     await untaetig(31);
     pruef(await angemeldet(), 'eigenes Handy: nach 31 min ohne Bedienung abgemeldet');
     await untaetig(10 * 60); // 06:30 einstempeln … 16:30 ausstempeln
@@ -162,8 +151,8 @@ async function laufe(browser, g) {
     pruef(await abgemeldet(), 'eigenes Handy: nach mehr als der Sitzungsdauer des Servers weiter angemeldet');
     pruef(gebunden(U.polier) === 0, 'eigenes Handy: Abmelden nach Sitzungsdauer beendet die Sitzung am Server nicht');
 
-    /* ---- 4) Wahl übersteht Abmelden und Neuladen; in „Mehr“ änderbar ---- */
-    pruef(await ls('bt_geraet_art') === 'eigen', 'Gerätewahl nach dem Abmelden (Untätigkeit) verloren');
+    /* ---- 3) Wahl übersteht Abmelden und Neuladen; „Geteiltes Gerät“ in „Mehr“ gilt für das Gerät (auch die nächste Person) ---- */
+    pruef(await ls('bt_geraet_art') === 'eigen', 'Gerätewahl nach dem Abmelden (Sitzungsablauf) verloren');
     await zurAnmeldung();
     pruef(await gewaehlt() === 'eigen', `Anmeldeseite zeigt nach dem Abmelden nicht „Eigenes Handy“ (${await gewaehlt()})`);
     await anmelden(U.polier, { laden: false });
@@ -174,19 +163,30 @@ async function laufe(browser, g) {
     pruef(await page.locator('#view #geraet-wahl').isVisible(), 'Gerätewahl in „Mehr“ fehlt');
     pruef(await gewaehlt() === 'eigen', `„Mehr“ zeigt nicht die Wahl des Geräts (${await gewaehlt()})`);
     await waehle('geteilt');
-    pruef(await ls('bt_geraet_art') === 'geteilt', 'Wechsel auf „geteilt“ in „Mehr“ nicht gespeichert');
+    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === null, `Wechsel auf „geteilt“ in „Mehr“ nicht für das Gerät gespeichert (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
     pruef(await angemeldet(), 'Wechsel auf „geteilt“ meldet sofort ab');
     await untaetig(31);
     pruef(await abgemeldet(), 'nach Wechsel auf „geteilt“ in „Mehr“ gilt die 30-min-Sperre nicht');
     await zurAnmeldung();
-    pruef(await gewaehlt() === 'geteilt', 'Anmeldeseite zeigt die in „Mehr“ geänderte Wahl nicht');
+    pruef(await gewaehlt() === 'geteilt', 'Anmeldeseite zeigt die in „Mehr“ gewählte Einstellung „Geteiltes Gerät“ nicht');
+    pruef(/30 Minuten/.test(await page.locator('#geraet-info').innerText().catch(() => '')), 'Erklärung zum geteilten Gerät fehlt');
+    // die nächste Person behält „Geteiltes Gerät“ (bleibt für das Gerät eingestellt)
+    await anmelden(U.mitarbeiter, { laden: false });
+    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === null, `„Geteiltes Gerät“ gilt nicht für die nächste Person (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    await untaetig(31);
+    pruef(await abgemeldet(), 'Mitarbeiter am geteilten Gerät nach 31 min ohne Bedienung weiter angemeldet');
+    pruef(gebunden(U.mitarbeiter) === 0, 'geteiltes Gerät: Sperre beendet die Sitzung am Server nicht');
+
+    /* ---- 4) „Eigenes Handy“ auf der Anmeldeseite gewählt → gilt sofort für die Person, die sich anmeldet (keine Bestätigung) ---- */
+    await zurAnmeldung();
+    pruef(await gewaehlt() === 'geteilt', 'Vorbedingung: Anmeldeseite zeigt „Geteiltes Gerät“');
     await waehle('eigen');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === null, `Wahl „Eigenes Handy“ auf der Anmeldeseite nicht gespeichert (${await ls('bt_geraet_art')})`);
+    pruef(/Gilt ab der Anmeldung/.test(await page.locator('#geraet-info').innerText()), 'Erklärung zum eigenen Handy nach der Wahl fehlt');
     await anmelden(U.polier, { laden: false });
-    pruef(await ls('bt_geraet_art') === 'geteilt', 'H-S4: Voreinstellung der Anmeldeseite gilt ohne Bestätigung');
-    await geh('/mehr');
-    pruef(await gewaehlt() === 'geteilt', `„Mehr“ zeigt eine unbestätigte Wahl als wirksam (${await gewaehlt()})`);
-    await waehle('eigen'); // die angemeldete Person wählt in „Mehr“ – das gilt als Bestätigung
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Vorbedingung: eigenes Handy');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier) && await page.locator('#geraet-hinweis').count() === 0, `15.21: „Eigenes Handy“ von der Anmeldeseite gilt nicht sofort (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    await untaetig(31);
+    pruef(await angemeldet(), 'eigenes Handy (auf der Anmeldeseite gewählt): nach 31 min ohne Bedienung abgemeldet');
 
     /* ---- 5) eigenes Handy: Benutzerwechsel – Abmelden ohne Netz, Versiegeln, Push, Nachholen ---- */
     // Push an diesem Handy (wieder) eingeschaltet – die Abmeldungen oben haben das Abo jeweils beendet (15.5, auch auf „eigen“)
@@ -215,7 +215,7 @@ async function laufe(browser, g) {
     pruef(gebunden(U.polier) === 0, 'eigenes Handy: Sitzung des Poliers nach dem Nachholen nicht beendet');
     pruef(anzahl('SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = ?', EP) === 0, 'eigenes Handy: Push-Abo des Poliers am Server nicht gelöscht');
 
-    // Mitarbeiter am selben (als „eigen“ gewählten) Gerät: sieht und sendet nichts vom Polier
+    // Mitarbeiter am selben Gerät (lässt den Standard „Eigenes Handy“ stehen): sieht und sendet nichts vom Polier
     const maVorher = buchungen(U.mitarbeiter), polVorher = buchungen(U.polier);
     await anmelden(U.mitarbeiter);
     await geh('/stempeln');
@@ -227,9 +227,10 @@ async function laufe(browser, g) {
     pruef(!/Haidbauer/.test(await page.evaluate(() => document.body.innerText + JSON.stringify(localStorage))), 'eigenes Handy: Angaben des Poliers beim Mitarbeiter');
     pruef(await page.locator('#sync[data-ausstehend="0"][data-abgelehnt="0"]').count() === 1, 'eigenes Handy: Sync-Anzeige des Mitarbeiters zählt Einträge des Poliers');
     pruef(gebunden(U.mitarbeiter) === 1, 'eigenes Handy: Mitarbeiter ohne gebundene Sitzung');
-    // 15.12 (G2-021): die Wahl „Eigenes Handy“ des Poliers gilt nicht für den Mitarbeiter
-    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === String(U.mitarbeiter), `Benutzerwechsel: „Eigenes Handy“ des Poliers gilt für den Mitarbeiter weiter (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
-    pruef(await page.locator('#geraet-hinweis:not([hidden])').isVisible() && /Geteiltes Gerät/.test(await page.locator('#geraet-hinweis').innerText()), 'Benutzerwechsel: kein deutlicher Hinweis auf „Geteiltes Gerät“');
+    // 15.21: der Standard „Eigenes Handy“ gilt jetzt für den Mitarbeiter (nicht mehr für den Polier); kein Push des Poliers
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.mitarbeiter), `15.21: Benutzerwechsel mit Standard – „Eigenes Handy“ gilt nicht für den Mitarbeiter (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
+    pruef(await page.locator('#geraet-hinweis').count() === 0, '15.21: Hinweis zur Gerätewahl nach dem Benutzerwechsel');
+    pruef(anzahl('SELECT COUNT(*) AS n FROM push_abo WHERE endpoint = ?', EP) === 0 && !JSON.parse(await ls('e2e_abo')).aktiv, 'Benutzerwechsel: Push des Poliers läuft an diesem Gerät für den Mitarbeiter weiter');
 
     // Benutzerwechsel ohne Abmelden (Sitzung am Server abgelaufen) → Polier meldet sich an und sendet alles
     db.lauf('DELETE FROM sitzung WHERE benutzer_id = ?', U.mitarbeiter);
@@ -240,36 +241,26 @@ async function laufe(browser, g) {
     pruef(gebunden(U.mitarbeiter) === 0 && gebunden(U.polier) === 1, 'eigenes Handy: Rotation/Bindung beim Benutzerwechsel falsch');
     await page.waitForFunction(() => !JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length, null, { timeout: 20000 }).catch(() => {});
     pruef(offlineBuchungen(U.polier) === offVorher + 1, `eigenes Handy: Offline-Stempelung des Poliers nach seiner Anmeldung nicht gesendet (${offVorher}→${offlineBuchungen(U.polier)})`);
-    // 15.12 (G2-021): auch der Wechsel Mitarbeiter → Polier ist ein Benutzerwechsel – „geteilt“ bleibt, bis der Polier selbst wählt
-    pruef(await ls('bt_geraet_art') === 'geteilt', `Gerätewahl nach dem Benutzerwechsel nicht „geteilt“ (${await ls('bt_geraet_art')})`);
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), `15.21: nach dem Wechsel Mitarbeiter → Polier gilt „Eigenes Handy“ nicht für den Polier (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
 
-    /* ---- 6) 15.12 (G2-021): „Eigenes Handy“ gilt nur für die Person, die es gewählt hat ---- */
-    await geh('/mehr');
-    await waehle('eigen'); // der Polier wählt selbst in „Mehr“
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Wahl in „Mehr“ nicht mit der Person gespeichert');
-    pruef(await page.locator('#geraet-hinweis').isHidden(), 'Hinweis bleibt nach der eigenen Wahl stehen');
+    /* ---- 6) „Eigenes Handy“ gilt nur für die Person, die sich damit angemeldet hat; „Geteiltes Gerät“ jederzeit wählbar ---- */
     await abmelden();
-    pruef(await gewaehlt() === 'eigen', 'Anmeldeseite zeigt die Wahl des Vorbenutzers nicht an');
-    pruef(/Gilt nur für die Person, die es gewählt hat/.test(await page.locator('#geraet-info').innerText()), 'Anmeldeseite warnt nicht, dass „Eigenes Handy“ nur für die wählende Person gilt');
-    await anmelden(U.mitarbeiter, { laden: false }); // die nächste Person bemerkt die Voreinstellung nicht
-    pruef(await ls('bt_geraet_art') === 'geteilt', 'G2-021: „Eigenes Handy“ des Poliers gilt für den nächsten Mitarbeiter');
-    pruef(await page.locator('#geraet-hinweis').isVisible(), 'G2-021: kein Hinweis nach dem Zurücksetzen');
+    pruef(await gewaehlt() === 'eigen', 'Anmeldeseite zeigt nach dem Abmelden nicht den Standard „Eigenes Handy“');
+    await waehle('geteilt'); // der Mitarbeiter wählt vor seiner Anmeldung „Geteiltes Gerät“
+    await anmelden(U.mitarbeiter, { laden: false });
+    pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === null, '„Geteiltes Gerät“ von der Anmeldeseite gilt nicht');
     await untaetig(31);
-    pruef(await abgemeldet(), 'G2-021: Mitarbeiter am vom Polier voreingestellten Gerät nach 31 min ohne Bedienung weiter angemeldet');
-    // Vorbenutzer (Mitarbeiter) stellt auf der Anmeldeseite still „Eigenes Handy“ ein → gilt nicht für den Polier
+    pruef(await abgemeldet(), '„Eigenes Handy“ des Poliers gilt für den Mitarbeiter weiter (nach 31 min ohne Bedienung angemeldet)');
+    // der Polier kommt zurück: Anmeldeseite zeigt „Geteiltes Gerät“ (für das Gerät gemerkt), er wählt „Eigenes Handy“
     await zurAnmeldung();
+    pruef(await gewaehlt() === 'geteilt', 'Anmeldeseite zeigt „Geteiltes Gerät“ nach der Wahl des Mitarbeiters nicht');
     await waehle('eigen');
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === null, 'Wahl auf der Anmeldeseite (ohne Person) nicht gespeichert');
     await anmelden(U.polier, { laden: false });
-    pruef(await ls('bt_geraet_art') === 'geteilt', 'G2-021: auf der Anmeldeseite voreingestelltes „Eigenes Handy“ gilt für die nächste Person');
-    pruef(await page.locator('#geraet-hinweis').isVisible(), 'G2-021: kein Hinweis nach dem Zurücksetzen (Voreinstellung)');
-    // der Polier entscheidet sich im Hinweis bewusst für „Eigenes Handy“ – und behält das bei der nächsten eigenen Anmeldung
-    await page.click('#geraet-hinweis [data-geraet="eigen"]');
-    await sleep(150);
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier) && await page.locator('#geraet-hinweis').isHidden(), 'Wahl im Hinweis nicht übernommen');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'Wahl „Eigenes Handy“ des Poliers auf der Anmeldeseite gilt nicht');
+    // dieselbe Person behält ihre Wahl beim erneuten Anmelden
     await abmelden();
     await anmelden(U.polier, { laden: false });
-    pruef(await ls('bt_geraet_art') === 'eigen' && await page.locator('#geraet-hinweis').isHidden(), 'dieselbe Person verliert ihre Wahl „Eigenes Handy“');
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), 'dieselbe Person verliert ihre Wahl „Eigenes Handy“');
     await untaetig(31);
     pruef(await angemeldet(), 'dieselbe Person: „Eigenes Handy“ meldet nach 31 min ab');
 
@@ -299,49 +290,51 @@ async function laufe(browser, g) {
     pruef(neueSitzung && (aboAmServer(U.polier) || {}).sitzung_hash === neueSitzung.token_hash, 'wiederhergestelltes Abo gehört nicht zur neuen Sitzung');
     pruef((await aboE()).aktiv && (await aboE()).angemeldet === klicksVorher + 1, 'Abo im Browser nicht (still) neu angelegt');
     pruef(await page.locator('dialog[open]').count() === 0, 'stilles Einschalten zeigt eine Rückfrage');
-    // eine andere Person am selben Gerät: kein Abo, bis sie selbst einschaltet
+    // eine andere Person am selben Gerät (Standard „Eigenes Handy“ – gilt jetzt für sie): kein Abo, bis sie selbst einschaltet
     await abmelden();
     pruef(!db.eins('SELECT 1 AS x FROM push_abo WHERE endpoint = ?', EP), 'Abo nach dem Abmelden noch am Server');
     await anmelden(U.mitarbeiter, { laden: false });
     await sleep(1500);
+    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.mitarbeiter), 'Vorbedingung: Standard „Eigenes Handy“ für den Mitarbeiter');
     pruef(!db.eins('SELECT 1 AS x FROM push_abo WHERE endpoint = ?', EP) && !(await aboE()).aktiv, 'andere Person: Push-Wunsch des Poliers wurde für den Mitarbeiter eingeschaltet');
     pruef(!JSON.parse(await ls('bt_push_wunsch') || '[]').includes(U.mitarbeiter), 'Push-Wunsch dem Mitarbeiter zugeschrieben');
     await abmelden();
 
-    /* ---- 8) 15.16 (H-S3/H-S4): Push-Abo kennt die Gerätewahl; „Eigenes Handy“ vor der Anmeldung schaltet nichts still ein ---- */
+    /* ---- 8) 15.16 (H-S3) / 15.21: Push-Abo kennt die Gerätewahl; Push kommt nach der Anmeldung mit „Eigenes Handy“ sofort zurück ---- */
     const aboS = () => db.eins('SELECT * FROM push_abo WHERE endpoint = ?', EP);
-    await anmelden(U.polier, { laden: false }); // Gerät „geteilt“ (Wahl des Mitarbeiters) – kein stilles Push
-    await sleep(800);
-    pruef(!aboS(), 'H-S4: geteiltes Gerät – Push des Poliers ohne Klick eingeschaltet');
+    // der Polier meldet sich nach dem Mitarbeiter mit dem Standard an → für ihn „eigen“, sein Push kommt still zurück
+    let subVorher = (await aboE()).angemeldet;
+    await anmelden(U.polier, { laden: false });
+    pruef(await warteAuf(() => !!aboS()) && aboS().benutzer_id === U.polier && aboS().geteilt === 0, `15.21: Push des Poliers nach seiner Anmeldung mit „Eigenes Handy“ nicht (als eigenes Handy) zurück (${JSON.stringify(aboS() && { b: aboS().benutzer_id, g: aboS().geteilt })})`);
+    pruef((await aboE()).angemeldet === subVorher + 1, 'Abo im Browser nach der Anmeldung nicht still neu angelegt');
+    await abmelden();
+    pruef(!aboS(), 'Abo nach dem Abmelden noch am Server');
+    // „Geteiltes Gerät“ vor der Anmeldung → kein stilles Push; eingeschaltet meldet das Abo „geteilt“
+    await waehle('geteilt');
+    subVorher = (await aboE()).angemeldet;
+    await anmelden(U.polier, { laden: false });
+    await sleep(1500);
+    pruef(!aboS() && (await aboE()).angemeldet === subVorher, 'geteiltes Gerät – Push des Poliers ohne Klick eingeschaltet');
     await geh('/push');
     await page.click('#push-an');
     pruef(await warteAuf(() => !!aboS()) && aboS().geteilt === 1, `H-S3: Abo am geteilten Gerät nicht als geteilt gemeldet (${JSON.stringify(aboS() && aboS().geteilt)})`);
     await geh('/mehr');
-    await waehle('eigen'); // Polier bestätigt sein eigenes Handy → das Abo gilt wieder bis zum Sitzungsende
+    await waehle('eigen'); // Polier wählt in „Mehr“ sein eigenes Handy → das Abo gilt wieder bis zum Sitzungsende
     pruef(await warteAuf(() => aboS() && aboS().geteilt === 0), 'H-S3: Wechsel auf „Eigenes Handy“ nicht an das Abo gemeldet');
     await waehle('geteilt');
     pruef(await warteAuf(() => aboS() && aboS().geteilt === 1), 'H-S3: Wechsel auf „Geteiltes Gerät“ nicht an das Abo gemeldet');
-    await abmelden();
-    pruef(!aboS(), 'Abo nach dem Abmelden noch am Server');
-    // Befund H-S4: jemand stellt auf der Anmeldeseite (ohne Anmeldung) „Eigenes Handy“ ein, bevor sich der Polier anmeldet
-    await waehle('eigen');
-    pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === null, 'Vorbedingung: Voreinstellung ohne Person');
-    const subVorher = (await aboE()).angemeldet;
-    await anmelden(U.polier, { laden: false });
-    await sleep(1500);
-    pruef(await ls('bt_geraet_art') === 'geteilt', 'H-S4: Voreinstellung „Eigenes Handy“ gilt für den zuletzt angemeldeten Polier');
-    pruef(await page.locator('#geraet-hinweis[data-grund="bestaetigen"]').isVisible(), 'H-S4: kein Hinweis zur Bestätigung');
-    pruef(!aboS() && (await aboE()).angemeldet === subVorher, 'H-S4: Push des Poliers nach der Voreinstellung still wieder eingeschaltet');
     await untaetig(31);
-    pruef(await abgemeldet(), 'H-S4: Polier nach der Voreinstellung „Eigenes Handy“ nach 31 min weiter angemeldet');
-    // bestätigt der Polier selbst nach seiner Anmeldung, gilt „eigen“ und sein Push kommt zurück (an der neuen Sitzung, nicht geteilt)
+    pruef(await abgemeldet(), '„Geteiltes Gerät“ in „Mehr“: Polier nach 31 min weiter angemeldet');
+    pruef(await warteAuf(() => !aboS()), 'Abo nach der Sperre nach Untätigkeit noch am Server');
+    // „Eigenes Handy“ auf der Anmeldeseite → Push kommt mit der Anmeldung zurück (an der neuen Sitzung, nicht geteilt), ohne Bestätigung
     await zurAnmeldung();
+    pruef(await gewaehlt() === 'geteilt', 'Vorbedingung: Anmeldeseite zeigt „Geteiltes Gerät“');
     await waehle('eigen');
     await anmelden(U.polier, { laden: false });
-    await page.click('#geraet-hinweis [data-geraet="eigen"]');
-    pruef(await warteAuf(() => !!aboS()) && aboS().geteilt === 0 && aboS().benutzer_id === U.polier, 'Bestätigung „Eigenes Handy“: Push kommt nicht (als eigenes Handy) zurück');
+    pruef(await warteAuf(() => !!aboS()) && aboS().geteilt === 0 && aboS().benutzer_id === U.polier, '15.21: „Eigenes Handy“ von der Anmeldeseite – Push kommt nicht (als eigenes Handy) zurück');
     const sitzungJetzt = db.eins('SELECT token_hash FROM sitzung WHERE benutzer_id = ? AND bindung_hash IS NOT NULL', U.polier);
-    pruef(sitzungJetzt && aboS() && aboS().sitzung_hash === sitzungJetzt.token_hash, 'Abo nach der Bestätigung gehört nicht zur Sitzung');
+    pruef(sitzungJetzt && aboS() && aboS().sitzung_hash === sitzungJetzt.token_hash, 'Abo nach der Anmeldung gehört nicht zur Sitzung');
+    pruef(await page.locator('#geraet-hinweis').count() === 0, '15.21: Hinweis zur Bestätigung angezeigt');
     await abmelden();
 
     pruef(seitenfehler.length === 0, `Konsolen-/Seitenfehler: ${seitenfehler.slice(0, 4).join(' | ')}`);

@@ -119,14 +119,20 @@ test('B-03: Anmeldung – Sperre je (Benutzer, IP) mit steigender Dauer, IP-Gren
     assert.equal((await versuch(U.buero, '1234', '10.0.0.3')).status, 200);
   });
 
-  await t.test('B-03: PIN-Mindestlänge je Rolle und keine trivialen Folgen', async () => {
-    assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '4826' })).status, 400);
+  await t.test('B-03 / 15.21: PIN-Mindestlänge 4 für alle Rollen und keine trivialen Folgen', async () => {
+    assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '482' })).status, 400); // zu kurz
+    assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '1234' })).status, 400);
+    assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '7777' })).status, 400);
     assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '123456' })).status, 400);
     assert.equal((await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '777777' })).status, 400);
     const bl = await gf.post('/benutzer', { name: 'BL Neu', rolle: 'bauleiter', pin: '482619', pnr: 2001 });
     assert.equal(bl.status, 201);
     assert.equal((await gf.post('/benutzer', { name: 'MA Neu', rolle: 'mitarbeiter', pin: '4826' })).status, 201);
-    // Rollenwechsel auf Büro mit zu kurzer PIN
+    const b4 = await gf.post('/benutzer', { name: 'Büro Vier', rolle: 'buero', pin: '5829', pnr: 2902 }); // 15.21: 4 Ziffern auch fürs Büro
+    assert.equal(b4.status, 201);
+    assert.equal((await gf.post('/benutzer', { name: 'GF Vier', rolle: 'gf', pin: '5830', pnr: 2903 })).status, 201);
+    assert.equal((await gf.put(`/benutzer/${b4.daten.id}`, { pin: '6194' })).status, 200);
+    // Rollenwechsel mit PIN
     assert.equal((await gf.put(`/benutzer/${bl.daten.id}`, { rolle: 'mitarbeiter', pin: '4826' })).status, 200);
   });
 
