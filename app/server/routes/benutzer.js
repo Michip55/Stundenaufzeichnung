@@ -5,6 +5,7 @@ const R = require('../rechte');
 const auth = require('../auth');
 const { brauche } = require('./hilfe');
 const L = require('../lohngruppen');
+const AZ = require('../arbeitszeit');
 const { wienDatum } = require('../datum');
 
 /** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
@@ -66,8 +67,12 @@ function kontoVerwaltbar(db, ctx, ziel) {
   try { pruefeKontoVerwalten(db, ctx, ziel); return true; } catch (_) { return false; }
 }
 
-function benutzerVoll(b) {
-  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null };
+/** 15.23: Arbeitszeitmodell (heute gültig) und BUAK-Pflicht – nur in den Verwaltungs-Antworten (stammdaten/benutzer) */
+function benutzerVoll(b, db, heute) {
+  return {
+    id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null,
+    arbeitszeitmodell: AZ.modellIdAm(db, b.id, heute), buakPflichtig: AZ.buakPflichtig(b), buakPflichtigVorgabe: b.buak_pflichtig == null
+  };
 }
 
 module.exports = function benutzerRouten(api, bt) {
@@ -167,6 +172,8 @@ module.exports = function benutzerRouten(api, bt) {
       if (vergeben && vergeben.id !== eigeneId) throw konflikt(`Die Personalnummer ${f.pnr} ist bereits an ${vergeben.name} vergeben.`);
     }
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
+    // 15.23: BUAK-pflichtig (true/false; null = Vorgabe nach der Rolle: Mitarbeiter/Polier ja)
+    if (body.buakPflichtig !== undefined) f.buak_pflichtig = body.buakPflichtig === null ? null : v.bool(body.buakPflichtig, 'buakPflichtig') ? 1 : 0;
     let pin = null;
     if (!teil || body.pin !== undefined) {
       const fehler = auth.pinFehler(body.pin, f.rolle || rolleAlt);
@@ -177,6 +184,8 @@ module.exports = function benutzerRouten(api, bt) {
   }
 
   const verwalterPruefen = (req, res, next) => (R.darfBenutzerVerwalten(req.ctx) ? next() : next(keinZugriff()));
+  const heuteW = () => wienDatum(bt.uhr());
+  const voll = (b) => benutzerVoll(b, db, heuteW());
 
   api.get('/benutzer', verwalterPruefen, (req, res) => {
     const jetztIso = bt.uhr().toISOString();
@@ -186,12 +195,15 @@ module.exports = function benutzerRouten(api, bt) {
       // 15.5 (F-050/F-051): darf der Aufrufer PIN, 2FA und Sperren dieses Kontos zurücksetzen? (Oberfläche blendet sonst aus)
       let zuruecksetzbar = true;
       try { pruefeKontoZuruecksetzen(db, req.ctx, b); } catch (_) { zuruecksetzbar = false; }
-      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), bearbeitbar: kontoVerwaltbar(db, req.ctx, b), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
+      return { ...voll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), bearbeitbar: kontoVerwaltbar(db, req.ctx, b), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
     }));
   });
 
   api.post('/benutzer', verwalterPruefen, async (req, res) => {
-    const { f, pin } = pruefeFelder(v.objekt(req.body), false);
+    const body = v.objekt(req.body);
+    const { f, pin } = pruefeFelder(body, false);
+    // 15.23: Arbeitszeitmodell beim Anlegen (sonst Vorgabe nach der Rolle) – gilt von Anfang an
+    const azNeu = body.arbeitszeitmodell === undefined || body.arbeitszeitmodell === null ? null : AZ.pruefeZuordnung(db, body.arbeitszeitmodell);
     if (!R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung legt nur die GF an.');
     if (!req.ctx.hat('benutzer') && !BUERO_ROLLENWECHSEL.includes(f.rolle)) throw keinZugriff('Bauleiter legt nur die Geschäftsführung an (Büro: Mitarbeiter und Poliere).');
     if (f.pnr == null) {
@@ -206,8 +218,9 @@ module.exports = function benutzerRouten(api, bt) {
     const k = Object.keys(f);
     const r = db.lauf(`INSERT INTO benutzer (${k.join(', ')}) VALUES (${k.map(() => '?').join(', ')})`, ...k.map((x) => f[x]));
     if (f.lohngruppe_id) db.lauf('INSERT INTO benutzer_lohngruppe (benutzer_id, lohngruppe_id, gueltig_ab, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', r.id, f.lohngruppe_id, L.BASIS, jetzt(), req.ctx.benutzer.id); // 12.22
-    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${r.id}`, neu: { name: f.name, rolle: f.rolle, lohngruppe: f.lohngruppe_id ?? null }, text: `Benutzer ${f.name} angelegt` });
-    res.status(201).json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
+    if (azNeu != null) db.lauf('INSERT INTO benutzer_arbeitszeitmodell (benutzer_id, modell_id, gueltig_ab, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', r.id, azNeu, AZ.BASIS, jetzt(), req.ctx.benutzer.id); // 15.23
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${r.id}`, neu: { name: f.name, rolle: f.rolle, lohngruppe: f.lohngruppe_id ?? null, arbeitszeitmodell: azNeu ?? AZ.vorgabeId(f.rolle), buakPflichtig: f.buak_pflichtig ?? null }, text: `Benutzer ${f.name} angelegt` });
+    res.status(201).json(voll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
   });
 
   api.put('/benutzer/:id', verwalterPruefen, async (req, res) => {
@@ -226,13 +239,19 @@ module.exports = function benutzerRouten(api, bt) {
       lgNeu = { id: f.lohngruppe_id, gueltigAb: L.pruefeGueltigAb(body.lohngruppeGueltigAb, body.lohngruppeRueckwirkend, heute), explizit: body.lohngruppeGueltigAb != null && body.lohngruppeGueltigAb !== '' };
       delete f.lohngruppe_id;
     }
+    // 15.23: Arbeitszeitmodell als Verlaufseintrag mit Stichtag (Standard heute; rückwirkend nur bestätigt)
+    let azNeu;
+    if (body.arbeitszeitmodellGueltigAb !== undefined && body.arbeitszeitmodell === undefined) throw ungueltig('arbeitszeitmodellGueltigAb nur zusammen mit arbeitszeitmodell.');
+    if (body.arbeitszeitmodell !== undefined) {
+      azNeu = { id: AZ.pruefeZuordnung(db, body.arbeitszeitmodell), gueltigAb: AZ.pruefeGueltigAb(body.arbeitszeitmodellGueltigAb, body.arbeitszeitmodellRueckwirkend, heute) };
+    }
     if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Bauleiter, Büro und Geschäftsführung vergibt nur die GF.');
     if (f.rolle) pruefeKontoVerwalten(db, req.ctx, alt, { neueRolle: f.rolle });
     const rollenwechsel = Boolean(f.rolle && f.rolle !== alt.rolle);
     if (rollenwechsel && !req.ctx.hat('benutzer') && !(BUERO_ROLLENWECHSEL.includes(alt.rolle) && BUERO_ROLLENWECHSEL.includes(f.rolle))) {
       throw keinZugriff('Zum oder vom Bauleiter macht nur die Geschäftsführung (Büro: Mitarbeiter ↔ Polier).');
     }
-    if (!Object.keys(f).length && !pin && !lgNeu) throw ungueltig('Keine Änderungen angegeben.');
+    if (!Object.keys(f).length && !pin && !lgNeu && !azNeu) throw ungueltig('Keine Änderungen angegeben.');
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
     }
@@ -250,8 +269,14 @@ module.exports = function benutzerRouten(api, bt) {
     if (rollenwechsel && !pin && alt.pin_laenge != null && alt.pin_laenge < auth.pinMinLaenge(f.rolle)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
     const entfernt = [];
-    let lgErg = null;
+    let lgErg = null, azErg = null;
     db.transaktion(() => {
+      // 15.23: vor einem Rollenwechsel die bisherige Vorgabe festschreiben – ein Rollenwechsel ändert nie rückwirkend das
+      // Arbeitszeitmodell oder die BUAK-Pflicht (beides bei Bedarf im selben Dialog ändern)
+      if (rollenwechsel) {
+        AZ.basisFestschreiben(db, id, alt.rolle, jetzt());
+        if (alt.buak_pflichtig == null && !('buak_pflichtig' in f)) { f.buak_pflichtig = AZ.istFeldrolle(alt.rolle) ? 1 : 0; k.push('buak_pflichtig'); }
+      }
       if (k.length) db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
       if (lgNeu) {
         lgErg = L.setzen(db, { benutzerId: id, lohngruppeId: lgNeu.id, gueltigAb: lgNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt(), explizit: lgNeu.explizit });
@@ -261,6 +286,17 @@ module.exports = function benutzerRouten(api, bt) {
           alt: { lohngruppe: lgErg.ersetzt !== undefined ? lgErg.ersetzt : lgErg.alt, gueltigAb: lgErg.gueltigAb }, neu: { lohngruppe: lgErg.neu, gueltigAb: lgErg.gueltigAb, ...(lgErg.ersetzt !== undefined ? { ersetzt: true } : {}) },
           text: `Lohngruppe ${alt.name}: ${lgErg.alt || '–'} → ${lgErg.neu || '–'} ab ${lgErg.gueltigAb.split('-').reverse().join('.')}${lgErg.gueltigAb < heute ? ' (rückwirkend)' : ''}`
         });
+      }
+      if (azNeu) {
+        azErg = AZ.setzen(db, { benutzerId: id, rolle: alt.rolle, modellId: azNeu.id, gueltigAb: azNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt() });
+        if (azErg.geaendert) {
+          const nm = (x) => (x == null ? '–' : (db.eins('SELECT name FROM arbeitszeitmodell WHERE id = ?', x) || {}).name || String(x));
+          db.protokolliere({
+            zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`,
+            alt: { arbeitszeitmodell: azErg.ersetzt !== undefined ? azErg.ersetzt : azErg.alt, gueltigAb: azErg.gueltigAb }, neu: { arbeitszeitmodell: azErg.neu, gueltigAb: azErg.gueltigAb, ...(azErg.ersetzt !== undefined ? { ersetzt: true } : {}) },
+            text: `Arbeitszeitmodell ${alt.name}: ${nm(azErg.alt)} → ${nm(azErg.neu)} ab ${azErg.gueltigAb.split('-').reverse().join('.')}${azErg.gueltigAb < heute ? ' (rückwirkend)' : ''}`
+          });
+        }
       }
       // Ausnahmen, die für die neue Rolle gesperrt sind, entfernen
       if (rollenwechsel) {
@@ -309,7 +345,7 @@ module.exports = function benutzerRouten(api, bt) {
       const B = require('../budget');
       for (const bsId of L.betroffeneBaustellen(db, id, lgErg.gueltigAb)) B.pruefeBudget(bt, bsId, { anlass: 'Lohngruppe geändert', benutzerId: req.ctx.benutzer.id });
     }
-    res.json({ ...benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}), ...(lgNeu ? { lohngruppeVerlauf: L.verlaufJson(db, id, heute) } : {}) });
+    res.json({ ...voll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}), ...(lgNeu ? { lohngruppeVerlauf: L.verlaufJson(db, id, heute) } : {}), ...(azNeu ? { arbeitszeitVerlauf: AZ.verlaufJson(db, id, heute) } : {}) });
   });
 
   /* ---------- Lohngruppen-Verlauf (12.22, vertraulich) ---------- */
@@ -336,6 +372,31 @@ module.exports = function benutzerRouten(api, bt) {
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, alt: { lohngruppe: e.lohngruppe_id, gueltigAb: e.gueltig_ab }, neu: null, text: `Künftige Lohngruppe ${e.lohngruppe_id || '–'} ab ${e.gueltig_ab.split('-').reverse().join('.')} für ${b.name} gelöscht` });
     });
     res.json({ ok: true, lohngruppeVerlauf: L.verlaufJson(db, id, heute) });
+  });
+
+  /* ---------- Arbeitszeitmodell-Verlauf (15.23) – wie der Lohngruppen-Verlauf, nie für Polier/Mitarbeiter ---------- */
+  const darfArbeitszeitSehen = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn') || ctx.hat('benutzer');
+  api.get('/benutzer/:id/arbeitszeit-verlauf', (req, res) => {
+    if (!darfArbeitszeitSehen(req.ctx)) throw keinZugriff();
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    if (!db.eins('SELECT id FROM benutzer WHERE id = ?', id)) throw nichtGefunden('Benutzer nicht gefunden.');
+    res.json(AZ.verlaufJson(db, id, heuteW()));
+  });
+  api.delete('/benutzer/:id/arbeitszeit-verlauf/:vid', verwalterPruefen, (req, res) => {
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
+    if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, b); // 15.9: nie das eigene Konto
+    const e = db.eins('SELECT * FROM benutzer_arbeitszeitmodell WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.vid, 'Eintrag-ID'), id);
+    if (!e) throw nichtGefunden('Eintrag nicht gefunden.');
+    const heute = heuteW();
+    if (e.gueltig_ab <= heute) throw konflikt('Nur künftige Einträge können gelöscht werden. Für die Vergangenheit einen neuen Eintrag (rückwirkend) setzen.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM benutzer_arbeitszeitmodell WHERE id = ?', e.id);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, alt: { arbeitszeitmodell: e.modell_id, gueltigAb: e.gueltig_ab }, neu: null, text: `Künftiges Arbeitszeitmodell ab ${e.gueltig_ab.split('-').reverse().join('.')} für ${b.name} gelöscht` });
+    });
+    res.json({ ok: true, arbeitszeitVerlauf: AZ.verlaufJson(db, id, heute) });
   });
 
   /**

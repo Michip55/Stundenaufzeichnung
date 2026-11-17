@@ -40,7 +40,8 @@ async function stammdatenUndLebenslauf(h, z) {
   let nav = await h.navIds();
   pruef(nav.includes('plan') && nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Offene Posten/Urlaub (${nav})`);
   await geh('/preise');
-  pruef(await page.locator('[data-tab]').count() === 5 && await page.locator('#stamm-links a').count() >= 2, 'A2-Stamm: Reiter (Katalog, Geräte, Material, Lohngruppen, Leistungen) oder Verweise fehlen');
+  // 15.23: sechster Reiter „Arbeitszeitmodelle“
+  pruef(await page.locator('[data-tab]').count() === 6 && await page.locator('#tab-arbeitszeit').count() === 1 && await page.locator('#stamm-links a').count() >= 2, 'A2-Stamm: Reiter (Katalog, Geräte, Material, Lohngruppen, Leistungen, Arbeitszeitmodelle) oder Verweise fehlen');
   await page.click('[data-tab="materialien"]');
   await page.waitForSelector('#stamm-neu');
   await ueberlauf('stammdaten material'); await shot('stammdaten-material');
@@ -948,7 +949,7 @@ async function dokumenteUndRechnungen(h, z) {
   await page.waitForSelector('#lohn-vorlagen li');
   await page.locator('#lohn-vorlagen [data-edit]').first().click();
   await page.waitForSelector('dialog[open] #lvf');
-  pruef(await page.locator('#lv-spalten li').count() >= 3 && await page.locator('#lv-lohnarten input').count() === 8, 'A2-Lohn: Spalten oder Lohnarten der Vorlage fehlen');
+  pruef(await page.locator('#lv-spalten li').count() >= 3 && await page.locator('#lv-lohnarten input').count() === 9 && await page.locator('#lv-lohnarten [name="la_mehrstunden"]').inputValue() === '210', 'A2-Lohn: Spalten oder Lohnarten der Vorlage fehlen (15.23: neun inkl. Mehrstunden 210)');
   await page.fill('#lvf [name="la_normal"]', '1000');
   await dialogUeberlauf('lohn vorlage'); await shot('lohn-vorlage');
   await page.click('dialog[open] button[type="submit"]');

@@ -1152,3 +1152,8 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .pause-opt.offen { border-style: dashed; }
 .pause-bis { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-weight: 700; font-size: 15px; }
 .kol-dauer { margin-top: 4px; }
+/* 15.23: Arbeitszeitmodelle – Normalstunden je Wochentag */
+.az-tage { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.az-tage .input { text-align: right; padding-left: 6px; padding-right: 6px; }
+@media (max-width: 560px) { .az-tage { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.az-modell { display: block; font-weight: 400; }

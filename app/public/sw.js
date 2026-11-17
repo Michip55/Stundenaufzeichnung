@@ -1,13 +1,13 @@
 // BauTag – Service Worker.
 // Hält nur die App-Hülle (HTML, CSS, JS, Icons) vor, damit die App ohne Netz startet.
 // /api wird NIE zwischengespeichert (Preise, Löhne, Kalkulation bleiben am Server) – Anfragen gehen direkt ins Netz.
-const VERSION = 'bautag-huelle-v44';
+const VERSION = 'bautag-huelle-v45';
 const HUELLE = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
   '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/offline.js', '/js/pausen.js', '/js/schaden-offline.js', '/js/tresor.js',
   '/js/views/login.js', '/js/views/stempeln.js', '/js/views/kolonne.js', '/js/views/woche.js', '/js/views/berichte.js',
   '/js/views/dashboard.js', '/js/views/dashboard-klassisch.js', '/js/views/baustellen.js', '/js/views/preise.js', '/js/views/kalkulation.js',
-  '/js/views/monat.js', '/js/views/benutzer.js', '/js/views/mehr.js', '/js/views/pin.js', '/js/views/abwesenheiten.js', '/js/views/korrektur.js', '/js/views/positionen.js', '/js/views/katalog.js',
+  '/js/views/monat.js', '/js/views/benutzer.js', '/js/views/mehr.js', '/js/views/pin.js', '/js/views/abwesenheiten.js', '/js/views/korrektur.js', '/js/views/positionen.js', '/js/views/katalog.js', '/js/views/arbeitszeitmodelle.js',
   '/js/views/fuhrpark.js', '/js/views/fuhrpark-dialoge.js', '/js/views/anlage.js', '/js/views/schaeden.js',
   '/js/installieren.js', '/js/preisstand.js', '/js/views/push.js', '/js/views/dienste.js', '/js/views/zweifaktor.js', '/js/views/fern.js', '/js/views/bericht-assistent.js', '/js/views/hilfe.js', '/offline.html',
   '/js/ziehen.js', '/js/arbeitstag.js', '/js/plan-regeln.js', '/js/views/plan.js', '/js/views/zeitplan.js', '/js/views/fuhren.js', '/js/views/lebenslauf.js', '/js/views/dokumente.js', '/js/views/rechnungen.js', '/js/views/import.js', '/js/views/urlaub.js', '/js/views/lohnvorlagen.js', '/js/views/zeitraum.js',

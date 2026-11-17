@@ -1,4 +1,4 @@
-// Stammdaten & Preise: Positionskatalog, Geräte, Material, Lohngruppen, Leistungen – an einer Stelle (API.md 12.2, 12.21).
+// Stammdaten & Preise: Positionskatalog, Geräte, Material, Lohngruppen, Leistungen, Arbeitszeitmodelle (15.23) – an einer Stelle (API.md 12.2, 12.21).
 // Anlegen, Bearbeiten, Deaktivieren/Löschen, Excel herunter-/hochladen mit Vorschau. Preise direkt in der Tabelle,
 // jede Preisänderung fragt „gültig ab“. € nur mit Preis-Recht; Lohngruppen sind vertraulich (nur mit preise_bearbeiten pflegbar).
 import { get, post, put, del } from '../api.js';
@@ -6,6 +6,7 @@ import { preisDialog, geplantChip } from '../preisstand.js';
 import { ic, esc, fmt, parseZahl, starkOk, leer, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
 import { wienHeute } from '../zahl.js';
 import { katalogTab } from './katalog.js';
+import { arbeitszeitTab } from './arbeitszeitmodelle.js';
 import { dateiBase64 } from './dokumente.js';
 
 const TABS = [
@@ -28,9 +29,13 @@ export default async function preise(el, ctx) {
   const darfPflegen = (t) => (t.vertraulich ? darf : darfStamm);
   const daten = siehtPreise ? await get('/preise') : {};
   const stamm = {}; // art → Liste aus /stammdaten (mit Version, aktiv, inaktiven); null = Server kennt 12.21 nicht
+  // 15.23: Arbeitszeitmodelle – eigener Reiter (ansehen mit stammdaten/lohn, pflegen mit stammdaten)
+  const siehtAz = darfStamm || ctx.kann('lohn');
+  const sonder = (x) => x === 'katalog' || x === 'arbeitszeit';
   let tab = ctx.query.get('tab') || speicher.lies('bt_preistab');
-  if (tab !== 'katalog' && !tabs.some((t) => t.art === tab)) tab = tabs[0].art;
+  if (!sonder(tab) && !tabs.some((t) => t.art === tab)) tab = tabs[0].art;
   if (tab === 'katalog' && !siehtPreise) tab = tabs[0].art;
+  if (tab === 'arbeitszeit' && !siehtAz) tab = tabs[0].art;
   let suche = '', mitInaktiven = false;
 
   async function ladeStamm(art) {
@@ -60,7 +65,7 @@ export default async function preise(el, ctx) {
     el.innerHTML = `
     <div class="page">
       ${siehtPreise && !darf ? banner('info', 'Nur Ansicht – Preise ändern dürfen Büro und Geschäftsführung.', 'lock') : ''}
-      <div class="tabs" role="tablist" aria-label="Stammdaten und Preise">${tabs.map((x) => `<button type="button" role="tab" id="tab-${x.art}" aria-selected="${x.art === tab}" aria-controls="tabpanel" class="${x.art === tab ? 'on' : ''}" data-tab="${x.art}">${x.text}<span class="count">${anz(x)}</span></button>`).join('')}${siehtPreise ? `<button type="button" role="tab" id="tab-katalog" aria-selected="${tab === 'katalog'}" aria-controls="tabpanel" class="${tab === 'katalog' ? 'on' : ''}" data-tab="katalog">Positionskatalog</button>` : ''}</div>
+      <div class="tabs" role="tablist" aria-label="Stammdaten und Preise">${tabs.map((x) => `<button type="button" role="tab" id="tab-${x.art}" aria-selected="${x.art === tab}" aria-controls="tabpanel" class="${x.art === tab ? 'on' : ''}" data-tab="${x.art}">${x.text}<span class="count">${anz(x)}</span></button>`).join('')}${siehtPreise ? `<button type="button" role="tab" id="tab-katalog" aria-selected="${tab === 'katalog'}" aria-controls="tabpanel" class="${tab === 'katalog' ? 'on' : ''}" data-tab="katalog">Positionskatalog</button>` : ''}${siehtAz ? `<button type="button" role="tab" id="tab-arbeitszeit" aria-selected="${tab === 'arbeitszeit'}" aria-controls="tabpanel" class="${tab === 'arbeitszeit' ? 'on' : ''}" data-tab="arbeitszeit">Arbeitszeitmodelle</button>` : ''}</div>
       ${t ? `<div class="toolbar wrap" id="stamm-leiste"><label class="search weit"><span>${ic('tag')}</span><input type="search" id="stamm-suche" placeholder="${esc(t.text)} durchsuchen" aria-label="${esc(t.text)} durchsuchen" value="${esc(suche)}"></label>
         ${stamm[t.art] ? `<label class="check-inline sm"><input type="checkbox" id="stamm-inaktiv" ${mitInaktiven ? 'checked' : ''}> Inaktive anzeigen</label><a class="btn ghost" id="stamm-export" href="/api/stammdaten/${t.art}/export.xlsx" download>${ic('download')}Excel herunterladen</a>` : ''}
         ${darfPflegen(t) && stamm[t.art] ? `<button type="button" class="btn ghost" id="stamm-import">${ic('file')}Excel hochladen</button><input type="file" id="stamm-datei" class="vh" accept=".xlsx" tabindex="-1" aria-hidden="true"><button type="button" class="btn primary" id="stamm-neu">${ic('plus')}Neu</button>` : ''}</div>` : ''}
@@ -69,9 +74,10 @@ export default async function preise(el, ctx) {
       <nav class="chip-row" aria-label="Weitere Stammdaten" id="stamm-links"><span class="muted sm">Weitere Stammdaten:</span>${ctx.kann('benutzer') || ctx.kann('stammdaten') ? '<a class="chip-btn" href="#/benutzer">Mitarbeiter</a>' : ''}<a class="chip-btn" href="#/baustellen">Baustellen</a><a class="chip-btn" href="#/fuhrpark">Fuhrpark &amp; Geräte</a>${darfStamm ? '<button type="button" class="chip-btn" id="stamm-pausen">Vordefinierte Pausen</button>' : ''}</nav>
     </div>`;
     if (tab === 'katalog') { const box = document.createElement('div'); $('#tabpanel', el).appendChild(box); katalogTab(box, ctx); }
+    if (tab === 'arbeitszeit') { const box = document.createElement('div'); $('#tabpanel', el).appendChild(box); arbeitszeitTab(box, ctx); }
   }
   async function neuLaden() {
-    try { if (siehtPreise) Object.assign(daten, await get('/preise')); if (tab !== 'katalog') await ladeStamm(tab); } catch (x) { toast(x.message, 'warn'); }
+    try { if (siehtPreise) Object.assign(daten, await get('/preise')); if (!sonder(tab)) await ladeStamm(tab); } catch (x) { toast(x.message, 'warn'); }
     if (ctx.aktuell()) zeichne();
   }
   const finde = (id) => { const t = tabs.find((x) => x.art === tab); return t ? alle(t).find((z) => String(z.id) === String(id)) : null; };
@@ -202,8 +208,8 @@ export default async function preise(el, ctx) {
   el.addEventListener('click', async (e) => {
     if (e.target.closest('#stamm-pausen')) return pausenDialog();
     const tb = e.target.closest('[data-tab]');
-    if (tb && !tb.closest('[data-katalog]')) { tab = tb.dataset.tab; suche = ''; speicher.setz('bt_preistab', tab); if (tab !== 'katalog' && stamm[tab] === undefined) await ladeStamm(tab); return zeichne(); }
-    const t = tabs.find((x) => x.art === tab); if (!t || e.target.closest('[data-katalog]')) return;
+    if (tb && !tb.closest('[data-katalog]')) { tab = tb.dataset.tab; suche = ''; speicher.setz('bt_preistab', tab); if (!sonder(tab) && stamm[tab] === undefined) await ladeStamm(tab); return zeichne(); }
+    const t = tabs.find((x) => x.art === tab); if (!t || e.target.closest('[data-katalog]') || e.target.closest('[data-arbeitszeit]')) return;
     if (e.target.closest('#stamm-neu')) return eintragDialog(t, null);
     if (e.target.closest('#stamm-import')) return $('#stamm-datei', el).click();
     const ed = e.target.closest('[data-edit]'); if (ed) { const z = finde(ed.dataset.edit); if (z) eintragDialog(t, z); return; }
@@ -252,6 +258,6 @@ export default async function preise(el, ctx) {
     if (!ok) { zurueck(); return; }
     await neuLaden(); ctx.meldungenNeu();
   });
-  if (tab !== 'katalog') await ladeStamm(tab);
+  if (!sonder(tab)) await ladeStamm(tab);
   zeichne();
 }

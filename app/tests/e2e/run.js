@@ -1673,6 +1673,11 @@ async function laufe(browser, g) {
       console.log('    Vordefinierte Pausen (Auswahl, automatisches Ende, ohne Netz, Einstellung, Kolonne) …');
       try { const pa = await require('./pausen').laufe(browser, g); r.fehler.push(...pa.fehler); r.schritte += pa.schritte; } catch (e) { r.fehler.push('Abbruch Pausen: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Arbeitszeitmodelle und BUAK-Pflicht: Modell anlegen, Person mit Stichtag zuordnen, Mehrstunden in der Monatsauswertung (tests/e2e/arbeitszeit.js, API.md 15.23)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ARBEITSZEIT) {
+      console.log('    Arbeitszeitmodelle (anlegen, zuordnen mit Stichtag, Mehrstunden, BUAK-Pflicht) …');
+      try { const az = await require('./arbeitszeit').laufe(browser, g); r.fehler.push(...az.fehler); r.schritte += az.schritte; } catch (e) { r.fehler.push('Abbruch Arbeitszeitmodelle: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

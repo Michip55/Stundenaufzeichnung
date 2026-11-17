@@ -42,9 +42,10 @@ function lohnCsv(m) {
     }
   }
   z.push([]);
-  z.push(['Personalnummer', 'Name', 'Lohngruppe', 'Monat', 'Summe Stunden', 'Normalstunden', 'Überstunden (Vorschlag)', 'SW-Tage', 'SW-Stunden', 'K-Tage', 'U-Tage', 'ZA-Tage', 'SEG-Stunden']);
+  // 15.23: Mehrstunden (Teilzeit) und Arbeitszeitmodell am Ende angefügt – bestehende Spaltenzuordnungen bleiben gültig
+  z.push(['Personalnummer', 'Name', 'Lohngruppe', 'Monat', 'Summe Stunden', 'Normalstunden', 'Überstunden (Vorschlag)', 'SW-Tage', 'SW-Stunden', 'K-Tage', 'U-Tage', 'ZA-Tage', 'SEG-Stunden', 'Mehrstunden (Vorschlag)', 'Arbeitszeitmodell']);
   for (const ma of m.mitarbeiter) {
-    z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', m.monat, ma.summe, ma.normal, ma.ueberstunden, ma.sw, ma.swStunden, ma.k, ma.u, ma.za, ma.seg]);
+    z.push([ma.pnr ?? '', ma.name, ma.lohngruppe ?? '', m.monat, ma.summe, ma.normal, ma.ueberstunden, ma.sw, ma.swStunden, ma.k, ma.u, ma.za, ma.seg, ma.mehrstunden || 0, (ma.arbeitszeitmodell || {}).name || '']);
   }
   // 12.22: Lohngruppenwechsel im Monat (Tageszeilen tragen die Lohngruppe des Tages)
   const wechsel = [];
@@ -53,6 +54,14 @@ function lohnCsv(m) {
     for (let i = 1; i < a.length; i++) {
       const tt = a[i].von.split('-');
       wechsel.push(`Lohngruppenwechsel: ${ma.name} ab ${tt[2]}.${tt[1]}.: ${a[i - 1].lohngruppe || '–'} → ${a[i].lohngruppe || '–'} (Stunden ${a[i - 1].lohngruppe || '–'}: ${String(a[i - 1].stunden).replace('.', ',')}, ${a[i].lohngruppe || '–'}: ${String(a[i].stunden).replace('.', ',')})`);
+    }
+  }
+  // 15.23: Wechsel des Arbeitszeitmodells im Monat
+  for (const ma of m.mitarbeiter) {
+    const a = ma.arbeitszeitmodelle || [];
+    for (let i = 1; i < a.length; i++) {
+      const tt = a[i].von.split('-');
+      wechsel.push(`Arbeitszeitmodell-Wechsel: ${ma.name} ab ${tt[2]}.${tt[1]}.: ${a[i - 1].name || '–'} → ${a[i].name || '–'} (Über-/Mehrstunden je Abschnitt gerechnet)`);
     }
   }
   const hinweise = [
@@ -69,19 +78,25 @@ function lohnCsv(m) {
   return csv(z);
 }
 
-/** Grundlage für die BUAK-Meldung (Format mit BUAK/Lohnverrechnung abstimmen) */
+/**
+ * Grundlage für die BUAK-Meldung (Format mit BUAK/Lohnverrechnung abstimmen). 15.23: nur BUAK-pflichtige Personen
+ * (Kennzeichen je Person, Vorgabe Mitarbeiter/Polier) – alle anderen fehlen ganz.
+ */
 function buakCsv(m) {
   const z = [
     ['Hinweis', 'Grundlage für die BUAK-Meldung – Format mit BUAK/Lohnverrechnung abstimmen'],
     ['Personalnummer', 'Name', 'Monat', 'Beschäftigungstage', 'Arbeitsstunden', 'Urlaubstage', 'Krankenstandstage', 'Schlechtwettertage', 'Schlechtwetterstunden', 'Schlechtwetter-Daten']
   ];
-  for (const ma of m.mitarbeiter) {
+  const pflichtig = m.mitarbeiter.filter((ma) => ma.buakPflichtig !== false);
+  for (const ma of pflichtig) {
     const tage = Object.entries(ma.tage);
     const gilt = (t, c) => t.code === c && !t.codeStatus; // nur genehmigte Abwesenheiten
     const beschaeftigt = tage.filter(([, t]) => t.stunden > 0 || ['U', 'K', 'SW', 'ZA'].some((c) => gilt(t, c))).length;
     const swDaten = tage.filter(([, t]) => gilt(t, 'SW')).map(([d]) => deDatum(d)).join(', ');
     z.push([ma.pnr ?? '', ma.name, m.monat, beschaeftigt, ma.summe, ma.u, ma.k, ma.sw, ma.swStunden, swDaten]);
   }
+  z.push([]);
+  z.push(['Hinweis', `Enthält nur BUAK-pflichtige Personen (${pflichtig.length}) – Kennzeichen je Person unter Benutzer & Rechte.`]);
   return csv(z);
 }
 
