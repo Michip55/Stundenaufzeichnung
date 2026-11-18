@@ -1180,8 +1180,12 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .re-frei { display: flex; align-items: center; gap: 6px; min-width: 0; } .re-frei .input { flex: 1; min-width: 0; }
 .re-vorschlag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--blue-bg); font-size: 13.5px; line-height: 1.4; }
 .re-vorschlag[hidden] { display: none; }
+/* 15.26 Zahlbetrag mit Skonto: „Skonto % laut Rechnung (zur Kontrolle)“ und Hinweis in einer Zeile (Handy untereinander) */
+.re-sk-kontrolle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.re-sk-kontrolle[hidden] { display: none; }
+.re-sk-kontrolle .field-label small { font-weight: 400; }
 @media (max-width: 719px) {
-  .re-felder, .re-drei { grid-template-columns: 1fr; }
+  .re-felder, .re-drei, .re-sk-kontrolle { grid-template-columns: 1fr; }
   .re-rl, .re-rl[data-rl="deckung"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .re-rl-t, .re-frei { grid-column: 1 / -1; }
   .re-teil { padding: 10px 12px 12px; }
@@ -1251,3 +1255,10 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
   .bz-zeile [data-weg] { grid-row: 1; grid-column: 3; }
   .bz-zeile + .bz-zeile { border-top: 1px dashed #e3c98a; padding-top: 10px; }
 }
+
+/* 15.25: Stunden als Std:Min – Schalter „Std:Min | Dezimal“ in der Monatsauswertung */
+.zf-zeile { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.zf-l { font-weight: 600; font-size: 13.5px; color: var(--muted); }
+.zf-schalter { flex: 0 0 auto; } .zf-schalter button { min-width: 92px; justify-content: center; }
+.zf-hinweis { flex: 1 1 200px; min-width: 0; }
+@media (max-width: 719px) { .zf-schalter { flex: 1 1 100%; } .zf-hinweis { flex-basis: 100%; } }

@@ -1601,7 +1601,7 @@ async function geteilt(h) {
   await page.click('dialog[open] [data-ok]');
   await page.waitForSelector('.login-user');
   const nach = await lager();
-  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_geraet_art', 'bt_uebersicht_klassisch', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
+  const ERLAUBT = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_geraet_art', 'bt_uebersicht_klassisch', 'bt_stunden_format', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten'];
   const fremd = Object.keys(nach.ls).filter((x) => !ERLAUBT.includes(x));
   pruef(fremd.length === 0, `R-08: nach dem Abmelden bleiben Schlüssel im localStorage: ${fremd.join(', ')}`);

@@ -95,3 +95,56 @@ export function personalFehler(p) {
   if (Number(p.segStunden) > 0 && Number(p.segStunden) > Number(p.stunden || 0)) return 'SEG-Stunden dürfen die Arbeitsstunden nicht übersteigen.';
   return '';
 }
+
+/* ---------- Stunden als Stunden:Minuten (API.md 15.25, Inhaber 18.11.2026) ---------- */
+// Arbeitszeit wird in der Oberfläche als „9:51“ bzw. „9 Std. 51 Min.“ gezeigt statt als Dezimalzahl „9,85“.
+// Minuten = Math.round(Stunden × 60) – so wird 9,999 zu „10:00“, nie zu „9:60“. Negativ mit echtem Minuszeichen („−0:30“).
+// Keine Zahl (null, undefined, NaN, Text) → leer. Über 999 Stunden ohne Tausenderpunkt („1234:05“).
+// Exporte (CSV, BMD, BUAK, XLSX) und PDFs bleiben dezimal – diese Funktionen gelten nur für die Anzeige.
+const istStd = (n) => typeof n === 'number' && Number.isFinite(n);
+function minutenTeile(stunden) {
+  const m = Math.round(Math.abs(stunden) * 60);
+  return { vz: stunden < 0 && m > 0 ? '−' : '', h: Math.floor(m / 60), min: m % 60 };
+}
+/** Kurzform für Tabellen, Summen, Kacheln und Listen: 9.85 → „9:51“, 0.0833 → „0:05“, -0.5 → „−0:30“; keine Zahl → leer */
+export function stundenHM(stunden, leer = '–') {
+  if (!istStd(stunden)) return leer;
+  const t = minutenTeile(stunden);
+  return `${t.vz}${t.h}:${String(t.min).padStart(2, '0')}`;
+}
+/** Langform für einzelne, gut sichtbare Werte: 9.85 → „9 Std. 51 Min.“, 8 → „8 Std.“, 0.75 → „45 Min.“, 0 → „0 Min.“ */
+export function stundenLang(stunden, leer = '–') {
+  if (!istStd(stunden)) return leer;
+  const t = minutenTeile(stunden);
+  if (!t.h && !t.min) return '0 Min.';
+  return t.vz + [t.h ? `${t.h} Std.` : '', t.min ? `${t.min} Min.` : ''].filter(Boolean).join(' ');
+}
+/**
+ * Hinweistexte vom Server (z. B. Arbeitszeit-Warnungen) nennen Stunden dezimal („11,08 Std. – mehr als 10 Std.“).
+ * Für die Anzeige werden nur Zahlen MIT Dezimalkomma vor „Std.“ bzw. „Arbeitsstunden“ in die Langform gebracht
+ * („11 Std. 5 Min.“); ganze Stunden, Datumsangaben und alle anderen Zahlen bleiben unverändert.
+ */
+export function stundenImText(text) {
+  if (typeof text !== 'string' || !text) return text;
+  const wert = (h, k) => Number(`${h}.${k}`);
+  return text
+    .replace(/(^|[^\d.,])(\d{1,4}),(\d{1,2})[\s ]Std\./g, (_, vor, h, k) => `${vor}${stundenLang(wert(h, k))}`)
+    .replace(/(^|[^\d.,])(\d{1,4}),(\d{1,2})[\s ]Arbeitsstunden\b/g, (_, vor, h, k) => `${vor}${stundenLang(wert(h, k))} Arbeitszeit`);
+}
+/**
+ * Minuten eines Stundenwerts mit derselben Rundung wie die Anzeige (stundenHM/stundenLang); keine Zahl → 0.
+ * Grundlage für Summen in Std:Min, die zu den sichtbaren Einzelwerten passen.
+ */
+export function stundenMinuten(stunden) {
+  if (!istStd(stunden)) return 0;
+  const m = Math.round(Math.abs(stunden) * 60);
+  return stunden < 0 ? -m : m;
+}
+/**
+ * Summe in Std:Min aus Einzelwerten: jeder Wert wird erst auf Minuten gerundet (so wie er angezeigt wird), dann addiert.
+ * Ergebnis in Stunden (Minuten / 60). Beispiel: 5 × 7,67 (= 5 × „7:40“) → 38,333… → „38:20“, nicht „38:21“ aus 38,35.
+ * Nur für die Anzeige in Std:Min – der Dezimal-Modus und alle Exporte nehmen weiter die Summen der API.
+ */
+export function stundenSumme(werte) {
+  return (werte || []).reduce((s, h) => s + stundenMinuten(h), 0) / 60;
+}

@@ -25,7 +25,7 @@ const PREIS_SPALTEN = {
   material: ['ek', 'vk'],
   preis_stand: ['wert'],
   projektposition: ['ep'],
-  rechnung: ['netto', 'ust_betrag', 'brutto', 'skonto_betrag', 'deckung_betrag', 'haft_betrag'], // 15.24: Papierwerte, Skonto- und Rücklass-Beträge
+  rechnung: ['netto', 'ust_betrag', 'brutto', 'skonto_betrag', 'skonto_zahlbetrag', 'deckung_betrag', 'haft_betrag'], // 15.24: Papierwerte, Skonto- und Rücklass-Beträge; 15.26: Zahlbetrag mit Skonto
   rechnung_zahlung: ['betrag', 'skonto'],
   rechnung_differenz: ['betrag'], // 15.24 Zahlungsabgleich
   servicebuch_eintrag: ['kosten'],

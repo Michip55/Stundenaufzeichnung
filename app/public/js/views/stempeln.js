@@ -6,12 +6,15 @@ import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
 import { pauseWaehlen, pausenAuswahl, merkeAuswahl, bisText } from '../pausen.js';
+import { stundenImText } from '../zahl.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
   pause_ende: ['Pause beendet', 'tl-in'], wechsel: ['Baustelle gewechselt', 'tl-swap'],
 };
-export const warnText = (w) => (typeof w === 'string' ? w : (w && (w.text || w.meldung || w.titel)) || '');
+// 15.25: Stunden in Server-Hinweisen („11,08 Std.“) als „11 Std. 5 Min.“ zeigen – der Text der API bleibt unverändert
+export const warnTextRoh = (w) => (typeof w === 'string' ? w : (w && (w.text || w.meldung || w.titel)) || '');
+export const warnText = (w) => stundenImText(warnTextRoh(w));
 
 /**
  * 15.22: Pause mit fester Dauer ist bis `bis` (ms) abgelaufen → lokal wie am Server: Arbeit ab dem geplanten Ende.
@@ -150,7 +153,7 @@ export default async function stempeln(el, ctx) {
       <div class="stack">
         <section class="card pad">
           <div class="card-h"><h3>Heute</h3><span class="chip st-outline">${esc(fmt.datumKurz(new Date()))}</span></div>
-          <div class="sum-grid"><div><small>Arbeitszeit</small><b>${fmt.hm(st.heute.stunden || 0)} <i>Std.</i></b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
+          <div class="sum-grid"><div><small>Arbeitszeit</small><b id="heute-arbeitszeit">${fmt.stdLangHtml(st.heute.stunden || 0)}</b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
           ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"${x.automatisch ? ' data-automatisch' : ''}><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min)` : ''}${x.automatisch ? ' – automatisch' : ''}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
         <button type="button" class="card pad link-card" id="schaden-kurz" data-akt="schaden">${ic('camera')}<span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span>${ic('right')}</button>
