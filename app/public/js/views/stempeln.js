@@ -1,22 +1,39 @@
 // Stempeluhr: Status, laufende Zeit, Baustelle wählen, Kommen / Pause / Wechsel / Gehen.
 // Ohne Netz wird die Buchung lokal gemerkt und später nachgesendet (siehe offline.js).
 import { get, post } from '../api.js';
-import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, $, $$ } from '../ui.js';
+import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, wieBuero, istIntern, $, $$ } from '../ui.js';
 import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
+import { pauseWaehlen, pausenAuswahl, merkeAuswahl, bisText } from '../pausen.js';
+import { stundenImText } from '../zahl.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
   pause_ende: ['Pause beendet', 'tl-in'], wechsel: ['Baustelle gewechselt', 'tl-swap'],
 };
-export const warnText = (w) => (typeof w === 'string' ? w : (w && (w.text || w.meldung || w.titel)) || '');
+// 15.25: Stunden in Server-Hinweisen („11,08 Std.“) als „11 Std. 5 Min.“ zeigen – der Text der API bleibt unverändert
+export const warnTextRoh = (w) => (typeof w === 'string' ? w : (w && (w.text || w.meldung || w.titel)) || '');
+export const warnText = (w) => stundenImText(warnTextRoh(w));
+
+/**
+ * 15.22: Pause mit fester Dauer ist bis `bis` (ms) abgelaufen → lokal wie am Server: Arbeit ab dem geplanten Ende.
+ * (Der Server trägt das Ende selbst ein; hier nur die Anzeige ohne Netz bzw. bis zum nächsten Laden.)
+ */
+export function autoEnde(st, bis = Date.now()) {
+  if (!st || st.status !== 'pause' || !st.pauseBis || new Date(st.pauseBis).getTime() > bis) return st;
+  const buch = (st.heute && st.heute.buchungen) || [];
+  return { ...st, status: 'arbeit', seit: st.pauseBis, pauseBis: null, pauseDauerMin: null,
+    heute: { ...(st.heute || {}), buchungen: [...buch, { typ: 'pause_ende', zeit: st.pauseBis, baustelleId: st.baustelleId, automatisch: true, lokal: true }] } };
+}
 
 // Lokaler Folgezustand für Offline-Buchungen
 function wendeAn(st, b) {
-  const neu = { ...st, heute: { ...(st.heute || {}), buchungen: [...((st.heute && st.heute.buchungen) || []), { typ: b.typ, zeit: b.zeit, baustelleId: b.baustelleId, quelle: 'offline', ausstehend: true }] } };
+  st = autoEnde(st, new Date(b.zeit).getTime()); // eine geplante Pause war vor dieser Buchung schon zu Ende
+  const neu = { ...st, heute: { ...(st.heute || {}), buchungen: [...((st.heute && st.heute.buchungen) || []), { typ: b.typ, zeit: b.zeit, baustelleId: b.baustelleId, quelle: 'offline', ausstehend: true, ...(b.dauerMin ? { dauerMin: b.dauerMin } : {}) }] } };
+  neu.pauseBis = null; neu.pauseDauerMin = null;
   if (b.typ === 'kommen' || b.typ === 'wechsel') { neu.status = 'arbeit'; neu.seit = b.zeit; if (b.baustelleId != null) neu.baustelleId = b.baustelleId; }
-  else if (b.typ === 'pause_start') { neu.status = 'pause'; neu.seit = b.zeit; }
+  else if (b.typ === 'pause_start') { neu.status = 'pause'; neu.seit = b.zeit; if (b.dauerMin) { neu.pauseBis = new Date(new Date(b.zeit).getTime() + b.dauerMin * 60000).toISOString(); neu.pauseDauerMin = b.dauerMin; } }
   else if (b.typ === 'pause_ende') { neu.status = 'arbeit'; neu.seit = b.zeit; }
   else if (b.typ === 'gehen') { neu.status = 'aus'; neu.seit = b.zeit; }
   return neu;
@@ -47,8 +64,17 @@ export default async function stempeln(el, ctx) {
     try {
       const [s, b] = await Promise.all([get('/zeit/status'), get('/baustellen')]);
       st = s; baustellen = b; offlineModus = false;
-      speicher.setz('bt_status', { status: s.status, seit: s.seit, baustelleId: s.baustelleId, heute: s.heute, tag: fmt.iso() });
-      speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status }))); // ohne Beträge
+      // Baustellenplaner: heutiger veröffentlichter Einsatz → diese Baustelle vorschlagen (einmal je Tag, danach gilt die eigene Wahl)
+      if (s.status === 'aus' && s.geplant && b.some((x) => x.id === s.geplant.baustelleId) && speicher.lies('bt_plan_vorschlag') !== `${fmt.iso()}:${s.geplant.baustelleId}`) { wahl = s.geplant.baustelleId; speicher.setz('bt_plan_vorschlag', `${fmt.iso()}:${s.geplant.baustelleId}`); speicher.setz('bt_baustelle', wahl); }
+      // 12.25: Büro, Bauleiter und Geschäftsführung stempeln im Regelfall auf die interne Kostenstelle „Büro“ – einmal am Tag
+      // vorgeschlagen; eine andere Wahl (echte Baustelle) bleibt danach erhalten. Alle anderen: nur wenn noch nichts gewählt ist.
+      if (s.status === 'aus' && s.standardKostenstelleId != null && !s.geplant && b.some((x) => x.id === s.standardKostenstelleId)) {
+        const marke = `${fmt.iso()}:${s.standardKostenstelleId}`;
+        if (wieBuero(ctx.ich.benutzer.rolle) /* rolle-ok: nur Vorschlag der eigenen Kostenstelle (12.25), keine Rechteprüfung */ ? speicher.lies('bt_kst_standard') !== marke : wahl == null || !b.some((x) => x.id === wahl)) { wahl = s.standardKostenstelleId; speicher.setz('bt_kst_standard', marke); speicher.setz('bt_baustelle', wahl); }
+      }
+      speicher.setz('bt_status', { status: s.status, seit: s.seit, baustelleId: s.baustelleId, pauseBis: s.pauseBis || null, pauseDauerMin: s.pauseDauerMin || null, heute: s.heute, tag: fmt.iso() });
+      if (Array.isArray(s.pausenAuswahl)) merkeAuswahl(s.pausenAuswahl); // 15.22: Auswahl auch ohne Netz anbieten
+      speicher.setz('bt_baustellen', b.map((x) => ({ id: x.id, kst: x.kst, name: x.name, adresse: x.adresse, status: x.status, intern: istIntern(x) }))); // ohne Beträge
     } catch (e) {
       if (!e.netz) throw e;
       setzOnline(false);
@@ -63,6 +89,7 @@ export default async function stempeln(el, ctx) {
     }
     // noch nicht gesendete Buchungen einrechnen
     for (const b of warteschlange()) st = wendeAn(st, b);
+    st = autoEnde(st); // 15.22: geplante Pause inzwischen vorbei (ohne Netz bzw. Server noch nicht gefragt)
     st.heute = st.heute || { stunden: 0, pauseMin: 0, buchungen: [] };
     st.warnungen = st.warnungen || [];
   }
@@ -88,6 +115,7 @@ export default async function stempeln(el, ctx) {
     let aktion;
     if (st.status === 'aus') {
       aktion = `
+        ${st.geplant ? `<p class="plan-vorschlag" id="plan-vorschlag" data-geplant="${st.geplant.baustelleId}">${ic('calendar', 'xs')}<span>Heute eingeplant: <b>${esc(st.geplant.name || '')}</b>${st.geplant.beginn ? ` · ${esc(st.geplant.beginn)} Uhr` : ''}${st.geplant.treffpunkt ? ` · Treffpunkt ${esc(st.geplant.treffpunkt)}` : ''}</span></p>` : ''}
         <button type="button" class="site-row pick" data-akt="waehlen" aria-label="Baustelle wählen${b ? ': ' + esc(b.name) : ''}">${baustelleZeile}<span class="pick-cta">Ändern${ic('right')}</span></button>
         <button type="button" class="punch in" data-stempel="kommen" ${b ? '' : 'disabled'}><span class="punch-ic">${ic('play')}</span><span><b>Kommen</b><small>Arbeitsbeginn jetzt buchen</small></span></button>`;
     } else {
@@ -110,7 +138,7 @@ export default async function stempeln(el, ctx) {
           <div class="cc-greet">${gruss}, ${esc(u.name.split(' ')[0])}</div>
           ${st.status === 'aus'
             ? `<div class="cc-time" id="cc-zeit" aria-live="off">${fmt.uhr(new Date().toISOString())}</div><div class="cc-date">${esc(fmt.datumLang(new Date()))} · <span class="run-state aus">Nicht eingestempelt</span></div>`
-            : `<div class="run-state"><i class="pulse"></i>${laeuft ? 'Arbeitszeit läuft' : 'Pause läuft'}<span>seit ${fmt.uhr(st.seit)} Uhr</span></div><div class="cc-time big" id="cc-zeit" role="timer" aria-label="${laeuft ? 'Arbeitszeit' : 'Pause'} seit ${fmt.uhr(st.seit)} Uhr">${fmt.dauer(Date.now() - new Date(st.seit).getTime())}</div><div class="cc-date">${esc(fmt.datumLang(new Date()))}</div>`}
+            : `<div class="run-state"><i class="pulse"></i>${laeuft ? 'Arbeitszeit läuft' : 'Pause läuft'}<span>seit ${fmt.uhr(st.seit)} Uhr</span></div><div class="cc-time big" id="cc-zeit" role="timer" aria-label="${laeuft ? 'Arbeitszeit' : 'Pause'} seit ${fmt.uhr(st.seit)} Uhr">${fmt.dauer(Date.now() - new Date(st.seit).getTime())}</div>${pause ? `<div class="pause-bis" id="pause-bis" data-bis="${esc(st.pauseBis || '')}">${ic('clock', 'xs')}${st.pauseBis ? `<span>${esc(bisText(st.pauseBis))} Uhr</span> <small class="muted">· endet von selbst</small>` : '<span>Pause offen</span> <small class="muted">· bis „Pause beenden“</small>'}</div>` : ''}<div class="cc-date">${esc(fmt.datumLang(new Date()))}</div>`}
           ${aktion}
           <p class="cc-note">${ic('info')}<span>${speicher.lies('bt_standort', false) ? 'Standort wird nur im Moment des Stempelns erfasst – keine laufende Ortung.' : 'Standort wird nicht erfasst (in „Mehr“ einschaltbar, dann nur im Moment des Stempelns).'}</span></p>
         </section>
@@ -125,8 +153,8 @@ export default async function stempeln(el, ctx) {
       <div class="stack">
         <section class="card pad">
           <div class="card-h"><h3>Heute</h3><span class="chip st-outline">${esc(fmt.datumKurz(new Date()))}</span></div>
-          <div class="sum-grid"><div><small>Arbeitszeit</small><b>${fmt.hm(st.heute.stunden || 0)} <i>Std.</i></b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
-          ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
+          <div class="sum-grid"><div><small>Arbeitszeit</small><b id="heute-arbeitszeit">${fmt.stdLangHtml(st.heute.stunden || 0)}</b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
+          ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"${x.automatisch ? ' data-automatisch' : ''}><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min)` : ''}${x.automatisch ? ' – automatisch' : ''}</b><small>${esc(bsName(x.baustelleId))}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
         <button type="button" class="card pad link-card" id="schaden-kurz" data-akt="schaden">${ic('camera')}<span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span>${ic('right')}</button>
         <a class="card pad link-card" href="#/woche">${ic('calendar')}<span><b>Meine Woche</b><small>Stunden, Überstunden und Abwesenheiten</small></span>${ic('right')}</a>
@@ -135,23 +163,30 @@ export default async function stempeln(el, ctx) {
     clearInterval(timer);
     timer = setInterval(() => {
       const z = $('#cc-zeit', el); if (!z) return;
+      // 15.22: geplante Pause zu Ende → Anzeige sofort auf „Arbeitszeit läuft“, dann (mit Netz) den Stand des Servers holen
+      if (st.status === 'pause' && st.pauseBis && Date.now() >= new Date(st.pauseBis).getTime() && !beschaeftigt) {
+        st = autoEnde(st); zeichne();
+        if (!offlineModus) lade().then(() => { if (ctx.aktuell()) zeichne(); }).catch(() => {});
+        return;
+      }
       z.textContent = st.status === 'aus' ? fmt.uhr(new Date().toISOString()) : fmt.dauer(Date.now() - new Date(st.seit).getTime());
     }, 1000);
   }
 
   function waehleBaustelle(titel) {
     const liste = aktive();
-    const d = dialog({ titel, inhalt: liste.length ? `<div class="pick-list">${liste.map((b) => `<button type="button" class="pick-row${b.id === (st.status === 'aus' ? wahl : st.baustelleId) ? ' sel' : ''}" data-bs="${b.id}"><span class="site-ic">${ic('pin')}</span><span class="pick-txt"><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b><span>${esc(b.adresse || '')}</span></span>${ic('right')}</button>`).join('')}</div>` : `<div class="state empty"><p>Keine aktive Baustelle vorhanden.</p></div>` });
+    const d = dialog({ titel, inhalt: liste.length ? `<div class="pick-list">${liste.map((b) => `<button type="button" class="pick-row${b.id === (st.status === 'aus' ? wahl : st.baustelleId) ? ' sel' : ''}" data-bs="${b.id}"${istIntern(b) ? ' data-intern' : ''}><span class="site-ic">${ic('pin')}</span><span class="pick-txt"><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b><span>${istIntern(b) ? 'Interne Kostenstelle' : esc(b.adresse || '')}</span></span>${ic('right')}</button>`).join('')}</div>` : `<div class="state empty"><p>Keine aktive Baustelle vorhanden.</p></div>` });
     d.el.addEventListener('click', (e) => { const r = e.target.closest('[data-bs]'); if (r) d.zu(Number(r.dataset.bs)); });
     return d.geschlossen;
   }
 
-  async function stemple(typ, baustelleId) {
+  async function stemple(typ, baustelleId, dauerMin) {
     if (beschaeftigt) return;
     beschaeftigt = true;
     $$('[data-stempel],[data-akt]', el).forEach((b) => { b.disabled = true; });
     const zeit = new Date().toISOString();
     const body = { typ };
+    if (typ === 'pause_start' && dauerMin != null) body.dauerMin = dauerMin; // 15.22
     let abfrage = null;
     if (baustelleId != null) body.baustelleId = baustelleId;
     try {
@@ -162,7 +197,7 @@ export default async function stempeln(el, ctx) {
       const antwort = await post('/zeit/stempeln', body);
       if (typ === 'gehen' && antwort && Array.isArray(antwort.zaehlerAbfrage) && antwort.zaehlerAbfrage.length) abfrage = antwort.zaehlerAbfrage;
       setzOnline(true);
-      toast((TYP[typ] || [typ])[0] + ' – gebucht.');
+      toast((TYP[typ] || [typ])[0] + (body.dauerMin ? ` – ${body.dauerMin} Min, endet um ${fmt.uhr(new Date(new Date(zeit).getTime() + body.dauerMin * 60000).toISOString())} Uhr.` : ' – gebucht.'));
     } catch (e) {
       if (vorlaeufig(e)) {
         // Kein Netz oder Server gerade nicht bereit: Buchung behalten und später senden
@@ -182,6 +217,13 @@ export default async function stempeln(el, ctx) {
 
   el.addEventListener('click', async (e) => {
     const s = e.target.closest('[data-stempel]');
+    if (s && !s.disabled && s.dataset.stempel === 'pause_start') {
+      // 15.22: Pause mit fester Dauer (endet von selbst) oder offen
+      const w = await pauseWaehlen({ auswahl: Array.isArray(st.pausenAuswahl) ? st.pausenAuswahl : pausenAuswahl() });
+      if (w === undefined || !ctx.aktuell()) return;
+      stemple('pause_start', undefined, w === 'offen' ? null : w);
+      return;
+    }
     if (s && !s.disabled) { stemple(s.dataset.stempel, s.dataset.stempel === 'kommen' ? wahl : undefined); return; }
     const kopie = e.target.closest('[data-abg-kopie]');
     if (kopie) {

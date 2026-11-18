@@ -10,8 +10,11 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const fp = require('./fuhrpark'); // Servicebuch und Schäden mit Fotos
+const a2 = require('./ausbau2'); // Ausbaustufe 2: Stammdaten, Lebenslauf, Planer, Dokumente, Rechnungen, Urlaub
 
 const APP = path.resolve(__dirname, '..', '..');
+// G-06: Test-Schnittstellen verlangen den Kopf X-BauTag-Test-Token (zufällig je Lauf)
+const TEST_TOKEN = require('node:crypto').randomBytes(24).toString('hex');
 const SHOTS = process.env.BAUTAG_SHOTS || '';
 const PIN = '1234';
 const NAME = { gf: 'Michael Pichler', buero: 'Martina Koller', bauleiter: 'Stefan Aigner', polier: 'Josef Haidbauer', mitarbeiter: 'Lukas Brandstätter' };
@@ -30,7 +33,7 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), ...extra }; // F-14: Testfotos nie in den Checkout
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_TEST_TOKEN: TEST_TOKEN, BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -42,7 +45,7 @@ async function starteServer(extra = {}) {
   const url = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100; i++) {
     if (proc.exitCode != null) throw new Error('Server beendet:\n' + log);
-    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, jetzt: () => new Date(UHR).getTime() + (Date.now() - t0), stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
+    try { const r = await fetch(url + '/api/gesundheit'); if (r.ok) return { url, dbPfad: env.BAUTAG_DB, jetzt: () => new Date(UHR).getTime() + (Date.now() - t0), stop: () => { proc.kill(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ } }, log: () => log }; } catch (e) { /* noch nicht bereit */ }
     await sleep(100);
   }
   proc.kill();
@@ -51,20 +54,22 @@ async function starteServer(extra = {}) {
 
 /* ------------------------------------------------------------------ */
 async function laufe(browser, g) {
-  const srv = await starteServer();
+  const srv = await starteServer({ BAUTAG_TEST: '1' }); // externe Dienste als Attrappen (API.md 12.18)
   const fehler = [];
   let schritte = 0;
   const pruef = (ok, text) => { schritte++; if (!ok) { fehler.push(text); console.log(`    ✗ ${text}`); } };
   const jetzt = () => srv.jetzt();
   // Browser-Uhr = Server-Uhr (läuft in Echtzeit weiter)
-  const neuerKontext = async (opt) => { const c = await browser.newContext(opt); await c.clock.install({ time: new Date(jetzt()) }); return c; };
+  const neuerKontext = async (opt = {}) => { const c = await browser.newContext({ ...opt, extraHTTPHeaders: { ...(opt.extraHTTPHeaders || {}), 'x-bautag-test-token': TEST_TOKEN } }); await c.clock.install({ time: new Date(jetzt()) }); return c; };
   const context = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, isMobile: false, acceptDownloads: true });
   context.setDefaultTimeout(10000);
   const page = await context.newPage();
   // Konsolenfehler: alles zählt, außer Netz-Fehlermeldungen des Browsers in Schritten, die der Test absichtlich auslöst
   let erwartet = 0;
   const konsole = [];
-  page.on('console', (m) => { if (m.type() !== 'error') return; const t = m.text(); if (erwartet > 0 && /Failed to load resource|net::ERR_/.test(t)) return; konsole.push(`${page.url().split('#')[1] || ''}: ${t}`); });
+  let letzteFehlAntwort = '';
+  page.on('response', (r) => { if (r.status() >= 400) letzteFehlAntwort = `${r.request().method()} ${r.url().replace(srv.url, '')} → ${r.status()}`; });
+  page.on('console', (m) => { if (m.type() !== 'error') return; const t = m.text(); if (erwartet > 0 && /Failed to load resource|net::ERR_/.test(t)) return; konsole.push(`${page.url().split('#')[1] || ''}: ${t}${/Failed to load resource/.test(t) ? ` [${m.location().url ? m.location().url.replace(srv.url, '') : letzteFehlAntwort}]` : ''}`); });
   page.on('pageerror', (e) => konsole.push('pageerror: ' + e.message));
   const absichtlich = async (fn) => { erwartet++; try { return await fn(); } finally { await sleep(150); erwartet--; } };
 
@@ -114,10 +119,24 @@ async function laufe(browser, g) {
   // Servicebuch-Prüfungen (tests/e2e/fuhrpark.js): Werkzeuge dieses Laufs und gemeinsamer Zustand über die Rollen hinweg
   const dialogUeberlauf = async (wo) => { const r = await page.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => { const b = d.querySelector('.dlg-body'); return Math.max(d.scrollWidth - d.clientWidth, b ? b.scrollWidth - b.clientWidth : 0, d.getBoundingClientRect().right - window.innerWidth); })); pruef(r.every((x) => x <= 1), `[${wo}] Dialog läuft horizontal über (${r})`); };
   const heute = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(jetzt()));
-  const h = { page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
+  // Testwerkzeug (nicht die Oberfläche): heutige Abwesenheiten aus Sicht des Büros, eigene Sitzung außerhalb der Seite
+  const abwesendeHeute = async () => {
+    const kopf = { 'content-type': 'application/json', 'x-bautag-test-token': TEST_TOKEN };
+    const l = await fetch(srv.url + '/api/auth/login', { method: 'POST', headers: kopf, body: JSON.stringify({ benutzerId: 101, pin: PIN }) });
+    const cookie = (/bt_session=[^;]*/.exec(l.headers.get('set-cookie') || '') || [''])[0];
+    const r = await fetch(`${srv.url}/api/abwesenheiten?von=${heute()}&bis=${heute()}`, { headers: { ...kopf, cookie } });
+    if (!r.ok) throw new Error(`Abwesenheiten (Büro) für den Test: ${r.status}`);
+    return (await r.json()).filter((a) => a.status !== 'abgelehnt').map((a) => a.benutzerId);
+  };
+  // Nach „wieder online“: festes Signal, dass der Server aus der Seite wirklich wieder erreichbar ist (unter Last dauert das Umschalten)
+  const netzDa = () => page.waitForFunction(async () => { try { return (await fetch('/api/auth/ich', { cache: 'no-store' })).ok; } catch (e) { return false; } }, null, { timeout: 20000, polling: 250 });
+  const h = { netzDa, page, context, g, api, geh, pruef, shot, keinEuro, text, bereit, ueberlauf, dialogUeberlauf, toastWeg, absichtlich, sleep, navIds, heute };
   const z = {};
 
   try {
+    haupt: {
+    // Entwicklung: E2E_NUR_A2=1 prüft nur die Bereiche der Ausbaustufe 2 (tests/e2e/ausbau2.js)
+    if (process.env.E2E_NUR_A2) { Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext, starteServer }); await page.goto(srv.url + '/'); for (const teil of process.env.E2E_NUR_A2 === '1' ? Object.keys(a2.TEILE) : process.env.E2E_NUR_A2.split(',')) await a2.TEILE[teil](h, z); break haupt; }
     /* ============ 0. Falsche PIN ============ */
     await page.goto(srv.url + '/');
     await page.waitForSelector('.login-user');
@@ -150,7 +169,13 @@ async function laufe(browser, g) {
     pruef(q.length === 1 && q[0].typ === 'kommen' && !!q[0].zeit, 'Offline: Buchung liegt nicht mit Zeitstempel in der Warteschlange');
     await shot('stempeln-offline');
     // … und nach Rückkehr des Netzes nachgesendet
-    await context.setOffline(false);
+    await absichtlich(async () => {
+      await context.setOffline(false);
+      // erst wenn der Server wieder antwortet, das Nachsenden anstoßen – sonst scheitert der erste Versuch unter Last und der nächste kommt erst nach 15 s
+      await netzDa();
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length === 0, null, { timeout: 30000, polling: 200 });
+    });
     await page.waitForSelector('#sync[data-ausstehend="0"]', { timeout: 20000 });
     st = await status();
     pruef(st.status === 'arbeit', `Offline-Nachsendung: Serverstatus ist ${st.status} statt arbeit`);
@@ -160,7 +185,8 @@ async function laufe(browser, g) {
     await shot('stempeln-arbeit');
     // M-04: Serverfehler (503) beim Stempeln → Buchung bleibt in der Warteschlange und wird später gesendet
     await page.route('**/api/zeit/stempeln', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ fehler: 'Wartung', code: 'SERVER' }) }));
-    await absichtlich(async () => { await page.click('[data-stempel="pause_start"]'); await page.waitForSelector('#sync[data-ausstehend="1"]'); });
+    // 15.22: „Pause“ fragt die Dauer (30/45/60 Min · offen) – hier „offen“ (bisheriges Verhalten)
+    await absichtlich(async () => { await page.click('[data-stempel="pause_start"]'); await page.click('dialog[open] [data-pause-min="offen"]'); await page.waitForSelector('#sync[data-ausstehend="1"]'); });
     pruef((await status()).status === 'arbeit', 'M-04: Test-Vorbedingung – Server sollte die Pause noch nicht haben');
     pruef((await page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'))).length === 1, 'M-04: Buchung nach 503 nicht in der Warteschlange behalten');
     await absichtlich(async () => { await page.click('#sync'); await sleep(400); });
@@ -215,12 +241,36 @@ async function laufe(browser, g) {
     await toastWeg();
     await stelleAntrag();
     const antragId = (await eigenerAntrag()).id;
+    // 15.11 (G2-017): der Mitarbeiter bekommt eine nicht fortlaufende Kennung; das Büro sieht später die Tabellen-ID
+    pruef(/^p[0-9a-f]{20}$/.test(String(antragId)), `G2-017: Mitarbeiter bekommt eine fortlaufende Abwesenheits-ID (${antragId})`);
+    const antragMa = { benutzerId: ich.benutzer.id, datum: morgen };
     pruef(await page.locator('#abw-offen, [data-entscheid]').count() === 0, 'B-07: Mitarbeiter sieht die Genehmigungsliste');
     await toastWeg();
     await geh('/pin'); await keinEuro('pin');
+    // A2-1: Hilfe / erste Schritte je Rolle und „Zum Startbildschirm hinzufügen“
+    await geh('/hilfe', 'hilfe-mitarbeiter'); await keinEuro('hilfe');
+    const themenMa = await page.locator('[data-thema]').evaluateAll((l) => l.map((x) => x.dataset.thema));
+    pruef(themenMa.includes('stempeln') && themenMa.includes('geraete') && !['kalk', 'preise', 'monat', 'benutzer', 'freigabe', 'bericht', 'kolonne'].some((t) => themenMa.includes(t)), `A2-1: Hilfe des Mitarbeiters zeigt falsche Themen (${themenMa})`);
+    pruef(await page.locator('#install-karte[data-install="anleitung"] [data-browser-anleitung] li').count() === 3, 'A2-1: Anleitung „App installieren“ fehlt');
+    // Browser bietet die Installation an → eigene Schaltfläche, Dialog des Browsers wird geöffnet
+    await page.evaluate(() => { const e = new Event('beforeinstallprompt'); e.prompt = () => { window.__gefragt = (window.__gefragt || 0) + 1; return Promise.resolve(); }; e.userChoice = Promise.resolve({ outcome: 'accepted' }); window.dispatchEvent(e); });
+    await page.waitForSelector('#install-karte[data-install="dialog"] [data-installieren]');
+    pruef(g.mobil ? await page.locator('#install-hinweis:not([hidden]) a[href="#/hilfe"]').count() === 1 : await page.locator('#install-hinweis').isHidden(), 'A2-1: Installations-Hinweis am Handy fehlt bzw. erscheint am großen Bildschirm');
+    await ueberlauf('hilfe mit installieren'); await shot('hilfe-installieren');
+    await page.click('[data-installieren]');
+    await page.waitForFunction(() => window.__gefragt === 1);
+    await page.waitForSelector('#install-karte[data-install="anleitung"]');
+    await toastWeg();
+    await geh('/mehr');
+    pruef(await page.locator('#zu-hilfe').count() === 1 && await page.locator('#install-karte').count() === 1, 'A2-1: „Mehr“ verlinkt weder Hilfe noch Installation');
     await geh('/mehr'); await keinEuro('mehr');
     pruef(await page.locator('.integ-list li').count() >= 5, 'Mehr: Zusatzdienste fehlen');
-    pruef((await text()).includes('Noch nicht angebunden'), 'Mehr: Hinweis „Noch nicht angebunden“ fehlt');
+    // Zusatzdienste zeigen den echten Zustand vom Server (12.14) – nichts wird vorgetäuscht
+    const integ = (await api('GET', '/integrationen')).json;
+    const dienstAktiv = (k) => /^aktiv/.test((integ.find((i) => i.schluessel === k) || {}).zustand || '');
+    const zustaende = await page.evaluate(() => [...document.querySelectorAll('.integ-list li[data-integ]')].map((li) => [li.dataset.integ, li.dataset.zustand]));
+    pruef(zustaende.length === integ.length && zustaende.every(([k, z]) => (integ.find((i) => i.schluessel === k) || {}).zustand === z), `Mehr: Zusatzdienste zeigen nicht den Zustand des Servers (${JSON.stringify(zustaende)})`);
+    pruef(!dienstAktiv('sms') && await page.locator('.integ-list li[data-integ="sms"]:not(.on)').count() === 1, 'Mehr: SMS darf ohne Anbieter nicht als aktiv erscheinen');
     for (const r of ['/preise', '/kalkulation', '/kalkulation/1', '/kalkulation/1/positionen', '/monat', '/benutzer', '/dashboard', '/berichte', '/kolonne', '/baustellen']) { await keinZugriff(r); await keinEuro(r); }
     // Server liefert dem Mitarbeiter keine €-Felder
     const mPreise = await absichtlich(() => api('GET', '/preise'));
@@ -267,7 +317,7 @@ async function laufe(browser, g) {
     await toastWeg();
     // Bericht anlegen
     await geh('/berichte'); await keinEuro('berichte');
-    pruef((await text()).includes('Noch nicht angebunden'), 'Berichte: Papier-Scan nicht als „Noch nicht angebunden“ gekennzeichnet');
+    pruef(await page.locator('#papier-liste').count() === 1, 'Berichte: „Papierbericht fotografieren“ fehlt (Foto als Anhang geht immer, Erkennung nur mit Texterkennung/KI)');
     await page.click('#neu');
     await page.waitForSelector('dialog[open] #nb');
     await page.selectOption('dialog[open] select[name="baustelleId"]', String(bsId));
@@ -293,7 +343,7 @@ async function laufe(browser, g) {
     // B-06: Schicht über Mitternacht ist erfassbar und wird gespeichert
     await zeit(0, 'von1', '22:00'); await zeit(0, 'bis1', '06:00');
     pruef(await page.locator('.bp-row').nth(0).locator('.bp-nacht:not([hidden])').count() === 1, 'B-06: Hinweis „+1 Tag“ fehlt bei Schicht über Mitternacht');
-    pruef((await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()) === '7,5', `B-06: Stunden über Mitternacht falsch (${await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()})`);
+    pruef((await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()) === '7:30', `B-06: Stunden über Mitternacht falsch (15.25: Std:Min) (${await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()})`);
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
     pruef(await zustand() === 'ok', `B-06: Nachtschicht wurde nicht gespeichert (Zustand ${await zustand()}: ${await page.locator('#unsaved').innerText().catch(() => '')})`);
     let p0 = (await api('GET', `/berichte/${berichtId}`)).json.personal[0];
@@ -337,7 +387,7 @@ async function laufe(browser, g) {
     await page.locator('.mat-row').nth(0).locator('input').blur();
     await page.locator('.mat-row').nth(1).locator('[data-d="1"]').click();
     await ueberlauf('bericht schritt 3'); await shot('bericht-3-material');
-    pruef(await page.locator('.a-mat [data-integ="scan_lieferschein"] button[disabled]').count() === 1, 'Bericht: Lieferschein-Scan ist nicht als deaktiviert gekennzeichnet');
+    pruef(await page.locator('.a-mat #ls-foto').count() === 1, 'Bericht: „Lieferschein fotografieren“ fehlt');
     // C-02: Arbeitsstunden sind nie frei eingebbar – weder in der Oberfläche noch über die Schnittstelle
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 });
     await schritt(1);
@@ -406,7 +456,7 @@ async function laufe(browser, g) {
     await page.locator('[data-pal="euro"] [data-d="1"]').click();
     await page.locator('[data-pal="weissenboeck"] [data-d="1"]').click(); await page.locator('[data-pal="weissenboeck"] [data-d="1"]').click();
     await ueberlauf('bericht schritt 4'); await shot('bericht-4-leistung');
-    pruef(await page.locator('[data-integ="diktat"] button[disabled]').count() === 1, 'Bericht: Diktat ist nicht als deaktiviert gekennzeichnet');
+    pruef(dienstAktiv('diktat') ? await page.locator('#diktat-text').count() === 1 : await page.locator('[data-integ="diktat"] button[disabled]').count() === 1, 'Bericht: Diktat passt nicht zum Zustand des Dienstes');
     // Regie, Vorkommnisse
     await schritt(5);
     await page.click('[data-r-neu]');
@@ -438,7 +488,8 @@ async function laufe(browser, g) {
       await box.locator('[data-sig-save]').click();
       await page.waitForSelector(`.sig-box.signed[data-sig="${rolle}"]`);
     };
-    pruef(await page.locator('[data-integ="sms"] button[disabled]').count() === 1, 'Bericht: SMS-Fernunterschrift ist nicht als deaktiviert gekennzeichnet');
+    pruef(dienstAktiv('fernunterschrift') ? await page.locator('[data-fern-anfordern]').count() >= 1 : await page.locator('[data-integ] button[disabled]').count() >= 1, 'Bericht: Fernunterschrift passt nicht zum Zustand des Dienstes');
+    pruef(!(await text()).includes('SMS gesendet'), 'Bericht: SMS-Versand darf nicht vorgetäuscht werden');
     await ueberlauf('bericht schritt 6'); await shot('bericht-6-unterschrift-leer');
     // D-07: unterschrieben wird nur der aktuelle Stand – veraltete Version → Hinweis und Neu-Laden
     const zeichneNur = async (rolle) => {
@@ -502,18 +553,26 @@ async function laufe(browser, g) {
     pruef((await page.locator('dialog[open] select[name="code"] option').allInnerTexts()).join('|').startsWith('SW') && await page.locator('dialog[open] select[name="code"] option').count() === 1, 'B-07: Polier kann andere Kürzel als SW wählen');
     pruef(await page.locator('dialog[open] input[name="wer"]').count() >= 1, 'B-07: Polier hat niemanden aus der Partie zur Auswahl');
     const heuteWien = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
-    const belegt = (await api('GET', `/abwesenheiten?von=${heuteWien}&bis=${heuteWien}`)).json.map((a) => String(a.benutzerId));
-    const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => !belegt.includes(v));
-    pruef(freieIds.length >= 1, 'B-07: in der Partie ist heute niemand ohne Abwesenheit (Testdaten)');
+    // Inhaber 13.11.2026: der Polier sieht keine Abwesenheiten anderer – er wählt aus der ganzen Partie, die Meldung wird immer angenommen
+    const freieIds = (await page.locator('dialog[open] input[name="wer"]').evaluateAll((l) => l.map((i) => i.value))).filter((v) => v !== String(ich.benutzer.id));
+    pruef(freieIds.length >= 1, 'B-07: außer dem Polier ist niemand aus der Partie zur Auswahl (Testdaten)');
     pruef(await page.locator(`dialog[open] input[name="wer"][value="${ich.benutzer.id}"]`).count() === 1, 'D-09: Polier kann Schlechtwetter nicht für sich selbst melden');
-    await page.locator(`dialog[open] input[name="wer"][value="${freieIds[0]}"]`).check();
+    // gemeldet wird jemand, der heute eingestempelt und nicht abwesend ist – Abwesenheiten erfährt der Polier nicht (auch nicht
+    // über die Kolonne, API.md 15.2: dort ist auch eine abwesende Person eingestempelt). Die Wahrheit holt nur der Test beim Büro.
+    const kol = (await api('GET', `/zeit/kolonne?baustelleId=${bsId}`)).json;
+    const abwesend = await abwesendeHeute();
+    const frei = (m) => m.benutzerId !== ich.benutzer.id && freieIds.includes(String(m.benutzerId)) && !abwesend.includes(m.benutzerId);
+    const swWer = String((kol.find((m) => frei(m) && ['arbeit', 'pause'].includes(m.status)) || kol.find(frei) || { benutzerId: freieIds[0] }).benutzerId);
+    await page.locator(`dialog[open] input[name="wer"][value="${swWer}"]`).check();
     await ueberlauf('dialog schlechtwetter'); await shot('abwesenheit-sw-dialog');
     await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector('.toast');
+    pruef(/Schlechtwetter gemeldet – das Büro bestätigt\./.test(await page.locator('.toast').first().innerText()), 'B-07: Rückmeldung zur Schlechtwetter-Meldung fehlt oder ist nicht neutral');
     await page.waitForFunction(() => !document.querySelector('dialog[open]'));
-    await page.waitForSelector('#abw-andere li');
-    const swEintrag = (await api('GET', '/abwesenheiten')).json.find((a) => a.code === 'SW' && a.datum === heuteWien && String(a.benutzerId) === freieIds[0]);
-    pruef(!!swEintrag, 'B-07: Schlechtwetter des Poliers nicht am Server');
-    pruef(swEintrag && swEintrag.status === 'beantragt' && await page.locator(`#abw-andere li[data-abw="${swEintrag && swEintrag.id}"] [data-abw-status="beantragt"]`).count() === 1, `C-13: Schlechtwetter des Poliers ist nicht „beantragt“ (${swEintrag && swEintrag.status})`);
+    pruef(await page.locator('#abw-andere').count() === 0 && await page.locator('#abw-sw').count() === 1, 'B-07: Polier sieht eine Liste mit Abwesenheiten seiner Partie');
+    const swMeldung = (await api('GET', '/abwesenheiten/sw-meldungen')).json.find((m) => String(m.benutzerId) === swWer && m.von === heuteWien);
+    pruef(!!swMeldung && swMeldung.status === 'gemeldet', `C-13: Schlechtwetter-Meldung des Poliers nicht am Server oder nicht „gemeldet“ (${swMeldung && swMeldung.status})`);
+    pruef((await api('GET', '/abwesenheiten')).json.every((a) => a.benutzerId === ich.benutzer.id), 'B-07: Polier erhält Abwesenheiten anderer Personen');
     await toastWeg();
     await geh('/woche'); await keinEuro('polier woche');
     await geh('/mehr'); await keinEuro('polier mehr');
@@ -528,9 +587,24 @@ async function laufe(browser, g) {
     ich = await anmelden('buero');
     nav = await navIds();
     pruef(['dashboard', 'berichte', 'baustellen', 'kalkulation', 'preise', 'monat', 'benutzer'].every((n) => nav.includes(n)), `Büro-Navigation falsch: ${nav}`);
+    { // 15.18 (Inhaber 16.11.2026): am Handy Startseite Stempeluhr, Tab-Leiste Stempeln · Übersicht · Baustellen · Planer · Mehr; sonst Übersicht
+      const handyBreite = g.width <= 719;
+      const startHash = await page.evaluate(() => location.hash);
+      pruef(startHash === (handyBreite ? '#/stempeln' : '#/dashboard'), `15.18: Startseite Büro (${g.name}) ist ${startHash}`);
+      if (handyBreite) {
+        const tabs = await page.evaluate(() => [...document.querySelectorAll('#nav-tab .nav-item')].map((a) => a.dataset.nav));
+        pruef(JSON.stringify(tabs) === JSON.stringify(['stempeln', 'dashboard', 'baustellen', 'plan', 'mehr']), `15.18: Handy-Tab-Leiste Büro: ${tabs}`);
+        await geh('/berichte');
+        pruef(await page.locator('#nav-tab [data-nav="mehr"].active').count() === 1, '15.18: Berichte am Handy unter „Mehr“ markiert');
+        await geh('/mehr');
+        pruef(await page.locator('.menu-list a[href="#/berichte"]').count() === 1, '15.18: Berichte unter „Mehr“ erreichbar');
+      }
+    }
     await geh('/dashboard');
-    pruef(await page.locator('[data-kpi="freigabe"] b').innerText() !== '0', 'Übersicht: kein Bericht zur Freigabe angezeigt');
-    pruef(await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
+    // 15.20: neue Übersicht – Zahl im Kopf „Zur Freigabe“, je Bericht eine Zeile; „Eingestempelt“ klappt die Liste auf
+    pruef(Number(await page.locator('[data-kpi="freigabe"]').getAttribute('data-wert')) > 0 && await page.locator('[data-bericht-zeile]').count() >= 1, 'Übersicht: kein Bericht zur Freigabe angezeigt');
+    await page.click('[data-kpi="anwesend"]');
+    pruef(await page.locator('#anwesend-karte').isVisible() && await page.locator('#anwesend-karte li').count() >= 1, 'Übersicht: Eingestempelte (Kolonne) werden nicht angezeigt');
     // Glocke: Bericht zur Freigabe
     await page.waitForSelector('#glocke.has');
     await page.click('#glocke');
@@ -559,14 +633,16 @@ async function laufe(browser, g) {
     const [popup] = await Promise.all([context.waitForEvent('page'), page.click('#pdf')]);
     await popup.close();
     // B-07: Büro genehmigt den Antrag des Mitarbeiters; erst dann zählt er im Monat
-    const monatU = async () => { const m = (await api('GET', `/monat?monat=${String((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).datum).slice(0, 7)}`)).json; return (m.mitarbeiter.find((x) => x.name === NAME.mitarbeiter) || {}).u; };
+    const bueroAntragId = (await api('GET', '/abwesenheiten')).json.find((a) => a.benutzerId === antragMa.benutzerId && a.datum === antragMa.datum).id;
+    pruef(typeof bueroAntragId === 'number', 'G2-017: Büro behält die Tabellen-ID');
+    const monatU = async () => { const m = (await api('GET', `/monat?monat=${String((await api('GET', '/abwesenheiten')).json.find((a) => a.id === bueroAntragId).datum).slice(0, 7)}`)).json; return (m.mitarbeiter.find((x) => x.name === NAME.mitarbeiter) || {}).u; };
     const uVor = await monatU();
     await geh('/abwesenheiten');
-    pruef(await page.locator(`#abw-offen li[data-abw="${antragId}"]`).count() === 1, 'B-07: Antrag des Mitarbeiters fehlt in der Genehmigungsliste');
+    pruef(await page.locator(`#abw-offen li[data-abw="${bueroAntragId}"]`).count() === 1, 'B-07: Antrag des Mitarbeiters fehlt in der Genehmigungsliste');
     await ueberlauf('abwesenheiten büro'); await shot('abwesenheiten-buero');
-    await page.click(`#abw-offen li[data-abw="${antragId}"] [data-entscheid="genehmigt"]`);
-    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), antragId);
-    pruef((await api('GET', '/abwesenheiten')).json.find((a) => a.id === antragId).status === 'genehmigt', 'B-07: Genehmigung nicht am Server');
+    await page.click(`#abw-offen li[data-abw="${bueroAntragId}"] [data-entscheid="genehmigt"]`);
+    await page.waitForFunction((id) => !document.querySelector(`#abw-offen li[data-abw="${id}"]`), bueroAntragId);
+    pruef((await api('GET', '/abwesenheiten')).json.find((a) => a.id === bueroAntragId).status === 'genehmigt', 'B-07: Genehmigung nicht am Server');
     const uNach = await monatU();
     pruef(uNach === uVor + 1, `B-07: Urlaubstag zählt nicht erst ab Genehmigung (vorher ${uVor}, nachher ${uNach})`);
     await toastWeg();
@@ -574,7 +650,7 @@ async function laufe(browser, g) {
     await page.waitForSelector('dialog[open] #abw-e');
     pruef(await page.locator('dialog[open] select[name="code"] option').count() === 4, 'B-07: Büro kann nicht alle Kürzel eintragen');
     await page.selectOption('dialog[open] select[name="code"]', 'K');
-    // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – der Polier kann sie danach nicht einstempeln
+    // C-11: eine Person der Partie, die heute nicht da ist, bekommt „K“ – über die Kolonne bucht der Polier sie trotzdem (15.2: kein Rückschluss)
     const heuteW = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
     const daHeute = (await api('GET', '/zeit/anwesend')).json.map((x) => x.benutzerId);
     const abwHeute = (await api('GET', `/abwesenheiten?von=${heuteW}&bis=${heuteW}`)).json.map((x) => x.benutzerId);
@@ -619,8 +695,65 @@ async function laufe(browser, g) {
     const altSatz = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).kostensatz;
     await feld.fill(String(altSatz + 40).replace('.', ','));
     await feld.press('Enter');
-    await page.waitForSelector('.price-in.saved');
-    pruef((await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).kostensatz === altSatz + 40, 'Preis wurde nicht gespeichert');
+    // A2-2: jede Preisänderung fragt „gültig ab“ (Standard heute)
+    await page.waitForSelector('dialog[open] #pa-form');
+    const heuteP = new Date(jetzt()).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    pruef(await page.locator('#pa-ab').inputValue() === heuteP && await page.locator('#pa-hinweis').getAttribute('data-art') === 'heute', `A2-2: „gültig ab“ ist nicht mit heute vorbelegt (${await page.locator('#pa-ab').inputValue()})`);
+    await ueberlauf('dialog preis ändern'); await shot('preis-gueltig-ab');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const gNach = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId);
+    pruef(gNach.kostensatz === altSatz + 40 && gNach.gueltigAb && gNach.gueltigAb.kostensatz === heuteP, `Preis wurde nicht (ab heute) gespeichert (${JSON.stringify(gNach.gueltigAb)})`);
+    await toastWeg();
+    // geplanter Preis: gilt erst in 30 Tagen, heutiger Wert bleibt, Kennzeichnung in Tabelle und Verlauf
+    const in30 = new Date(jetzt() + 30 * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const feld2 = page.locator(`#tabpanel tr[data-id="${geraetId}"] input[data-feld="kostensatz"]`);
+    await feld2.fill(String(altSatz + 55).replace('.', ',')); await feld2.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form');
+    await page.fill('#pa-ab', in30);
+    pruef(await page.locator('#pa-hinweis').getAttribute('data-art') === 'zukunft', 'A2-2: Hinweis „geplant“ fehlt bei künftigem Datum');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const gPlan = (await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId);
+    pruef(gPlan.kostensatz === altSatz + 40 && (gPlan.geplant || []).some((x) => x.feld === 'kostensatz' && x.wert === altSatz + 55 && x.gueltigAb === in30), `A2-2: geplanter Preis nicht als künftiger Stand gespeichert (${JSON.stringify(gPlan.geplant)})`);
+    await page.waitForSelector(`#tabpanel tr[data-id="${geraetId}"] [data-geplant]`, { timeout: 6000 }).catch(() => {}); // die Tabelle lädt nach dem Speichern neu
+    pruef(await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-geplant]`).count() === 1, 'A2-2: geplanter Preis ist in der Tabelle nicht gekennzeichnet');
+    await toastWeg();
+    await page.locator(`#tabpanel tr[data-id="${geraetId}"] [data-verlauf="kostensatz"]`).click();
+    await page.waitForSelector('dialog[open] .pv-liste li');
+    pruef(await page.locator('dialog[open] .pv-liste li').count() >= 3 && await page.locator('dialog[open] [data-stand-geplant]').count() === 1 && await page.locator('dialog[open] .pv-liste li.aktuell').count() === 1, 'A2-2: Preisverlauf unvollständig oder geplanter Stand nicht markiert');
+    await ueberlauf('dialog preisverlauf'); await shot('preisverlauf');
+    await page.click('dialog[open] [data-stand-weg]');
+    await page.locator('dialog[open] [data-ok]').last().click();
+    await page.waitForFunction(() => !document.querySelector('dialog[open] [data-stand-geplant]'));
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    pruef(((await api('GET', '/preise')).json.geraete.find((x) => x.id === geraetId).geplant || []).length === 0, 'A2-2: zurückgenommener geplanter Preis ist noch vorhanden');
+    await toastWeg();
+    // rückwirkend nur mit ausdrücklicher Bestätigung (an einem anderen Gerät, damit die Nachkalkulation dieser Baustelle unberührt bleibt)
+    const vor10 = new Date(jetzt() - 10 * 86400e3).toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const anderesG = (await api('GET', '/preise')).json.geraete.find((x) => !ber.geraete.some((y) => y.geraetId === x.id) && x.verrechnungssatz != null);
+    const feld3 = page.locator(`#tabpanel tr[data-id="${anderesG.id}"] input[data-feld="verrechnungssatz"]`);
+    await feld3.scrollIntoViewIfNeeded();
+    await feld3.fill(String(anderesG.verrechnungssatz + 1).replace('.', ',')); await feld3.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form');
+    await page.fill('#pa-ab', vor10);
+    pruef(await page.locator('#pa-hinweis').getAttribute('data-art') === 'rueck' && (await page.locator('#pa-hinweis').innerText()).includes('Rückwirkend'), 'A2-2: Warnung bei rückwirkendem Datum fehlt');
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 2);
+    await shot('preis-rueckwirkend');
+    await page.locator('dialog[open]').last().locator('.dlg-foot [data-zu]').click();
+    await sleep(300);
+    pruef((await api('GET', '/preise')).json.geraete.find((x) => x.id === anderesG.id).verrechnungssatz === anderesG.verrechnungssatz, 'A2-2: rückwirkender Preis ohne Bestätigung gespeichert');
+    const ohneBest = await absichtlich(() => api('PUT', `/preise/geraete/${anderesG.id}`, { feld: 'verrechnungssatz', wert: anderesG.verrechnungssatz + 1, gueltigAb: vor10 }));
+    pruef(ohneBest.status === 400, `A2-2: Server nimmt rückwirkenden Preis ohne Bestätigung an (Status ${ohneBest.status})`);
+    await page.click('#pa-ok');
+    await page.waitForFunction(() => document.querySelectorAll('dialog[open]').length === 2);
+    await page.locator('dialog[open]').last().locator('[data-ok]').click();
+    await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    const rueckVerlauf = (await api('GET', `/preise/geraete/${anderesG.id}/verlauf`)).json;
+    pruef(rueckVerlauf.some((x) => x.feld === 'verrechnungssatz' && x.gueltigAb === vor10 && x.wert === anderesG.verrechnungssatz + 1), 'A2-2: bestätigter rückwirkender Preis fehlt im Verlauf');
+    await toastWeg();
     await ueberlauf('/preise geräte'); await shot('preise-geraete');
     for (const t of ['materialien', 'leistungen', 'lohngruppen']) { await page.click(`[data-tab="${t}"]`); await ueberlauf('/preise ' + t); await shot('preise-' + t); }
     await toastWeg();
@@ -823,9 +956,14 @@ async function laufe(browser, g) {
     const epFeld = page.locator(`.pt-row[data-pos="${pA.id}"] input[data-feld="ep"]`);
     await epFeld.scrollIntoViewIfNeeded();
     await epFeld.fill(String(pA.ep + 5).replace('.', ',')); await epFeld.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [pA.id, pA.ep + 5]);
+    await page.waitForSelector(`.pt-row[data-pos="${pA.id}"] [data-perioden]`, { timeout: 6000 }).catch(() => {}); // nach dem Speichern wird die Liste neu geladen
     pos = await posApi();
     pruef(allePos(pos).find((x) => x.id === pA.id).ep === pA.ep + 5, 'P-03: EP im Bauvorhaben nicht gespeichert');
+    // A2-2: frühere Mengen bleiben beim alten EP – die Position zeigt ihre Preisstände
+    const pAper = allePos(pos).find((x) => x.id === pA.id).perioden || [];
+    pruef(pAper.length === 2 && pAper[0].ep === pA.ep && pAper[1].ep === pA.ep + 5 && await page.locator(`.pt-row[data-pos="${pA.id}"] [data-perioden="2"]`).count() === 1, `A2-2: Preisstände der Position fehlen (${JSON.stringify(pAper).slice(0, 160)})`);
     pruef(allePos(await posApi(zweiteBs.id)).find((x) => x.katalogId === pA.katalogId).ep === andereVor.ep, 'P-03: EP-Änderung hat ein anderes Bauvorhaben verändert');
     pruef((await katApi()).find((x) => x.id === pA.katalogId).ep === katVor.ep, 'P-03: EP-Änderung im Bauvorhaben hat den Katalog verändert');
     await toastWeg();
@@ -991,6 +1129,7 @@ async function laufe(browser, g) {
     const kFeld = page.locator(`tr[data-kat="${katVor.id}"] input[data-kfeld="ep"]`);
     await kFeld.scrollIntoViewIfNeeded();
     await kFeld.fill(String(katVor.ep + 3).replace('.', ',')); await kFeld.press('Enter');
+    await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
     await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`tr[data-kat="${id}"] input[data-kfeld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [katVor.id, katVor.ep + 3]);
     pruef((await katApi()).find((x) => x.id === katVor.id).ep === katVor.ep + 3 && allePos(await posApi()).find((x) => x.id === pA.id).ep === katVor.ep, 'P-15: Katalogpreis nicht gespeichert oder wirkt rückwirkend auf das Bauvorhaben');
     await toastWeg();
@@ -1035,10 +1174,12 @@ async function laufe(browser, g) {
     const katNach = await katApi();
     pruef(katNach.length === katAnzahlVor && geschuetztVor.every((x) => { const n = katNach.find((y) => y.id === x.id); return n && (x.id === katVor.id || n.ep === x.ep) && n.bezeichnung === x.bezeichnung; }), `E-04: Import der alten Vorlage hat den Katalog verändert (Positionen ${katAnzahlVor} → ${katNach.length})`);
     await ueberlauf('/preise katalog'); await toastWeg();
-    // C-14: Büro verwaltet Mitarbeiter, Poliere und Bauleiter – ohne Rechte-Matrix und Protokoll
+    // C-14/15.9: Büro verwaltet Mitarbeiter und Poliere – nicht Bauleiter, Büro (auch nicht das eigene Konto) und GF; ohne Rechte-Matrix und Protokoll
     await geh('/benutzer', 'buero-benutzer');
     pruef(await page.locator('[data-tab="matrix"], [data-tab="protokoll"], #matrix').count() === 0, 'C-14: Büro sieht Rechte-Matrix oder Protokoll');
     pruef(await page.locator(`#benutzerliste li:has-text("${NAME.gf}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.mitarbeiter}") [data-bearb]`).count() === 1, 'C-14: Büro kann GF bearbeiten oder Mitarbeiter nicht');
+    pruef(await page.locator(`#benutzerliste li:has-text("${NAME.bauleiter}") [data-bearb]`).count() === 0 && await page.locator(`#benutzerliste li:has-text("${NAME.buero}") [data-bearb]`).count() === 0, '15.9 (F-050): Büro kann einen Bauleiter oder das eigene Konto bearbeiten');
+    pruef(await page.locator(`#benutzerliste li:has-text("${NAME.buero}") [data-eigenes-konto]`).count() === 1, '15.9: Hinweis „Eigenes Konto“ fehlt');
     await page.click('[data-akt="neu"]');
     pruef((await page.locator('dialog[open] select[name="rolle"] option').evaluateAll((l) => l.map((o) => o.value))).join(',') === 'mitarbeiter,polier', 'D-02: Büro kann andere Rollen als Mitarbeiter/Polier vergeben');
     pruef((await page.locator('dialog[open] #rolle-hinweis').innerText()).includes('Geschäftsführung'), 'D-02: Hinweis zur Rollenvergabe/GF-Benachrichtigung fehlt');
@@ -1097,71 +1238,92 @@ async function laufe(browser, g) {
     await page.reload(); await bereit();
     const gfZeile = page.locator(`#gesperrte li[data-benutzer="${gfKonto.id}"]`);
     await gfZeile.waitFor();
-    pruef(await gfZeile.locator('[data-bearb]').count() === 0 && (await gfZeile.locator('[data-entsperren]').innerText()).includes('Anmeldesperre aufheben'), 'D-01: Büro sieht für die GF nicht genau „Anmeldesperre aufheben“');
+    // 15.5 (F-051, ersetzt D-01): das Büro entsperrt die GF NICHT – keine Schaltfläche, nur der Hinweis auf den Notfall-Befehl
+    pruef(await gfZeile.locator('[data-bearb]').count() === 0 && await gfZeile.locator('[data-entsperren]').count() === 0 && /am Server/.test(await gfZeile.innerText()), '15.5: Büro sieht für die gesperrte GF eine Entsperren-Schaltfläche statt „nur am Server“');
     pruef(/bis/.test(await gfZeile.locator('.chip.st-red').innerText()), 'D-01: Ende der Sperre wird in der Benutzerverwaltung nicht angezeigt');
     await ueberlauf('benutzer gf gesperrt'); await shot('benutzer-gf-gesperrt');
-    await gfZeile.locator('[data-entsperren]').click();
+    const f051 = await absichtlich(() => api('POST', `/benutzer/${gfKonto.id}/entsperren`));
+    pruef(f051.status === 403, `15.5 (F-051): Büro kann die GF über die API entsperren (Status ${f051.status})`);
+    const notfall = spawnSync(process.execPath, ['server/entsperren.js', String(gfKonto.pnr)], { cwd: APP, env: { ...process.env, BAUTAG_DB: srv.dbPfad }, encoding: 'utf8' });
+    pruef(notfall.status === 0, `15.5: entsperren.js für die GF fehlgeschlagen: ${notfall.stderr}`);
+    await page.reload(); await bereit();
     await page.waitForFunction((id) => !document.querySelector(`#gesperrte li[data-benutzer="${id}"]`), gfKonto.id);
-    pruef(await gfVersuch(PIN, '10.80.0.1') === 200, 'D-01: GF kann sich nach dem Entsperren durch das Büro nicht anmelden');
+    pruef(await gfVersuch(PIN, '10.80.0.1') === 200, '15.5: GF kann sich nach entsperren.js nicht anmelden');
     const d01 = await absichtlich(() => api('PUT', `/benutzer/${gfKonto.id}`, { pin: '739154' }));
     pruef(d01.status === 403, `D-01: Büro kann die PIN der GF zurücksetzen (Status ${d01.status})`);
     await toastWeg();
     await toastWeg();
+    await geh('/hilfe', 'hilfe-buero');
+    const themenB = await page.locator('[data-thema]').evaluateAll((l) => l.map((x) => x.dataset.thema));
+    pruef(['freigabe', 'kalk', 'preise', 'monat'].every((t) => themenB.includes(t)) && !themenB.includes('benutzer'), `A2-1: Hilfe des Büros zeigt falsche Themen (${themenB})`);
     await geh('/stempeln'); await geh('/woche'); await geh('/mehr');
     await fp.buero(h, z);
     await abmelden();
 
-    /* ============ 4. Bauleiter: bekommt den Budget-Alarm ============ */
+    /* ============ 4. Bauleiter: in allem wie das Büro (Inhaber 13.11.2026), bekommt den Budget-Alarm ============ */
     ich = await anmelden('bauleiter');
     nav = await navIds();
-    pruef(nav.includes('kalkulation') && nav.includes('preise') && !nav.includes('monat') && !nav.includes('benutzer'), `Bauleiter-Navigation falsch: ${nav}`);
+    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
     pruef((await api('GET', '/benachrichtigungen')).json.some((m) => m.typ === 'budget' && m.baustelleId === bsId), 'Budget-Alarm: Bauleiter hat keine Benachrichtigung');
     await page.waitForSelector('#glocke.has');
     await geh('/dashboard', 'bauleiter-dashboard');
+    pruef(await page.locator('#bv-kacheln').count() === 1, 'Bauleiter: Übersicht ohne die Kacheln der Bauvorhaben (wie Büro)');
     await geh('/preise');
-    pruef(await page.locator('.price-in input').count() === 0, 'Bauleiter kann Preise bearbeiten');
+    await page.waitForSelector('#tabpanel tr[data-id]');
+    pruef(await page.locator('#tabpanel input[data-feld]').count() > 0, 'Bauleiter kann Preise nicht bearbeiten (wie Büro)');
     await geh(`/kalkulation/${bsId}/positionen`, 'bauleiter-positionen');
-    pruef(await page.locator('.pt-row').count() >= 20 && await page.locator('.pt-row input[data-feld], [data-akt="vorlage"], [data-neu]').count() === 0, 'P-18: Bauleiter kann Positionen/Preise bearbeiten oder sieht sie nicht');
-    const blPos = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen[0].positionen[0];
-    const blPut = await absichtlich(() => api('PUT', `/baustellen/${bsId}/positionen/${blPos.id}`, { version: blPos.version, ep: 1 }));
-    pruef(blPut.status === 403, `P-18: Bauleiter kann EP ändern (Status ${blPut.status})`);
-    // E-07: Bauleiter storniert nur eigene Mengeneinträge
+    pruef(await page.locator('.pt-row').count() >= 20 && await page.locator('.pt-row input[data-feld]').count() > 0, 'Bauleiter kann Positionen/Preise nicht bearbeiten (wie Büro)');
+    // E-07: Bauleiter storniert wie das Büro auch fremde Mengeneinträge
     const blAlle = (await api('GET', `/baustellen/${bsId}/positionen`)).json.gruppen.flatMap((x) => x.positionen);
     const fremdPos = blAlle.find((x) => (x.eintraege || []).some((e) => e.erstelltVon !== ich.benutzer.id));
     pruef(!!fremdPos, 'E-07: kein Eintrag des Büros für die Prüfung vorhanden');
     await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).scrollIntoViewIfNeeded();
     await page.locator(`.pt-row[data-pos="${fremdPos.id}"] .pt-mbtn`).click();
     await page.waitForSelector('dialog[open] #eintraege li');
-    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 0 && await page.locator('dialog[open] [data-kein-storno]').count() >= 1, 'E-07: Bauleiter sieht „Stornieren“ bei fremden Einträgen');
-    const fremdEintrag = fremdPos.eintraege.find((e) => e.erstelltVon !== ich.benutzer.id);
-    const e07 = await absichtlich(() => api('DELETE', `/baustellen/${bsId}/positionen/${fremdPos.id}/mengen/${fremdEintrag.id}`));
-    pruef(e07.status === 403, `E-07: Bauleiter kann fremden Eintrag stornieren (Status ${e07.status})`);
-    await page.fill('dialog[open] #mf input[name="menge"]', '3');
-    await page.click('dialog[open] #mf button[type="submit"]');
-    await page.waitForSelector('dialog[open] #eintraege [data-storno]');
-    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() === 1, 'E-07: Bauleiter kann den eigenen Eintrag nicht stornieren');
-    await page.click('dialog[open] #eintraege [data-storno]');
-    await page.locator('dialog[open] [data-ok]').last().click();
-    await page.waitForFunction(() => { const d = [...document.querySelectorAll('dialog[open]')]; return d.length === 1 && !d[0].querySelector('[data-storno]'); });
+    pruef(await page.locator('dialog[open] #eintraege [data-storno]').count() >= 1 && await page.locator('dialog[open] [data-kein-storno]').count() === 0, 'E-07: Bauleiter kann fremde Einträge nicht stornieren (wie Büro)');
     await page.click('dialog[open] .dlg-foot [data-zu]');
-    await toastWeg();
     // E-08: ohne Preisrecht keine Rechnungsbeträge/Notizen (Antwort des Servers ohne preise_sehen nachgestellt)
     const voll = (await api('GET', `/baustellen/${bsId}/positionen`)).json;
     const ohnePreis = { baustelleId: voll.baustelleId, budgetVerbrauchProzent: voll.budgetVerbrauchProzent, hinweise: [], gruppen: voll.gruppen.map((x) => ({ schluessel: x.schluessel, name: x.name, positionen: x.positionen.map((y) => { const { ep, summe, ...rest } = y; if (/^(PA|VE)$/i.test(y.einheit)) { const n = (y.eintraege || []).length; delete rest.menge; delete rest.mengeAuto; delete rest.mengeManuell; delete rest.eintraege; rest.eintraegeAnzahl = n; } return rest; }) })) };
     await page.route(`**/api/baustellen/${bsId}/positionen`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ohnePreis) }));
     await page.reload(); await bereit(); await page.waitForSelector('.pt-row');
-    pruef(!(await page.locator('#view').innerText()).includes('€'), 'E-08: ohne Preisrecht erscheinen €-Beträge in der Positionsansicht');
+    { const mitEuro = (await page.locator('.pt-row').allInnerTexts()).filter((t) => /\d[\d.]*,\d{2}\s*€|€\s*\d/.test(t)); pruef(mitEuro.length === 0, `E-08: ohne Preise vom Server erscheinen €-Beträge in den Positionszeilen („${(mitEuro[0] || '').replace(/\s+/g, ' ').slice(0, 120)}“)`); }
     await shot('positionen-ohne-preise');
     await page.unroute(`**/api/baustellen/${bsId}/positionen`);
-    await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/kolonne'); await geh('/stempeln');
-    await keinZugriff('/monat'); await keinZugriff('/benutzer'); await keinZugriff('/korrektur');
-    // N-07: fremde Baustelle zeigt kein Auftragsformular
-    const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !('auftragssumme' in x));
+    await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/stempeln');
+    await geh('/monat', 'bauleiter-monat'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Monatsauswertung gesperrt (wie Büro offen)');
+    await geh('/korrektur'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Zeiten korrigieren gesperrt (wie Büro offen)');
+    await geh('/offene-posten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Offene Posten gesperrt (wie Büro offen)');
+    await geh('/rechnungen'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#rechnungen-seite #re-neu-alle').count() === 1, 'Bauleiter: Rechnungen gesperrt (wie Büro offen)');
+    await geh('/faelligkeiten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#faelligkeiten').count() === 1, 'Bauleiter: Fälligkeiten gesperrt (wie Büro offen)');
+    await geh('/benutzer', 'bauleiter-benutzer'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#matrix, [data-recht-zelle]').count() === 0, 'Bauleiter: Benutzer-Seite gesperrt oder mit Rechte-Matrix (die bleibt bei der Geschäftsführung)');
+    await geh('/einsatz'); pruef(await page.locator('#einsatz-karte').count() === 0, 'Bauleiter: „Mein Einsatz“ zeigt einen Einsatz (Bauleiter werden nicht eingeplant)');
+    // Fremde Baustelle (anderer Bauleiter): Auftrag, Nachkalkulation und Preise wie beim Büro – auch bearbeiten
+    const fremdeBs = (await api('GET', '/baustellen')).json.find((x) => x.bauleiterId !== ich.benutzer.id && !x.intern && x.status === 'aktiv' && x.id !== bsId);
+    pruef(!!fremdeBs, 'Bauleiter: keine fremde Baustelle in den Testdaten');
     if (fremdeBs) {
       await geh(`/baustelle/${fremdeBs.id}`, 'baustelle-fremd');
-      pruef(await page.locator('#auftrag').count() === 0 && !(await text()).includes('Budget-Alarm'), 'N-07: Auftragsformular bei fremder Baustelle sichtbar');
-    } else pruef(false, 'N-07: keine fremde Baustelle für den Bauleiter in den Testdaten');
-    // D-09: Bauleiter bestätigt Schlechtwetter-Meldungen für die Leute seiner Baustellen
+      pruef(await page.locator('#auftrag').count() === 1 && await page.locator('#auftrag-ok').count() === 1, 'Bauleiter: Auftragsformular der fremden Baustelle fehlt (wie Büro)');
+      await geh(`/kalkulation/${fremdeBs.id}`, 'bauleiter-kalkulation-fremd');
+      pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && (await page.locator('#view').innerText()).includes('€'), 'Bauleiter: Nachkalkulation der fremden Baustelle nicht einsehbar');
+      await ueberlauf('bauleiter kalkulation fremd');
+      await geh(`/kalkulation/${fremdeBs.id}/positionen`, 'bauleiter-positionen-fremd');
+      await page.waitForSelector('.pt-row');
+      const fPos = (await api('GET', `/baustellen/${fremdeBs.id}/positionen`)).json.gruppen.flatMap((x) => x.positionen).find((x) => x.aktiv !== false && !/^(PA|VE)$/i.test(x.einheit) && typeof x.ep === 'number');
+      pruef(!!fPos, 'Bauleiter: keine Position mit Einheitspreis auf der fremden Baustelle');
+      for (const ziel of [fPos.ep + 2, fPos.ep]) { // ändern und wieder zurückstellen
+        const epF = page.locator(`.pt-row[data-pos="${fPos.id}"] input[data-feld="ep"]`);
+        await epF.scrollIntoViewIfNeeded();
+        await epF.fill(String(ziel).replace('.', ',')); await epF.press('Enter');
+        await page.waitForSelector('dialog[open] #pa-form'); await page.click('#pa-ok');
+        await page.waitForFunction(([id, ep]) => { const i = document.querySelector(`.pt-row[data-pos="${id}"] input[data-feld="ep"]`); return i && Math.abs(parseFloat(i.value.replace('.', '').replace(',', '.')) - ep) < 0.001 && document.activeElement !== i; }, [fPos.id, ziel]);
+        await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+        const jetztEp = (await api('GET', `/baustellen/${fremdeBs.id}/positionen`)).json.gruppen.flatMap((x) => x.positionen).find((x) => x.id === fPos.id).ep;
+        pruef(Math.abs(jetztEp - ziel) < 0.001, `Bauleiter: Einheitspreis auf der fremden Baustelle nicht gespeichert (${jetztEp} statt ${ziel})`);
+        await toastWeg();
+      }
+    }
+    // D-09: Bauleiter bestätigt Schlechtwetter-Meldungen (wie das Büro)
     await geh('/abwesenheiten', 'bauleiter-abwesenheiten');
     const swKnopf = page.locator('#abw-offen li:has(.c-SW) [data-entscheid="genehmigt"]').first();
     pruef(await swKnopf.count() === 1, 'D-09: Bauleiter sieht keine Schlechtwetter-Meldung zur Bestätigung');
@@ -1191,11 +1353,13 @@ async function laufe(browser, g) {
       }
     }
     await geh(`/bericht/${id10}`, 'bericht-vier-augen');
-    await page.click('#freigeben');
-    await absichtlich(async () => { await page.click('dialog[open] [data-ok]'); await page.waitForSelector('dialog[open] [data-freigabe-abgelehnt]'); });
-    pruef((await page.locator('dialog[open] [data-freigabe-abgelehnt]').innerText()).length > 10 && (await api('GET', `/berichte/${id10}`)).json.status === 'unterschrieben', 'D-10: Selbstfreigabe durch den Bauleiter möglich oder ohne Erklärung abgelehnt');
+    // 15.7 (F-049, Regel 5): die verbotene Selbstfreigabe wird gar nicht angeboten – neutraler Hinweis statt „Freigeben“;
+    // der Server lehnt sie weiter ab (403, Bericht bleibt unterschrieben)
+    await page.waitForSelector('#abschluss', { state: 'attached' });
+    pruef(await page.locator('#freigeben').count() === 0 && /zweite Person/.test(await page.locator('#abschluss').innerText()), 'D-10/F-049: Selbstfreigabe wird dem Bauleiter angeboten bzw. ohne Hinweis ausgeblendet');
+    const fr10 = await absichtlich(() => api('POST', `/berichte/${id10}/freigeben`));
+    pruef(fr10.status === 403 && /Vier-Augen/.test((fr10.json || {}).fehler || '') && (await api('GET', `/berichte/${id10}`)).json.status === 'unterschrieben', 'D-10: Selbstfreigabe durch den Bauleiter möglich oder ohne Erklärung abgelehnt');
     await ueberlauf('freigabe abgelehnt'); await shot('freigabe-abgelehnt');
-    await page.click('dialog[open] [data-zu]');
     await abmelden();
 
     /* ============ 5. Polier: bekommt keinen Budget-Alarm ============ */
@@ -1205,14 +1369,16 @@ async function laufe(browser, g) {
     await page.click('#glocke'); await page.waitForSelector('#notif-panel #notif-inhalt :is(.notif, .state.empty)');
     await keinEuro('polier benachrichtigungen');
     await page.click('#notif-panel [data-zu]');
-    // C-11: Person mit genehmigtem Krankenstand lässt sich nicht einstempeln – Meldung des Servers steht in der Zeile
+    // API.md 15.2 (ersetzt C-11 für die Kolonne): eine Person mit genehmigtem Krankenstand wird über die Kolonne wie jede andere
+    // gebucht – der Polier erfährt nichts, das Büro erhält „Stempelung trotz eingetragener Abwesenheit … – bitte klären“
     await geh('/kolonne');
     await page.selectOption('#kol-bs', String(bsId)); await sleep(300); await bereit();
     await page.locator(`.crew-row:has-text("${kranker.name}") .check`).click();
     await page.click('[data-typ="kommen"]');
     await page.click('#kol-los');
-    await page.waitForSelector(`.crew-row:has-text("${kranker.name}") .crew-err`);
-    pruef((await page.locator(`.crew-row:has-text("${kranker.name}") .crew-err`).innerText()).length > 8, 'C-11: keine Begründung beim abgelehnten Einstempeln');
+    await page.waitForSelector(`.crew-row:has-text("${kranker.name}") :is(.chip:has-text("gebucht"), .crew-err)`);
+    pruef(await page.locator(`.crew-row:has-text("${kranker.name}") .chip:has-text("gebucht")`).count() === 1, '15.2: Kolonne lehnt eine Person mit Krankenstand ab (Rückschluss auf Abwesenheit)');
+    pruef(!/kann heute nicht|Krank|abwesend/i.test(await page.locator('#view').innerText()), '15.2: Kolonne verrät dem Polier die Abwesenheit');
     await ueberlauf('kolonne krank'); await shot('kolonne-krank'); await keinEuro('kolonne krank');
     await toastWeg();
     await abmelden();
@@ -1273,7 +1439,7 @@ async function laufe(browser, g) {
     await page.click('[data-tab="matrix"]'); await page.waitForSelector('#matrix');
     await toastWeg();
     pruef(await page.locator('#matrix td[data-rolle="polier"][data-recht="benutzer"][data-gesperrt]').count() === 1 && await page.locator('#matrix td[data-rolle="buero"][data-recht="benutzer"][data-gesperrt]').count() === 1, 'B-01: Recht „benutzer“ ist in der Matrix nicht für alle außer GF gesperrt');
-    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
+    for (const r of ['/dashboard', '/berichte', '/baustellen', '/kalkulation', '/preise', '/monat', '/abwesenheiten', '/kolonne', '/stempeln', '/woche', '/pin', '/hilfe', '/mehr']) await geh(r, 'gf' + r.replace('/', '-'));
     await abmelden();
 
     /* ============ 6b. B-03: neuer Benutzer muss zuerst die PIN ändern ============ */
@@ -1314,6 +1480,10 @@ async function laufe(browser, g) {
     await abmelden();
     pruef((await page.locator('.login-user small').allInnerTexts()).every((t) => !/Geschäftsführung|Büro|Bauleiter|Polier/.test(t)), 'B-03: Anmeldeliste zeigt Rollen');
 
+    /* ============ Ausbaustufe 2: neue Bereiche (tests/e2e/ausbau2.js) ============ */
+    Object.assign(h, { anmelden, abmelden, keinZugriff, jetzt, srv, neuerKontext, starteServer });
+    for (const teil of Object.keys(a2.TEILE)) await a2.TEILE[teil](h, z);
+
     /* ============ 6c. M-06: Sicherheits-Header, kein Inline-Skript ============ */
     const start = await context.request.get(srv.url + '/');
     const csp = start.headers()['content-security-policy'] || '';
@@ -1322,9 +1492,32 @@ async function laufe(browser, g) {
     pruef(!/ style=/.test(await (await context.request.get(srv.url + '/index.html')).text()), 'M-06: index.html enthält Inline-Styles');
 
     /* ============ 7. PWA ============ */
+    // A2-1: iPhone – Anleitung für Safari statt Installations-Dialog
+    {
+      const ctxIos = await neuerKontext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' });
+      const ios = await ctxIos.newPage();
+      const iosFehler = []; ios.on('console', (m) => { if (m.type() === 'error') iosFehler.push(m.text()); }); ios.on('pageerror', (e) => iosFehler.push(e.message));
+      await ios.goto(srv.url + '/#/login'); await ios.waitForSelector('.login-user');
+      await ios.fill('#login-suche', NAME.mitarbeiter.split(' ')[1]); await ios.click(`.login-user:has-text("${NAME.mitarbeiter}")`);
+      for (const z of PIN) await ios.click(`.pin-pad [data-z="${z}"]`);
+      await ios.click('.pin-pad [data-ok]'); await ios.waitForSelector('#view');
+      await ios.evaluate(() => { location.hash = '#/hilfe'; }); await ios.waitForSelector('#install-karte');
+      pruef(await ios.locator('#install-karte[data-install="ios"] [data-ios-anleitung] li').count() === 3 && (await ios.locator('#install-karte').innerText()).includes('Zum Home-Bildschirm'), 'A2-1: iPhone-Anleitung (Teilen → Zum Home-Bildschirm) fehlt');
+      pruef(g.mobil ? await ios.locator('#install-hinweis:not([hidden])').count() === 1 : true, 'A2-1: Installations-Hinweis am iPhone fehlt');
+      if (SHOTS) await ios.screenshot({ path: path.join(SHOTS, `${g.name}-hilfe-iphone.png`) });
+      pruef(iosFehler.length === 0, `Konsolenfehler (iPhone): ${iosFehler.slice(0, 3).join(' || ')}`);
+      await ctxIos.close();
+    }
+    // A2-1: Offline-Seite und Startbildschirm-Angaben
+    const off = await context.request.get(srv.url + '/offline.html');
+    pruef(off.ok() && (await off.text()).includes('Keine Verbindung'), 'A2-1: Offline-Seite fehlt');
+    const idx = await (await context.request.get(srv.url + '/index.html')).text();
+    pruef(/apple-touch-icon" sizes="180x180" href="\/icons\/icon-180\.png"/.test(idx) && /apple-mobile-web-app-capable/.test(idx), 'A2-1: Angaben für den iPhone-Startbildschirm fehlen in index.html');
+    const offCache = await page.evaluate(async () => { await navigator.serviceWorker.ready; for (const n of await caches.keys()) { if (await (await caches.open(n)).match('/offline.html')) return true; } return false; });
+    pruef(offCache, 'A2-1: Offline-Seite liegt nicht im Zwischenspeicher der App-Hülle');
     const man = await context.request.get(srv.url + '/manifest.webmanifest');
     const manJson = man.ok() ? await man.json() : {};
-    pruef(man.ok() && manJson.icons && manJson.icons.length >= 2 && manJson.display === 'standalone', 'Manifest fehlt oder unvollständig');
+    pruef(man.ok() && manJson.icons && manJson.icons.length >= 4 && manJson.display === 'standalone' && manJson.id === '/' && /^\/\?/.test(manJson.start_url) && manJson.icons.some((i) => i.purpose === 'maskable'), 'Manifest fehlt oder unvollständig');
     for (const i of manJson.icons || []) { const r = await context.request.get(srv.url + i.src); pruef(r.ok() && /image\/png/.test(r.headers()['content-type'] || ''), `Icon ${i.src} fehlt`); }
     const sw = await page.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && (r.active || r.installing || r.waiting)); });
     pruef(sw, 'Service Worker ist nicht registriert');
@@ -1408,6 +1601,7 @@ async function laufe(browser, g) {
       pruef(ich2 && ich2.benutzer && ich2.benutzer.name === NAME.mitarbeiter, `B-03: Anmeldung mit Personalnummer liefert ${ich2 && ich2.benutzer && ich2.benutzer.name}`);
     } finally { srv2.stop(); }
 
+    } // haupt
     pruef(konsole.length === 0, `Konsolenfehler:\n      ${konsole.slice(0, 12).join('\n      ')}`);
   } catch (e) {
     const zeile = (/run\.js:(\d+)/.exec(e.stack || '') || [])[1];
@@ -1436,6 +1630,66 @@ async function laufe(browser, g) {
     const t = Date.now();
     let r;
     try { r = await laufe(browser, g); } catch (e) { r = { fehler: ['Start fehlgeschlagen: ' + e.message], schritte: 0 }; console.log('    ✗ ' + e.message); }
+    // „Keine Sackgassen“ je Rolle (tests/e2e/sackgassen.js): Menülisten, Rundgang über alle sichtbaren Links/Reiter/Knöpfe, gesperrte Adressen
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SACKGASSEN) {
+      console.log('    Rundgang „keine Sackgassen“ …');
+      try { const sg = await require('./sackgassen').laufe(browser, g); r.fehler.push(...sg.fehler); r.schritte += sg.schritte; } catch (e) { r.fehler.push('Abbruch Sackgassen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Kolonne ohne Abwesenheits-Rückschluss (tests/e2e/kolonne.js, API.md 15.2)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_KOLONNE) {
+      console.log('    Kolonne ohne Abwesenheits-Rückschluss …');
+      try { const kr = await require('./kolonne').laufe(browser, g); r.fehler.push(...kr.fehler); r.schritte += kr.schritte; } catch (e) { r.fehler.push('Abbruch Kolonne: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Geteiltes Tablet: Abmelden ohne Netz, Versiegeln, Push, Benutzerwechsel beim Nachsenden (tests/e2e/geraet.js, API.md 15.5)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_GERAET) {
+      console.log('    Geteiltes Gerät (Sitzung, Speicher, Push, Warteschlangen) …');
+      try { const gr = await require('./geraet').laufe(browser, g); r.fehler.push(...gr.fehler); r.schritte += gr.schritte; } catch (e) { r.fehler.push('Abbruch Gerät: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ (tests/e2e/geraetewahl.js, API.md 15.8)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_GERAETEWAHL) {
+      console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
+      try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Nachkontrolle Sitzung/Gerät: sofortiges Abmelden bei langsamem Netz, zweiter Tab (tests/e2e/sitzung-n2.js, API.md 15.16)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
+      console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
+      try { const sn = await require('./sitzung-n2').laufe(browser, g); r.fehler.push(...sn.fehler); r.schritte += sn.schritte; } catch (e) { r.fehler.push('Abbruch Sitzung N2: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Handy-Layout: kein seitlicher Überlauf, Eingabefelder ≥ 16 px, App bleibt fest (tests/e2e/handy-layout.js, API.md 15.19)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_HANDY_LAYOUT && g.width <= 719) {
+      console.log('    Handy-Layout (Überlauf, Schriftgröße, feste App) …');
+      try { const hl = await require('./handy-layout').laufe(browser, g); r.fehler.push(...hl.fehler); r.schritte += hl.schritte; } catch (e) { r.fehler.push('Abbruch Handy-Layout: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Neue Übersicht: ruhig, Veröffentlichen über die Bestätigung, Freigeben in der Zeile, klassische Ansicht (tests/e2e/uebersicht.js, API.md 15.20)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_UEBERSICHT) {
+      console.log('    Neue Übersicht (ruhig, Veröffentlichen, Freigeben, klassische Ansicht, kein Geld für Polier) …');
+      try { const ue = await require('./uebersicht').laufe(browser, g); r.fehler.push(...ue.fehler); r.schritte += ue.schritte; } catch (e) { r.fehler.push('Abbruch Übersicht: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Korrekturen G2: Zahlungsstand, Tafel-Hinweis, gesperrte Bericht-Adresse (tests/e2e/korrekturen-g2.js, API.md 15.11)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_G2) {
+      console.log('    Korrekturen G2 (Zahlungsstand, Tafel, gesperrte Bericht-Adresse) …');
+      try { const kg = await require('./korrekturen-g2').laufe(browser, g); r.fehler.push(...kg.fehler); r.schritte += kg.schritte; } catch (e) { r.fehler.push('Abbruch Korrekturen G2: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Vordefinierte Pausen: Auswahl 30/45/60/offen, automatisches Ende, ohne Netz, Einstellung, Kolonne „Alle in Pause“ (tests/e2e/pausen.js, API.md 15.22)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAUSEN) {
+      console.log('    Vordefinierte Pausen (Auswahl, automatisches Ende, ohne Netz, Einstellung, Kolonne) …');
+      try { const pa = await require('./pausen').laufe(browser, g); r.fehler.push(...pa.fehler); r.schritte += pa.schritte; } catch (e) { r.fehler.push('Abbruch Pausen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Arbeitszeitmodelle und BUAK-Pflicht: Modell anlegen, Person mit Stichtag zuordnen, Mehrstunden in der Monatsauswertung (tests/e2e/arbeitszeit.js, API.md 15.23)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ARBEITSZEIT) {
+      console.log('    Arbeitszeitmodelle (anlegen, zuordnen mit Stichtag, Mehrstunden, BUAK-Pflicht) …');
+      try { const az = await require('./arbeitszeit').laufe(browser, g); r.fehler.push(...az.fehler); r.schritte += az.schritte; } catch (e) { r.fehler.push('Abbruch Arbeitszeitmodelle: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Rechnungen wie auf dem Papier, Seite „Rechnungen“, Fälligkeiten (tests/e2e/rechnungen.js, API.md 15.24)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_RECHNUNGEN) {
+      console.log('    Rechnungen (wie auf dem Papier, beide Rücklässe, Filter, Fälligkeiten, kein Geld für Polier/Mitarbeiter) …');
+      try { const re = await require('./rechnungen').laufe(browser, g); r.fehler.push(...re.fehler); r.schritte += re.schritte; } catch (e) { r.fehler.push('Abbruch Rechnungen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Stunden als Std:Min, Schalter „Std:Min | Dezimal“ in der Monatsauswertung, Exporte bleiben dezimal (tests/e2e/zeitformat.js, API.md 15.25)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ZEITFORMAT) {
+      console.log('    Zeitformat (Std:Min statt Dezimal, Schalter in der Monatsauswertung, Meine Woche, Stempeluhr, CSV bleibt dezimal) …');
+      try { const zf = await require('./zeitformat').laufe(browser, g); r.fehler.push(...zf.fehler); r.schritte += zf.schritte; } catch (e) { r.fehler.push('Abbruch Zeitformat: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

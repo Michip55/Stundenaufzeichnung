@@ -6,9 +6,11 @@ const { pruefeBuchung, schichten, plausibilisieren, ungueltigeUebergaenge, TYPEN
 const { azgWarnungen } = require('../azg');
 const { wienDatum, wienZeit, wienZuDate, plusTage, deDatum } = require('../datum');
 const { ladeBaustelle, aktuellerStatus, buchungenSeit, letzteBuchungen } = require('../daten');
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const { woche } = require('../auswertung');
 const { brauche } = require('./hilfe');
+const DS = require('../datenschutz');
+const PA = require('../pausen');
 
 const MAX_RUECK_MS = 24 * 60 * 60 * 1000;
 const MAX_VOR_MS = 2 * 60 * 1000;
@@ -37,13 +39,19 @@ function zeitStatus(db, benutzerId, jetzt) {
     seit: st.seit,
     baustelleId: st.baustelleId,
     schichtBeginn: st.schichtBeginn,
+    pauseBis: st.pauseBis, // 15.22: geplantes Ende der laufenden Pause (null = offen bzw. keine Pause)
+    pauseDauerMin: st.pauseDauerMin,
+    pausenAuswahl: PA.auswahl(db),
     heute: {
       datum: heute,
       stunden: Math.round(heuteSch.reduce((a, s) => a + s.arbeitMin, 0) / 60 * 100) / 100,
       pauseMin: heuteSch.reduce((a, s) => a + s.pauseMin, 0),
       buchungen: buchungen.filter((b) => wienDatum(new Date(b.zeit)) === heute)
-        .map((b) => ({ typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(new Date(b.zeit)), baustelleId: b.baustelleId, quelle: b.quelle }))
+        .map((b) => ({ typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(new Date(b.zeit)), baustelleId: b.baustelleId, quelle: b.quelle,
+          ...(b.automatisch ? { automatisch: true } : {}), ...(b.typ === 'pause_start' && b.dauerMin ? { dauerMin: b.dauerMin } : {}) }))
     },
+    geplant: require('./planer').geplantHeute(db, benutzerId, heute), // 12.8: nur veröffentlichte Einsätze
+    standardKostenstelleId: require('../kostenstellen').standardFuer(db, benutzerId), // 12.25: Büro/Bauleiter/GF → „Büro“
     warnungen
   };
 }
@@ -51,9 +59,10 @@ function zeitStatus(db, benutzerId, jetzt) {
 /**
  * Eine Stempelung buchen (eigene oder für die Kolonne). Wirft ApiFehler (400/409).
  */
-function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort }) {
+function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort, dauerMin }) {
   const { db } = bt;
   const jetzt = bt.uhr();
+  const dauer = PA.pruefeDauer(dauerMin, typ); // 15.22: geplante Pausendauer (null = offen)
   let zeitpunkt = jetzt;
   if (zeit !== undefined && zeit !== null) {
     zeitpunkt = zeitMitZone(zeit);
@@ -79,12 +88,30 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
     };
   }
   return db.transaktion(() => {
-    const akt = aktuellerStatus(db, benutzerId);
-    const letzte = akt.letzte;
+    PA.pausenAbschliessen(db, jetzt, benutzerId); // 15.22: fällige automatische Pausenenden zuerst
+    let akt = aktuellerStatus(db, benutzerId);
+    let letzte = akt.letzte;
+    // 15.22: Ein früheres Ende (Pause beenden / Gehen – z. B. offline erfasst und erst jetzt nachgesendet) ersetzt das
+    // automatische Ende, das der Server inzwischen eingetragen hat – sofern es nach dem Beginn dieser Pause liegt.
+    if ((typ === 'pause_ende' || typ === 'gehen') && letzte && letzte.automatisch && letzte.typ === 'pause_ende' && zeitpunkt.getTime() < new Date(letzte.zeit).getTime()) {
+      const start = db.eins('SELECT id, typ, zeit FROM buchung WHERE benutzer_id = ? AND (zeit < ? OR (zeit = ? AND id < ?)) ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId, letzte.zeit, letzte.zeit, letzte.id);
+      if (start && start.typ === 'pause_start' && zeitpunkt.getTime() >= new Date(start.zeit).getTime()) {
+        db.lauf('DELETE FROM buchung WHERE id = ?', letzte.id);
+        db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: erfasstVon, art: 'zeit', objekt: `buchung:${letzte.id}`, alt: { benutzerId, typ: 'pause_ende', zeit: letzte.zeit, automatisch: true },
+          text: `Automatisches Pausenende ${wienZeit(new Date(letzte.zeit))} durch früheres ${typ === 'gehen' ? '„Gehen“' : '„Pause beenden“'} ${wienZeit(zeitpunkt)} ersetzt` });
+        akt = aktuellerStatus(db, benutzerId);
+        letzte = akt.letzte;
+      }
+    }
+    // 15.22: „Pause beenden“ nach dem automatischen Ende (z. B. Knopf auf einem veralteten Bildschirm) – die Pause ist schon
+    // vorbei; nichts buchen, aktuellen Status melden
+    if (typ === 'pause_ende' && akt.status === 'arbeit' && letzte && letzte.automatisch && letzte.typ === 'pause_ende' && zeitpunkt.getTime() >= new Date(letzte.zeit).getTime()) return 'arbeit';
     if (letzte && zeitpunkt.getTime() < new Date(letzte.zeit).getTime()) {
       throw konflikt(`Der Zeitpunkt liegt vor der letzten Buchung (${wienZeit(new Date(letzte.zeit))}).`);
     }
-    if (typ === 'kommen') {
+    if (typ === 'kommen' && erfasstVon === benutzerId) {
+      // Eigene Stempelung (auch der Polier selbst in der Kolonne): gesperrt bei genehmigtem K/U, Grund nur für die Person selbst.
+      // Über die Kolonne für ANDERE gibt es keine Sperre (Inhaber, API.md 15.2) – dort wird angenommen und das Büro informiert.
       const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U')", benutzerId, wienDatum(zeitpunkt));
       if (abw) throw konflikt(`Für diesen Tag ist ${abw.code === 'K' ? 'Krankenstand' : 'Urlaub'} eingetragen – Einstempeln nicht möglich. Bitte im Büro klären.`);
     }
@@ -94,8 +121,13 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
       throw konflikt(p.grund.replace(/\.$/, '') + (akt.status !== 'aus' ? seit : '') + '.', { status: akt.status });
     }
     if (typ !== 'kommen' && typ !== 'wechsel') bsId = akt.baustelleId;
-    db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, benutzerId, typ, zeitpunkt.toISOString(), bsId, quelle, erfasstVon, jetzt.toISOString(), geo.lat, geo.lng, geo.genauigkeit);
+    // jede neue Buchung beendet eine noch ausstehende geplante Pause dieser Person (Merker löschen)
+    db.lauf('UPDATE buchung SET pause_auto_bis = NULL WHERE benutzer_id = ? AND pause_auto_bis IS NOT NULL', benutzerId);
+    const bis = dauer ? new Date(zeitpunkt.getTime() + dauer * 60000).toISOString() : null;
+    db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit, pause_plan_min, pause_auto_bis)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, benutzerId, typ, zeitpunkt.toISOString(), bsId, quelle, erfasstVon, jetzt.toISOString(), geo.lat, geo.lng, geo.genauigkeit, dauer, bis);
+    // offline nachgesendet und schon vorbei: Ende sofort eintragen (genau Beginn + Dauer)
+    if (bis) PA.pausenAbschliessen(db, jetzt, benutzerId);
     if (typ === 'gehen') azgNachGehen(bt, benutzerId, jetzt);
     return p.status;
   });
@@ -110,7 +142,7 @@ function azgNachGehen(bt, benutzerId, jetzt) {
   const w = azgWarnungen(sch, { jetzt }).filter((x) => x.datum === letzte.datum && x.typ !== 'offen');
   if (!w.length) return;
   const b = db.eins('SELECT id, name FROM benutzer WHERE id = ?', benutzerId);
-  const buero = db.alle("SELECT id FROM benutzer WHERE rolle IN ('buero','gf') AND aktiv = 1");
+  const buero = empfaengerMitRecht(db, 'lohn', { ohne: benutzerId }); // 15.3: AZG anderer nur für die Lohnverrechnung (Recht lohn)
   for (const x of w) {
     const titel = `AZG-Hinweis: ${b.name}`;
     for (const e of [{ id: b.id }, ...buero]) {
@@ -119,9 +151,38 @@ function azgNachGehen(bt, benutzerId, jetzt) {
   }
 }
 
+/** Genehmigte persönliche Abwesenheit (K, U – auch Betriebsurlaub –, ZA) an diesem Tag? SW ist Wetter, keine persönliche Abwesenheit. */
+function eingetrageneAbwesenheit(db, benutzerId, datum) {
+  return db.eins("SELECT code, betriebsurlaub FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt' AND code IN ('K','U','ZA')", benutzerId, datum) || null;
+}
+
+/**
+ * Wer erfährt von einer Stempelung trotz Abwesenheit: alle aktiven Benutzer mit stammdaten oder lohn (15.2/15.3, über Rechte,
+ * nie über Rollennamen – Bauleiter = Büro); nie Polier/Mitarbeiter (Sicherheitsnetz, beide Rechte sind für sie gesperrt).
+ */
+function klaerungsEmpfaenger(db) {
+  return empfaengerMitRecht(db, 'stammdaten|lohn').filter((b) => !['polier', 'mitarbeiter'].includes(b.rolle));
+}
+
+/** API.md 15.2: Kolonne hat jemanden trotz eingetragener Abwesenheit gestempelt → Hinweis an das Büro (einmal je Person und Tag). */
+function meldeStempelungTrotzAbwesenheit(bt, liste) {
+  try {
+    const { db } = bt;
+    const zeit = bt.uhr().toISOString();
+    const empf = klaerungsEmpfaenger(db);
+    for (const k of liste) {
+      const text = `Stempelung trotz eingetragener Abwesenheit: ${k.name}, ${deDatum(k.datum)} – bitte klären`;
+      for (const e of empf) benachrichtige(db, { benutzerId: e.id, typ: 'abwesenheit', titel: 'Stempelung trotz eingetragener Abwesenheit', text, zeit, baustelleId: k.baustelleId, schluessel: `abw-stempel:${k.benutzerId}:${k.datum}` });
+    }
+  } catch (e) {
+    console.error('Hinweis „Stempelung trotz Abwesenheit“ nicht gespeichert:', e && e.message); // eslint-disable-line no-console
+  }
+}
+
 function buchungJson(b) {
   const z = new Date(b.zeit);
-  return { id: b.id, benutzerId: b.benutzer_id, typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(z), datum: wienDatum(z), baustelleId: b.baustelle_id, quelle: b.quelle, erfasstVon: b.erfasst_von };
+  return { id: b.id, benutzerId: b.benutzer_id, typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(z), datum: wienDatum(z), baustelleId: b.baustelle_id, quelle: b.quelle, erfasstVon: b.erfasst_von,
+    automatisch: Boolean(b.automatisch), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null };
 }
 
 module.exports = function zeitRouten(api, bt) {
@@ -135,7 +196,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/stempeln', brauche('zeit_eigen'), (req, res) => {
     const body = v.objekt(req.body);
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
-    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort });
+    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort, dauerMin: body.dauerMin });
     const antwort = zeitStatus(db, req.ctx.benutzer.id, bt.uhr());
     // Servicebuch (API.md 11.4): nach dem Ausstempeln eigene Fahrzeuge mit altem Zählerstand abfragen
     if (typ === 'gehen') {
@@ -155,9 +216,31 @@ module.exports = function zeitRouten(api, bt) {
       const st = aktuellerStatus(db, b.id);
       if (st.status === 'aus') continue;
       if (nurEigene && !baustelleImBereich(ctx.benutzer, m.get(st.baustelleId))) continue;
-      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, status: st.status, seit: st.seit, baustelleId: st.baustelleId, schichtBeginn: st.schichtBeginn });
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, status: st.status, seit: st.seit, baustelleId: st.baustelleId, schichtBeginn: st.schichtBeginn, pauseBis: st.pauseBis });
     }
     res.json(out);
+  });
+
+  /**
+   * API.md 15.20 (Übersicht „Heute“): wer laut VERÖFFENTLICHTEM Plan heute eingeteilt ist (dieselbe Quelle wie die Polier-Sicht,
+   * veroeffentlicht_stand – 15.10) und wer heute (Wiener Kalendertag) schon gestempelt hat (nur Benutzer-IDs) – daraus
+   * „Eingestempelt N / M“ und „Eingeteilte fehlen noch“. Allein das Recht stammdaten (wie Planer und /zeit/buchungen
+   * anderer; Bauleiter = Büro, 15.4). Keine Abwesenheitsgründe, keine Beträge.
+   */
+  api.get('/zeit/heute-eingeteilt', brauche('stammdaten'), (req, res) => {
+    const heute = wienDatum(bt.uhr());
+    const gestempelt = db.alle('SELECT DISTINCT benutzer_id FROM buchung WHERE zeit >= ? AND zeit < ? ORDER BY benutzer_id',
+      wienZuDate(heute).toISOString(), wienZuDate(plusTage(heute, 1)).toISOString()).map((x) => x.benutzer_id);
+    const je = new Map();
+    for (const e of db.alle('SELECT veroeffentlicht_stand FROM plan_einsatz WHERE datum = ? AND veroeffentlicht_stand IS NOT NULL ORDER BY id', heute)) {
+      let st = null; try { st = JSON.parse(e.veroeffentlicht_stand); } catch (x) { continue; }
+      if (!st || !Array.isArray(st.personen)) continue;
+      const bs = st.baustelle || {};
+      for (const p of st.personen) {
+        if (!je.has(p.benutzerId)) je.set(p.benutzerId, { benutzerId: p.benutzerId, name: p.name, baustelleId: st.baustelleId, baustelle: bs.kurz || bs.name || '', beginn: st.beginn || null });
+      }
+    }
+    res.json({ datum: heute, eingeteilt: [...je.values()].sort((a, b) => a.benutzerId - b.benutzerId), gestempelt });
   });
 
   api.get('/zeit/kolonne', brauche('kolonne'), (req, res) => {
@@ -167,12 +250,18 @@ module.exports = function zeitRouten(api, bt) {
     if (!baustelleImBereich(req.ctx.benutzer, bs)) throw keinZugriff('Diese Baustelle gehört nicht zu Ihrer Partie.');
     const jetzt = bt.uhr();
     const out = [];
+    const geplant = new Set(require('./planer').geplantAufBaustelle(db, bs.id, wienDatum(bt.uhr()))); // 12.8
+    const mitPlan = req.query.plan === '1';
     for (const b of db.alle(`SELECT id, name, rolle, baustelle_id FROM benutzer WHERE aktiv = 1 AND rolle IN ('mitarbeiter','polier') ORDER BY name`)) {
       const st = aktuellerStatus(db, b.id);
       const partie = b.baustelle_id === bs.id || bs.polier_id === b.id;
-      if (!partie && st.baustelleId !== bs.id) continue;
-      const abw = db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt));
-      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.seit, baustelleId: st.baustelleId, code: abw ? abw.code : null });
+      if (!partie && st.baustelleId !== bs.id && !(mitPlan && geplant.has(b.id))) continue;
+      // API.md 15.2: kein Feld, keine Reihenfolge und keine Vorauswahl hängt für Polier/Mitarbeiter von fremden Abwesenheiten ab.
+      // `seit` nur bei laufender Schicht – das letzte „gehen“ früherer Tage verriete Fehltage.
+      // `code` nur, wer Abwesenheiten dieser Person sehen darf (Büro/Lohn/Bauleiter/GF bzw. die Person selbst) – sonst immer null.
+      const abw = DS.siehtAbwesenheit(req.ctx, b.id) ? db.eins("SELECT code FROM abwesenheit WHERE benutzer_id = ? AND datum = ? AND status = 'genehmigt'", b.id, wienDatum(jetzt)) : null;
+      out.push({ benutzerId: b.id, name: b.name, rolle: b.rolle, partie, status: st.status, seit: st.status === 'aus' ? null : st.seit, baustelleId: st.baustelleId, pauseBis: st.pauseBis, code: abw ? DS.code(req.ctx, b.id, abw.code) : null,
+        ...(mitPlan ? { geplant: geplant.has(b.id) } : {}) });
     }
     res.json(out);
   });
@@ -191,7 +280,10 @@ module.exports = function zeitRouten(api, bt) {
     ids.forEach((x, i) => v.id(x, `benutzerIds[${i}]`));
     if (new Set(ids).size !== ids.length) throw ungueltig('benutzerIds: doppelte Einträge.');
     if (body.zeit !== undefined && body.zeit !== null) zeitMitZone(body.zeit);
+    PA.pruefeDauer(body.dauerMin, typ); // 15.22: Eingabefehler gelten für alle (400 vor der ersten Buchung)
     const m = bsMap();
+    const klaeren = []; // Stempelung trotz eingetragener Abwesenheit → Büro/GF (nach der Antwort, API.md 15.2)
+    const tag = wienDatum(body.zeit !== undefined && body.zeit !== null ? zeitMitZone(body.zeit) : bt.uhr());
     const ergebnisse = ids.map((id) => {
       const b = db.eins('SELECT id, name, rolle, baustelle_id, aktiv FROM benutzer WHERE id = ?', id);
       if (!b || !b.aktiv) return { benutzerId: id, ok: false, fehler: 'Mitarbeiter nicht gefunden oder inaktiv.' };
@@ -200,12 +292,15 @@ module.exports = function zeitRouten(api, bt) {
       const st = aktuellerStatus(db, id);
       const inPartie = id === ctx.benutzer.id || (b.baustelle_id != null && baustelleImBereich(ctx.benutzer, m.get(b.baustelle_id)));
       if (typ === 'kommen') {
-        if (!inPartie && !gast) return { benutzerId: id, ok: false, fehler: `${b.name} gehört nicht zu Ihrer Partie (als Gast stempeln: gast:true).` };
+        const eingeplant = typ === 'kommen' && require('./planer').geplantAufBaustelle(db, bsId, wienDatum(bt.uhr())).includes(id); // 12.8
+        if (!inPartie && !gast && !eingeplant) return { benutzerId: id, ok: false, fehler: `${b.name} gehört nicht zu Ihrer Partie (als Gast stempeln: gast:true).` };
       } else if (st.status !== 'aus' && !baustelleImBereich(ctx.benutzer, m.get(st.baustelleId))) {
         return { benutzerId: id, ok: false, fehler: `${b.name} ist nicht auf einer Ihrer Baustellen eingestempelt.` };
       }
       try {
-        const status = stempeln(bt, { benutzerId: id, typ, baustelleId: bsId, zeit: body.zeit, quelle: 'kolonne', erfasstVon: ctx.benutzer.id });
+        const status = stempeln(bt, { benutzerId: id, typ, baustelleId: bsId, zeit: body.zeit, quelle: 'kolonne', erfasstVon: ctx.benutzer.id, dauerMin: body.dauerMin });
+        // Für jede gebuchte fremde Person dieselbe Abfrage; das Ergebnis wirkt nur beim Büro, nie in der Antwort
+        if (id !== ctx.benutzer.id && eingetrageneAbwesenheit(db, id, tag)) klaeren.push({ benutzerId: id, name: b.name, datum: tag, baustelleId: bsId });
         if (typ === 'kommen' && !inPartie) {
           db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ctx.benutzer.id, art: 'zeit', objekt: `benutzer:${id}`, text: `${b.name} als Gast auf ${bs.kst} eingestempelt (Kolonne)` });
         }
@@ -217,6 +312,23 @@ module.exports = function zeitRouten(api, bt) {
       }
     });
     res.json({ ergebnisse });
+    // Erst nach der Antwort: Laufzeit und Antwort sind für Anwesende und Abwesende gleich
+    if (klaeren.length) setImmediate(() => meldeStempelungTrotzAbwesenheit(bt, klaeren));
+  });
+
+  /* ---------- 15.22: Vordefinierte Pausen (angebotene Dauern) ---------- */
+  // Lesen und ändern allein mit dem Recht stammdaten (Büro = Bauleiter = GF); Stempeluhr und Kolonne erhalten die Auswahl
+  // über GET /zeit/status (`pausenAuswahl`)
+  api.get('/einstellungen/pausen', brauche('stammdaten'), (req, res) => {
+    res.json({ auswahl: PA.auswahl(db), offen: true, minDauer: PA.MIN_DAUER, maxDauer: PA.MAX_DAUER, maxEintraege: PA.MAX_EINTRAEGE });
+  });
+  api.put('/einstellungen/pausen', brauche('stammdaten'), (req, res) => {
+    const body = v.objekt(req.body);
+    const auswahl = PA.pruefeAuswahl(body.auswahl);
+    const alt = PA.auswahl(db);
+    db.setzeEinstellung('pausen', { auswahl });
+    db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'einstellung', objekt: 'pausen', alt: { auswahl: alt }, neu: { auswahl }, text: `Vordefinierte Pausen: ${auswahl.length ? auswahl.map((x) => `${x} Min`).join(' · ') + ' · offen' : 'nur offen'}` });
+    res.json({ auswahl: PA.auswahl(db), offen: true, minDauer: PA.MIN_DAUER, maxDauer: PA.MAX_DAUER, maxEintraege: PA.MAX_EINTRAEGE });
   });
 
   api.get('/zeit/woche', brauche('zeit_eigen'), (req, res) => {
@@ -302,7 +414,10 @@ module.exports = function zeitRouten(api, bt) {
     db.transaktion(() => {
       const vorher = fehlerVorher(alt.benutzer_id);
       const k = Object.keys(f);
-      db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, id);
+      // 15.22: Büro-Korrektur macht ein automatisches Pausenende zu einer gewöhnlichen Buchung; ein noch ausstehendes
+      // geplantes Ende wandert mit dem korrigierten Pausenbeginn mit
+      const bis = f.zeit && alt.pause_auto_bis && alt.pause_plan_min ? new Date(new Date(f.zeit).getTime() + alt.pause_plan_min * 60000).toISOString() : alt.pause_auto_bis;
+      db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ?, automatisch = 0, pause_auto_bis = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, bis, id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
         alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle }, neu: { zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id }, text: `Buchung korrigiert: ${grund}` });

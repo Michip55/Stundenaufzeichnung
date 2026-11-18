@@ -14,8 +14,17 @@
     "node": ">=22.13"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@tesseract.js-data/deu": "^1.0.0",
     "exceljs": "^4.4.0",
     "express": "^5.3.0",
-    "pdfkit": "^0.20.2"
+    "jszip": "3.10.2",
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.20.2",
+    "qrcode": "^1.5.4",
+    "saxes": "5.0.1",
+    "tesseract.js": "^5.1.1",
+    "web-push": "^3.6.7",
+    "zod": "^4.1.12"
   }
 }

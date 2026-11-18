@@ -4,11 +4,14 @@ const { ungueltig, nichtGefunden, konflikt, keinZugriff } = require('../fehler')
 const R = require('../rechte');
 const auth = require('../auth');
 const { brauche } = require('./hilfe');
+const L = require('../lohngruppen');
+const AZ = require('../arbeitszeit');
+const { wienDatum } = require('../datum');
 
 /** Protokoll-Arten mit €-Bezug: nur mit preise_sehen */
 /** Rollenwechsel, die das Büro vornehmen darf (D-02) */
 const BUERO_ROLLENWECHSEL = ['mitarbeiter', 'polier'];
-const { benachrichtige } = require('../budget');
+const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 
 const EURO_ARTEN = ['preis', 'auftrag', 'nachtrag', 'fremdleistung', 'leistung', 'budget_alarm', 'katalog', 'nachkalkulation'];
 
@@ -21,8 +24,55 @@ function protokollFuer(ctx, zeilen) {
   return zeilen.filter((p) => !EURO_ARTEN.includes(p.art)).map((p) => ({ ...p, alt: saeubern(p.alt), neu: saeubern(p.neu) }));
 }
 
-function benutzerVoll(b) {
-  return { id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1 };
+/** Dienstliche Telefonnummer (12.8d): Ziffern, +, Leerzeichen, ≤ 30 */
+function telefonPruefen(t) {
+  if (t === null || t === '') return null;
+  if (typeof t !== 'string' || t.length > 30 || !/^\+?[0-9 ]{3,30}$/.test(t.trim())) throw ungueltig('telefon: nur Ziffern, + und Leerzeichen (höchstens 30 Zeichen).');
+  return t.trim();
+}
+
+/**
+ * 15.5 (F-050/F-051): Verwaltungsstufe eines Kontos – 3 = Geschäftsführung (bzw. Recht „benutzer“), 2 = Büro/Bauleiter
+ * (bzw. Recht „stammdaten“), 1 = alle anderen. Zählt die höhere aus Rolle und tatsächlichen Rechten.
+ */
+const verwaltungsStufe = (rolle, rechte) => R.verwaltungsStufe(rolle, rechte); // eine Regel (server/rechte.js)
+
+/**
+ * 15.5 (F-050/F-051): PIN, Zwei-Faktor-Anmeldung und Sperren eines Kontos setzt nur zurück, wer eine HÖHERE Verwaltungsstufe hat
+ * (Büro/Bauleiter → Mitarbeiter/Polier; GF → Büro/Bauleiter/Mitarbeiter/Polier). Konten der Stufe 3 (GF) nur über den
+ * Notfall-Befehl am Server (node server/entsperren.js). `neueRolle`: gleichzeitiger Rollenwechsel – es zählt die höhere Stufe.
+ */
+function pruefeKontoZuruecksetzen(db, ctx, ziel, { neueRolle = null } = {}) {
+  const zielStufe = Math.max(verwaltungsStufe(ziel.rolle, R.ladeRechteFuer(db, ziel)), neueRolle ? verwaltungsStufe(neueRolle, new Set()) : 1);
+  if (zielStufe >= 3) throw keinZugriff('PIN, Zwei-Faktor-Anmeldung und Sperren der Geschäftsführung setzt nur der Notfall-Befehl am Server zurück (node server/entsperren.js).');
+  if (ziel.id === ctx.benutzer.id || verwaltungsStufe(ctx.benutzer.rolle, ctx.rechte) <= zielStufe) {
+    throw keinZugriff('PIN, Zwei-Faktor-Anmeldung und Sperren von Konten mit gleicher oder höherer Verwaltungsstufe setzt nur die Geschäftsführung zurück.');
+  }
+}
+
+/**
+ * 15.9 (F-050, Selbstverwaltung): Darf ctx das Konto `ziel` über die Verwaltung ändern (Name, Telefon, Rolle, Aktiv, PIN,
+ * Lohngruppe, Rechte/Ausnahmen …)? Nie das eigene Konto (eigene PIN nur über /auth/pin mit alter PIN, eigenes Telefon über
+ * /auth/telefon) – auch nicht die GF. Mit Recht `benutzer` (GF) alle anderen Konten; sonst (Büro/Bauleiter über
+ * `stammdaten`) nur Konten mit NIEDRIGERER Verwaltungsstufe – auch nach einem gleichzeitigen Rollenwechsel.
+ */
+function pruefeKontoVerwalten(db, ctx, ziel, { neueRolle = null } = {}) {
+  if (ziel.id === ctx.benutzer.id) throw keinZugriff('Das eigene Konto verwaltet eine andere Person – die eigene PIN ändern Sie unter „PIN ändern“ (mit der alten PIN), die eigene Telefonnummer unter „Mehr“.');
+  if (ctx.hat('benutzer')) return;
+  const zielStufe = Math.max(verwaltungsStufe(ziel.rolle, R.ladeRechteFuer(db, ziel)), neueRolle ? verwaltungsStufe(neueRolle, new Set()) : 1);
+  if (verwaltungsStufe(ctx.benutzer.rolle, ctx.rechte) <= zielStufe) throw keinZugriff('Konten mit gleicher oder höherer Verwaltungsstufe (Büro, Bauleiter, Geschäftsführung) verwaltet nur die Geschäftsführung.');
+}
+/** wie pruefeKontoVerwalten, als Wahrheitswert (Oberfläche: „Bearbeiten“ nur, wenn erlaubt) */
+function kontoVerwaltbar(db, ctx, ziel) {
+  try { pruefeKontoVerwalten(db, ctx, ziel); return true; } catch (_) { return false; }
+}
+
+/** 15.23: Arbeitszeitmodell (heute gültig) und BUAK-Pflicht – nur in den Verwaltungs-Antworten (stammdaten/benutzer) */
+function benutzerVoll(b, db, heute) {
+  return {
+    id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null,
+    arbeitszeitmodell: AZ.modellIdAm(db, b.id, heute), buakPflichtig: AZ.buakPflichtig(b), buakPflichtigVorgabe: b.buak_pflichtig == null
+  };
 }
 
 module.exports = function benutzerRouten(api, bt) {
@@ -58,7 +108,10 @@ module.exports = function benutzerRouten(api, bt) {
     db.transaktion(() => {
       db.lauf('INSERT INTO rolle_recht (rolle, recht, wert) VALUES (?, ?, ?) ON CONFLICT(rolle, recht) DO UPDATE SET wert = excluded.wert', rolle, recht, wert ? 1 : 0);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'recht', objekt: `rolle:${rolle}`, alt: { [recht]: alt ? alt.wert === 1 : false }, neu: { [recht]: wert }, text: `Rechte-Matrix: ${R.ROLLEN_NAMEN[rolle]} – ${recht} ${wert ? 'erteilt' : 'entzogen'}` });
+      // 15.5 (F-014): Rechte der Rolle geändert → Push-Abos ihrer Konten löschen (Push nach der Anmeldung neu einschalten)
+      if ((alt ? alt.wert === 1 : false) !== wert) for (const b of db.alle('SELECT id FROM benutzer WHERE rolle = ?', rolle)) require('../push').abosLoeschen(db, b.id);
     });
+    require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id }); // 15.5 (F-047)
     res.json({ ok: true, matrix: R.ladeMatrix(db) });
   });
 
@@ -69,13 +122,16 @@ module.exports = function benutzerRouten(api, bt) {
     const wert = v.bool(body.wert, 'wert');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', benutzerId);
     if (!b) throw ungueltig('Benutzer nicht gefunden.');
+    if (b.id === req.ctx.benutzer.id) throw keinZugriff('Die eigenen Rechte ändert eine andere Person mit Benutzerrecht.'); // 15.9 (auch GF)
     if (wert && R.istGesperrt(b.rolle, recht)) throw ungueltig(`Das Recht „${recht}“ ist für die Rolle ${R.ROLLEN_NAMEN[b.rolle]} gesperrt – auch nicht als Ausnahme vergebbar.`);
     const vorher = Boolean(db.eins('SELECT 1 AS x FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', benutzerId, recht));
     db.transaktion(() => {
       if (wert) db.lauf('INSERT INTO benutzer_recht (benutzer_id, recht, erteilt_von, erteilt) VALUES (?, ?, ?, ?) ON CONFLICT(benutzer_id, recht) DO NOTHING', benutzerId, recht, req.ctx.benutzer.id, jetzt());
       else db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', benutzerId, recht);
+      if (vorher !== wert) require('../push').abosLoeschen(db, benutzerId); // 15.5 (F-014): Rechtewechsel
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'recht', objekt: `benutzer:${benutzerId}`, alt: { [recht]: vorher }, neu: { [recht]: wert }, text: `Ausnahme für ${b.name}: ${recht} ${wert ? 'erteilt' : 'entfernt'}` });
     });
+    require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id }); // 15.5 (F-047)
     res.json({ ok: true, benutzerId, recht, wert, rechte: [...R.ladeRechteFuer(db, b)] });
   });
 
@@ -84,10 +140,12 @@ module.exports = function benutzerRouten(api, bt) {
     const f = {};
     if (!teil || body.name !== undefined) f.name = v.text(body.name, 'name', { max: 100 });
     if (!teil || body.rolle !== undefined) f.rolle = v.auswahl(body.rolle, 'rolle', R.ROLLEN);
+    if (body.telefon !== undefined) f.telefon = telefonPruefen(body.telefon); // 12.8d
     if (body.lohngruppe !== undefined) {
       if (body.lohngruppe === null || body.lohngruppe === '') f.lohngruppe_id = null;
       else {
         if (typeof body.lohngruppe !== 'string' || !db.eins('SELECT id FROM lohngruppe WHERE id = ?', body.lohngruppe)) throw ungueltig('lohngruppe ist unbekannt.');
+        if (!db.eins('SELECT id FROM lohngruppe WHERE id = ? AND aktiv = 1', body.lohngruppe)) throw ungueltig('Die Lohngruppe ist deaktiviert.');
         f.lohngruppe_id = body.lohngruppe;
       }
     }
@@ -99,12 +157,23 @@ module.exports = function benutzerRouten(api, bt) {
         f.baustelle_id = id;
       }
     }
+    if (body.standardKostenstelleId !== undefined) { // 12.25: Standard beim Einstempeln (z. B. Büro, Werkstatt)
+      if (body.standardKostenstelleId === null) f.standard_kostenstelle_id = null;
+      else {
+        const id = v.id(body.standardKostenstelleId, 'standardKostenstelleId');
+        const bs = db.eins("SELECT id FROM baustelle WHERE id = ? AND status <> 'abgeschlossen'", id);
+        if (!bs) throw ungueltig('standardKostenstelleId: Kostenstelle nicht gefunden oder abgeschlossen.');
+        f.standard_kostenstelle_id = id;
+      }
+    }
     if (body.pnr !== undefined) f.pnr = v.zahl(body.pnr, 'pnr', { min: 1, max: 999999, ganz: true, pflicht: false });
     if (f.pnr != null) {
       const vergeben = db.eins('SELECT id, name FROM benutzer WHERE pnr = ?', f.pnr);
       if (vergeben && vergeben.id !== eigeneId) throw konflikt(`Die Personalnummer ${f.pnr} ist bereits an ${vergeben.name} vergeben.`);
     }
     if (body.aktiv !== undefined) f.aktiv = v.bool(body.aktiv, 'aktiv') ? 1 : 0;
+    // 15.23: BUAK-pflichtig (true/false; null = Vorgabe nach der Rolle: Mitarbeiter/Polier ja)
+    if (body.buakPflichtig !== undefined) f.buak_pflichtig = body.buakPflichtig === null ? null : v.bool(body.buakPflichtig, 'buakPflichtig') ? 1 : 0;
     let pin = null;
     if (!teil || body.pin !== undefined) {
       const fehler = auth.pinFehler(body.pin, f.rolle || rolleAlt);
@@ -115,18 +184,26 @@ module.exports = function benutzerRouten(api, bt) {
   }
 
   const verwalterPruefen = (req, res, next) => (R.darfBenutzerVerwalten(req.ctx) ? next() : next(keinZugriff()));
+  const heuteW = () => wienDatum(bt.uhr());
+  const voll = (b) => benutzerVoll(b, db, heuteW());
 
   api.get('/benutzer', verwalterPruefen, (req, res) => {
     const jetztIso = bt.uhr().toISOString();
     const sperren = new Map(db.alle('SELECT benutzer_id, gesperrt_seit, gesperrt_bis FROM login_konto WHERE gesperrt = 1 AND gesperrt_bis > ?', jetztIso).map((k) => [k.benutzer_id, k]));
     res.json(db.alle('SELECT * FROM benutzer ORDER BY name').map((b) => {
       const k = sperren.get(b.id);
-      return { ...benutzerVoll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}) };
+      // 15.5 (F-050/F-051): darf der Aufrufer PIN, 2FA und Sperren dieses Kontos zurücksetzen? (Oberfläche blendet sonst aus)
+      let zuruecksetzbar = true;
+      try { pruefeKontoZuruecksetzen(db, req.ctx, b); } catch (_) { zuruecksetzbar = false; }
+      return { ...voll(b), gesperrt: Boolean(k), ...(k ? { gesperrtSeit: k.gesperrt_seit, gesperrtBis: k.gesperrt_bis } : {}), bearbeitbar: kontoVerwaltbar(db, req.ctx, b), zuruecksetzbar, ...(zuruecksetzbar ? {} : { zuruecksetzenDurch: verwaltungsStufe(b.rolle, R.ladeRechteFuer(db, b)) >= 3 ? 'server' : 'gf' }) };
     }));
   });
 
   api.post('/benutzer', verwalterPruefen, async (req, res) => {
-    const { f, pin } = pruefeFelder(v.objekt(req.body), false);
+    const body = v.objekt(req.body);
+    const { f, pin } = pruefeFelder(body, false);
+    // 15.23: Arbeitszeitmodell beim Anlegen (sonst Vorgabe nach der Rolle) – gilt von Anfang an
+    const azNeu = body.arbeitszeitmodell === undefined || body.arbeitszeitmodell === null ? null : AZ.pruefeZuordnung(db, body.arbeitszeitmodell);
     if (!R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung legt nur die GF an.');
     if (!req.ctx.hat('benutzer') && !BUERO_ROLLENWECHSEL.includes(f.rolle)) throw keinZugriff('Bauleiter legt nur die Geschäftsführung an (Büro: Mitarbeiter und Poliere).');
     if (f.pnr == null) {
@@ -140,23 +217,41 @@ module.exports = function benutzerRouten(api, bt) {
     if (f.aktiv === undefined) f.aktiv = 1;
     const k = Object.keys(f);
     const r = db.lauf(`INSERT INTO benutzer (${k.join(', ')}) VALUES (${k.map(() => '?').join(', ')})`, ...k.map((x) => f[x]));
-    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${r.id}`, neu: { name: f.name, rolle: f.rolle, lohngruppe: f.lohngruppe_id ?? null }, text: `Benutzer ${f.name} angelegt` });
-    res.status(201).json(benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
+    if (f.lohngruppe_id) db.lauf('INSERT INTO benutzer_lohngruppe (benutzer_id, lohngruppe_id, gueltig_ab, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', r.id, f.lohngruppe_id, L.BASIS, jetzt(), req.ctx.benutzer.id); // 12.22
+    if (azNeu != null) db.lauf('INSERT INTO benutzer_arbeitszeitmodell (benutzer_id, modell_id, gueltig_ab, erstellt, erstellt_von) VALUES (?, ?, ?, ?, ?)', r.id, azNeu, AZ.BASIS, jetzt(), req.ctx.benutzer.id); // 15.23
+    db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${r.id}`, neu: { name: f.name, rolle: f.rolle, lohngruppe: f.lohngruppe_id ?? null, arbeitszeitmodell: azNeu ?? AZ.vorgabeId(f.rolle), buakPflichtig: f.buak_pflichtig ?? null }, text: `Benutzer ${f.name} angelegt` });
+    res.status(201).json(voll(db.eins('SELECT * FROM benutzer WHERE id = ?', r.id)));
   });
 
   api.put('/benutzer/:id', verwalterPruefen, async (req, res) => {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const alt = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Benutzer nicht gefunden.');
-    if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro und Geschäftsführung verwaltet nur die GF.');
+    if (!R.darfBenutzerVerwalten(req.ctx, alt.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, alt); // 15.9: nie das eigene Konto, Büro/Bauleiter nur niedrigere Stufe (vor jeder Body-Prüfung)
     const body = v.objekt(req.body);
     const { f, pin } = pruefeFelder(body, true, alt.rolle, id);
-    if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Büro und Geschäftsführung vergibt nur die GF.');
+    // 12.22: Lohngruppe als Verlaufseintrag (stichtaggenau), nicht direkt überschreiben
+    let lgNeu;
+    const heute = wienDatum(bt.uhr());
+    if (body.lohngruppeGueltigAb !== undefined && body.lohngruppe === undefined) throw ungueltig('lohngruppeGueltigAb nur zusammen mit lohngruppe.');
+    if ('lohngruppe_id' in f) {
+      lgNeu = { id: f.lohngruppe_id, gueltigAb: L.pruefeGueltigAb(body.lohngruppeGueltigAb, body.lohngruppeRueckwirkend, heute), explizit: body.lohngruppeGueltigAb != null && body.lohngruppeGueltigAb !== '' };
+      delete f.lohngruppe_id;
+    }
+    // 15.23: Arbeitszeitmodell als Verlaufseintrag mit Stichtag (Standard heute; rückwirkend nur bestätigt)
+    let azNeu;
+    if (body.arbeitszeitmodellGueltigAb !== undefined && body.arbeitszeitmodell === undefined) throw ungueltig('arbeitszeitmodellGueltigAb nur zusammen mit arbeitszeitmodell.');
+    if (body.arbeitszeitmodell !== undefined) {
+      azNeu = { id: AZ.pruefeZuordnung(db, body.arbeitszeitmodell), gueltigAb: AZ.pruefeGueltigAb(body.arbeitszeitmodellGueltigAb, body.arbeitszeitmodellRueckwirkend, heute) };
+    }
+    if (f.rolle && !R.darfBenutzerVerwalten(req.ctx, f.rolle)) throw keinZugriff('Die Rollen Bauleiter, Büro und Geschäftsführung vergibt nur die GF.');
+    if (f.rolle) pruefeKontoVerwalten(db, req.ctx, alt, { neueRolle: f.rolle });
     const rollenwechsel = Boolean(f.rolle && f.rolle !== alt.rolle);
     if (rollenwechsel && !req.ctx.hat('benutzer') && !(BUERO_ROLLENWECHSEL.includes(alt.rolle) && BUERO_ROLLENWECHSEL.includes(f.rolle))) {
       throw keinZugriff('Zum oder vom Bauleiter macht nur die Geschäftsführung (Büro: Mitarbeiter ↔ Polier).');
     }
-    if (!Object.keys(f).length && !pin) throw ungueltig('Keine Änderungen angegeben.');
+    if (!Object.keys(f).length && !pin && !lgNeu && !azNeu) throw ungueltig('Keine Änderungen angegeben.');
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
     }
@@ -165,20 +260,51 @@ module.exports = function benutzerRouten(api, bt) {
     if (verliertGf && db.eins("SELECT COUNT(*) AS n FROM benutzer WHERE rolle = 'gf' AND aktiv = 1 AND id <> ?", id).n === 0) {
       throw konflikt('Mindestens eine aktive Geschäftsführung muss bestehen bleiben.');
     }
-    if (pin) { f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1; }
-    // D-02: neue Rolle mit Mindestlänge 6 und kürzere/unbekannte PIN → PIN-Wechsel erzwingen
-    if (rollenwechsel && !auth.FELD_ROLLEN.includes(f.rolle) && !pin && !(alt.pin_laenge >= 6)) f.muss_pin_aendern = 1;
+    if (pin) {
+      pruefeKontoZuruecksetzen(db, req.ctx, alt, { neueRolle: f.rolle || null }); // 15.5 (F-050)
+      f.pin_hash = await auth.hashPin(pin); f.pin_laenge = pin.length; f.muss_pin_aendern = 1;
+    }
+    // D-02: neue Rolle mit größerer Mindestlänge und bekannt kürzerer PIN → PIN-Wechsel erzwingen. 15.21: seit 4 Ziffern für alle
+    // Rollen gelten, ist eine gültige PIN beim Rollenwechsel nie zu kurz – die Regel bleibt für eine spätere andere Mindestlänge
+    if (rollenwechsel && !pin && alt.pin_laenge != null && alt.pin_laenge < auth.pinMinLaenge(f.rolle)) f.muss_pin_aendern = 1;
     const k = Object.keys(f);
     const entfernt = [];
+    let lgErg = null, azErg = null;
     db.transaktion(() => {
-      db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
+      // 15.23: vor einem Rollenwechsel die bisherige Vorgabe festschreiben – ein Rollenwechsel ändert nie rückwirkend das
+      // Arbeitszeitmodell oder die BUAK-Pflicht (beides bei Bedarf im selben Dialog ändern)
+      if (rollenwechsel) {
+        AZ.basisFestschreiben(db, id, alt.rolle, jetzt());
+        if (alt.buak_pflichtig == null && !('buak_pflichtig' in f)) { f.buak_pflichtig = AZ.istFeldrolle(alt.rolle) ? 1 : 0; k.push('buak_pflichtig'); }
+      }
+      if (k.length) db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
+      if (lgNeu) {
+        lgErg = L.setzen(db, { benutzerId: id, lohngruppeId: lgNeu.id, gueltigAb: lgNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt(), explizit: lgNeu.explizit });
+        L.abgleichen(db, heute, id);
+        db.protokolliere({
+          zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`,
+          alt: { lohngruppe: lgErg.ersetzt !== undefined ? lgErg.ersetzt : lgErg.alt, gueltigAb: lgErg.gueltigAb }, neu: { lohngruppe: lgErg.neu, gueltigAb: lgErg.gueltigAb, ...(lgErg.ersetzt !== undefined ? { ersetzt: true } : {}) },
+          text: `Lohngruppe ${alt.name}: ${lgErg.alt || '–'} → ${lgErg.neu || '–'} ab ${lgErg.gueltigAb.split('-').reverse().join('.')}${lgErg.gueltigAb < heute ? ' (rückwirkend)' : ''}`
+        });
+      }
+      if (azNeu) {
+        azErg = AZ.setzen(db, { benutzerId: id, rolle: alt.rolle, modellId: azNeu.id, gueltigAb: azNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt() });
+        if (azErg.geaendert) {
+          const nm = (x) => (x == null ? '–' : (db.eins('SELECT name FROM arbeitszeitmodell WHERE id = ?', x) || {}).name || String(x));
+          db.protokolliere({
+            zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`,
+            alt: { arbeitszeitmodell: azErg.ersetzt !== undefined ? azErg.ersetzt : azErg.alt, gueltigAb: azErg.gueltigAb }, neu: { arbeitszeitmodell: azErg.neu, gueltigAb: azErg.gueltigAb, ...(azErg.ersetzt !== undefined ? { ersetzt: true } : {}) },
+            text: `Arbeitszeitmodell ${alt.name}: ${nm(azErg.alt)} → ${nm(azErg.neu)} ab ${azErg.gueltigAb.split('-').reverse().join('.')}${azErg.gueltigAb < heute ? ' (rückwirkend)' : ''}`
+          });
+        }
+      }
       // Ausnahmen, die für die neue Rolle gesperrt sind, entfernen
       if (rollenwechsel) {
         for (const r of R.GESPERRT[f.rolle]) db.lauf('DELETE FROM benutzer_recht WHERE benutzer_id = ? AND recht = ?', id, r);
         // D-11: unpassende Zuordnungen räumen
-        if (!['bauleiter', 'gf'].includes(f.rolle)) {
-          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE bauleiter_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'bauleiterId' });
-          db.lauf('UPDATE baustelle SET bauleiter_id = NULL, version = version + 1 WHERE bauleiter_id = ?', id);
+        if (!['bauleiter', 'gf'].includes(f.rolle)) { // rolle-ok: Datenpflege der ZIEL-Person: wer nicht mehr Bauleiter/GF ist, verliert die Zuordnung bauleiterId (Routing)
+          for (const b of db.alle('SELECT id, kst FROM baustelle WHERE bauleiter_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'bauleiterId' }); // rolle-ok: Zuordnungen der Ziel-Person ermitteln (Datenpflege)
+          db.lauf('UPDATE baustelle SET bauleiter_id = NULL, version = version + 1 WHERE bauleiter_id = ?', id); // rolle-ok: Zuordnungen der Ziel-Person lösen (Datenpflege)
         }
         if (f.rolle !== 'polier') {
           for (const b of db.alle('SELECT id, kst FROM baustelle WHERE polier_id = ?', id)) entfernt.push({ baustelleId: b.id, kst: b.kst, feld: 'polierId' });
@@ -186,13 +312,20 @@ module.exports = function benutzerRouten(api, bt) {
         }
         // D-02: Rollenwechsel durch das Büro → GF informieren
         if (!req.ctx.hat('benutzer')) {
-          for (const g of db.alle("SELECT id FROM benutzer WHERE rolle = 'gf' AND aktiv = 1")) {
+          for (const g of empfaengerMitRecht(db, 'benutzer')) { // 15.3: GF über ihr Recht
             benachrichtige(db, { benutzerId: g.id, typ: 'sicherheit', titel: `Rollenwechsel: ${alt.name}`, text: `${req.ctx.benutzer.name} hat ${alt.name} von ${R.ROLLEN_NAMEN[alt.rolle]} zu ${R.ROLLEN_NAMEN[f.rolle]} geändert.`, zeit: jetzt(), schluessel: `rolle:${id}:${jetzt()}` });
           }
         }
       }
-      if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) auth.beendeAlleSitzungen(db, id);
-      if (pin) { bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id); }
+      if (pin || f.aktiv === 0 || (f.rolle && f.rolle !== alt.rolle)) {
+        auth.beendeAlleSitzungen(db, id);
+        require('../push').abosLoeschen(db, id); // 15.5 (F-014): kein Gerät erhält danach noch Meldungen dieser Person
+      }
+      if (pin) {
+        bt.bremse.entsperre(id); bt.bremse.kontoEntsperren(id);
+        // 15.5 (F-050): die Person erfährt vom Zurücksetzen (bei der nächsten Anmeldung muss sie die PIN ändern)
+        benachrichtige(db, { benutzerId: id, typ: 'sicherheit', titel: 'PIN zurückgesetzt', text: `${req.ctx.benutzer.name} hat Ihre PIN zurückgesetzt. Bei der nächsten Anmeldung wählen Sie eine neue PIN. Haben Sie das nicht veranlasst, bitte sofort die Geschäftsführung informieren.`, zeit: jetzt(), schluessel: `pin-reset:${id}:${jetzt()}` });
+      }
       const altW = {}, neuW = {};
       for (const x of k) {
         if (['pin_hash', 'muss_pin_aendern', 'pin_laenge'].includes(x)) continue;
@@ -200,22 +333,83 @@ module.exports = function benutzerRouten(api, bt) {
       }
       if (pin) neuW.pin = 'zurückgesetzt';
       if (entfernt.length) neuW.zuordnungenEntfernt = entfernt;
-      db.protokolliere({
+      if (k.length || pin) db.protokolliere({
         zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: f.rolle && f.rolle !== alt.rolle ? 'rolle' : 'benutzer', objekt: `benutzer:${id}`,
         alt: altW, neu: neuW, text: `Benutzer ${alt.name} geändert${pin ? ' (PIN zurückgesetzt)' : ''}`
       });
     });
-    res.json({ ...benutzerVoll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}) });
+    // 15.5 (F-047): offene Fernunterschrift-Links, deren Ersteller nicht mehr darf, sofort widerrufen
+    if (f.aktiv === 0 || rollenwechsel) require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id });
+    // 12.22: Budget-Alarme neu prüfen, wenn schon gerechnete Tage betroffen sind
+    if (lgErg && lgErg.gueltigAb <= heute) {
+      const B = require('../budget');
+      for (const bsId of L.betroffeneBaustellen(db, id, lgErg.gueltigAb)) B.pruefeBudget(bt, bsId, { anlass: 'Lohngruppe geändert', benutzerId: req.ctx.benutzer.id });
+    }
+    res.json({ ...voll(db.eins('SELECT * FROM benutzer WHERE id = ?', id)), ...(entfernt.length ? { zuordnungenEntfernt: entfernt } : {}), ...(lgNeu ? { lohngruppeVerlauf: L.verlaufJson(db, id, heute) } : {}), ...(azNeu ? { arbeitszeitVerlauf: AZ.verlaufJson(db, id, heute) } : {}) });
   });
 
-  /** Konto entsperren (C-07): Büro für Mitarbeiter/Polier/Bauleiter, GF für alle */
+  /* ---------- Lohngruppen-Verlauf (12.22, vertraulich) ---------- */
+  const darfLohngruppeSehen = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn') || ctx.hat('benutzer');
+  api.get('/benutzer/:id/lohngruppen-verlauf', (req, res) => {
+    if (!darfLohngruppeSehen(req.ctx)) throw keinZugriff('Diese Angabe ist vertraulich.'); // 15.15 (H-G6): kein Lohn-/Kalkulationsbegriff im Fehlertext
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    if (!db.eins('SELECT id FROM benutzer WHERE id = ?', id)) throw nichtGefunden('Benutzer nicht gefunden.');
+    res.json(L.verlaufJson(db, id, wienDatum(bt.uhr())));
+  });
+  api.delete('/benutzer/:id/lohngruppen-verlauf/:vid', verwalterPruefen, (req, res) => {
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
+    if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, b); // 15.9: nie die eigene Lohngruppe
+    const e = db.eins('SELECT * FROM benutzer_lohngruppe WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.vid, 'Eintrag-ID'), id);
+    if (!e) throw nichtGefunden('Eintrag nicht gefunden.');
+    const heute = wienDatum(bt.uhr());
+    if (e.gueltig_ab <= heute) throw konflikt('Nur künftige Lohngruppen-Einträge können gelöscht werden. Für die Vergangenheit einen neuen Eintrag (rückwirkend) setzen.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM benutzer_lohngruppe WHERE id = ?', e.id);
+      L.abgleichen(db, heute, id);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, alt: { lohngruppe: e.lohngruppe_id, gueltigAb: e.gueltig_ab }, neu: null, text: `Künftige Lohngruppe ${e.lohngruppe_id || '–'} ab ${e.gueltig_ab.split('-').reverse().join('.')} für ${b.name} gelöscht` });
+    });
+    res.json({ ok: true, lohngruppeVerlauf: L.verlaufJson(db, id, heute) });
+  });
+
+  /* ---------- Arbeitszeitmodell-Verlauf (15.23) – wie der Lohngruppen-Verlauf, nie für Polier/Mitarbeiter ---------- */
+  const darfArbeitszeitSehen = (ctx) => ctx.hat('stammdaten') || ctx.hat('lohn') || ctx.hat('benutzer');
+  api.get('/benutzer/:id/arbeitszeit-verlauf', (req, res) => {
+    if (!darfArbeitszeitSehen(req.ctx)) throw keinZugriff();
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    if (!db.eins('SELECT id FROM benutzer WHERE id = ?', id)) throw nichtGefunden('Benutzer nicht gefunden.');
+    res.json(AZ.verlaufJson(db, id, heuteW()));
+  });
+  api.delete('/benutzer/:id/arbeitszeit-verlauf/:vid', verwalterPruefen, (req, res) => {
+    const id = v.pfadId(req.params.id, 'Benutzer-ID');
+    const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
+    if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
+    if (!R.darfBenutzerVerwalten(req.ctx, b.rolle)) throw keinZugriff('Benutzer der Rollen Büro, Bauleiter und Geschäftsführung verwaltet nur die GF.');
+    pruefeKontoVerwalten(db, req.ctx, b); // 15.9: nie das eigene Konto
+    const e = db.eins('SELECT * FROM benutzer_arbeitszeitmodell WHERE id = ? AND benutzer_id = ?', v.pfadId(req.params.vid, 'Eintrag-ID'), id);
+    if (!e) throw nichtGefunden('Eintrag nicht gefunden.');
+    const heute = heuteW();
+    if (e.gueltig_ab <= heute) throw konflikt('Nur künftige Einträge können gelöscht werden. Für die Vergangenheit einen neuen Eintrag (rückwirkend) setzen.');
+    db.transaktion(() => {
+      db.lauf('DELETE FROM benutzer_arbeitszeitmodell WHERE id = ?', e.id);
+      db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${id}`, alt: { arbeitszeitmodell: e.modell_id, gueltigAb: e.gueltig_ab }, neu: null, text: `Künftiges Arbeitszeitmodell ab ${e.gueltig_ab.split('-').reverse().join('.')} für ${b.name} gelöscht` });
+    });
+    res.json({ ok: true, arbeitszeitVerlauf: AZ.verlaufJson(db, id, heute) });
+  });
+
+  /**
+   * Konto entsperren (C-07). 15.5 (F-051, ersetzt D-01): nur bei niedrigerer Verwaltungsstufe – Büro/Bauleiter entsperren
+   * Mitarbeiter und Poliere, die GF auch Büro und Bauleiter; GF-Konten nur der Notfall-Befehl am Server (entsperren.js).
+   */
   api.post('/benutzer/:id/entsperren', verwalterPruefen, (req, res) => {
     const id = v.pfadId(req.params.id, 'Benutzer-ID');
     const b = db.eins('SELECT * FROM benutzer WHERE id = ?', id);
     if (!b) throw nichtGefunden('Benutzer nicht gefunden.');
-    // D-01: Büro darf auch GF-/Büro-Konten ENTSPERREN (nur entsperren), damit sich die Verwaltung nicht aussperrt
     if (!R.darfBenutzerVerwalten(req.ctx)) throw keinZugriff();
     if (id === req.ctx.benutzer.id) throw keinZugriff('Das eigene Konto entsperrt eine andere Person.');
+    pruefeKontoZuruecksetzen(db, req.ctx, b);
     db.transaktion(() => {
       bt.bremse.entsperre(id);
       bt.bremse.kontoEntsperren(id);
@@ -224,3 +418,8 @@ module.exports = function benutzerRouten(api, bt) {
     res.json({ ok: true });
   });
 };
+
+module.exports.telefonPruefen = telefonPruefen;
+module.exports.verwaltungsStufe = verwaltungsStufe;
+module.exports.pruefeKontoZuruecksetzen = pruefeKontoZuruecksetzen;
+module.exports.pruefeKontoVerwalten = pruefeKontoVerwalten;

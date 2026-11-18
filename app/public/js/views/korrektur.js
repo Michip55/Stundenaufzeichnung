@@ -48,7 +48,7 @@ export default async function korrektur(el, ctx) {
     schichten.sort((a, b) => (`${a.datum} ${a.beginn}` < `${b.datum} ${b.beginn}` ? 1 : -1));
     sbox.innerHTML = schichten.length ? `<ul class="plain rows korr" id="k-schichtliste">${schichten.map((x) => `<li data-schicht="${x.id}">
         <span class="korr-datum"><b>${esc(fmt.datumKurz(x.datum))}</b></span>
-        <span class="grow"><b>${esc(uhr(x.beginn))} – ${x.offen ? '<em class="pend">offen</em>' : esc(uhr(x.ende))} Uhr${x.arbeitMin != null && !x.offen ? ` · ${fmt.zahl(x.arbeitMin / 60)} Std.` : ''}</b><small>${esc((x.baustellen || []).map(bsName).join(', '))}${x.pauseMin ? ` · Pause ${x.pauseMin} min` : ''}</small></span>
+        <span class="grow"><b>${esc(uhr(x.beginn))} – ${x.offen ? '<em class="pend">offen</em>' : esc(uhr(x.ende))} Uhr${x.arbeitMin != null && !x.offen ? ` · ${esc(fmt.stdLang(x.arbeitMin / 60))}` : ''}</b><small>${esc((x.baustellen || []).map(bsName).join(', '))}${x.pauseMin ? ` · Pause ${x.pauseMin} min` : ''}</small></span>
         ${x.unplausibel ? '<span class="chip xs st-red">unplausibel – zählt 0 Std.</span>' : x.offen ? '<span class="chip xs st-amber">läuft</span>' : ''}
         <button type="button" class="btn ghost sm" data-schicht-weg="${x.id}">${ic('trash')}Ganze Schicht löschen</button></li>`).join('')}</ul>` : leer('Keine Schichten in diesem Zeitraum.', 'clock');
     liste.sort((a, b) => (a.zeit < b.zeit ? 1 : -1));
@@ -57,7 +57,7 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}</b><small>${esc(bsName(x.baustelleId))}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
         <button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }
@@ -86,7 +86,7 @@ export default async function korrektur(el, ctx) {
     const rechne = () => {
       const f = new FormData(form); const pause = parseZahl(f.get('pauseMin') || '0');
       const std = f.get('von') && f.get('bis') && f.get('datum') ? stundenAus({ von1: f.get('von'), bis1: f.get('bis'), pauseMin: Number.isFinite(pause) ? pause : 0 }, String(f.get('datum'))) : 0;
-      $('#sf-std', d.el).textContent = `${fmt.zahl(std)} Std.${f.get('von') && f.get('bis') && f.get('bis') < f.get('von') ? ' · endet am nächsten Tag' : ''}`;
+      $('#sf-std', d.el).textContent = `${fmt.stdLang(std)}${f.get('von') && f.get('bis') && f.get('bis') < f.get('von') ? ' · endet am nächsten Tag' : ''}`;
       return std;
     };
     form.addEventListener('input', rechne); rechne();

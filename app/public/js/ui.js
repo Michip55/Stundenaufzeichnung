@@ -1,5 +1,5 @@
 // BauTag – gemeinsame Bausteine der Oberfläche: Icons, Formatierung (de-AT), Dialoge, Zustände.
-import { parseZahl, starkGeaendert } from './zahl.js';
+import { parseZahl, starkGeaendert, stundenHM, stundenLang } from './zahl.js';
 
 const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -51,6 +51,10 @@ const IC = {
   away: '<rect x="3.5" y="5" width="17" height="16" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M9.5 13.5l5 5M14.5 13.5l-5 5"/>',
   wrench: '<path d="M14.5 6.5a4.5 4.5 0 0 0-6 5.600L3.500 17a2 2 0 0 0 3 3l5-5a4.5 4.5 0 0 0 5.600-6L14 12l-2.500-2.500z"/>',
   gauge: '<path d="M4.5 17.5a8.500 8.500 0 1 1 15 0"/><path d="M12 13.5l4-5"/><circle cx="12" cy="14" r="1.500"/><path d="M7 20.5h10"/>',
+  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M5.5 15.5h-1a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+  board: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 4.5v15M15 4.5v15"/><path d="M10.5 12.5h3M4.800 15.500h3" stroke-width="2.6"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.500a5.5 5.5 0 0 1-11 0zM12 17v4"/>',
 };
 export const ic = (n, cls = '') =>
@@ -90,13 +94,22 @@ export const fmt = {
   uhr: (s) => { if (!s) return '–'; if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5); const d = new Date(s); return isNaN(d) ? '–' : `${p2(d.getHours())}:${p2(d.getMinutes())}`; },
   zeitpunkt: (s) => { if (!s) return '–'; const d = new Date(s); if (isNaN(d)) return esc(s); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}, ${p2(d.getHours())}:${p2(d.getMinutes())}`; },
   dauer: (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 3600)}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`; },
-  hm: (stunden) => { if (!istZahl(stunden)) return '–'; const m = Math.round(stunden * 60); return `${Math.floor(m / 60)}:${p2(m % 60)}`; },
+  // 15.25: Arbeitszeit als Stunden:Minuten – hm „9:51“ (Tabellen, Summen, Kacheln, Listen), stdLang „9 Std. 51 Min.“ (einzelne Werte).
+  // stdLangHtml: wie stdLang, die Einheiten in <i> (für Kacheln mit kleiner Einheit). Exporte und PDFs bleiben dezimal.
+  hm: (stunden) => stundenHM(stunden),
+  stdLang: (stunden) => stundenLang(stunden),
+  // Zahl und Einheit bleiben zusammen (geschütztes Leerzeichen): auf schmalen Handys bricht nur „25 Std.“ / „51 Min.“ um
+  stdLangHtml: (stunden) => esc(stundenLang(stunden)).replace(/(\d) (Std\.|Min\.)/g, '$1\u00a0<i>$2</i>'),
   monat: (ym) => { const [y, m] = ym.split('-').map(Number); return `${MON[m - 1]} ${y}`; },
 };
 // Zahleneingabe (de-AT) liegt in zahl.js – dort auch unter Node getestet (Prüfbericht B-04)
 export { parseZahl, starkGeaendert };
 
 export const ROLLEN = { mitarbeiter: 'Mitarbeiter', polier: 'Polier', bauleiter: 'Bauleiter', buero: 'Büro', gf: 'Geschäftsführung' };
+// Entscheidung des Inhabers: Der Bauleiter hat überall dieselben Ansichten und Rechte wie das Büro (nur GF-Sachen bleiben bei der GF)
+/** 12.25: interne Kostenstelle (Büro, Werkstatt/Bauhof, Kieswerk/Grube) – stempelbar, aber kein Bauvorhaben */
+export const istIntern = (b) => !!b && (b.intern === true || b.intern === 1 || b.kostenstelle === 'intern');
+export const wieBuero = (rolle) => ['buero', 'bauleiter', 'gf'].includes(rolle);
 export const rolleText = (r) => ROLLEN[r] || r || '';
 export const initialen = (name) => String(name || '?').trim().split(/\s+/).map((t) => t[0]).slice(0, 2).join('').toUpperCase();
 export const avatar = (name, cls = '') => `<span class="avatar ${cls}" aria-hidden="true">${esc(initialen(name))}</span>`;
@@ -109,7 +122,8 @@ export const kalkChip = (s) => { const [t, c] = KALK_STATUS[s] || [s || '–', '
 /* ---------- Zustände ---------- */
 export const laden = (text = 'Wird geladen …') => `<div class="state" role="status"><span class="spinner" aria-hidden="true"></span><p>${esc(text)}</p></div>`;
 export const leer = (text, icon = 'info', extra = '') => `<div class="state empty">${ic(icon)}<p>${esc(text)}</p>${extra}</div>`;
-export const keinZugriff = (text) => `<div class="page narrow"><div class="card state big" data-zustand="kein-zugriff">${ic('lock')}<h2>Kein Zugriff</h2><p>${esc(text || 'Für diesen Bereich fehlt Ihnen die Berechtigung. Wenden Sie sich bei Bedarf an die Geschäftsführung.')}</p><a class="btn ghost" href="#/">Zur Startseite</a></div></div>`;
+// Gesperrte oder nicht vorhandene Seite: bewusst neutral – nennt weder den Bereich noch den Grund
+export const keinZugriff = () => `<div class="page narrow"><div class="card state big" data-zustand="kein-zugriff">${ic('info')}<h2>Seite nicht verfügbar</h2><p>Diese Seite steht Ihnen nicht zur Verfügung.</p><a class="btn ghost" href="#/">Zur Startseite</a></div></div>`;
 export const fehlerBox = (err, mitNeu = true) => {
   const netz = err && err.netz;
   return `<div class="page narrow"><div class="card state big" data-zustand="fehler">${ic(netz ? 'wifiOff' : 'alert')}<h2>${netz ? 'Keine Verbindung' : 'Das hat nicht geklappt'}</h2><p>${esc(netz ? 'Der Server ist gerade nicht erreichbar. Stempeln funktioniert weiterhin – die Buchung wird nachgesendet.' : (err && err.message) || 'Unbekannter Fehler.')}</p>${mitNeu ? '<button class="btn ghost" data-neu-laden>Erneut versuchen</button>' : ''}</div></div>`;
@@ -117,15 +131,18 @@ export const fehlerBox = (err, mitNeu = true) => {
 export const banner = (art, text, icon) => `<div class="banner ${art}" role="${art === 'warn' || art === 'err' ? 'alert' : 'note'}">${ic(icon || (art === 'ok' ? 'check' : art === 'info' ? 'info' : 'alert'))}<span>${text}</span></div>`;
 
 /* ---------- Toast ---------- */
-export function toast(text, art = 'ok') {
+// aktion = {text, fn}: Knopf im Toast (z. B. „Rückgängig“, 15.24) – der Toast bleibt dann länger stehen
+export function toast(text, art = 'ok', aktion = null) {
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
-  el.className = 'toast ' + art;
+  el.className = 'toast ' + art + (aktion ? ' mit-aktion' : '');
   el.setAttribute('role', art === 'ok' ? 'status' : 'alert');
-  el.innerHTML = ic(art === 'ok' ? 'check' : 'alert') + `<span>${esc(text)}</span>`;
+  el.innerHTML = ic(art === 'ok' ? 'check' : 'alert') + `<span>${esc(text)}</span>` + (aktion ? `<button type="button" class="toast-aktion">${esc(aktion.text)}</button>` : '');
+  const weg = () => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); };
+  if (aktion) el.querySelector('.toast-aktion').addEventListener('click', () => { weg(); aktion.fn(); });
   root.appendChild(el);
   requestAnimationFrame(() => el.classList.add('in'));
-  setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, art === 'ok' ? 2800 : 4800);
+  setTimeout(weg, aktion ? 9000 : art === 'ok' ? 2800 : 4800);
 }
 export const fehlerToast = (e) => toast(e && e.netz ? 'Keine Verbindung zum Server.' : (e && e.message) || 'Fehler', 'warn');
 
@@ -158,13 +175,72 @@ export const speicher = {
   lies(k, d = null) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   setz(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* voll/gesperrt */ } },
   weg(k) { try { localStorage.removeItem(k); } catch (e) { /* egal */ } },
+  // R-08 (geteiltes Gerät): beim Abmelden und beim Benutzerwechsel alles Benutzerbezogene vom Gerät entfernen.
+  // Es bleibt nur, was nichts über eine Person verrät (GERAET) – und noch nicht gesendete Meldungen (WARTEND, M-04):
+  // die gehören genau einem Benutzer, werden nie mit einer fremden Sitzung gesendet und verschwinden nach dem Senden.
+  // 15.5 (F-046): vorher versiegelt tresor.js die WARTEND-Einträge der Person (AES-GCM) – für andere unlesbar.
+  raeumeBenutzer() {
+    // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
+    // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
+    // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
+    // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
+    // 15.25: bt_stunden_format = Anzeige der Monatsauswertung „hm“ (Std:Min) oder „dezimal“ – nur eine Einstellung, keine Daten
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
+    const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
+    for (const lager of [localStorage, sessionStorage]) {
+      try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
+    }
+    // Der Service Worker speichert nie /api – zur Sicherheit trotzdem alles unter /api aus dem Cache nehmen
+    if (window.caches) caches.keys().then((namen) => Promise.all(namen.map(async (n) => { const c = await caches.open(n); for (const anfrage of await c.keys()) if (new URL(anfrage.url).pathname.startsWith('/api/')) await c.delete(anfrage); }))).catch(() => {});
+  },
 };
+// 15.8: Gerätewahl (Anmeldeseite und „Mehr“) – zwei Optionen als Radiogruppe, mit kurzer Erklärung zur gewählten
+export const GERAET_TEXT = {
+  eigen: 'Angemeldet bleiben bis zum Abmelden – längstens so lange, wie der Server die Sitzung hält. Benutzen mehrere Personen dieses Gerät, „Geteiltes Gerät“ wählen.',
+  geteilt: 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.'
+};
+// 15.21: „Eigenes Handy“ ist der Standard und gilt ab der Anmeldung für die Person, die sich anmeldet (ohne Bestätigung);
+// „Geteiltes Gerät“ bleibt für das Gerät eingestellt, bis jemand „Eigenes Handy“ wählt
+export const GERAET_ANMELDUNG_TEXT = 'Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet.';
+export const geraetInfo = (art, { anmeldeseite = false } = {}) => art === 'eigen'
+  ? `${GERAET_TEXT.eigen}${anmeldeseite ? ` ${GERAET_ANMELDUNG_TEXT}` : ' Gilt für Sie an diesem Gerät.'}`
+  : `${GERAET_TEXT.geteilt} Bleibt für dieses Gerät eingestellt.`;
+export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '', anmeldeseite = false } = {}) => `
+  <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}"${anmeldeseite ? ' data-anmeldeseite="1"' : ''}>
+    <legend>${esc(titel)}</legend>
+    <div class="geraet-opt">
+      <label><input type="radio" class="vh" name="geraet-art" value="eigen" ${art === 'eigen' ? 'checked' : ''}><span>${ic('user')}<b>Eigenes Handy</b><small>nur ich benutze es</small></span></label>
+      <label><input type="radio" class="vh" name="geraet-art" value="geteilt" ${art === 'eigen' ? '' : 'checked'}><span>${ic('users')}<b>Geteiltes Gerät</b><small>z. B. Tablet im Bauhof</small></span></label>
+    </div>
+    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt', { anmeldeseite }))}</p>
+  </fieldset>`;
+/** Radiogruppe der Gerätewahl in `wurzel` binden; `beiWahl(art)` wird bei jeder Änderung aufgerufen */
+export function bindeGeraetWahl(wurzel, beiWahl) {
+  wurzel.addEventListener('change', (e) => {
+    const r = e.target.closest && e.target.closest('input[name="geraet-art"]');
+    if (!r) return;
+    const box = r.closest('.geraet-wahl'); const art = r.value === 'eigen' ? 'eigen' : 'geteilt';
+    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art, { anmeldeseite: box.dataset.anmeldeseite === '1' }); }
+    beiWahl(art);
+  });
+}
 // Nicht angebundene Integration als deaktivierte Schaltfläche mit ehrlichem Hinweis
+// Zusatzdienste (API.md 12.14): echter Zustand je Dienst
+export const integVon = (integ, schluessel) => (integ || []).find((x) => x.schluessel === schluessel) || null;
+export const integAktiv = (integ, schluessel) => { const i = integVon(integ, schluessel); return !!(i && (i.angebunden || /^aktiv/.test(i.zustand || ''))); };
+export const integMitKi = (integ, schluessel) => (integVon(integ, schluessel) || {}).zustand === 'aktiv_mit_ki';
+export const integZustand = (i) => {
+  const z = (i && i.zustand) || (i && i.angebunden ? 'aktiv' : 'fehlt');
+  return z === 'aktiv' ? ['Aktiv', 'st-green'] : z === 'aktiv_mit_ki' ? ['Aktiv – mit KI', 'st-green'] : z === 'aktiv_ohne_ki' ? ['Aktiv – ohne KI', 'st-green']
+    : z === 'optional' ? [i && i.schluessel === 'sms' ? 'Optional – Anbieter nötig' : 'Optional', 'st-grey'] : z === 'aus' ? ['Ausgeschaltet', 'st-grey'] : ['Nicht eingerichtet', 'st-amber'];
+};
+// Nicht verfügbare Funktion als deaktivierte Schaltfläche mit ehrlichem Hinweis (aktive Dienste haben eigene Schaltflächen)
 export const integBtn = (integ, schluessel, text, icon, cls = '') => {
-  const i = (integ || []).find((x) => x.schluessel === schluessel);
-  if (i && i.angebunden) return ''; // angebundene Dienste haben (noch) keine Oberfläche
+  const i = integVon(integ, schluessel);
+  if (integAktiv(integ, schluessel)) return '';
   const hinweis = (i && i.hinweis) || 'Anbieter/Vertrag fehlt.';
-  return `<span class="integ ${cls}" data-integ="${esc(schluessel)}"><button type="button" class="btn ghost sm" disabled aria-describedby="ih-${esc(schluessel)}">${ic(icon)}${esc(text)}</button><small id="ih-${esc(schluessel)}"><b>Noch nicht angebunden</b> · ${esc(hinweis)}</small></span>`;
+  const titel = i && i.zustand === 'optional' ? integZustand(i)[0] : 'Noch nicht angebunden';
+  return `<span class="integ ${cls}" data-integ="${esc(schluessel)}"><button type="button" class="btn ghost sm" disabled aria-describedby="ih-${esc(schluessel)}">${ic(icon)}${esc(text)}</button><small id="ih-${esc(schluessel)}"><b>${esc(titel)}</b> · ${esc(hinweis)}</small></span>`;
 };
 
 /* ---------- Betragsfelder: sofort zeigen, wie die Eingabe verstanden wird (B-04) ---------- */
@@ -193,6 +269,7 @@ export function geldFelder(wurzel) {
       echo.textContent = fehler ? 'Eingabe unklar – bitte so schreiben: 250.000,00' : roh === '' ? '' : `wird gespeichert als ${fmt.eur(w)}`;
     };
     inp.addEventListener('input', zeig);
+    inp.addEventListener('echo', zeig); // Wert im Programm gesetzt (z. B. vorbelegte USt/Brutto, 15.24)
     zeig();
   });
 }

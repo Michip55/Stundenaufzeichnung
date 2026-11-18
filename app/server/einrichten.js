@@ -38,6 +38,7 @@ function einrichten(db, { name, pnr, pin, firma }, jetzt = new Date()) {
   });
   require('./positionen').katalogAnlegen(db, jetzt); // Positionskatalog aus der Firmenvorlage (mit EP)
   require('./fuhrpark-vorlagen').vorlagenAnlegen(db); // Servicebuch-Vorlagen (alle „Prüfen“, API.md 11)
+  require('./kostenstellen').bueroSicherstellen(db); // 12.25: interne Kostenstelle „Büro“ (KST 90-000) zum Einstempeln
   return db.eins("SELECT id, name, pnr FROM benutzer WHERE rolle = 'gf'");
 }
 
@@ -59,7 +60,7 @@ if (require.main === module) {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       if (!name) name = await frage(rl, 'Name der Geschäftsführung: ');
       if (!pnr) pnr = await frage(rl, 'Personalnummer: ');
-      if (!pin) pin = await frage(rl, 'PIN (6–12 Ziffern, keine Folge wie 123456): ');
+      if (!pin) pin = await frage(rl, 'PIN (4–12 Ziffern, keine Folge wie 1234): ');
       rl.close();
     }
     const dbPfad = process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');

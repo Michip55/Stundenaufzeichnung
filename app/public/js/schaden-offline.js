@@ -1,6 +1,7 @@
 // BauTag – Schadensmeldungen ohne Netz: Meldung samt Fotos bleibt in IndexedDB am Gerät, bis der Server sie bestätigt hat.
 // Jede Meldung trägt eine clientId – der Server erkennt Wiederholungen daran (keine Duplikate, auch nicht bei Fotos).
 import { post } from './api.js';
+import { angemeldeterBenutzer } from './offline.js';
 
 const DB = 'bautag-schaden', STORE = 'meldungen';
 let dbP = null;
@@ -22,17 +23,23 @@ const melde = () => window.dispatchEvent(new CustomEvent('bt:schaden'));
 export const neueClientId = () => (crypto.randomUUID ? crypto.randomUUID() : `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 export async function schadenMerken(e) { await tx('readwrite', (s) => s.put(e)); melde(); }
 export async function schadenEntfernen(clientId) { await tx('readwrite', (s) => s.delete(clientId)); melde(); }
+// 15.5 (F-046): versiegelte Einträge (anderer Personen bzw. nach dem Abmelden) sind nie Teil einer Warteschlange
 export async function schadenWarteschlange(benutzerId) {
-  try { const alle = (await tx('readonly', (s) => s.getAll())) || []; return alle.filter((e) => benutzerId == null || e.benutzerId === benutzerId).sort((a, b) => String(a.erstellt).localeCompare(String(b.erstellt))); }
+  try { const alle = (await tx('readonly', (s) => s.getAll())) || []; return alle.filter((e) => !e.versiegelt && (benutzerId == null || e.benutzerId === benutzerId)).sort((a, b) => String(a.erstellt).localeCompare(String(b.erstellt))); }
   catch (x) { return []; }
 }
+// Rohzugriff für das Versiegeln (tresor.js)
+export const schadenRohAlle = async () => { try { return (await tx('readonly', (s) => s.getAll())) || []; } catch (x) { return []; } };
+export const schadenRohSetzen = (e) => tx('readwrite', (s) => s.put(e));
+export const schadenRohWeg = (clientId) => tx('readwrite', (s) => s.delete(clientId));
 // Prüfbericht 5, F-06: drei Fehlerarten auseinanderhalten.
 //   netz      = keine Verbindung / Sitzung abgelaufen → weiter warten (ohne Zählung)
 //   server    = Antwort 5xx → höchstens MAX_VERSUCHE Versuche, dann Zustand „Fehler“ (der Eintrag blockiert die übrigen nie)
 //   abgelehnt = Antwort 4xx → sofort Zustand „Fehler“ mit dem Grund des Servers
 export const MAX_VERSUCHE = 3;
 export const SERVER_FEHLER = 'Server meldet einen Fehler, bitte Büro verständigen.';
-export const schadenFehlerArt = (x) => (!x || x.netz || !x.status || [401, 408, 429].includes(x.status) ? 'netz' : x.status >= 500 ? 'server' : 'abgelehnt');
+// 15.5 (F-030): 409 ERSTELLER_ANDERS = am Gerät ist inzwischen eine andere Person angemeldet → weiter warten, nie verwerfen
+export const schadenFehlerArt = (x) => (!x || x.netz || !x.status || [401, 408, 429].includes(x.status) || x.code === 'ERSTELLER_ANDERS' ? 'netz' : x.status >= 500 ? 'server' : 'abgelehnt');
 export const schadenVorlaeufig = (x) => schadenFehlerArt(x) !== 'abgelehnt';
 // Fehlversuch am Eintrag festhalten. Rückgabe: Fehlerart.
 export async function schadenFehler(e, x) {
@@ -62,25 +69,33 @@ export async function schadenSenden(e, fortschritt = () => {}, merken = true) {
   inArbeit.add(e.clientId);
   try { return await sende(e, fortschritt, merken); } finally { inArbeit.delete(e.clientId); }
 }
+// 15.5 (F-030): vor JEDEM Schritt prüfen, dass noch die Person angemeldet ist, die die Meldung erfasst hat
+const nochDerselbe = (e) => {
+  if (angemeldeterBenutzer() !== e.benutzerId) throw Object.assign(new Error('Andere Person angemeldet – die Meldung bleibt am Gerät.'), { code: 'ERSTELLER_ANDERS', status: 409 });
+};
 async function sende(e, fortschritt, merken) {
   const gesamt = 1 + e.fotos.length;
+  const als = { ersteller: e.benutzerId };
   const stand = () => fortschritt((e.serverId ? 1 : 0) + e.fotos.filter((f) => f.gesendet).length, gesamt);
   const sichern = async () => { if (merken) { try { await tx('readwrite', (s) => s.put(e)); } catch (x) { /* Senden geht auch ohne Gerätespeicher weiter */ } } };
   stand();
   let schaden = null;
   if (!e.serverId) {
-    try { schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId }); }
+    nochDerselbe(e);
+    try { schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId }, als); }
     catch (x) {
       // F-05: geht die Geräteuhr vor (oder stark nach), lehnt ein älterer Server den Zeitpunkt ab → ohne Zeitpunkt senden, der Server nimmt „jetzt“
       if (!(x.status === 400 && e.body.zeitpunkt && /zeitpunkt/i.test(x.message || ''))) throw x;
       delete e.body.zeitpunkt; e.ohneZeitpunkt = true; await sichern();
-      schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId });
+      nochDerselbe(e);
+      schaden = await post('/fuhrpark/schaeden', { ...e.body, clientId: e.clientId }, als);
     }
     e.serverId = schaden.id; await sichern(); stand();
   }
   for (const f of e.fotos) {
     if (f.gesendet) continue;
-    try { await post(`/fuhrpark/schaeden/${e.serverId}/fotos`, { bildBase64: f.daten, dateiname: f.dateiname }); }
+    nochDerselbe(e);
+    try { await post(`/fuhrpark/schaeden/${e.serverId}/fotos`, { bildBase64: f.daten, dateiname: f.dateiname }, als); }
     catch (x) { if (schadenVorlaeufig(x)) throw x; f.fehler = x.message || 'vom Server abgelehnt'; } // ein vom Server abgelehntes Foto hält die Meldung nicht auf
     f.gesendet = true; await sichern(); stand();
   }
@@ -97,14 +112,23 @@ async function sende(e, fortschritt, merken) {
 }
 
 let laeuft = false;
+let lauf = Promise.resolve();
+/** 15.5: wartet, bis ein laufendes Nachsenden fertig ist (vor dem Versiegeln beim Abmelden) */
+export const schadenNachsendenFertig = () => lauf;
 // Alle wartenden Meldungen dieses Benutzers nachsenden. Rückgabe: Anzahl gesendeter Meldungen.
 // Ein Eintrag, den der Server ablehnt oder der wiederholt einen Serverfehler auslöst, hält die übrigen nicht auf.
-export async function schadenNachsenden(benutzerId) {
-  if (laeuft || benutzerId == null) return 0;
+export function schadenNachsenden(benutzerId) {
+  if (laeuft || benutzerId == null) return Promise.resolve(0);
   laeuft = true;
+  const p = nachsendenLauf(benutzerId);
+  lauf = p.catch(() => 0);
+  return p;
+}
+async function nachsendenLauf(benutzerId) {
   let gesendet = 0;
   try {
     for (const e of await schadenWarteschlange(benutzerId)) {
+      if (angemeldeterBenutzer() !== benutzerId) break; // 15.5 (F-030): Benutzerwechsel → sofort aufhören
       if (e.zustand === 'fehler' || e.zustand === 'foto' || inArbeit.has(e.clientId)) continue;
       try { await schadenSenden(e); gesendet++; }
       catch (x) { if ((await schadenFehler(e, x)) === 'netz') break; } // ohne Verbindung hat auch der nächste Versuch keinen Sinn

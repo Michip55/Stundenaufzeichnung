@@ -30,13 +30,13 @@ module.exports = function kalkRouten(api, bt) {
 
   api.get('/kalkulation/:baustelleId', brauche('kalk_sehen'), (req, res) => {
     const bs = baustelleAusPfad(db, req.params.baustelleId);
-    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Die Nachkalkulation sehen Bauleiter nur für ihre eigenen Baustellen.');
+    if (!darfKalk(req.ctx, bs)) throw keinZugriff('Diese Auswertung ist für Ihr Konto nicht freigegeben.'); // 15.15 (H-G6)
     const k = kalkulationFuer(db, bs);
     const alarme = db.alle('SELECT schwelle, ausgeloest, verbrauch, leistungsstand FROM budget_alarm WHERE baustelle_id = ? ORDER BY ausgeloest', bs.id);
     const o = { baustelle: baustelleKurz(bs), ...k, alarme };
     if (!darfPreise(req.ctx, bs)) {
       // kalk_sehen ohne preise_sehen (nur per Matrix möglich): Kennzahlen ohne €-Werte
-      for (const f of ['auftragssumme', 'nachtraege', 'auftragGesamt', 'erloes', 'erloesLeistung', 'erloesRegie', 'kosten', 'db', 'dbProzent', 'positionen', 'verlauf']) delete o[f];
+      for (const f of ['auftragssumme', 'nachtraege', 'auftragGesamt', 'erloes', 'erloesLeistung', 'erloesRegie', 'kosten', 'db', 'dbProzent', 'positionen', 'verlauf', 'rechnungen', 'interneKosten']) delete o[f];
     }
     res.json(o);
   });

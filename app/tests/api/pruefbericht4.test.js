@@ -262,21 +262,20 @@ test('Prüfbericht 4', async (t) => {
     assert.equal(prozent.result, d.anteilSummeProzent);
   });
 
-  await t.test('E-07: Bauleiter storniert nur eigene Mengeneinträge', async () => {
+  await t.test('E-07: Bauleiter storniert wie das Büro auch fremde Mengeneinträge (13.11.2026)', async () => {
     assert.equal(s.db.eins('SELECT bauleiter_id FROM baustelle WHERE id = ?', BS.pitten).bauleiter_id, U.bauleiter);
     const d = await pos(buero, BS.pitten);
     const p = finde(d, 'Rundungstest');
     const fremd = p.eintraege[0];
     assert.equal(fremd.erstelltVon, U.buero);
-    let r = await bl.del(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen/${fremd.id}`);
-    assert.equal(r.status, 403);
-    assert.ok(s.db.eins('SELECT id FROM projektposition_menge WHERE id = ?', fremd.id));
     // eigener Eintrag
-    r = await bl.post(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen`, { datum: '2026-11-11', menge: 1, notiz: 'eigener' });
+    let r = await bl.post(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen`, { datum: '2026-11-11', menge: 1, notiz: 'eigener' });
     assert.equal(r.status, 201);
     assert.equal((await bl.del(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen/${r.daten.id}`)).status, 200);
-    // Büro darf fremde stornieren
-    assert.equal((await buero.del(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen/${fremd.id}`)).status, 200);
+    // fremder Eintrag (vom Büro) – Bauleiter = Büro
+    assert.equal((await bl.del(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen/${fremd.id}`)).status, 200);
+    assert.ok(!s.db.eins('SELECT id FROM projektposition_menge WHERE id = ?', fremd.id));
+    assert.equal((await buero.del(`/baustellen/${BS.pitten}/positionen/${p.id}/mengen/${fremd.id}`)).status, 404);
   });
 
   await t.test('E-08: ohne preise_sehen keine PA/VE-Beträge und Notizen', async () => {
@@ -330,12 +329,16 @@ test('Prüfbericht 4', async (t) => {
   });
 
   await t.test('E-03: Baustelle ohne Positionen → Hinweis statt 0 %', async () => {
-    s.db.lauf('DELETE FROM projektposition WHERE baustelle_id = ?', BS.kieswerk);
-    const d = await pos(buero, BS.kieswerk);
+    // 12.25: interne Kostenstelle (Kieswerk 90-001) hat gar keine Positionen/Nachkalkulation → 422
+    assert.equal((await buero.get(`/baustellen/${BS.kieswerk}/positionen`)).status, 422);
+    assert.equal((await buero.get(`/kalkulation/${BS.kieswerk}`)).status, 422);
+    s.db.lauf('DELETE FROM projektposition_menge WHERE position_id IN (SELECT id FROM projektposition WHERE baustelle_id = ?)', BS.neustadt);
+    s.db.lauf('DELETE FROM projektposition WHERE baustelle_id = ?', BS.neustadt);
+    const d = await pos(buero, BS.neustadt);
     assert.equal(d.positionenFehlen, true);
     assert.equal(d.budgetVerbrauchProzent, null);
     assert.match(d.hinweise[0].text, /noch keine Positionen/);
-    const k = (await buero.get(`/kalkulation/${BS.kieswerk}`)).daten;
+    const k = (await buero.get(`/kalkulation/${BS.neustadt}`)).daten;
     assert.equal(k.positionenFehlen, true);
     assert.equal(k.budgetVerbrauchProzent, null);
   });

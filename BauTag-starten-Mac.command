@@ -8,9 +8,13 @@ fi
 if [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 22 ]; then
   echo "Node.js ist zu alt – bitte die aktuelle LTS von https://nodejs.org installieren."; open https://nodejs.org; read -r -p "Enter"; exit 1
 fi
-[ -d node_modules ] || { echo "Erster Start: Programmteile werden geladen …"; npm install --no-audit --no-fund || { read -r -p "Fehler – Enter"; exit 1; }; }
+# N-046: auch nach einem Update (neue oder geänderte Programmteile) npm install ausführen, nicht nur beim ersten Start
+if ! node server/abhaengigkeiten.js >/dev/null 2>&1; then
+  echo "Programmteile werden geladen bzw. aktualisiert …"; npm install --no-audit --no-fund || { read -r -p "Fehler – Enter"; exit 1; }
+fi
 export BAUTAG_DEMO=1
 [ -f data/bautag.db ] || npm run seed
 echo; echo "BauTag läuft: http://localhost:3000  –  Anmelden mit Namen und PIN 1234 (Testdaten). Fenster offen lassen."; echo
+IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"; [ -n "$IP" ] && echo "Handy im selben WLAN: http://$IP:3000"; echo
 (sleep 4; open http://localhost:3000) &
 node server/index.js

@@ -14,10 +14,17 @@ function baustelleJson(db, ctx, bs, { detail = false, preise } = {}) {
   const o = {
     id: bs.id, kst: bs.kst, name: bs.name, kurz: bs.kurz, auftraggeber: bs.auftraggeber, agAdresse: bs.ag_adresse,
     bauvorhaben: bs.bauvorhaben, adresse: bs.adresse, bauherrVertreter: bs.bauherr_vertreter, art: bs.art,
-    status: bs.status, intern: bs.intern === 1, polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
-    beginn: bs.beginn, ende: bs.ende, version: bs.version
+    status: bs.status, intern: bs.intern === 1, kostenstelle: bs.intern === 1 ? 'intern' : 'baustelle', polierId: bs.polier_id, bauleiterId: bs.bauleiter_id,
+    beginn: bs.beginn, ende: bs.ende,
+    lat: bs.lat, lng: bs.lng
   };
+  // 15.15 (H-G3): Bearbeitungszähler nur für Aufrufer, die die Baustelle ändern (Recht stammdaten – Büro, Bauleiter, GF laut
+  // Matrix; für Polier/Mitarbeiter gesperrt). Er steigt auch bei verborgenen Geldschritten (Schlussrechnung, Bezahlt,
+  // Archiviert, Haftrücklass, Auftragssumme …) und verriete sie sonst bei unveränderter neutraler Sicht.
+  if (ctx.hat('stammdaten')) o.version = bs.version;
   const mitPreisen = darfPreise(ctx, bs);
+  Object.assign(o, require('../bauvorhaben').phaseFelder(db, bs, mitPreisen, ctx)); // API.md 12.15; 15.11: Phase in der Sicht des Aufrufers
+  if (detail && (ctx.hat('stammdaten') || ctx.hat('bericht_freigeben'))) { o.agEmail = bs.ag_email; o.berichtMail = bs.bericht_mail === 1; }
   const mitKalk = darfKalk(ctx, bs);
   if (mitPreisen) o.auftragssumme = bs.auftragssumme;
   if (mitKalk && !bs.intern) {
@@ -56,10 +63,10 @@ function pruefeVersion(body, aktuell, was = 'Die Baustelle') {
   if (version !== aktuell) throw konflikt(`${was} wurde inzwischen von jemand anderem geändert. Bitte neu laden und die Änderung wiederholen.`, { version: aktuell });
 }
 
-/** Bauleiter-/Polier-Zuordnung ändern nur Büro und GF (C-05) */
+/** Bauleiter-/Polier-Zuordnung (C-05): Sicherheitsnetz allein über das Recht stammdaten (15.4) – nie über den Rollennamen */
 function pruefeZuordnung(ctx, body) {
-  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !['buero', 'gf'].includes(ctx.benutzer.rolle)) {
-    throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet nur das Büro bzw. die Geschäftsführung zu.');
+  if ((body.bauleiterId !== undefined || body.polierId !== undefined) && !ctx.hat('stammdaten')) {
+    throw keinZugriff('Bauleiter und Polier einer Baustelle ordnet zu, wer das Recht stammdaten hat.');
   }
 }
 
@@ -80,6 +87,18 @@ function baustellenFelder(db, body, teil) {
   if (body.bauleiterId !== undefined) f.bauleiter_id = pruefeBenutzerRolle(db, body.bauleiterId, ['bauleiter', 'gf'], 'bauleiterId');
   if (body.beginn !== undefined) f.beginn = v.datum(body.beginn, 'beginn', { pflicht: false });
   if (body.ende !== undefined) f.ende = v.datum(body.ende, 'ende', { pflicht: false });
+  // API.md 12.15: Status setzt die passende Phase
+  if (f.status !== undefined) { f.phase = require('../bauvorhaben').phaseAusStatus(f.status); f.phase_seit = require('../datum').wienDatum(db.uhr ? db.uhr() : new Date()); }
+  // API.md 12.4/12.5: Koordinaten, E-Mail des Auftraggebers
+  for (const [k, min, max] of [['lat', 45, 50], ['lng', 8, 18]]) {
+    if (body[k] !== undefined) f[k] = body[k] === null ? null : v.zahl(body[k], k, { min, max });
+  }
+  if (body.agEmail !== undefined) {
+    const e = body.agEmail === null ? '' : v.text(body.agEmail, 'agEmail', { max: 300, pflicht: false });
+    for (const a of e.split(',').map((x) => x.trim()).filter(Boolean)) if (!/^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/.test(a)) throw ungueltig(`agEmail: „${a}“ ist keine gültige E-Mail-Adresse.`);
+    f.ag_email = e || null;
+  }
+  if (body.berichtMail !== undefined) f.bericht_mail = v.bool(body.berichtMail, 'berichtMail') ? 1 : 0;
   return f;
 }
 
@@ -90,7 +109,20 @@ module.exports = function stammdatenRouten(api, bt) {
   /* ---------- Baustellen ---------- */
   api.get('/baustellen', (req, res) => {
     const preise = ladePreise(db);
+    // API.md 12.15: archivierte nur mit ?archiv=1 (nur archivierte) bzw. ?alle=1
+    const q = req.query;
+    const archiv = q.archiv === '1', alleZeigen = q.alle === '1';
+    const jahr = q.jahr && /^\d{4}$/.test(String(q.jahr)) ? String(q.jahr) : null;
+    const ag = typeof q.auftraggeber === 'string' && q.auftraggeber ? q.auftraggeber.toLowerCase().slice(0, 100) : null;
+    const suche = typeof q.suche === 'string' && q.suche ? q.suche.toLowerCase().slice(0, 100) : null;
+    // 15.11 (G2-001/G2-023): Archiv und Jahr in der Sicht des Aufrufers – ohne Zahlungsstand zählt „abgeschlossen“ als Archiv,
+    // das Jahr nie nach Archivierungs- oder Zahlungsdatum
+    const BV = require('../bauvorhaben');
     const liste = db.alle('SELECT * FROM baustelle ORDER BY intern, kst')
+      .filter((bs) => (alleZeigen ? true : archiv ? BV.imArchiv(req.ctx, bs) : !BV.imArchiv(req.ctx, bs)))
+      .filter((bs) => !jahr || BV.jahrDatum(req.ctx, bs).startsWith(jahr))
+      .filter((bs) => !ag || String(bs.auftraggeber || '').toLowerCase().includes(ag))
+      .filter((bs) => !suche || [bs.kst, bs.name, bs.kurz, bs.auftraggeber].some((x) => String(x || '').toLowerCase().includes(suche)))
       .filter((bs) => sichtbar(req.ctx, bs))
       .map((bs) => baustelleJson(db, req.ctx, bs, { preise }));
     res.json(liste);
@@ -132,6 +164,8 @@ module.exports = function stammdatenRouten(api, bt) {
     db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'stammdaten', objekt: `baustelle:${bs.id}`, alt, neu: f, text: `Baustelle ${bs.kst} geändert` });
     res.json(baustelleJson(db, req.ctx, db.eins('SELECT * FROM baustelle WHERE id = ?', bs.id), { detail: true }));
   });
+
+  require('./bauvorhaben')(api, bt, { baustelleJson, sichtbar });
 
   api.put('/baustellen/:id/auftrag', brauche('preise_bearbeiten'), (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
@@ -195,11 +229,12 @@ module.exports = function stammdatenRouten(api, bt) {
     if (datum < plusTage(heute, -731)) throw ungueltig('datum liegt mehr als 2 Jahre zurück.');
     return datum;
   }
-  const darfLeistung = (ctx, bs) => ctx.hat('preise_bearbeiten') || (ctx.benutzer.rolle === 'bauleiter' && bs.bauleiter_id === ctx.benutzer.id);
+  // 15.4 (F-012/F-016/F-019): allein das Recht preise_bearbeiten – nie Rollenname oder bauleiterId (Bauleiter = Büro, 13.1)
+  const darfLeistung = (ctx) => ctx.hat('preise_bearbeiten');
 
   api.get('/baustellen/:id/leistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfKalk(req.ctx, bs) && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Leistungsmeldungen sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    if (!darfKalk(req.ctx, bs) && !req.ctx.hat('preise_bearbeiten')) throw keinZugriff('Leistungsmeldungen sieht, wer das Recht kalk_sehen oder preise_bearbeiten hat.');
     const mitPreis = darfPreise(req.ctx, bs);
     res.json(db.alle(`SELECT m.*, l.code, l.text, l.einheit, l.ep, b.name AS von_name FROM leistungsmeldung m JOIN leistung l ON l.id = m.leistung_id
         LEFT JOIN benutzer b ON b.id = m.erstellt_von WHERE m.baustelle_id = ? ORDER BY m.datum DESC, m.id DESC`, bs.id).map((m) => {
@@ -210,9 +245,10 @@ module.exports = function stammdatenRouten(api, bt) {
   });
 
   api.post('/baustellen/:id/leistungen', (req, res) => {
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen erfassen darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).'); // 15.7 (F-036)
     const bs = baustelleAusPfad(db, req.params.id);
     const ich = req.ctx.benutzer;
-    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen erfassen dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen erfassen darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).');
     const body = v.objekt(req.body);
     const leistungId = v.id(body.leistungId, 'leistungId');
     const l = db.eins('SELECT id, code, text FROM leistung WHERE id = ?', leistungId);
@@ -229,8 +265,8 @@ module.exports = function stammdatenRouten(api, bt) {
   });
 
   api.delete('/baustellen/:id/leistungen/:lid', (req, res) => {
+    if (!darfLeistung(req.ctx)) throw keinZugriff('Leistungsmeldungen stornieren darf, wer Preise bearbeiten darf (Büro, Bauleiter, Geschäftsführung).'); // 15.7 (F-036): vor Existenz
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfLeistung(req.ctx, bs)) throw keinZugriff('Leistungsmeldungen stornieren dürfen Büro, Geschäftsführung und der Bauleiter der Baustelle.');
     const lid = v.pfadId(req.params.lid, 'Leistungsmeldungs-ID');
     const m = db.eins('SELECT * FROM leistungsmeldung WHERE id = ? AND baustelle_id = ?', lid, bs.id);
     if (!m) throw nichtGefunden('Leistungsmeldung nicht gefunden.');
@@ -244,7 +280,7 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/baustellen/:id/fremdleistungen', (req, res) => {
     const bs = baustelleAusPfad(db, req.params.id);
-    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen (€) sehen Bauleitung (eigene Baustellen), Büro und GF.');
+    if (!darfPreise(req.ctx, bs)) throw keinZugriff('Fremdleistungen sieht, wer das Recht preise_sehen hat.'); // 15.11 (G2-015): kein €-Zeichen im Fehlertext
     res.json(db.alle('SELECT * FROM fremdleistung WHERE baustelle_id = ? ORDER BY datum DESC, id DESC', bs.id)
       .map((f) => ({ id: f.id, text: f.text, betrag: f.betrag, datum: f.datum, erstellt: f.erstellt, erstelltVon: f.erstellt_von })));
   });
@@ -298,8 +334,9 @@ module.exports = function stammdatenRouten(api, bt) {
       if (!jeGeraet.has(A.row.geraet_id)) jeGeraet.set(A.row.geraet_id, []);
       jeGeraet.get(A.row.geraet_id).push({ id: A.row.id, nummer: A.row.nummer, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen, status: A.status.status, gesperrt: A.status.gesperrt });
     }
-    res.json(db.alle('SELECT * FROM geraet ORDER BY sortierung, id').map((g) => {
-      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, vorlage: g.vorlage === 1, anlagen: jeGeraet.get(g.id) || [] };
+    const alle = req.query.inaktiv === '1'; // API.md 12.21: inaktive nur auf Wunsch
+    res.json(db.alle(`SELECT * FROM geraet ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY sortierung, id`).map((g) => {
+      const o = { id: g.id, code: g.code, name: g.name, gruppe: g.gruppe, einheit: g.einheit, aktiv: g.aktiv === 1, anlageId: g.anlage_id, vorlage: g.vorlage === 1, anlagen: jeGeraet.get(g.id) || [] };
       if (p) { o.kostensatz = g.kostensatz; o.verrechnungssatz = g.verrechnungssatz; }
       return o;
     }));
@@ -307,8 +344,9 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/materialien', (req, res) => {
     const p = req.ctx.hat('preise_sehen');
-    res.json(db.alle('SELECT * FROM material ORDER BY sortierung, id').map((m) => {
-      const o = { id: m.id, code: m.code, name: m.name, einheit: m.einheit, vorlage: m.vorlage === 1, hinweis: m.hinweis };
+    const alle = req.query.inaktiv === '1';
+    res.json(db.alle(`SELECT * FROM material ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY sortierung, id`).map((m) => {
+      const o = { id: m.id, code: m.code, name: m.name, einheit: m.einheit, dichte: m.dichte, naturmaterial: m.naturmaterial === 1, aktiv: m.aktiv === 1, vorlage: m.vorlage === 1, hinweis: m.hinweis };
       if (p) { o.ek = m.ek; o.vk = m.vk; }
       return o;
     }));
@@ -316,8 +354,9 @@ module.exports = function stammdatenRouten(api, bt) {
 
   api.get('/leistungen', (req, res) => {
     const p = req.ctx.hat('preise_sehen');
-    res.json(db.alle('SELECT * FROM leistung ORDER BY code').map((l) => {
-      const o = { id: l.id, code: l.code, text: l.text, einheit: l.einheit };
+    const alle = req.query.inaktiv === '1';
+    res.json(db.alle(`SELECT * FROM leistung ${alle ? '' : 'WHERE aktiv = 1'} ORDER BY code`).map((l) => {
+      const o = { id: l.id, code: l.code, text: l.text, einheit: l.einheit, aktiv: l.aktiv === 1 };
       if (p) o.ep = l.ep;
       return o;
     }));

@@ -16,14 +16,17 @@ function parseJson(s, standard) {
   try { return s == null ? standard : JSON.parse(s); } catch (_) { return standard; }
 }
 
+/** Heute gültige Preise (Maps) + `am(datum)` für die am Tag gültigen Preise (API.md 12.2) */
 function ladePreise(db) {
   const m = (rows) => new Map(rows.map((r) => [r.id, r]));
-  return {
+  const heute = {
     lohngruppen: m(db.alle('SELECT id, name, kostensatz, regiesatz FROM lohngruppe')),
     geraete: m(db.alle('SELECT id, code, name, kostensatz, verrechnungssatz FROM geraet')),
     materialien: m(db.alle('SELECT id, code, name, einheit, ek, vk FROM material')),
     leistungen: m(db.alle('SELECT id, code, text, einheit, ep FROM leistung'))
   };
+  Object.defineProperty(heute, 'am', { value: require('./preise-verlauf').preisZeitachse(db, heute), enumerable: false });
+  return heute;
 }
 
 /** Kostenrelevante Berichtsdaten (alle Status) einer Baustelle */
@@ -31,7 +34,8 @@ function ladeBerichteFuerKalk(db, baustelleId) {
   const berichte = db.alle('SELECT id, datum, status FROM bericht WHERE baustelle_id = ? ORDER BY datum', baustelleId);
   if (!berichte.length) return [];
   const nachId = new Map(berichte.map((b) => [b.id, { ...b, personal: [], geraete: [], material: [], regie: [] }]));
-  for (const p of db.alle(`SELECT bp.bericht_id, bp.stunden, bp.benutzer_id, b.lohngruppe_id FROM bericht_personal bp
+  // 12.22: Lohngruppe am Berichtstag
+  for (const p of db.alle(`SELECT bp.bericht_id, bp.stunden, bp.benutzer_id, ${require('./lohngruppen').lgAm('b', 'r.datum')} AS lohngruppe_id FROM bericht_personal bp
       JOIN benutzer b ON b.id = bp.benutzer_id JOIN bericht r ON r.id = bp.bericht_id WHERE r.baustelle_id = ?`, baustelleId)) {
     nachId.get(p.bericht_id).personal.push({ benutzerId: p.benutzer_id, lohngruppeId: p.lohngruppe_id, stunden: p.stunden });
   }
@@ -71,6 +75,7 @@ function kalkulationFuer(db, bs, preise) {
   k.status = budgetStatus(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen);
   k.hinweise = [...budgetHinweise(k.budgetVerbrauchProzent, k.leistungsstandProzent, k.schwellen, 'Die Nachkalkulationssumme'), ...k.hinweise.filter((h) => !h.budget), ...pos.hinweise];
   k.positionenFehlen = pos.positionenFehlen;
+  k.rechnungen = require('./rechnungen').summenBaustelle(db, bs.id); // 12.17: verrechnet/bezahlt
   k.positionen = {
     ...k.positionen,
     anteilSummeProzent: pos.anteilSummeProzent,
@@ -82,10 +87,13 @@ function kalkulationFuer(db, bs, preise) {
 
 /** Kosten eines Berichts (kostenTag) */
 function kostenTagFuer(db, berichtId) {
-  const personal = db.alle('SELECT bp.stunden, b.lohngruppe_id AS lohngruppeId FROM bericht_personal bp JOIN benutzer b ON b.id = bp.benutzer_id WHERE bp.bericht_id = ?', berichtId);
+  const b = db.eins('SELECT datum FROM bericht WHERE id = ?', berichtId);
+  const personal = db.alle(`SELECT bp.stunden, ${require('./lohngruppen').lgAm('b', 'r.datum')} AS lohngruppeId FROM bericht_personal bp JOIN benutzer b ON b.id = bp.benutzer_id
+    JOIN bericht r ON r.id = bp.bericht_id WHERE bp.bericht_id = ?`, berichtId);
   const geraete = db.alle('SELECT geraet_id AS geraetId, stunden FROM bericht_geraet WHERE bericht_id = ?', berichtId);
   const material = db.alle('SELECT material_id AS materialId, menge FROM bericht_material WHERE bericht_id = ?', berichtId);
-  return kostenBericht({ personal, geraete, material }, ladePreise(db));
+  const preise = ladePreise(db);
+  return kostenBericht({ personal, geraete, material }, b ? preise.am(b.datum) : preise);
 }
 
 /** Buchungen eines Benutzers im Zeitraum [von, bis) als Objekte für die Logik */
@@ -105,17 +113,24 @@ function letzteBuchungen(db, benutzerId, anzahl = 200) {
  */
 function aktuellerStatus(db, benutzerId) {
   const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
-  const letzte = db.eins('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId);
-  if (!k) return { status: 'aus', seit: null, baustelleId: null, schichtBeginn: null, letzte };
+  const letzte = db.eins('SELECT id, typ, zeit, baustelle_id AS baustelleId, automatisch FROM buchung WHERE benutzer_id = ? ORDER BY zeit DESC, id DESC LIMIT 1', benutzerId);
+  if (!k) return { status: 'aus', seit: null, baustelleId: null, schichtBeginn: null, pauseBis: null, pauseDauerMin: null, letzte };
   const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, k.zeit);
-  return { ...statusAusBuchungen(b), letzte };
+  const st = statusAusBuchungen(b);
+  // 15.22: laufende Pause mit fester Dauer → geplantes Ende (das automatische Ende steht noch aus)
+  let pauseBis = null, pauseDauerMin = null;
+  if (st.status === 'pause') {
+    const p = db.eins("SELECT pause_auto_bis, pause_plan_min FROM buchung WHERE benutzer_id = ? AND typ = 'pause_start' AND zeit = ? ORDER BY id DESC LIMIT 1", benutzerId, st.seit);
+    if (p && p.pause_auto_bis) { pauseBis = p.pause_auto_bis; pauseDauerMin = p.pause_plan_min; }
+  }
+  return { ...st, pauseBis, pauseDauerMin, letzte };
 }
 
 /** Buchungen seit einem Zeitpunkt (mindestens die ganze laufende Schicht) */
 function buchungenSeit(db, benutzerId, vonIso) {
   const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
   const von = k && k.zeit < vonIso ? k.zeit : vonIso;
-  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
+  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, automatisch, pause_plan_min AS dauerMin FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
 }
 
 /** Zeitfenster rund um einen Tag (Vortag 00:00 bis übermorgen 00:00 Wiener Zeit) */

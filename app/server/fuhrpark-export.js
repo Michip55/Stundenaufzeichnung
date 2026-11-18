@@ -27,7 +27,7 @@ function eintraegeFuer(db, { anlageId, von, bis }) {
   return db.alle(`SELECT * FROM servicebuch_eintrag ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY datum, id`, ...p);
 }
 
-function csvExport(db, S, { art, von, bis, kosten }) {
+function csvExport(db, S, { art, von, bis, kosten, rechnung = kosten }) {
   const z = [];
   if (art === 'fristen') {
     z.push(['Anlage-Nr.', 'Bezeichnung', 'Kennzeichen', 'Klasse', 'Termin', 'Art', 'Status', 'Nächstes Datum', 'Fällig am', 'Spätestens', 'Fällig bei', 'Rest', 'Voraussichtlich', 'Grund', 'Vorlage prüfen']);
@@ -37,14 +37,15 @@ function csvExport(db, S, { art, von, bis, kosten }) {
         deDatum(c.faelligAm), deDatum(c.spaetestens), zw(c.faelligBei), zw(c.rest), deDatum(c.prognoseAm), c.grund || '', P.row.vorlage_pruefen === 1 ? 'ja' : '']);
     }
   } else if (art === 'eintraege') {
-    const kopf = ['Datum', 'Anlage-Nr.', 'Bezeichnung', 'Kennzeichen', 'Art', 'Titel', 'Werkstatt', 'Arbeiten', 'Teile', 'Arbeitsstunden intern', 'Rechnungsnr.', 'Prüfergebnis', 'Prüfer', 'Zählerstände', 'Erledigt', 'Storniert'];
+    // Rechnungsnr. der Werkstatt nur mit preise_sehen (14.11.2026)
+    const kopf = ['Datum', 'Anlage-Nr.', 'Bezeichnung', 'Kennzeichen', 'Art', 'Titel', 'Werkstatt', 'Arbeiten', 'Teile', 'Arbeitsstunden intern', ...(rechnung ? ['Rechnungsnr.'] : []), 'Prüfergebnis', 'Prüfer', 'Zählerstände', 'Erledigt', 'Storniert'];
     if (kosten) kopf.push('Kosten netto');
     z.push(kopf);
     const ctx = kostenCtx(kosten);
     for (const e of eintraegeFuer(db, { von, bis })) {
       const j = D.eintragJson(db, e, S, ctx);
       const zeile = [deDatum(e.datum), j.anlage && j.anlage.nummer, j.anlage && j.anlage.bezeichnung, j.anlage && j.anlage.kennzeichen, EINTRAG_ART[e.art], e.titel, e.werkstatt, e.arbeiten, e.teile,
-        e.arbeitsstunden_intern, e.rechnung_nr, PRUEF_TEXT[e.pruef_ergebnis] || '', e.pruefer, j.zaehler.map((x) => `${F.zahlDe(x.anzeige, 0)} ${F.EINHEIT[x.art]}`).join(', '),
+        e.arbeitsstunden_intern, ...(rechnung ? [e.rechnung_nr] : []), PRUEF_TEXT[e.pruef_ergebnis] || '', e.pruefer, j.zaehler.map((x) => `${F.zahlDe(x.anzeige, 0)} ${F.EINHEIT[x.art]}`).join(', '),
         j.erledigt.map((x) => x.titel).join(', '), e.storniert ? `storniert: ${e.storno_grund || ''}` : ''];
       if (kosten) zeile.push(e.kosten);
       z.push(zeile);

@@ -1,9 +1,10 @@
 // PIN ändern (Prüfbericht B-03): freiwillig über „Mehr“ oder erzwungen nach der ersten Anmeldung / PIN-Reset.
 import { post } from '../api.js';
-import { ic, esc, MARK, banner, toast, rolleText, $ } from '../ui.js';
+import { ic, esc, MARK, banner, toast, $ } from '../ui.js';
 
-export const pinMin = (rolle) => (['bauleiter', 'buero', 'gf'].includes(rolle) ? 6 : 4);
-// Gleiche Regeln wie am Server: nur Ziffern, Mindestlänge je Rolle, keine einfachen Folgen
+// 15.21 (Inhaber 17.11.2026): mindestens 4 Ziffern für alle Rollen
+export const pinMin = () => 4;
+// Gleiche Regeln wie am Server: nur Ziffern, 4 bis 12 Ziffern, keine einfachen Folgen
 export function pinFehler(pin, rolle) {
   const min = pinMin(rolle);
   if (!/^\d*$/.test(pin)) return 'Die PIN darf nur aus Ziffern bestehen.';
@@ -24,7 +25,7 @@ function formular(ich, erzwungen) {
       <label class="field"><span class="field-label">Bisherige PIN</span><input class="input lg" type="password" name="alt" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="current-password" required></label>
       <label class="field"><span class="field-label">Neue PIN (mindestens ${min} Ziffern)</span><input class="input lg" type="password" name="neu" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="new-password" required aria-describedby="pin-regel"></label>
       <label class="field"><span class="field-label">Neue PIN wiederholen</span><input class="input lg" type="password" name="neu2" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="new-password" required></label>
-      <p class="muted sm" id="pin-regel">${min} bis 12 Ziffern, keine Folgen wie 1234 und nicht lauter gleiche Ziffern.${min > 4 ? ` Für ${esc(rolleText(ich.benutzer.rolle))} gilt die längere PIN, weil Preise und Lohndaten sichtbar sind.` : ''}</p>
+      <p class="muted sm" id="pin-regel">${min} bis 12 Ziffern, keine Folgen wie 1234 und nicht lauter gleiche Ziffern.</p>
       <p class="form-err" id="pin-err" role="alert" hidden></p>
       <button type="submit" class="btn primary lg block" id="pin-ok">${ic('check')}PIN ändern</button>
     </form>`;

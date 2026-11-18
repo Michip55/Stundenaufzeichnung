@@ -66,7 +66,7 @@ test('Schäden mit Fotos', async (t) => {
   await t.test('Validierung der Meldung', async () => {
     const basis = { anlageId: 29, art: 'defekt', ursache: 'Motor startet nicht mehr', einsatzfaehig: 'eingeschraenkt' };
     for (const [aend, re] of [
-      [{ ursache: 'kaputt' }, /ursache/], [{ art: 'diebstahl' }, /art/], [{ einsatzfaehig: 'vielleicht' }, /einsatzfaehig/],
+      [{ ursache: 'kaputt' }, /ursache/], [{ art: 'diebstahl' }, /^Art ist ungültig/], [{ einsatzfaehig: 'vielleicht' }, /einsatzfaehig/],
       [{ fremdGeraet: 'Fremdgerät' }, /nicht beides/], [{ anlageId: undefined }, /fremdGeraet/], [{ zeitpunkt: '2026-11-12 08:00' }, /Zeitzone/],
       [{ zeitpunkt: '2025-01-01T08:00:00Z' }, /Jahr/], [{ clientId: 'a/b' }, /clientId/],
       [{ anlageId: 99999 }, /Anlage nicht gefunden/]

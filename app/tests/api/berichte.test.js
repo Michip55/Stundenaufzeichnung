@@ -47,8 +47,11 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
     for (const uid of [1, 2, 4, 5]) {
       assert.deepEqual([p[uid].von1, p[uid].bis1, p[uid].von2, p[uid].bis2, p[uid].pauseMin, p[uid].stunden], ['07:00', '12:00', '12:30', '16:00', 30, 8.5], `Person ${uid}`);
     }
-    assert.equal(p[3].code, 'U'); // Urlaub laut Abwesenheit
-    assert.equal(p[3].stunden, 0);
+    // Inhaber 13.11.2026: der Polier sieht Abwesenheiten anderer nicht – die Urlaubszeile ist für ihn ausgeblendet …
+    assert.equal(p[3], undefined);
+    // … bleibt aber gespeichert und ist für Büro/Bauleiter sichtbar
+    const b3 = (await buero.get(`/berichte/${id}`)).daten.personal.find((x) => x.benutzerId === 3);
+    assert.deepEqual([b3.code, b3.stunden], ['U', 0]);
     assert.equal(r.daten.gesamtstunden, 34);
     assert.deepEqual(euroFelder(r.daten), []); // Polier: keine Kosten
   });
@@ -167,15 +170,15 @@ test('Bautagesbericht: Erstellen aus Stempelungen, Bearbeiten, Unterschrift, Fre
     assert.ok(!(await pol.get('/benachrichtigungen')).daten.some((n) => n.typ === 'bericht'));
   });
 
-  await t.test('Freigabe: Bauleiter nur eigene Baustellen, einmalig, Protokoll', async () => {
+  await t.test('Freigabe: Bauleiter wie Büro auch fremde Baustellen (13.11.2026), einmalig, Protokoll', async () => {
     const fremd = s.db.eins("SELECT id FROM bericht WHERE baustelle_id = ? AND status = 'unterschrieben' LIMIT 1", BS.reisinger).id;
-    assert.equal((await bl.post(`/berichte/${fremd}/freigeben`)).status, 403);
+    assert.equal((await pol.post(`/berichte/${fremd}/freigeben`)).status, 403);
     const r = await bl.post(`/berichte/${id}/freigeben`);
     assert.equal(r.status, 200);
     assert.equal(r.daten.status, 'freigegeben');
     assert.equal(r.daten.freigabe.benutzerId, U.bauleiter);
     assert.equal((await bl.post(`/berichte/${id}/freigeben`)).status, 409);
-    assert.equal((await buero.post(`/berichte/${fremd}/freigeben`)).status, 200);
+    assert.equal((await bl.post(`/berichte/${fremd}/freigeben`)).status, 200);
     const entwurf = s.db.eins("SELECT id FROM bericht WHERE status = 'entwurf' AND baustelle_id = ?", BS.ternitz).id;
     assert.equal((await buero.post(`/berichte/${entwurf}/freigeben`)).status, 409);
     assert.ok(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE art = 'freigabe'").n >= 2);

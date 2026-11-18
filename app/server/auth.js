@@ -7,11 +7,33 @@
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { ApiFehler, nichtAngemeldet } = require('./fehler');
-const { kontext } = require('./rechte');
+const { kontext, verwaltungsStufe, ladeRechteFuer } = require('./rechte');
+
+/** Verwaltungsstufe des Kontos (15.5): 1 Mitarbeiter/Polier, 2 Büro/Bauleiter, 3 GF – nach Rolle und tatsächlichen Rechten */
+function kontoStufe(db, benutzerId) {
+  const b = db.eins('SELECT * FROM benutzer WHERE id = ?', benutzerId);
+  return b ? verwaltungsStufe(b.rolle, ladeRechteFuer(db, b)) : 1;
+}
+/**
+ * 15.11 (G2-022): Wer kann ein gesperrtes Konto vorher entsperren? Wie pruefeKontoZuruecksetzen (routes/benutzer.js):
+ * Mitarbeiter/Polier → Büro, Bauleiter oder GF; Büro/Bauleiter → nur die GF; GF → nur der Notfall-Befehl am Server.
+ */
+function entsperrHinweis(db, benutzerId) {
+  const st = kontoStufe(db, benutzerId);
+  if (st >= 3) return 'Vorher entsperren lässt es sich nur mit dem Notfall-Befehl am Server (node server/entsperren.js).';
+  if (st === 2) return 'Die Geschäftsführung kann es vorher entsperren.';
+  return 'Büro, Bauleiter oder Geschäftsführung können es vorher entsperren.';
+}
 
 const scryptAsync = promisify(crypto.scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 };
 const COOKIE = 'bt_session';
+/** 15.5 (F-029): Bindungs-Cookie einer App-Sitzung – von der App lesbar und löschbar, damit das Abmelden auch ohne Netz wirkt */
+const BINDUNG = 'bt_bindung';
+/** 15.5 (F-030): Kopf, mit dem die App bei nachgesendeten Einträgen den Ersteller angibt */
+const ERSTELLER_KOPF = 'x-bautag-ersteller';
+/** 15.16 (H-S2): Kopf, mit dem die App die Person nennt, deren Rahmen sie gerade zeigt */
+const ICH_KOPF = 'x-bautag-ich';
 const MAX_FEHLVERSUCHE = 5;
 /** steigende Sperrdauer je (Benutzer, IP): 5 min, 15 min, danach 60 min */
 const SPERRSTUFEN_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
@@ -23,6 +45,11 @@ const KONTO_MAX_FEHLVERSUCHE = 20;
 const KONTO_FENSTER_MS = 24 * 3600 * 1000;
 /** Dauer der Kontosperre (D-01): 24 h, 48 h, danach 7 Tage */
 const KONTO_SPERRSTUFEN_MS = [24 * 3600 * 1000, 48 * 3600 * 1000, 7 * 24 * 3600 * 1000];
+/** N-004/N-027: falsche Zwei-Faktor-Codes je Konto (alle IPs) – 10 in 24 h → Kontosperre wie D-01; eine richtige PIN setzt nichts zurück */
+const ZF_MAX_FEHLVERSUCHE = 10;
+const ZF_FENSTER_MS = 24 * 3600 * 1000;
+/** N-120: In-Memory-Tabelle der IP-Grenze – Obergrenze; abgelaufene Einträge werden gezielt entfernt statt alles zu leeren */
+const IP_TABELLE_MAX = 50000;
 const FELD_ROLLEN = ['mitarbeiter', 'polier'];
 
 function zahlEnv(name, standard) {
@@ -34,19 +61,30 @@ function sitzungsKonfig(opt = {}) {
   return {
     feldMin: opt.feldMin || zahlEnv('BAUTAG_SITZUNG_FELD_MIN', 720),
     bueroMin: opt.bueroMin || zahlEnv('BAUTAG_SITZUNG_BUERO_MIN', 60),
-    maxH: opt.maxH || zahlEnv('BAUTAG_SITZUNG_MAX_H', 24)
+    maxH: opt.maxH || zahlEnv('BAUTAG_SITZUNG_MAX_H', 24),
+    // 15.5 (F-029): Sperre der App nach Untätigkeit am Gerät (Feldrollen arbeiten an geteilten Tablets)
+    sperreFeldMin: opt.sperreFeldMin || zahlEnv('BAUTAG_SPERRE_FELD_MIN', 30)
   };
 }
 function inaktivMinuten(rolle, k) {
   return FELD_ROLLEN.includes(rolle) ? k.feldMin : k.bueroMin;
 }
+/** 15.5: nach so vielen Minuten ohne Bedienung meldet die App am Gerät ab (Feldrollen 30, sonst wie die Sitzung) */
+function sperreMinuten(rolle, k) {
+  return FELD_ROLLEN.includes(rolle) ? Math.min(k.sperreFeldMin || 30, k.feldMin) : k.bueroMin;
+}
 const INAKTIV_MS = 12 * 60 * 60 * 1000; // Standard Mitarbeiter/Polier (Kompatibilität)
 
-/** PIN-Regeln: Mitarbeiter/Polier mind. 4, Bauleiter/Büro/GF mind. 6 Ziffern; keine trivialen Folgen */
+/** 15.21 (Inhaber 17.11.2026): Mindestlänge der PIN – 4 Ziffern für alle Rollen (vorher Bauleiter/Büro/GF 6) */
+const PIN_MIN = 4;
+const PIN_MAX = 12;
+/** Mindestlänge je Rolle (Aufrufer übergeben die Rolle; seit 15.21 für alle gleich) */
+function pinMinLaenge(/* rolle */) { return PIN_MIN; }
+/** PIN-Regeln: 4 bis 12 Ziffern für alle Rollen; keine trivialen Folgen (1234, 654321) und nicht lauter gleiche Ziffern */
 function pinFehler(pin, rolle) {
-  const min = FELD_ROLLEN.includes(rolle) ? 4 : 6;
+  const min = pinMinLaenge(rolle);
   if (typeof pin !== 'string' || !/^\d+$/.test(pin)) return 'Die PIN darf nur aus Ziffern bestehen.';
-  if (pin.length < min || pin.length > 12) return `Die PIN muss ${min} bis 12 Ziffern haben.`;
+  if (pin.length < min || pin.length > PIN_MAX) return `Die PIN muss ${min} bis ${PIN_MAX} Ziffern haben.`;
   if (/^(\d)\1+$/.test(pin)) return 'Die PIN darf nicht aus lauter gleichen Ziffern bestehen.';
   const d = [...pin].map(Number);
   const auf = d.every((x, i) => i === 0 || x === (d[i - 1] + 1) % 10);
@@ -80,11 +118,16 @@ async function pruefePin(pin, gespeichert) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
-function neueSitzung(db, benutzerId, jetzt) {
+/**
+ * Neue Sitzung. Mit `bindung` (App am Gerät, 15.5) gilt sie nur zusammen mit dem Bindungs-Cookie, das die App beim
+ * Abmelden selbst löscht – auch ohne Netz. → Token (bzw. {token, bindung} mit bindung = true)
+ */
+function neueSitzung(db, benutzerId, jetzt, { bindung = false } = {}) {
   const token = crypto.randomBytes(32).toString('hex');
+  const b = bindung ? crypto.randomBytes(32).toString('hex') : null;
   const t = jetzt.toISOString();
-  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet) VALUES (?, ?, ?, ?)', sha256(token), benutzerId, t, t);
-  return token;
+  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet, bindung_hash) VALUES (?, ?, ?, ?, ?)', sha256(token), benutzerId, t, t, b ? sha256(b) : null);
+  return bindung ? { token, bindung: b } : token;
 }
 
 function beendeSitzung(db, token) {
@@ -115,46 +158,97 @@ function istHttps(req) {
   return Boolean(req.secure);
 }
 
-function setzeCookie(req, res, token) {
+function setzeCookie(req, res, token, bindung = null) {
   const teile = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict'];
   if (istHttps(req)) teile.push('Secure');
-  res.setHeader('Set-Cookie', teile.join('; '));
+  const liste = [teile.join('; ')];
+  // 15.5: Bindungs-Cookie ohne HttpOnly – die App löscht es beim Abmelden selbst (auch offline)
+  const zweit = [`${BINDUNG}=${bindung || ''}`, 'Path=/', 'SameSite=Strict', ...(bindung ? [] : ['Max-Age=0'])];
+  if (istHttps(req)) zweit.push('Secure');
+  liste.push(zweit.join('; '));
+  res.setHeader('Set-Cookie', liste);
 }
 
 function loescheCookie(req, res) {
   const teile = [`${COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0'];
-  if (istHttps(req)) teile.push('Secure');
-  res.setHeader('Set-Cookie', teile.join('; '));
+  const zweit = [`${BINDUNG}=`, 'Path=/', 'SameSite=Strict', 'Max-Age=0'];
+  if (istHttps(req)) { teile.push('Secure'); zweit.push('Secure'); }
+  res.setHeader('Set-Cookie', [teile.join('; '), zweit.join('; ')]);
+}
+
+/** Gleich lange Hex-Hashes zeitkonstant vergleichen */
+function hashGleich(a, b) {
+  const x = Buffer.from(String(a || ''), 'utf8');
+  const y = Buffer.from(String(b || ''), 'utf8');
+  return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * Ist die Sitzung abgelaufen (Konto inaktiv, Untätigkeit je Rolle, Höchstdauer)? `s` braucht aktiv, rolle, erstellt,
+ * letzte_aktivitaet. Dieselbe Regel gilt beim Laden der Sitzung und vor jedem Push-Versand (G2-019).
+ */
+function sitzungAbgelaufen(s, jetzt, konfig = sitzungsKonfig()) {
+  const t = jetzt.getTime();
+  const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
+  const letzte = new Date(s.letzte_aktivitaet).getTime(), erstellt = new Date(s.erstellt).getTime();
+  return !s.aktiv || !Number.isFinite(letzte) || !Number.isFinite(erstellt) || t - letzte > inaktivMs || t - erstellt > konfig.maxH * 3600000;
+}
+
+/** G2-019: abgelaufene Sitzungen löschen (stündlich) – mit ihnen enden über den Trigger auch ihre Push-Abos → Anzahl */
+function abgelaufeneSitzungenLoeschen(db, jetzt, konfig = sitzungsKonfig()) {
+  let n = 0;
+  for (const s of db.alle('SELECT s.token_hash, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id')) {
+    if (sitzungAbgelaufen(s, jetzt, konfig)) n += db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash).changes;
+  }
+  return n;
 }
 
 /**
  * Lädt Benutzer zur Sitzung (oder null). Aktualisiert die letzte Aktivität.
  */
-function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig()) {
+function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = undefined) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
   const h = sha256(token);
-  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
+  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, s.bindung_hash, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
   if (!s) return null;
-  const t = jetzt.getTime();
-  const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
-  if (!s.aktiv || t - new Date(s.letzte_aktivitaet).getTime() > inaktivMs || t - new Date(s.sitzung_erstellt).getTime() > konfig.maxH * 3600000) {
+  // 15.5 (F-029): gebundene App-Sitzung ohne passendes Bindungs-Cookie (z. B. nach dem Abmelden ohne Netz) → Sitzung endet
+  if (s.bindung_hash && !(typeof bindung === 'string' && /^[0-9a-f]{64}$/.test(bindung) && hashGleich(sha256(bindung), s.bindung_hash))) {
     db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h);
+    return null;
+  }
+  const t = jetzt.getTime();
+  if (sitzungAbgelaufen({ ...s, erstellt: s.sitzung_erstellt }, jetzt, konfig)) {
+    db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h); // G2-019: der Trigger sitzung_ende_push löscht die Push-Abos dieser Sitzung
     return null;
   }
   if (t - new Date(s.letzte_aktivitaet).getTime() > 30 * 1000) {
     db.lauf('UPDATE sitzung SET letzte_aktivitaet = ? WHERE token_hash = ?', jetzt.toISOString(), h);
   }
-  const { token_hash, letzte_aktivitaet, sitzung_erstellt, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
+  const { token_hash, letzte_aktivitaet, sitzung_erstellt, bindung_hash, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
   return benutzer;
 }
 
 /** Middleware: setzt req.ctx (Benutzer + Rechte) falls angemeldet */
 function sitzungMiddleware(bt) {
   return (req, res, next) => {
-    const token = leseCookies(req.headers.cookie)[COOKIE];
-    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung);
+    const cookies = leseCookies(req.headers.cookie);
+    const token = cookies[COOKIE];
+    // 15.5: Inhaber des Tokens (auch einer abgelaufenen/ungebundenen Sitzung) – nur für das Abmelden (Push-Abo des Geräts)
+    req.tokenBenutzerId = req.path.toLowerCase() === '/auth/logout' && token && /^[0-9a-f]{64}$/.test(token) ? (bt.db.eins('SELECT benutzer_id FROM sitzung WHERE token_hash = ?', sha256(token)) || {}).benutzer_id ?? null : null;
+    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung, cookies[BINDUNG]);
     req.token = token;
     req.ctx = benutzer ? kontext(bt.db, benutzer) : null;
+    // 15.5 (F-030): nachgesendete Einträge nennen ihren Ersteller – nie unter der Sitzung einer anderen Person annehmen
+    const ersteller = req.headers[ERSTELLER_KOPF];
+    if (ersteller !== undefined && req.ctx && String(ersteller).trim() !== String(req.ctx.benutzer.id)) {
+      return next(new ApiFehler(409, 'ERSTELLER_ANDERS', 'Dieser Eintrag wurde von einer anderen Person an diesem Gerät erfasst. Er wird nur gesendet, wenn diese Person angemeldet ist.'));
+    }
+    // 15.16 (H-S2): die App nennt bei jeder Anfrage die Person, für die sie gerade anzeigt. Hat sich im selben Browser (anderer
+    // Tab) inzwischen jemand anderer angemeldet, geht keine Antwort dieser Person in den Rahmen der vorigen – 409, die App sperrt.
+    const ichKopf = req.headers[ICH_KOPF];
+    if (ichKopf !== undefined && req.ctx && String(ichKopf).trim() !== String(req.ctx.benutzer.id) && req.path.toLowerCase() !== '/auth/logout') { // Abmelden geht immer
+      return next(new ApiFehler(409, 'ANMELDUNG_ANDERS', 'An diesem Gerät ist inzwischen eine andere Person angemeldet.'));
+    }
     next();
   };
 }
@@ -162,6 +256,34 @@ function sitzungMiddleware(bt) {
 function angemeldet(req, res, next) {
   if (!req.ctx) return next(nichtAngemeldet());
   next();
+}
+
+/**
+ * N-120: Client-Adresse für Login-Sperren vereinheitlichen. IPv4 (auch „::ffff:1.2.3.4“) bleibt die volle Adresse,
+ * IPv6 wird auf das /64-Netz gekürzt (ein Anschluss hat meist ein ganzes /64), alles andere zählt gemeinsam als „ungueltig“.
+ */
+function ipSchluessel(roh) {
+  const net = require('node:net');
+  let a = String(roh || '').trim();
+  const zone = a.indexOf('%');
+  if (zone >= 0) a = a.slice(0, zone);
+  const v4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(a);
+  if (v4) a = v4[1];
+  const art = net.isIP(a);
+  if (art === 4) return a;
+  if (art !== 6) return 'ungueltig';
+  // auf 8 Gruppen erweitern (eingebettetes IPv4 am Ende zu zwei Gruppen)
+  let t = a.toLowerCase();
+  const ein4 = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(t);
+  if (ein4) {
+    const o = ein4[1].split('.').map(Number);
+    t = t.slice(0, -ein4[1].length) + `${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const [links, rechts] = t.includes('::') ? t.split('::') : [t, null];
+  const l = links ? links.split(':') : [];
+  const r = rechts ? rechts.split(':') : [];
+  const gruppen = rechts === null ? l : [...l, ...Array(8 - l.length - r.length).fill('0'), ...r];
+  return `${gruppen.slice(0, 4).map((g) => parseInt(g || '0', 16).toString(16)).join(':')}::/64`;
 }
 
 /**
@@ -199,7 +321,7 @@ class LoginBremse {
     const e = this.ip.get(ip);
     if (!e || jetzt - e.start >= IP_FENSTER_MS) this.ip.set(ip, { start: jetzt, anzahl: 1 });
     else e.anzahl++;
-    if (this.ip.size > 10000) this.ip.clear();
+    if (this.ip.size > IP_TABELLE_MAX) this.ipAufraeumen(jetzt);
     if (!benutzerId) return 0;
     const z = this.db.eins('SELECT fehlversuche, sperren, letzter FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
     // Eskalation verfällt nach 24 h ohne Fehlversuch
@@ -219,9 +341,34 @@ class LoginBremse {
     return 0;
   }
 
+  /**
+   * N-120: abgelaufene Einträge entfernen; reicht das nicht, die ältesten Fenster – nie die ganze Tabelle,
+   * damit niemand mit vielen Adressen die Zähler aller anderen auf einmal löschen kann.
+   */
+  ipAufraeumen(jetzt) {
+    for (const [k, e] of this.ip) if (jetzt - e.start >= IP_FENSTER_MS) this.ip.delete(k);
+    if (this.ip.size <= IP_TABELLE_MAX) return;
+    const ziel = Math.floor(IP_TABELLE_MAX * 0.9);
+    const nachAlter = [...this.ip.entries()].filter(([, e]) => e.anzahl < IP_MAX_FEHLVERSUCHE).sort((a, b) => a[1].start - b[1].start);
+    for (const [k] of nachAlter) { if (this.ip.size <= ziel) break; this.ip.delete(k); }
+  }
+
+  /**
+   * Nur nach vollständiger Anmeldung (PIN bzw. PIN + zweiter Faktor) aufrufen – N-004.
+   * G2-020: setzt nur den kurzen Zähler je (Benutzer, IP) und die Eskalationsstufe der Kontosperre zurück – NIE das kontoweite
+   * 24-h-Fenster der Fehlversuche. Sonst könnte verteiltes PIN-Raten mit je 19 Versuchen zwischen zwei echten Anmeldungen
+   * dauerhaft unter der Grenze bleiben.
+   */
   erfolg(benutzerId, ip) {
     this.db.lauf('DELETE FROM login_versuch WHERE benutzer_id = ? AND ip = ?', benutzerId, ip);
-    this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ? AND gesperrt = 0', benutzerId); // auch Eskalationsstufe zurück
+    this.db.lauf('UPDATE login_konto SET sperren = 0 WHERE benutzer_id = ? AND gesperrt = 0', benutzerId);
+  }
+
+  /** G2-020: Fehlversuche des Kontos im gleitenden 24-h-Fenster (ältere werden dabei entfernt) → {anzahl, erster} */
+  kontoFenster(benutzerId, jetzt = this.uhr().getTime()) {
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ? AND zeit <= ?', benutzerId, new Date(jetzt - KONTO_FENSTER_MS).toISOString());
+    const z = this.db.eins('SELECT COUNT(*) AS n, MIN(zeit) AS erster FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
+    return { anzahl: z.n, erster: z.erster || null };
   }
 
   /** Konto gesperrt? → 423 (befristet, D-01) */
@@ -233,9 +380,10 @@ class LoginBremse {
     if (rest <= 0) {
       // Sperre abgelaufen: Zähler neu, Eskalationsstufe bleibt bis zur nächsten erfolgreichen Anmeldung
       this.db.lauf('UPDATE login_konto SET gesperrt = 0, fehlversuche = 0, erster = NULL WHERE benutzer_id = ?', benutzerId);
+      this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
       return;
     }
-    const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). Büro oder Geschäftsführung können es vorher entsperren.`);
+    const f = new ApiFehler(423, 'KONTO_GESPERRT', `Das Konto ist nach zu vielen Fehlversuchen gesperrt (bis ${new Date(k.gesperrt_bis).toISOString()}). ${entsperrHinweis(this.db, benutzerId)}`);
     f.retryAfter = Math.ceil(rest / 1000);
     throw f;
   }
@@ -245,21 +393,60 @@ class LoginBremse {
     if (!benutzerId) return false;
     const jetzt = this.uhr().getTime();
     const k = this.db.eins('SELECT * FROM login_konto WHERE benutzer_id = ?', benutzerId);
-    const neuesFenster = !k || !k.erster || jetzt - new Date(k.erster).getTime() > KONTO_FENSTER_MS;
-    const n = neuesFenster ? 1 : k.fehlversuche + 1;
-    const erster = neuesFenster ? new Date(jetzt).toISOString() : k.erster;
+    if (k && k.gesperrt && new Date(k.gesperrt_bis || 0).getTime() > jetzt) return false; // schon gesperrt – ein weiterer Fehlversuch hebt die Sperre nie auf
+    // G2-020: gleitendes Fenster – jeder Fehlversuch zählt genau 24 h, keine erfolgreiche Anmeldung setzt ihn zurück
+    this.db.lauf('INSERT INTO login_konto_fehler (benutzer_id, zeit) VALUES (?, ?)', benutzerId, new Date(jetzt).toISOString());
+    const f = this.kontoFenster(benutzerId, jetzt);
+    const n = f.anzahl;
+    const erster = f.erster;
     const stufe = k ? k.sperren : 0;
     const sperren = n >= KONTO_MAX_FEHLVERSUCHE;
-    const bis = sperren ? new Date(jetzt + KONTO_SPERRSTUFEN_MS[Math.min(stufe, KONTO_SPERRSTUFEN_MS.length - 1)]).toISOString() : (k ? k.gesperrt_bis : null);
-    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = excluded.gesperrt,
-        gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
-    benutzerId, sperren ? 0 : n, sperren ? null : erster, sperren ? 1 : 0, sperren ? new Date(jetzt).toISOString() : null, sperren ? stufe + 1 : stufe, bis);
-    return sperren;
+    if (sperren) { this.kontoSperren(benutzerId); return true; }
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, ?, ?, 0, NULL, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, gesperrt = 0,
+        gesperrt_seit = NULL, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
+    benutzerId, n, erster, stufe, k ? k.gesperrt_bis : null);
+    return false;
   }
 
+  /** Konto befristet sperren (D-01: 24 h, 48 h, danach 7 Tage) */
+  kontoSperren(benutzerId) {
+    const jetzt = this.uhr().getTime();
+    const k = this.db.eins('SELECT sperren FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    const stufe = k ? k.sperren : 0;
+    const bis = new Date(jetzt + KONTO_SPERRSTUFEN_MS[Math.min(stufe, KONTO_SPERRSTUFEN_MS.length - 1)]).toISOString();
+    this.db.lauf(`INSERT INTO login_konto (benutzer_id, fehlversuche, erster, gesperrt, gesperrt_seit, sperren, gesperrt_bis) VALUES (?, 0, NULL, 1, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = 0, erster = NULL, gesperrt = 1, gesperrt_seit = excluded.gesperrt_seit, sperren = excluded.sperren, gesperrt_bis = excluded.gesperrt_bis`,
+    benutzerId, new Date(jetzt).toISOString(), stufe + 1, bis);
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId); // die Sperre ersetzt das Fenster
+  }
+
+  /**
+   * N-004/N-027: falscher Zwei-Faktor-Code – eigener kontoweiter Zähler (alle IPs), den keine PIN-Anmeldung zurücksetzt.
+   * @returns {{anzahl:number, gesperrt:boolean}} gesperrt = Konto wurde jetzt gesperrt
+   */
+  zweiFaktorFehlversuch(benutzerId) {
+    const jetzt = this.uhr().getTime();
+    const t = new Date(jetzt).toISOString();
+    const z = this.db.eins('SELECT fehlversuche, erster FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
+    const neuesFenster = !z || !z.erster || jetzt - new Date(z.erster).getTime() > ZF_FENSTER_MS;
+    const n = neuesFenster ? 1 : z.fehlversuche + 1;
+    if (n >= ZF_MAX_FEHLVERSUCHE) {
+      this.db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
+      this.kontoSperren(benutzerId);
+      return { anzahl: n, gesperrt: true };
+    }
+    this.db.lauf(`INSERT INTO login_2fa_fehler (benutzer_id, fehlversuche, erster, letzter) VALUES (?, ?, ?, ?)
+      ON CONFLICT(benutzer_id) DO UPDATE SET fehlversuche = excluded.fehlversuche, erster = excluded.erster, letzter = excluded.letzter`,
+    benutzerId, n, neuesFenster ? t : z.erster, t);
+    return { anzahl: n, gesperrt: false };
+  }
+
+  /** Büro/GF bzw. entsperren.js: Kontosperre und alle kontoweiten Zähler aufheben */
   kontoEntsperren(benutzerId) {
     this.db.lauf('DELETE FROM login_konto WHERE benutzer_id = ?', benutzerId);
+    this.db.lauf('DELETE FROM login_konto_fehler WHERE benutzer_id = ?', benutzerId);
+    this.db.lauf('DELETE FROM login_2fa_fehler WHERE benutzer_id = ?', benutzerId);
   }
 
   /** Büro/GF entsperrt (PIN-Reset): alle Sperren des Benutzers aufheben */
@@ -268,9 +455,9 @@ class LoginBremse {
   }
 }
 
-module.exports = {
-  COOKIE, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
-  sitzungsKonfig, inaktivMinuten, pinFehler,
+module.exports = { kontoStufe, entsperrHinweis,
+  COOKIE, BINDUNG, ERSTELLER_KOPF, ICH_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
+  sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, pinMinLaenge, PIN_MIN, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse
 };

@@ -740,6 +740,13 @@ module.exports = function fuhrparkRouten(api, bt) {
     res.json(D.eintragJson(db, eintragAus(req.params.id), stand(), req.ctx));
   });
 
+  /** Rechnungs-/Belegnummer der Werkstatt: nur mit preise_sehen (leer wird ohne Recht ignoriert) */
+  function rechnungFeld(req, body) {
+    if (body.rechnungNr === undefined) return undefined;
+    const leer = body.rechnungNr === null || String(body.rechnungNr).trim() === '';
+    if (!D.euro(req.ctx)) { if (leer) return undefined; throw ungueltig('Die Rechnungsnummer darf nur mit dem Recht „Preise sehen“ erfasst werden.'); }
+    return leer ? null : v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false });
+  }
   function kostenFeld(req, body) {
     if (body.kosten === undefined || body.kosten === null) return undefined;
     if (!D.euro(req.ctx)) throw ungueltig('Kosten dürfen nur mit dem Recht „Preise sehen“ erfasst werden.');
@@ -773,7 +780,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       werkstatt: v.text(body.werkstatt, 'werkstatt', { max: 200 }), titel: v.text(body.titel, 'titel', { max: 200 }),
       arbeiten: v.text(body.arbeiten, 'arbeiten', { max: 5000, pflicht: false }), teile: v.text(body.teile, 'teile', { max: 5000, pflicht: false }),
       arbeitsstunden_intern: v.zahl(body.arbeitsstundenIntern, 'arbeitsstundenIntern', { min: 0, max: 10000, pflicht: false }),
-      rechnung_nr: v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false }), pruefer: v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false })
+      rechnung_nr: rechnungFeld(req, body) ?? null, pruefer: v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false })
     };
     const kosten = kostenFeld(req, body);
     const pruefErgebnis = v.auswahl(body.pruefErgebnis, 'pruefErgebnis', PRUEF, { pflicht: false });
@@ -864,7 +871,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     const e = eintragAus(req.params.id);
     const body = v.objekt(req.body);
     if (e.storniert) throw konflikt('Der Eintrag ist storniert.');
-    pruefeVersion(body, e, 'Der Eintrag');
+    // 15.15 (ID-Nachtrag): ohne preise_sehen die Sichtversion (Kosten/Rechnungs-Nr. zählen für sie nicht)
+    pruefeVersion(body, D.euro(req.ctx) ? e : { version: e.sicht_version }, 'Der Eintrag');
     for (const k of ['datum', 'zaehler', 'planpositionIds', 'maengelIds', 'anlageId', 'art', 'pruefErgebnis']) {
       if (body[k] !== undefined) throw ungueltig(`${k} ist nur per Storno und Neuerfassung änderbar.`);
     }
@@ -874,7 +882,8 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (body.arbeiten !== undefined) set.arbeiten = v.text(body.arbeiten, 'arbeiten', { max: 5000, pflicht: false });
     if (body.teile !== undefined) set.teile = v.text(body.teile, 'teile', { max: 5000, pflicht: false });
     if (body.arbeitsstundenIntern !== undefined) set.arbeitsstunden_intern = v.zahl(body.arbeitsstundenIntern, 'arbeitsstundenIntern', { min: 0, max: 10000, pflicht: false });
-    if (body.rechnungNr !== undefined) set.rechnung_nr = v.text(body.rechnungNr, 'rechnungNr', { max: 50, pflicht: false });
+    const rn = rechnungFeld(req, body);
+    if (rn !== undefined) set.rechnung_nr = rn;
     if (body.pruefer !== undefined) set.pruefer = v.text(body.pruefer, 'pruefer', { max: 200, pflicht: false });
     const kosten = kostenFeld(req, body);
     if (kosten !== undefined) set.kosten = kosten;
@@ -882,7 +891,9 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (!Object.keys(set).length) throw ungueltig('Keine änderbaren Felder angegeben.');
     db.transaktion(() => {
       const k = Object.keys(set);
-      db.lauf(`UPDATE servicebuch_eintrag SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1 WHERE id = ?`, ...k.map((x) => set[x]), e.id);
+      // 15.15: sicht_version nur bei Feldern, die auch Aufrufer ohne preise_sehen sehen (nicht kosten/rechnung_nr)
+      const sichtbar = k.some((x) => !['kosten', 'rechnung_nr'].includes(x)) ? 1 : 0;
+      db.lauf(`UPDATE servicebuch_eintrag SET ${k.map((x) => `${x} = ?`).join(', ')}, version = version + 1, sicht_version = sicht_version + ? WHERE id = ?`, ...k.map((x) => set[x]), sichtbar, e.id);
       const alt = {}; for (const x of k) alt[x] = e[x];
       protokoll(req, 'fuhrpark_eintrag', `eintrag:${e.id}`, `Servicebuch-Eintrag ${e.titel} geändert`, alt, set);
     });
@@ -896,7 +907,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     if (e.storniert) throw konflikt('Der Eintrag ist bereits storniert.');
     const z0 = zeit();
     db.transaktion(() => {
-      db.lauf('UPDATE servicebuch_eintrag SET storniert = ?, storno_grund = ?, storno_von = ?, version = version + 1 WHERE id = ?', z0, g, req.ctx.benutzer.id, e.id);
+      db.lauf('UPDATE servicebuch_eintrag SET storniert = ?, storno_grund = ?, storno_von = ?, version = version + 1, sicht_version = sicht_version + 1 WHERE id = ?', z0, g, req.ctx.benutzer.id, e.id);
       // F-04: nur Stände, die der Eintrag selbst angelegt hat, werden ungültig; übernommene nur gelöst
       db.lauf("UPDATE zaehlerstand SET status = 'ungueltig', grund = ? WHERE eintrag_id = ? AND quelle = 'eintrag'", `Eintrag storniert: ${g}`, e.id);
       db.lauf("UPDATE zaehlerstand SET eintrag_id = NULL WHERE eintrag_id = ? AND quelle <> 'eintrag'", e.id);
@@ -931,7 +942,7 @@ module.exports = function fuhrparkRouten(api, bt) {
       E.meldeSperre(db, A2, { titel, text, textStandort, zeit: z0, schluessel: `fp:mangel:${m.id}`, buero: m.typ === 'schaden' });
     } else {
       const empf = new Set([...E.fuhrparkBenutzer(db), ...(m.typ === 'schaden' ? E.buroGf(db) : [])]);
-      for (const uid of empf) E.melde(db, { benutzerId: uid, titel, text, zeit: z0, anlageId: A ? A.row.id : null, schluessel: `fp:mangel:${m.id}` });
+      for (const uid of empf) E.melde(db, { benutzerId: uid, titel, text, zeit: z0, anlageId: A ? A.row.id : null, schluessel: `fp:mangel:${m.id}`, erfordert: ['fuhrpark|stammdaten'] }); // 15.3: über das Recht
     }
   }
 
@@ -986,7 +997,8 @@ module.exports = function fuhrparkRouten(api, bt) {
 
   function schadenAus(req, idText) {
     const m = db.eins("SELECT * FROM mangel WHERE id = ? AND typ = 'schaden'", v.pfadId(idText, 'Schadens-ID'));
-    if (!m) throw nichtGefunden('Schadensmeldung nicht gefunden.');
+    // 15.7 (F-036): ohne Recht fuhrpark keine Existenzauskunft – fehlend und fremd ergeben dieselbe 403
+    if (!m) throw D.istVerwaltung(req.ctx) ? nichtGefunden('Schadensmeldung nicht gefunden.') : keinZugriff('Diese Schadensmeldung liegt außerhalb Ihres Bereichs.');
     if (!D.schadenSichtbar(db, req.ctx, m)) throw keinZugriff('Diese Schadensmeldung liegt außerhalb Ihres Bereichs.');
     return m;
   }
@@ -1100,8 +1112,8 @@ module.exports = function fuhrparkRouten(api, bt) {
   });
 
   api.put(`${R}/schaeden/:id`, (req, res) => {
+    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeitet, wer das Recht fuhrpark hat.'); // 15.7 (F-036): Rechte vor Existenz
     const m = schadenAus(req, req.params.id);
-    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Schadensmeldungen bearbeiten nur Fuhrpark, Büro und Geschäftsführung.');
     const body = v.objekt(req.body);
     pruefeVersion(body, m, 'Die Schadensmeldung');
     const alt = D.SCHADEN_STATUS[m.status];
@@ -1133,7 +1145,7 @@ module.exports = function fuhrparkRouten(api, bt) {
   api.post(`${R}/schaeden/:id/fotos`, (req, res) => {
     const m = schadenAus(req, req.params.id);
     const offen = ['offen', 'in_arbeit'].includes(m.status);
-    if (!D.istVerwaltung(req.ctx) && !(m.gemeldet_von === req.ctx.benutzer.id && offen)) throw keinZugriff('Fotos ergänzen kann nur der Melder (bei offener Meldung) bzw. Fuhrpark/Büro/GF.');
+    if (!D.istVerwaltung(req.ctx) && !(m.gemeldet_von === req.ctx.benutzer.id && offen)) throw keinZugriff('Fotos ergänzen kann nur der Melder (bei offener Meldung) bzw. wer das Recht fuhrpark hat.');
     const geschrieben = [];
     const r = mitDateiAufraeumen(geschrieben, () => db.transaktion(() => fotoHinzufuegen(req, m, v.objekt(req.body), null, geschrieben)));
     res.status(r.neu ? 201 : 200).json(D.fotoJson(r.foto, stand().namen));
@@ -1159,7 +1171,7 @@ module.exports = function fuhrparkRouten(api, bt) {
   });
 
   api.delete(`${R}/schaeden/:id/fotos/:fid`, (req, res) => {
-    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Fotos löschen nur Fuhrpark, Büro und Geschäftsführung.');
+    if (!D.istVerwaltung(req.ctx)) throw keinZugriff('Fotos löscht, wer das Recht fuhrpark hat.');
     const { m, f } = fotoAus(req);
     const g = req.body && req.body.grund !== undefined ? grund(req.body.grund, false) : null;
     db.transaktion(() => {
@@ -1219,7 +1231,7 @@ module.exports = function fuhrparkRouten(api, bt) {
     const bis = req.query.bis ? v.datum(String(req.query.bis), 'bis') : null;
     const kosten = mitKosten(req);
     const S = stand();
-    const inhalt = X.csvExport(db, S, { art, von, bis, kosten });
+    const inhalt = X.csvExport(db, S, { art, von, bis, kosten, rechnung: D.euro(req.ctx) });
     protokoll(req, 'export', `fuhrpark:${art}`, `Fuhrpark-Export ${art}${kosten ? ' mit Kosten' : ''} erstellt`);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="BauTag_Fuhrpark_${art}_${S.H}.csv"`);

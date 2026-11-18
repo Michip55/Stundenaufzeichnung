@@ -5,6 +5,8 @@
  */
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
+/** Rollen mit Büro-Umfang (alle Baustellen); Bauleiter seit 13.11.2026 „in allem wie Büro“ */
+const BUERO_ROLLEN = ['buero', 'bauleiter', 'gf'];
 const ROLLEN_NAMEN = {
   mitarbeiter: 'Mitarbeiter', polier: 'Polier / Vorarbeiter', bauleiter: 'Bauleiter',
   buero: 'Büro / Lohnverrechnung', gf: 'Geschäftsführung'
@@ -28,7 +30,8 @@ const RECHT_SCHLUESSEL = RECHTE.map((r) => r.schluessel);
 const STANDARD_MATRIX = {
   mitarbeiter: { zeit_eigen: true },
   polier: { zeit_eigen: true, kolonne: true, bericht_erstellen: true },
-  bauleiter: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, kalk_sehen: true },
+  // Inhaber 13.11.2026: „Bauleiter ist eigentlich Büro … in allem wie Büro“ → gleiche Standardrechte wie Büro
+  bauleiter: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
   buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
   gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
 };
@@ -39,9 +42,8 @@ const GESPERRT = {
   // Polier/Mitarbeiter: nie Preise/Kalkulation/Lohn, keine Stammdaten, keine Benutzerverwaltung
   mitarbeiter: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
   polier: [...PREIS_LOHN_RECHTE, 'stammdaten', 'benutzer'],
-  // Konzept 2.2: Preis-Bearbeitung und Lohnauswertung nie für Bauleiter (dafür Rolle Büro);
-  // Stammdaten (u. a. Bauleiter-Zuordnung) pflegt nur das Büro (Prüfbericht 2, C-05)
-  bauleiter: ['preise_bearbeiten', 'lohn', 'benutzer', 'stammdaten'],
+  // Bauleiter wie Büro (13.11.2026): nur „Rollen und Ausnahmen vergeben“ bleibt der Geschäftsführung
+  bauleiter: ['benutzer'],
   // „Rollen und Ausnahmen vergeben“ nur Geschäftsführung
   buero: ['benutzer'],
   gf: []
@@ -70,11 +72,13 @@ function effektiveRechte(rolle, matrixRolle, ausnahmen = []) {
   return s;
 }
 
-/** Bereich: alle Baustellen | eigene als Bauleiter | eigene Partie */
+/**
+ * Bereich: alle Baustellen | eigene Partie. Büro, Bauleiter und GF gleich (13.1); `bauleiter_id` begrenzt nichts mehr
+ * (15.4 – es bestimmt nur Empfänger von Benachrichtigungen). Was jemand im Bereich darf, entscheiden allein die Rechte.
+ * Unbekannte Rollen (z. B. interne Kontexte) bleiben streng auf „partie“.
+ */
 function bereich(benutzer) {
-  if (benutzer.rolle === 'buero' || benutzer.rolle === 'gf') return 'alle';
-  if (benutzer.rolle === 'bauleiter') return 'bauleiter';
-  return 'partie';
+  return BUERO_ROLLEN.includes(benutzer.rolle) ? 'alle' : 'partie'; // rolle-ok: Umfang (Büro = Bauleiter = GF), keine Rechtevergabe
 }
 
 /** Liegt die Baustelle im Bereich des Benutzers (eigene Baustellen)? */
@@ -82,23 +86,18 @@ function baustelleImBereich(benutzer, bs) {
   if (!bs) return false;
   switch (bereich(benutzer)) {
     case 'alle': return true;
-    case 'bauleiter': return bs.bauleiter_id === benutzer.id;
     default: return bs.polier_id === benutzer.id || (benutzer.baustelle_id != null && benutzer.baustelle_id === bs.id);
   }
 }
 
-/** Preise/€ für diese Baustelle sichtbar? (Bauleiter nur eigene) */
-function darfPreise(ctx, bs) {
-  if (!ctx.rechte.has('preise_sehen')) return false;
-  if (!bs) return true;
-  return ctx.benutzer.rolle !== 'bauleiter' || bs.bauleiter_id === ctx.benutzer.id;
+/** Preise/€ für diese Baustelle sichtbar? (Recht preise_sehen; keine Baustellen-Einschränkung mehr – Bauleiter wie Büro) */
+function darfPreise(ctx, bs) { // eslint-disable-line no-unused-vars
+  return ctx.rechte.has('preise_sehen');
 }
 
 /** Nachkalkulation/Budget für diese Baustelle sichtbar? */
-function darfKalk(ctx, bs) {
-  if (!ctx.rechte.has('kalk_sehen')) return false;
-  if (!bs) return true;
-  return ctx.benutzer.rolle !== 'bauleiter' || bs.bauleiter_id === ctx.benutzer.id;
+function darfKalk(ctx, bs) { // eslint-disable-line no-unused-vars
+  return ctx.rechte.has('kalk_sehen');
 }
 
 /** Feldnamen, die €-Werte (oder daraus abgeleitete Budget-Kennzahlen) tragen. */
@@ -107,7 +106,16 @@ const EURO_FELDER = new Set([
   'auftragssumme', 'auftragGesamt', 'nachtraege', 'kostenTag', 'kosten', 'erloes', 'db', 'dbProzent',
   'lohnkosten', 'geraetekosten', 'materialkosten',
   // Servicebuch (API.md 11)
-  'kostenJahr', 'kostenGesamt', 'kostenJeStunde'
+  'kostenJahr', 'kostenGesamt', 'kostenJeStunde',
+  // Preise mit „gültig ab“ (API.md 12.2)
+  'epGeplant', 'epVerlauf', 'perioden',
+  // Ausgangsrechnungen (API.md 12.17)
+  'netto', 'brutto', 'ust', 'zahlbetrag', 'skontoGenommen', 'ruecklassOffen', 'ruecklassBetrag', 'summeOffen', 'summeUeberfaellig', 'ruecklaesseOffen', 'verrechnetNetto', 'rechnungen', 'haftruecklass', 'schlussrechnung', 'soll', 'gp',
+  // Rechnungen wie auf dem Papier, Fälligkeiten (API.md 15.24)
+  'deckungsruecklass', 'skontoBetrag', 'skontoRest', 'mitSkonto', 'ohneSkonto', 'summeOhneSkonto', 'summeMitSkonto', 'summeRuecklass', 'offenGesamt',
+  'differenzen', 'strittig', 'summeStrittig', 'summeDifferenz', 'abzuegeAkzeptiert', 'ueberzahlung', 'einbehaltenBeiZahlung',
+  // Zahlbetrag mit Skonto (API.md 15.26)
+  'zahlbetragMitSkonto', 'skontoZahlbetrag'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.
@@ -177,16 +185,31 @@ function ladeRechteFuer(db, benutzer) {
   return effektiveRechte(benutzer.rolle, matrix, ausnahmen);
 }
 
-/** Büro verwaltet Benutzer dieser Rollen (C-14); GF alle */
-const BUERO_VERWALTBAR = ['mitarbeiter', 'polier', 'bauleiter'];
+/**
+ * Mit stammdaten (Büro/Bauleiter laut Matrix) verwaltbar: Benutzer dieser Rollen; mit `benutzer` (GF) alle.
+ * 15.9 (F-050): Bauleiter = Büro – Konten gleicher Stufe (Büro, Bauleiter) und der GF verwaltet nur die GF.
+ * Zusätzlich prüft routes/benutzer.js `pruefeKontoVerwalten` die tatsächlichen Rechte des Ziels (Verwaltungsstufe).
+ */
+const BUERO_VERWALTBAR = ['mitarbeiter', 'polier'];
 function darfBenutzerVerwalten(ctx, zielRolle) {
   if (ctx.hat('benutzer')) return true;
-  return ctx.benutzer.rolle === 'buero' && ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
+  // 15.4: allein das Recht stammdaten (für Polier/Mitarbeiter gesperrt) – nicht der Rollenname des Aufrufers
+  return ctx.hat('stammdaten') && (zielRolle === undefined || BUERO_VERWALTBAR.includes(zielRolle));
+}
+
+/**
+ * 15.5 (F-050/F-051): Verwaltungsstufe eines Kontos – 3 = Geschäftsführung (bzw. Recht „benutzer“), 2 = Büro/Bauleiter
+ * (bzw. Recht „stammdaten“), 1 = alle anderen. Zählt die höhere aus Rolle und tatsächlichen Rechten.
+ */
+function verwaltungsStufe(rolle, rechte) {
+  if (rolle === 'gf' || rechte.has('benutzer')) return 3;
+  if (['buero', 'bauleiter'].includes(rolle) || rechte.has('stammdaten')) return 2;
+  return 1;
 }
 
 /** Aktive Konten, die gesperrte GF-/Büro-Konten entsperren können (D-01): GF und Büro mit stammdaten */
 function entsperrKonten(db) {
-  return db.alle("SELECT * FROM benutzer WHERE aktiv = 1 AND rolle IN ('gf','buero')")
+  return db.alle("SELECT * FROM benutzer WHERE aktiv = 1 AND rolle IN ('gf','buero','bauleiter')")
     .filter((b) => b.rolle === 'gf' || ladeRechteFuer(db, b).has('stammdaten'));
 }
 
@@ -202,7 +225,7 @@ function eigeneBaustellenIds(db, benutzer) {
   return alle.filter((b) => baustelleImBereich(benutzer, b)).map((b) => b.id);
 }
 
-module.exports = {
+module.exports = { BUERO_ROLLEN, verwaltungsStufe,
   ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, PREIS_LOHN_RECHTE,
   istGesperrt, istImmer, effektiveRechte, bereich, baustelleImBereich, darfPreise, darfKalk,
   EURO_FELDER, KALK_FELDER, entferneEuroFelder, findeEuroFelder,

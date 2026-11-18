@@ -32,12 +32,13 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.deepEqual(st, { '26-041': 'ok', '26-038': 'warnung', '26-044': 'warnung', '26-029': 'warnung', '26-047': 'kritisch', '26-035': 'kritisch', '26-050': 'ok' });
   });
 
-  await t.test('Ausgangsstand: Alarme der Testdaten nur an Bauleiter (eigene)/Büro/GF', async () => {
+  await t.test('Ausgangsstand: Alarme der Testdaten an Bauleiter/Büro/GF (15.3: Bauleiter = Büro, alle Baustellen)', async () => {
     assert.equal((await budgetMeldungen(pol)).length, 0);
     assert.equal((await budgetMeldungen(ma)).length, 0);
     const blm = await budgetMeldungen(bl);
     assert.ok(blm.length >= 2);
-    assert.ok(blm.every((n) => [1, 2, 5, 7].includes(n.baustelleId)));
+    // Bauleiter erhält über das Recht kalk_sehen dieselben Alarme wie das Büro (vorher nur eigene Baustellen)
+    assert.deepEqual(blm.map((n) => n.titel).sort(), (await budgetMeldungen(buero)).map((n) => n.titel).sort());
     assert.ok(blm.some((n) => n.baustelleId === BS.ternitz && /kritisch/i.test(n.titel)));
     assert.ok((await budgetMeldungen(buero, BS.reisinger)).length === 1);
     assert.ok(!JSON.stringify(blm).includes('€'));
@@ -111,7 +112,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     const blVorher = (await budgetMeldungen(bl, BS.pitten)).length;
     const fa = (await buero.get(`/baustellen/${BS.pitten}/positionen`)).daten.gruppen[0].positionen[0];
     assert.equal(fa.bezeichnung, 'Facharbeiter');
-    const r = await buero.put(`/baustellen/${BS.pitten}/positionen/${fa.id}`, { ep: 150, version: fa.version });
+    const r = await buero.put(`/baustellen/${BS.pitten}/positionen/${fa.id}`, { ep: 150, version: fa.version, gueltigAb: '2000-01-01', rueckwirkend: true }); // 12.2: ganze Laufzeit
     assert.equal(r.status, 200);
     assert.equal(r.daten.ep, 150);
     const k = await kalk(BS.pitten);
@@ -162,7 +163,7 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     const r = await bl.post(`/baustellen/${BS.kogler}/leistungen`, { leistungId: 7, menge: 100, datum: '2026-11-12' });
     assert.equal(r.status, 201);
     assert.ok((await kalk(BS.kogler)).leistungsstandProzent > vorher);
-    assert.equal((await bl.post(`/baustellen/${BS.reisinger}/leistungen`, { leistungId: 7, menge: 1, datum: '2026-11-12' })).status, 403);
+    assert.equal((await bl.post(`/baustellen/${BS.reisinger}/leistungen`, { leistungId: 7, menge: 1, datum: '2026-11-12' })).status, 201); // Bauleiter wie Büro (13.11.2026)
   });
 
   await t.test('Benachrichtigungen: nur eigene, gelesen markieren', async () => {
@@ -180,10 +181,9 @@ test('Nachkalkulation und Budget-Alarm', async (t) => {
     assert.equal((await bl.post('/benachrichtigungen/abc/gelesen')).status, 400);
   });
 
-  await t.test('Bauleiter ohne Zuständigkeit sieht alte Budget-Meldungen nicht mehr', async () => {
+  await t.test('Bauleiter wie Büro (13.11.2026): Nachkalkulation und Budget-Meldungen unabhängig von der Zuordnung', async () => {
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.gf, BS.ternitz);
-    assert.ok(!(await bl.get('/benachrichtigungen')).daten.some((n) => n.typ === 'budget' && n.baustelleId === BS.ternitz));
-    assert.equal((await bl.get(`/kalkulation/${BS.ternitz}`)).status, 403);
+    assert.equal((await bl.get(`/kalkulation/${BS.ternitz}`)).status, 200);
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.bauleiter, BS.ternitz);
   });
 

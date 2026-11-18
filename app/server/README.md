@@ -15,16 +15,30 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 > **Testdaten nur zur Vorführung:** `npm run seed` läuft nur mit `BAUTAG_DEMO=1`. Alle Testdaten-Benutzer haben die
 > PIN `1234` ohne Änderungspflicht – **nie im Echtbetrieb verwenden**, die Daten sind frei erfunden.
 
+## Testversion aktualisieren
+
+1. Server bzw. Startfenster beenden.
+2. Neuen Programmstand holen (`git pull` oder Dateien über den alten Ordner kopieren; `app/data` bleibt).
+3. `cd app && npm install` – neue oder geänderte Pakete laden. Die Startskripte (`BauTag-starten-*.bat/.command`) machen das selbst, sobald `node server/abhaengigkeiten.js` meldet, dass ein Paket fehlt oder nicht zur `package-lock.json` passt (Exit-Code 1).
+4. `BAUTAG_DEMO=1 npm start` – die Datenbank wird beim Start auf den neuen Stand migriert.
+
+`server/index.js` prüft **vor** dem Öffnen der Datenbank, ob alle Pakete aus `package.json` installiert sind. Fehlt eines, startet der Server nicht („START VERWEIGERT: Programmteile sind nicht vollständig installiert …“) und die Datenbank bleibt unverändert; eine abweichende Version ergibt nur eine Warnung. Im Echtbetrieb (Docker, `npm ci`) übernimmt das `deploy/update.sh`.
+
 ## Inbetriebnahme (Echtbetrieb)
 
 1. `cd app && npm install`
-2. Leere Datenbank mit der ersten Geschäftsführung anlegen (PIN selbst wählen, mind. 6 Ziffern, keine Folge):
+2. Leere Datenbank mit der ersten Geschäftsführung anlegen (PIN selbst wählen, mind. 4 Ziffern, keine Folge):
    ```bash
    node server/einrichten.js --name "Vorname Nachname" --pnr 1 --pin <eigene PIN>
    # oder ohne Argumente: interaktive Abfrage; oder BAUTAG_GF_NAME / BAUTAG_GF_PNR / BAUTAG_GF_PIN
    ```
    Angelegt werden Rechte-Matrix, Lohngruppen, Geräte und Material der Papiervorlage – **ohne Preise** (unter „Preise“ erfassen).
-3. `npm start` (hinter einem HTTPS-Reverse-Proxy mit `TRUST_PROXY=1`).
+3. Schlüssel erzeugen (`openssl rand -hex 32`, auf dem Notfallblatt notieren) und starten:
+   `NODE_ENV=production BAUTAG_SCHLUESSEL=<Schlüssel> TRUST_PROXY=1 npm start` (hinter einem HTTPS-Reverse-Proxy).
+   Mit `NODE_ENV=production` verweigert der Server ohne gültigen Schlüssel (mind. 32 Zeichen) den Start. Ohne Schlüssel
+   werden Geheimnisse außerhalb von Vorführung/Test **nie** im Klartext gespeichert: 2FA, SMTP-Passwort und KI-Schlüssel
+   lassen sich dann nicht einrichten, Push-Schlüssel gelten nur bis zum Neustart (Startwarnung). Empfohlen ist der
+   Docker-Weg in `deploy/` (setzt `NODE_ENV=production`).
 4. **Mindestens zwei Verwaltungs-Konten anlegen** (Büro und/oder zweite GF): Nur GF bzw. Büro können gesperrte GF-/Büro-Konten entsperren. Der Server warnt beim Start, solange es weniger als zwei sind.
 5. Mitarbeiter, Poliere und Bauleiter anlegen (Start-PIN wird beim ersten Anmelden geändert), Baustellen erfassen, Bauleiter/Polier zuordnen.
 
@@ -48,7 +62,8 @@ Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mi
 | `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
 | `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
 | `BAUTAG_UPLOADS` | `uploads` neben der Datenbank | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
-| `NODE_ENV` | – | ohne Sonderbedeutung |
+| `NODE_ENV` | – | `production` (Schreibweise egal) = Echtbetrieb: Start nur mit gültigem `BAUTAG_SCHLUESSEL`, nie mit `BAUTAG_TEST=1` |
+| `BAUTAG_SCHLUESSEL` | – | **Pflicht im Echtbetrieb** (mind. 32 Zeichen, z. B. `openssl rand -hex 32`): verschlüsselt 2FA-Geheimnisse, VAPID-, SMTP- und KI-Schlüssel in der Datenbank (AES-256-GCM). Ohne ihn werden diese nur im Vorführ-/Testbetrieb (`BAUTAG_DEMO=1`/`BAUTAG_TEST=1`) im Klartext gespeichert, sonst gar nicht. Verlust: `node server/entsperren.js --2fa-alle` |
 
 ## Aufbau
 

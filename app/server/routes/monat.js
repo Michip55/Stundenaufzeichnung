@@ -16,6 +16,14 @@ module.exports = function monatRouten(api, bt) {
   api.get('/monat/export.csv', brauche('lohn'), (req, res) => {
     const m = monatParam(req);
     const daten = monat(db, m, bt.uhr());
+    if (req.query.vorlage) {
+      // API.md 12.20: Lohn-Export nach Vorlage (z. B. BMD NTCS)
+      const x = api.lohnExportNachVorlage(String(req.query.vorlage).slice(0, 40), m, daten);
+      db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: `monat:${m}`, text: `Lohn-Export ${m} nach Vorlage „${x.name}“ erstellt` });
+      res.setHeader('Content-Type', `text/csv; charset=${x.kodierung}`);
+      res.setHeader('Content-Disposition', `attachment; filename="BauTag_Lohn_${m}_${String(req.query.vorlage).replace(/[^a-z0-9-]/gi, '')}.csv"`);
+      return res.send(x.buf);
+    }
     db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'export', objekt: `monat:${m}`, text: `Lohn-Export ${m} erstellt` });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="BauTag_Lohn_${m}.csv"`);

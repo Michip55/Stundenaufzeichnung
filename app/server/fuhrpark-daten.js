@@ -235,16 +235,19 @@ function mangelJson(m, S) {
 const SCHADEN_STATUS = { offen: 'gemeldet', in_arbeit: 'in_bearbeitung', behoben: 'behoben', verworfen: 'abgelehnt' };
 const SCHADEN_STATUS_DB = { gemeldet: 'offen', in_bearbeitung: 'in_arbeit', behoben: 'behoben', abgelehnt: 'verworfen' };
 const DRINGLICHKEIT = { ja: 'hinweis', eingeschraenkt: 'bald', nein: 'sofort' };
-const istVerwaltung = (ctx) => ctx.hat('fuhrpark') || ['buero', 'gf'].includes(ctx.benutzer.rolle);
+/** Schäden bearbeiten (15.4, F-016): allein das Recht fuhrpark – nie nach Rollenname (Bauleiter = Büro, 13.1) */
+const istVerwaltung = (ctx) => ctx.hat('fuhrpark');
+/** Alle Schäden sehen (15.4): fuhrpark oder stammdaten – dieselben Rechte wie die Empfänger „Schaden mit Ursache“ (15.3) */
+const siehtAlleSchaeden = (ctx) => ctx.hat('fuhrpark') || ctx.hat('stammdaten');
 
 /** Darf ctx diesen Schaden sehen? */
 function schadenSichtbar(db, ctx, m, cache = {}) {
-  if (m.gemeldet_von === ctx.benutzer.id || istVerwaltung(ctx)) return true;
-  const rolle = ctx.benutzer.rolle;
-  if (!['polier', 'bauleiter'].includes(rolle)) return false;
+  if (m.gemeldet_von === ctx.benutzer.id || siehtAlleSchaeden(ctx)) return true;
+  // Bereich der Partie (F-12) nur für den Polier – Rollenmerkmal Polier, unverändert (13.2/rechte-matrix-regeln)
+  if (ctx.benutzer.rolle !== 'polier') return false;
   const bsMap = cache.bs || (cache.bs = new Map(db.alle('SELECT id, polier_id, bauleiter_id FROM baustelle').map((b) => [b.id, b])));
   if (m.baustelle_id && baustelleImBereich(ctx.benutzer, bsMap.get(m.baustelle_id))) return true;
-  { // Polier: Personen seiner Partie; Bauleiter: Personen mit Stamm-Baustelle auf seinen Baustellen (F-12)
+  { // Polier: Personen seiner Partie (F-12)
     const melder = cache.melder || (cache.melder = new Map(db.alle('SELECT id, baustelle_id FROM benutzer').map((b) => [b.id, b.baustelle_id])));
     const stamm = melder.get(m.gemeldet_von);
     if (stamm && baustelleImBereich(ctx.benutzer, bsMap.get(stamm))) return true;
@@ -293,11 +296,13 @@ function eintragJson(db, e, S, ctx) {
   const o = {
     id: e.id, anlageId: e.anlage_id, anlage: A ? { id: A.row.id, nummer: A.row.nummer, bezeichnung: A.row.bezeichnung, kennzeichen: A.row.kennzeichen } : null,
     art: e.art, datum: e.datum, werkstatt: e.werkstatt, titel: e.titel, arbeiten: e.arbeiten, teile: e.teile, arbeitsstundenIntern: e.arbeitsstunden_intern,
-    rechnungNr: e.rechnung_nr, pruefErgebnis: e.pruef_ergebnis, pruefer: e.pruefer, zaehler, erledigt, maengel,
+    pruefErgebnis: e.pruef_ergebnis, pruefer: e.pruefer, zaehler, erledigt, maengel,
     ...(e.storniert ? { storniert: { zeit: e.storniert, grund: e.storno_grund, von: person(S.namen, e.storno_von) } } : {}),
-    erfasst: e.erfasst, erfasstVon: person(S.namen, e.erfasst_von), version: e.version
+    // 15.15 (ID-Nachtrag): ohne preise_sehen Sichtversion – eine reine Kosten-/Rechnungsnummern-Änderung bleibt unsichtbar
+    erfasst: e.erfasst, erfasstVon: person(S.namen, e.erfasst_von), version: euro(ctx) ? e.version : e.sicht_version
   };
-  if (euro(ctx)) o.kosten = e.kosten;
+  // Kosten und Rechnungs-/Belegnummer der Werkstatt nur mit preise_sehen (14.11.2026, wie die Oberfläche)
+  if (euro(ctx)) { o.kosten = e.kosten; o.rechnungNr = e.rechnung_nr; }
   return o;
 }
 
@@ -342,5 +347,5 @@ function sperrText(A) {
 module.exports = {
   kontextFuer, OFFEN, leserecht, euro, ladeStand, ladeKosten, kostenJeStunde, zaehlerKurz, zaehlerJson, positionJson, terminKurz, anlageListeJson,
   standJson, mangelJson, schadenJson, schadenSichtbar, fotoJson, eintragJson, fristJson, fristen, sperrText, person,
-  SCHADEN_STATUS, SCHADEN_STATUS_DB, DRINGLICHKEIT, istVerwaltung
+  SCHADEN_STATUS, SCHADEN_STATUS_DB, DRINGLICHKEIT, istVerwaltung, siehtAlleSchaeden
 };

@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const ExcelJS = require('exceljs');
-const { starte, U, BS, euroFelder } = require('./hilfe');
+const { starte, U, BS, euroFelder, sofficeVorhanden } = require('./hilfe');
 const X = require('../../server/katalog-excel');
 
 const ROLLEN = ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf'];
@@ -25,23 +25,24 @@ test('Nachkalkulation nach Positionen', async (t) => {
 
   await t.test('Rechte: jede Rolle gegen jede neue Route', async () => {
     const p1 = pid(BS.pitten, 'Maut'), p3 = pid(BS.reisinger, 'Maut');
+    // Bauleiter wie Büro (13.11.2026)
     const MATRIX = [
       ['GET', '/positionen/katalog', null, [NEIN, NEIN, OK, OK, OK]],
-      ['POST', '/positionen/katalog', {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['PUT', '/positionen/katalog/1', {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['DELETE', '/positionen/katalog/999999', undefined, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', '/positionen/katalog/import', {}, [NEIN, NEIN, NEIN, OK, OK]],
+      ['POST', '/positionen/katalog', {}, [NEIN, NEIN, OK, OK, OK]],
+      ['PUT', '/positionen/katalog/1', {}, [NEIN, NEIN, OK, OK, OK]],
+      ['DELETE', '/positionen/katalog/999999', undefined, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', '/positionen/katalog/import', {}, [NEIN, NEIN, OK, OK, OK]],
       ['GET', `/baustellen/${BS.pitten}/positionen`, null, [NEIN, NEIN, OK, OK, OK]],
-      ['GET', `/baustellen/${BS.reisinger}/positionen`, null, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', `/baustellen/${BS.pitten}/positionen`, {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['PUT', `/baustellen/${BS.pitten}/positionen/${p1}`, {}, [NEIN, NEIN, NEIN, OK, OK]],
-      ['DELETE', `/baustellen/${BS.pitten}/positionen/999999`, undefined, [NEIN, NEIN, NEIN, OK, OK]],
-      ['POST', `/baustellen/${BS.pitten}/positionen/aus-vorlage`, { vorschau: true }, [NEIN, NEIN, NEIN, OK, OK]],
+      ['GET', `/baustellen/${BS.reisinger}/positionen`, null, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', `/baustellen/${BS.pitten}/positionen`, {}, [NEIN, NEIN, OK, OK, OK]],
+      ['PUT', `/baustellen/${BS.pitten}/positionen/${p1}`, {}, [NEIN, NEIN, OK, OK, OK]],
+      ['DELETE', `/baustellen/${BS.pitten}/positionen/999999`, undefined, [NEIN, NEIN, OK, OK, OK]],
+      ['POST', `/baustellen/${BS.pitten}/positionen/aus-vorlage`, { vorschau: true }, [NEIN, NEIN, OK, OK, OK]],
       ['POST', `/baustellen/${BS.pitten}/positionen/${p1}/mengen`, {}, [NEIN, NEIN, OK, OK, OK]],
-      ['POST', `/baustellen/${BS.reisinger}/positionen/${p3}/mengen`, {}, [NEIN, NEIN, NEIN, OK, OK]],
+      ['POST', `/baustellen/${BS.reisinger}/positionen/${p3}/mengen`, {}, [NEIN, NEIN, OK, OK, OK]],
       ['DELETE', `/baustellen/${BS.pitten}/positionen/${p1}/mengen/999999`, undefined, [NEIN, NEIN, OK, OK, OK]],
       ['GET', `/baustellen/${BS.pitten}/positionen/export.xlsx`, null, [NEIN, NEIN, OK, OK, OK]],
-      ['GET', `/baustellen/${BS.reisinger}/positionen/export.xlsx`, null, [NEIN, NEIN, NEIN, OK, OK]]
+      ['GET', `/baustellen/${BS.reisinger}/positionen/export.xlsx`, null, [NEIN, NEIN, OK, OK, OK]]
     ];
     for (const [m, p, body, erw] of MATRIX) {
       for (let i = 0; i < ROLLEN.length; i++) {
@@ -91,10 +92,10 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal(d.stand, '2026-04-01');
     const summe = (sql, ...p) => s.db.eins(sql, ...p).m || 0;
     const fa = finde(d, 'Facharbeiter');
-    assert.deepEqual(fa.quelle, { art: 'personal', ref: ['pol', 'va', 'fa', 'hi', 'le'] });
+    assert.deepEqual(fa.quelle, { art: 'personal', ref: ['pol', 'va', 'fa', 'hi'] });
     assert.equal(fa.zuordnungPruefen, true);
     assert.equal(fa.mengeAuto, r2(summe(`SELECT SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id JOIN benutzer b ON b.id = bp.benutzer_id
-      WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND b.lohngruppe_id IN ('pol','va','fa','hi','le')`, BS.pitten)));
+      WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND b.lohngruppe_id IN ('pol','va','fa','hi')`, BS.pitten)));
     const geraet = (code) => summe(`SELECT SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id JOIN geraet g ON g.id = bg.geraet_id
       WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND g.code = ?`, BS.pitten, code);
     assert.equal(finde(d, 'Mobilbagger 7-11 t').mengeAuto, geraet('b9'));
@@ -138,7 +139,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
     const pos = finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Mobilbagger 7-11 t');
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99 })).status, 400); // version fehlt
     assert.equal((await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99, version: pos.version + 5 })).status, 409);
-    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 7-11 t (Pitten)', version: pos.version });
+    const r = await c.buero.put(`/baustellen/${BS.pitten}/positionen/${pos.id}`, { ep: 99.995, bezeichnung: 'Mobilbagger 7-11 t (Pitten)', version: pos.version, gueltigAb: '2000-01-01', rueckwirkend: true });
     assert.equal(r.status, 200);
     assert.equal(r.daten.ep, 100);
     assert.equal(r.daten.version, pos.version + 1);
@@ -165,7 +166,8 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal(q.daten.zuordnungPruefen, false);
     const d2 = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
     assert.ok(finde(d2, 'Dumper').mengeAuto > dv.mengeAuto);
-    assert.ok(d2.hinweise.some((h) => /mehreren Positionen zugeordnet/.test(h.text)) || true);
+    // E-09: b9 ist sonst nur der ausgeblendeten Mobilbagger-Position zugeordnet → keine Doppelzählungs-Warnung
+    assert.ok(!d2.hinweise.some((h) => /mehreren Positionen zugeordnet/.test(h.text)), JSON.stringify(d2.hinweise));
   });
 
   await t.test('Eigene Position anlegen, löschen nur ohne Mengen (sonst 409 → ausblenden)', async () => {
@@ -176,8 +178,16 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.equal((await c.buero.post(`/baustellen/${BS.pitten}/positionen`, { gruppe: 'geraete', bezeichnung: 'X', einheit: 'Std.', ep: -1 })).status, 400);
     const leer = await c.buero.post(`/baustellen/${BS.pitten}/positionen`, { gruppe: 'abgaben', bezeichnung: 'Leer', einheit: 'PA', ep: 1 });
     assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${leer.daten.id}`)).status, 200);
+    // Eigene Position mit gebuchter Menge → 409, ohne Bedingung (N-088)
+    assert.equal(finde((await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten, 'Gräder Cat 140').menge, 0);
+    const m = await c.buero.post(`/baustellen/${BS.pitten}/positionen/${r.daten.id}/mengen`, { datum: '2026-11-12', menge: 3.5 });
+    assert.equal(m.status, 201);
     const mitMenge = (await c.buero.get(`/baustellen/${BS.pitten}/positionen`)).daten;
-    if (finde(mitMenge, 'Gräder Cat 140').menge > 0) assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${r.daten.id}`)).status, 409);
+    assert.ok(finde(mitMenge, 'Gräder Cat 140').menge > 0);
+    const d409 = await c.buero.del(`/baustellen/${BS.pitten}/positionen/${r.daten.id}`);
+    assert.equal(d409.status, 409);
+    assert.match(d409.daten.fehler, /ausblenden statt löschen/);
+    assert.ok(s.db.eins('SELECT id FROM projektposition WHERE id = ?', r.daten.id), 'Position darf nicht gelöscht sein');
     assert.equal((await c.buero.del(`/baustellen/${BS.pitten}/positionen/${pid(BS.pitten, 'Facharbeiter')}`)).status, 409);
     // Katalog bleibt unberührt
     assert.ok(!(await c.buero.get('/positionen/katalog')).daten.gruppen.flatMap((g) => g.positionen).some((p) => p.bezeichnung === 'Gräder Cat 140'));
@@ -314,7 +324,7 @@ test('Nachkalkulation nach Positionen', async (t) => {
     assert.deepEqual(zurueck.positionen.map((p) => [p.bezeichnung, p.ep]), d.gruppen.flatMap((g) => g.positionen.filter((p) => p.aktiv).map((p) => [p.bezeichnung, p.ep])));
   });
 
-  await t.test('Excel-Export: Formeln rechnen in LibreOffice dieselben Summen', { skip: !fs.existsSync('/usr/bin/soffice') && 'LibreOffice nicht installiert' }, async () => {
+  await t.test('Excel-Export: Formeln rechnen in LibreOffice dieselben Summen', { skip: !sofficeVorhanden() && 'LibreOffice nicht installiert' }, async () => {
     const r = await c.buero.get(`/baustellen/${BS.kogler}/positionen/export.xlsx`);
     const d = (await c.buero.get(`/baustellen/${BS.kogler}/positionen`)).daten;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-xlsx-'));

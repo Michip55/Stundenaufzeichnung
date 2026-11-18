@@ -17,4 +17,24 @@ const nichtGefunden = (text = 'Nicht gefunden.') => new ApiFehler(404, 'NICHT_GE
 const konflikt = (text, extra) => new ApiFehler(409, 'KONFLIKT', text, extra);
 const nichtAngebunden = (text) => new ApiFehler(501, 'NICHT_ANGEBUNDEN', text);
 
-module.exports = { ApiFehler, ungueltig, nichtAngemeldet, keinZugriff, nichtGefunden, konflikt, nichtAngebunden };
+/*
+ * 15.11 (G2-015, Inhaberregel 2 „auch Fehlertexte“): Wer weder preise_sehen noch kalk_sehen hat (Polier, Mitarbeiter – auch mit
+ * Ausnahmen), bekommt keinen Fehlertext mit Geldwörtern oder Währungszeichen. Sicherheitsnetz in der Fehlerbehandlung
+ * (server/index.js) zusätzlich zu geldfreien Texten an der Quelle; Zusatzfelder fallen dann bis auf `version` weg.
+ */
+// 15.15 (H-G6): auch Lohn-/Kalkulationsbegriffe (Lohngruppe, Nachkalkulation, Budget, …kosten – nicht Kostenstelle),
+// Bankgarantie, Angebot und Rechtenamen kalk_*
+const GELD_WORTE = /€|\bEUR\b|\bEuro|Preis|preise_|Rechnung|Zahlung|bezahlt|\bKosten\b|Kostensatz|Lohnkosten|Betrag|Beträge|Rücklass|Ruecklass|Skonto|Auftragssumme|Nachtr[aä]g|Gutschrift|\bbrutto\b|\bnetto\b|\bUSt\b|Umsatzsteuer|Verrechnungssatz|Regiesatz|Lohngruppe|Lohnsatz|Stundenlohn|Kalkulation|kalk_|Budget|[a-zäöüß]kosten\b|Bankgarantie|\bAngebot/i;
+const GELDFREI_403 = 'Diese Funktion ist für Ihr Konto nicht freigegeben.';
+const GELDFREI_SONST = 'Die Anfrage lässt sich so nicht ausführen – bitte im Büro klären.';
+const enthaeltGeld = (text) => GELD_WORTE.test(String(text || ''));
+/** Fehlertext für ctx: ohne Preis-/Kalkulationsrecht nie mit Geldwörtern → {text, extra} */
+function geldfreierFehler(ctx, status, text, extra) {
+  const ohneGeld = ctx && typeof ctx.hat === 'function' && !ctx.hat('preise_sehen') && !ctx.hat('kalk_sehen');
+  if (!ohneGeld) return { text, extra };
+  const extraText = extra ? JSON.stringify(extra) : '';
+  if (!enthaeltGeld(text) && !enthaeltGeld(extraText)) return { text, extra };
+  return { text: status === 403 ? GELDFREI_403 : GELDFREI_SONST, extra: extra && extra.version != null ? { version: extra.version } : null };
+}
+
+module.exports = { GELD_WORTE, enthaeltGeld, geldfreierFehler, ApiFehler, ungueltig, nichtAngemeldet, keinZugriff, nichtGefunden, konflikt, nichtAngebunden };

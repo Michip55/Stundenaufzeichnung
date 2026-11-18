@@ -8,7 +8,7 @@
  *  - material: Material-Codes des Berichts (Menge × faktor, Einheit wie Vorlage)
  */
 const ZUORDNUNG = [
-  ['Facharbeiter', 'Std.', { art: 'personal', ref: ['pol', 'va', 'fa', 'hi', 'le'] }],
+  ['Facharbeiter', 'Std.', { art: 'personal', ref: ['pol', 'va', 'fa', 'hi'] }],
   ['LKW 2A', 'Std.', { art: 'geraet', ref: ['lkw2'] }],
   ['LKW 3A', 'Std.', { art: 'geraet', ref: ['lkw3'] }],
   ['LKW 4A', 'Std.', { art: 'geraet', ref: ['lkw4'] }],

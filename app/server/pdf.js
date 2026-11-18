@@ -115,7 +115,10 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t('PERSONAL:', X0 + 3, yl + 3.5, { fett: true, gr: 9 });
   ['von', 'bis', 'von', 'bis', 'Pause', 'Arbstd.'].forEach((h, i) => { box(sx[i + 1], yl, sp[i + 1], ZEILE + 1); t(h, sx[i + 1], yl + 3.5, { b: sp[i + 1], align: 'center', gr: 8 }); });
   yl += ZEILE + 1;
-  const versteckt = (c) => fassung === 'ag' && (c === 'K' || c === 'U');
+  // R-01: Krankenstand nie im PDF – „abw.“ (AG-Fassung ganz ohne). Welche Zeilen/Kürzel der Aufrufer überhaupt bekommt,
+  // entscheidet vorher server/datenschutz.js (berichtPersonalPdf) – hier wird nur gedruckt.
+  // AG-Fassung: keine persönlichen Abwesenheiten (K, U, ZA) – auch der Polier lädt sie (Inhaber 13.11.2026)
+  const versteckt = (c) => fassung === 'ag' && ['K', 'U', 'ZA', 'abwesend'].includes(c);
   const personal = bericht.personal.filter((p) => !(versteckt(p.code) && !p.stunden));
   const zeilen = Math.max(6, personal.length);
   let gesamt = 0;
@@ -124,7 +127,7 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
     sp.forEach((s, j) => box(sx[j], yl, s, ZEILE));
     if (p) {
       gesamt += p.stunden || 0;
-      const code = p.code && !versteckt(p.code) ? p.code : '';
+      const code = p.code && !versteckt(p.code) ? (p.code === 'K' || p.code === 'abwesend' ? 'abw.' : p.code) : '';
       t(p.name, sx[0] + 3, yl + 3, { b: sp[0] - 5, gr: 8 });
       [p.von1, p.bis1, p.von2, p.bis2].forEach((z, j) => t(z || '', sx[j + 1], yl + 3, { b: sp[j + 1], align: 'center', gr: 8 }));
       t(p.pauseMin ? zahl(p.pauseMin / 60) : '', sx[5], yl + 3, { b: sp[5], align: 'center', gr: 8 });
@@ -138,7 +141,14 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   t(zahl(gesamt), sx[6], yl + 3.5, { b: sp[6], align: 'center', gr: 8.5, fett: true });
   yl += ZEILE + 1;
   box(X0, yl, LINKS_B, ZEILE);
-  t(fassung === 'ag' ? 'SW = Schlechtwetter' : 'K = Krank      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich', X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
+  // API.md 15.1: ohne Sicht auf fremde Abwesenheiten (Polier/Mitarbeiter, auch mit Ausnahmen) keine Abwesenheits-Legende –
+  // nur die Kürzel, die tatsächlich gedruckt sind (SW und ggf. die eigene Zeile)
+  const LEGENDE = { 'abw.': 'abw. = abwesend', U: 'U = Urlaub', SW: 'SW = Schlechtwetter', ZA: 'ZA = Zeitausgleich' };
+  const gedruckt = new Set(personal.map((p) => (p.code && !versteckt(p.code) ? (p.code === 'K' || p.code === 'abwesend' ? 'abw.' : p.code) : null)).filter(Boolean));
+  const legende = fassung === 'ag' ? 'SW = Schlechtwetter'
+    : opt.abwesenheitenSichtbar ? 'abw. = abwesend      U = Urlaub      SW = Schlechtwetter      ZA = Zeitausgleich'
+      : Object.keys(LEGENDE).filter((k) => k === 'SW' || gedruckt.has(k)).map((k) => LEGENDE[k]).join('      ');
+  t(legende, X0 + 3, yl + 3, { gr: 7.5, b: LINKS_B - 6 });
   yl += ZEILE + 8;
 
   /* ---- Links: Material ---- */
@@ -151,7 +161,8 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   const vorlageMat = opt.materialien || [];
   const vorlageIds = new Set(vorlageMat.map((m) => m.id));
   const matZeilen = [
-    ...vorlageMat.map((m) => ({ name: m.name, einheit: m.einheit === 'to' && /aushub|bruch/i.test(m.code + m.name) ? 'to/m3' : m.einheit === 'to' ? 'to.' : m.einheit, menge: matMenge.has(m.id) ? matMenge.get(m.id).menge : null })),
+    // N-009: erfasste Zeilen mit Name/Einheit aus dem Bericht (Stand beim Erfassen), leere Vorlagezeilen aus den Stammdaten
+    ...vorlageMat.map((v) => { const z = matMenge.get(v.id); const m = z ? { code: v.code, name: z.name, einheit: z.einheit } : v; return { name: m.name, einheit: m.einheit === 'to' && /aushub|bruch/i.test(m.code + m.name) ? 'to/m3' : m.einheit === 'to' ? 'to.' : m.einheit, menge: z ? z.menge : null }; }),
     ...bericht.material.filter((m) => !vorlageIds.has(m.materialId)).map((m) => ({ name: m.name, einheit: m.einheit, menge: m.menge }))
   ];
   for (const m of matZeilen) {
@@ -182,11 +193,13 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   const vorlageG = opt.geraete || [];
   const vorlageGIds = new Set(vorlageG.map((g) => g.id));
   const sonstige = [...new Map(bericht.geraete.filter((g) => !vorlageGIds.has(g.geraetId)).map((g) => [g.geraetId, { ...g, stunden: gStd.get(g.geraetId) }])).values()];
-  const links = vorlageG.slice(0, 7).map((g) => ({ name: g.name, std: gStd.get(g.id) }));
+  const gName = new Map(bericht.geraete.map((g) => [g.geraetId, g.name])); // N-009: Name aus dem Bericht
+  const vName = (g) => (gName.has(g.id) ? gName.get(g.id) : g.name);
+  const links = vorlageG.slice(0, 7).map((g) => ({ name: vName(g), std: gStd.get(g.id) }));
   if (sonstige.length) sonstige.forEach((g) => links.push({ name: g.name, std: g.stunden }));
   else links.push({ name: '', std: null });
-  links.push(...vorlageG.slice(7, 11).map((g) => ({ name: g.name, std: gStd.get(g.id) })));
-  const rechts = vorlageG.slice(11).map((g) => ({ name: g.name, std: gStd.get(g.id) }));
+  links.push(...vorlageG.slice(7, 11).map((g) => ({ name: vName(g), std: gStd.get(g.id) })));
+  const rechts = vorlageG.slice(11).map((g) => ({ name: vName(g), std: gStd.get(g.id) }));
   const halb = RECHTS_B / 2;
   const gz = Math.max(links.length, rechts.length);
   for (let i = 0; i < gz; i++) {
@@ -281,6 +294,22 @@ function erzeugeBerichtPdf(bericht, opt = {}) {
   }
   y += uH;
   fusszeile();
+  // API.md 12.6: Fotoanhang (2 × 3 je Seite, Beschreibung darunter; WebP nur als Hinweis)
+  const fotos = Array.isArray(opt.fotos) ? opt.fotos : [];
+  for (let i = 0; i < fotos.length; i += 6) {
+    doc.addPage({ size: 'A4', margin: 0 });
+    t(`Fotos zum Bautagesbericht ${bericht.baustelle.kst} vom ${deDatum(bericht.datum)}${fotos.length > 6 ? ` (${i / 6 + 1}/${Math.ceil(fotos.length / 6)})` : ''}`, 40, 30, { gr: 11, fett: true, b: 515 });
+    fotos.slice(i, i + 6).forEach((f, j) => {
+      const fx = 40 + (j % 2) * 265, fy = 60 + Math.floor(j / 2) * 255;
+      box(fx, fy, 250, 220);
+      if (f.mime === 'image/jpeg' || f.mime === 'image/png') {
+        try { doc.image(f.daten, fx + 4, fy + 4, { fit: [242, 212], align: 'center', valign: 'center' }); } catch (_) { t('Bild nicht darstellbar – in der App ansehen', fx + 8, fy + 100, { b: 234, align: 'center' }); }
+      } else {
+        t('Bild im Format WebP – in der App ansehen', fx + 8, fy + 100, { b: 234, align: 'center' });
+      }
+      t(`${i + j + 1}. ${f.beschreibung || f.dateiname || ''}`, fx, fy + 224, { gr: 8, b: 250 });
+    });
+  }
   doc.end();
   return fertig;
 }

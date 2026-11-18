@@ -17,8 +17,10 @@ async function starte(opt = {}) {
   uhr.setze = (iso) => { jetzt = new Date(iso); };
   uhr.plus = (min) => { jetzt = new Date(jetzt.getTime() + min * 60000); };
   const app = createApp({
-    dbPath: ':memory:', uhr, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
+    dbPath: opt.dbPath || ':memory:', uhr, nodeEnv: opt.nodeEnv, testToken: opt.testToken, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
     pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
+    // Ausbaustufe 2: Attrappen für externe Dienste (API.md 12.18)
+    test: opt.test, kiClient: opt.kiClient, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
     // Standard in Tests: lange Sitzungen, damit Uhrsprünge nicht abmelden (eigener Test für Ablaufzeiten)
     sitzung: opt.sitzung || { feldMin: 720, bueroMin: 24 * 60, maxH: 24 * 30 }
   });
@@ -32,6 +34,7 @@ async function starte(opt = {}) {
       async anfrage(methode, pfad, body, header = {}) {
         const h = { ...header };
         if (c.cookie) h.cookie = c.cookie;
+        if (app.bt.testToken && h['x-bautag-test-token'] === undefined) h['x-bautag-test-token'] = app.bt.testToken; // G-06
         if (c.ip) h['x-forwarded-for'] = c.ip; // wirkt nur mit trustProxy
         let b;
         if (body !== undefined) {
@@ -84,6 +87,7 @@ async function starte(opt = {}) {
   }
 
   async function stop() {
+    await Promise.allSettled(app.bt.laufend || []);
     await new Promise((res) => server.close(res));
     app.schliessen();
   }
@@ -96,4 +100,16 @@ function euroFelder(daten) {
   return findeEuroFelder(daten);
 }
 
-module.exports = { starte, U, BS, START, euroFelder };
+/**
+ * N-090: Ist LibreOffice (soffice) installiert? Nur dann dürfen LibreOffice-abhängige Tests übersprungen werden –
+ * eine fehlgeschlagene Konvertierung bei installiertem soffice ist ein Testfehler, kein Skip.
+ */
+function sofficeVorhanden() {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  return String(process.env.PATH || '').split(path.delimiter).filter(Boolean).some((d) => {
+    try { fs.accessSync(path.join(d, 'soffice'), fs.constants.X_OK); return true; } catch { return false; }
+  });
+}
+
+module.exports = { starte, U, BS, START, euroFelder, sofficeVorhanden };

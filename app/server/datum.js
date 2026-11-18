@@ -138,12 +138,18 @@ function istArbeitstag(datum) {
  * - sonst Systemzeit
  */
 function erzeugeUhr(uhr) {
-  if (typeof uhr === 'function') return () => new Date(uhr().getTime());
+  if (typeof uhr === 'function') {
+    const f = () => new Date(uhr().getTime());
+    if (typeof uhr.setze === 'function') f.setze = uhr.setze;
+    return f;
+  }
   if (typeof uhr === 'string' && uhr.trim()) {
-    const start = new Date(uhr);
+    let start = new Date(uhr);
     if (Number.isNaN(start.getTime())) throw new Error('BAUTAG_UHR ist keine gültige ISO-Zeit: ' + uhr);
-    const t0 = Date.now();
-    return () => new Date(start.getTime() + (Date.now() - t0));
+    let t0 = Date.now();
+    const f = () => new Date(start.getTime() + (Date.now() - t0));
+    f.setze = (iso) => { start = new Date(iso); t0 = Date.now(); }; // nur Test-Schnittstelle (API.md 12.18)
+    return f;
   }
   return () => new Date();
 }

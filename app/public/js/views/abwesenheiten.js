@@ -1,18 +1,19 @@
 // Abwesenheiten (Prüfbericht B-07): eigene Anträge mit Status, Genehmigung durch Büro/GF,
 // Krank/Schlechtwetter für andere eintragen (Büro/GF), Schlechtwetter für die Partie (Polier).
 import { get, post, put, del } from '../api.js';
+import { zeitraumDialog } from './zeitraum.js';
 import { ic, esc, fmt, avatar, laden, leer, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
 
-export const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich' };
+export const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
 const STATUS = { beantragt: ['Beantragt', 'st-amber'], genehmigt: ['Genehmigt', 'st-green'], abgelehnt: ['Abgelehnt', 'st-red'] };
 export const abwChip = (s) => { const [t, c] = STATUS[s] || [s || '–', 'st-grey']; return `<span class="chip ${c}" data-abw-status="${esc(s || '')}"><i class="dot"></i>${esc(t)}</span>`; };
-const badge = (c) => `<span class="code-badge c-${esc(c)}">${esc(c)}</span>`;
+const badge = (c) => `<span class="code-badge c-${esc(c)}">${c === 'abwesend' ? 'abw.' : esc(c)}</span>`; // „abwesend“ = vom Server verdeckter Grund (z. B. Krankenstand anderer)
 
 export default async function abwesenheiten(el, ctx) {
   const ich = ctx.ich.benutzer;
   const darfEntscheiden = ctx.kann('stammdaten') || ctx.kann('lohn');
-  const istBauleiter = !darfEntscheiden && ich.rolle === 'bauleiter';
-  const istPolier = !darfEntscheiden && !istBauleiter && ctx.kann('kolonne');
+  // 15.4: entscheiden allein mit stammdaten|lohn (wie der Server) – kein Sonderweg „Bauleiter der Baustelle“ mehr
+  const istPolier = !darfEntscheiden && ctx.kann('kolonne');
   const heute = fmt.iso();
   const von = fmt.addTage(heute, -62), bis = fmt.addTage(heute, 366);
   let liste = [], leute = [];
@@ -34,48 +35,51 @@ export default async function abwesenheiten(el, ctx) {
 
   function zeichne() {
     const eigene = liste.filter((a) => a.benutzerId === ich.id);
-    // D-09: der Bauleiter bestätigt Schlechtwetter-Meldungen seiner Baustellen (der Server liefert ihm nur diese)
-    const offen = liste.filter((a) => a.status === 'beantragt' && (darfEntscheiden || (istBauleiter && a.code === 'SW' && a.benutzerId !== ich.id))).sort((a, b) => (a.datum > b.datum ? 1 : -1));
+    // 12.24: Tage eines mehrtägigen Antrags werden nur als Ganzes entschieden (unter „Urlaub“)
+    const mehrtaegig = (a) => { const n = a.antragId ? liste.filter((x) => x.antragId === a.antragId).length : 1; return n > 1 ? n : 0; };
+    const offen = liste.filter((a) => a.status === 'beantragt' && darfEntscheiden).sort((a, b) => (a.datum > b.datum ? 1 : -1));
     const andere = liste.filter((a) => a.benutzerId !== ich.id && (!darfEntscheiden || a.status !== 'beantragt') && !offen.includes(a));
+    // Inhaber 13.11.2026: zurückgezogen wird immer der ganze Antrag – ein Knopf je Antrag (beim ersten Tag der Liste)
+    const offenTage = (aid) => eigene.filter((x) => x.antragId === aid && x.status === 'beantragt');
+    const gezeigt = new Set();
+    const zurueckKnopf = (a) => {
+      if (a.status !== 'beantragt') return '';
+      const n = offenTage(a.antragId).length;
+      if (gezeigt.has(a.antragId)) return '<span class="muted sm" data-teil-antrag>gehört zum Antrag weiter oben</span>';
+      gezeigt.add(a.antragId);
+      return `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}" data-antrag-id="${esc(a.antragId)}" data-tage="${n}">${n > 1 ? `Antrag zurückziehen (${n} Tage)` : 'Zurückziehen'}</button>`;
+    };
     el.innerHTML = `
     <div class="page narrow wide-md">
-      ${darfEntscheiden || (istBauleiter && offen.length) ? `
+      ${darfEntscheiden ? `
       <section class="card" id="abw-offen" aria-labelledby="h-offen">
         <div class="card-h pad-h"><h3 id="h-offen">${ic('calendar')}Anträge zur Genehmigung <span class="count${offen.length ? ' red' : ''}">${offen.length}</span></h3></div>
-        ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: a.benutzerId === ich.id ? '<span class="muted sm" data-eigener>Eigener Antrag – entscheidet eine andere Person</span>' : `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}
+        ${offen.length ? `<ul class="plain rows">${offen.map((a) => zeile(a, { mitName: true, aktionen: a.benutzerId === ich.id ? '<span class="muted sm" data-eigener>Eigener Antrag – entscheidet eine andere Person</span>' : mehrtaegig(a) ? `<a class="btn ghost sm" data-zum-antrag href="#/urlaub?monat=${a.datum.slice(0, 7)}">Teil eines Antrags (${mehrtaegig(a)} Tage) – als Ganzes entscheiden</a>` : `<button type="button" class="btn primary sm" data-entscheid="genehmigt" data-id="${a.id}">${ic('check')}Genehmigen</button><button type="button" class="btn ghost sm" data-entscheid="abgelehnt" data-id="${a.id}">Ablehnen</button>` })).join('')}</ul>` : leer('Keine offenen Anträge.', 'check')}
         <p class="card-note">Nur genehmigte Abwesenheiten zählen in Monatsauswertung, Lohn- und BUAK-Export.</p>
       </section>` : ''}
 
       <section class="card" id="abw-eigene" aria-labelledby="h-eigene">
         <div class="card-h pad-h"><h3 id="h-eigene">Meine Abwesenheiten</h3><button type="button" class="btn primary sm" data-akt="antrag">${ic("plus")}Beantragen</button></div>
-        ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: a.status === 'beantragt' ? `<button type="button" class="btn ghost sm" data-zurueckziehen="${a.id}">Zurückziehen</button>` : '' })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
+        ${eigene.length ? `<ul class="plain rows">${eigene.map((a) => zeile(a, { mitName: false, aktionen: zurueckKnopf(a) })).join('')}</ul>` : leer('Keine Abwesenheiten eingetragen.', 'calendar')}
       </section>
 
-      ${darfEntscheiden || istPolier || (istBauleiter && andere.length) ? `
+      ${darfEntscheiden ? `
       <section class="card" id="abw-andere" aria-labelledby="h-andere">
-        <div class="card-h pad-h"><h3 id="h-andere">${darfEntscheiden ? 'Alle Abwesenheiten' : 'Abwesenheiten meiner Partie'}</h3>${istBauleiter ? '' : `<button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}${darfEntscheiden ? 'Abwesenheit eintragen' : 'Schlechtwetter eintragen'}</button>`}</div>
-        ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: darfEntscheiden ? `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` : '' })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
-        ${istPolier ? '<p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Die Meldung zählt erst, wenn Bauleitung oder Büro sie bestätigt hat. Krankenstand trägt das Büro ein.</p>' : ''}
+        <div class="card-h pad-h"><h3 id="h-andere">Alle Abwesenheiten</h3><button type="button" class="btn ghost sm" data-akt="eintragen">${ic('plus')}Abwesenheit eintragen</button></div>
+        ${andere.length ? `<ul class="plain rows">${andere.slice(0, 80).map((a) => zeile(a, { mitName: true, aktionen: `<button type="button" class="icon-btn sm" data-loeschen="${a.id}" aria-label="Abwesenheit von ${esc(a.name || '')} am ${esc(fmt.datum(a.datum))} löschen">${ic('trash')}</button>` })).join('')}</ul>` : leer('Keine Einträge.', 'calendar')}
+      </section>` : istPolier ? `
+      <section class="card pad stack-s" id="abw-sw" aria-labelledby="h-sw">
+        <h3 id="h-sw">Schlechtwetter melden</h3>
+        <p class="card-note">Als Polier melden Sie Schlechtwetter (SW) für Ihre Partie – höchstens 3 Tage zurück. Das Büro bestätigt die Meldung.</p>
+        <button type="button" class="btn ghost" data-akt="eintragen">${ic('plus')}Schlechtwetter eintragen</button>
       </section>` : ''}
     </div>`;
   }
   const neu = async () => { await lade(); if (ctx.aktuell()) zeichne(); ctx.meldungenNeu(); };
 
   function antragDialog() {
-    const d = dialog({
-      titel: 'Abwesenheit beantragen',
-      inhalt: `<form id="abw-f" class="stack-s">
-        <label class="field"><span class="field-label">Datum</span><input class="input lg" type="date" name="datum" required min="${fmt.addTage(heute, -7)}" value="${fmt.addTage(heute, 1)}"></label>
-        <label class="field"><span class="field-label">Art</span><select class="input lg" name="code"><option value="U">Urlaub</option><option value="ZA">Zeitausgleich</option></select></label>
-        ${banner('info', 'Der Antrag geht ans Büro. Erst nach der Genehmigung zählt der Tag als Urlaub bzw. Zeitausgleich.')}
-        <p class="form-err" role="alert" hidden></p></form>`,
-      fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="abw-f">Beantragen</button>',
-    });
-    $('#abw-f', d.el).addEventListener('submit', async (e) => {
-      e.preventDefault(); const f = new FormData(e.target);
-      try { const r = await post('/abwesenheiten', { benutzerId: ich.id, datum: f.get('datum'), code: f.get('code') }); d.zu(); toast(r && r.status === 'genehmigt' ? 'Abwesenheit eingetragen und genehmigt.' : 'Antrag gestellt – wartet auf Genehmigung durch eine andere Person.'); neu(); }
-      catch (x) { const m = $('.form-err', d.el); m.hidden = false; m.textContent = x.message; }
-    });
+    // derselbe Von–Bis-Dialog wie unter „Urlaub“ (ein Antrag für den ganzen Zeitraum, 12.24)
+    zeitraumDialog({ benutzerId: ich.id, name: ich.name, selbst: true, codes: ich.rolle === 'polier' ? ['U', 'ZA', 'SW'] : ['U', 'ZA'], von: fmt.addTage(heute, 1), formId: 'abw-f', okId: 'abw-ok', fertig: () => neu() });
   }
   function eintragenDialog() {
     const eigeneBs = ctx.ich.baustellenIds || [];
@@ -103,6 +107,8 @@ export default async function abwesenheiten(el, ctx) {
         try { const r = await post('/abwesenheiten', { benutzerId: id, datum: f.get('datum'), code: f.get('code') }); if (r && r.status === 'beantragt') wartend++; }
         catch (x) { fehler.push(`${(leute.find((l) => l.id === id) || {}).name || id}: ${x.message}`); }
       }
+      // Polier: immer dieselbe neutrale Rückmeldung – kein Status je Person (der könnte eine andere Abwesenheit verraten)
+      if (!darfEntscheiden) { d.zu(); toast(fehler.length === wer.length ? fehler[0].replace(/^[^:]*:\s*/, '') : 'Schlechtwetter gemeldet – das Büro bestätigt.', fehler.length === wer.length ? 'warn' : 'ok'); neu(); return; }
       if (fehler.length) { m.hidden = false; m.textContent = fehler.join(' · '); if (fehler.length < wer.length) neu(); return; }
       d.zu(); toast(wartend ? `${wer.length === 1 ? 'Eingetragen' : wer.length + ' Einträge'} – wartet auf Bestätigung durch Bauleitung oder Büro.` : wer.length === 1 ? 'Abwesenheit eingetragen.' : `${wer.length} Abwesenheiten eingetragen.`); neu();
     });
@@ -120,8 +126,11 @@ export default async function abwesenheiten(el, ctx) {
       return;
     }
     const z = e.target.closest('[data-zurueckziehen]');
-    if (z && await bestaetigen('Antrag zurückziehen?', 'Der Antrag wird gelöscht.', 'Zurückziehen')) {
-      try { await del(`/abwesenheiten/${z.dataset.zurueckziehen}`); toast('Antrag zurückgezogen.'); neu(); } catch (x) { toast(x.message, 'warn'); }
+    if (z) {
+      const n = Number(z.dataset.tage) || 1;
+      if (await bestaetigen('Antrag zurückziehen?', n > 1 ? `Der ganze Antrag (${n} Tage) wird gelöscht.` : 'Der Antrag wird gelöscht.', 'Zurückziehen')) {
+        try { await del(`/abwesenheiten/antraege/${encodeURIComponent(z.dataset.antragId)}`); toast('Antrag zurückgezogen.'); neu(); } catch (x) { toast(x.message, 'warn'); }
+      }
       return;
     }
     const l = e.target.closest('[data-loeschen]');

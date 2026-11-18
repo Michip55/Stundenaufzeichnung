@@ -117,7 +117,7 @@ test('D-04, D-05, D-07, D-08, D-09, D-10', async (t) => {
     assert.match(csv, /Hinweis;Prüfen: Lukas Brandstätter 10\.11\.2026 – Genehmigte Abwesenheit „K“ und 8 Arbeitsstunden/);
   });
 
-  await t.test('D-09: Polier meldet SW für sich; Bauleiter der Stamm-Baustelle bestätigt SW', async () => {
+  await t.test('D-09: Polier meldet SW für sich; Bauleiter (wie Büro) bestätigt SW und Urlaub', async () => {
     const r = await pol.post('/abwesenheiten', { benutzerId: U.polier, datum: '2026-11-12', code: 'SW' });
     assert.equal(r.status, 201);
     assert.equal(r.daten.status, 'beantragt');
@@ -125,9 +125,11 @@ test('D-04, D-05, D-07, D-08, D-09, D-10', async (t) => {
     assert.equal((await bl.put(`/abwesenheiten/${r.daten.id}`, { status: 'genehmigt' })).status, 200);
     const fremd = await (await s.login(13)).post('/abwesenheiten', { benutzerId: 14, datum: '2026-11-12', code: 'SW' });
     assert.equal(fremd.status, 201);
-    assert.equal((await bl.put(`/abwesenheiten/${fremd.daten.id}`, { status: 'genehmigt' })).status, 403); // 26-044 gehört der GF
+    assert.equal(fremd.daten.status, 'gemeldet');
+    // Bauleiter wie Büro (13.11.2026): auch auf 26-044 (gehört der GF) und Urlaub
+    assert.equal((await bl.post(`/abwesenheiten/sw-meldungen/${fremd.daten.meldungId}/bestaetigen`, {})).status, 200);
     const u = await (await s.login(2)).post('/abwesenheiten', { benutzerId: 2, datum: '2026-11-20', code: 'U' });
-    assert.equal((await bl.put(`/abwesenheiten/${u.daten.id}`, { status: 'genehmigt' })).status, 403); // Urlaub nur Büro
+    assert.equal((await bl.put(`/abwesenheiten/${u.daten.id}`, { status: 'genehmigt' })).status, 200);
   });
 });
 
@@ -143,7 +145,12 @@ test('D-03: Überschneidung über die Tagesgrenze (Nachtschicht)', async (t) => 
     assert.equal((await buero.post('/zeit/schichten', { benutzerId: 3, baustelleId: BS.pitten, datum: '2027-11-08', von: '22:00', bis: '06:00', pauseMin: 0, grund: 'Nachtschicht' })).status, 201);
     const b = await pol.post('/berichte', { baustelleId: BS.pitten, datum: '2027-11-09' });
     assert.ok(!b.daten.personal.some((p) => p.benutzerId === 3));
-    const r = await pol.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
+    // 15.11 (G2-016): der Polier bekommt keine Auskunft (gespeichert, Hinweis ans Büro); die Prüfung selbst zeigt die Ablehnung des Büros
+    const rp = await pol.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
+    assert.equal(rp.status, 200, JSON.stringify(rp.daten));
+    assert.ok(!/Schicht vom|gestempelt/.test(JSON.stringify(rp.daten)));
+    assert.equal((await pol.putV(`/berichte/${b.daten.id}`, { personal: [] })).status, 200);
+    const r = await buero.putV(`/berichte/${b.daten.id}`, { personal: [{ benutzerId: 3, von1: '00:00', bis1: '06:00', pauseMin: 0 }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /Schicht vom 08\.11\.2027/);
   });
@@ -152,7 +159,11 @@ test('D-03: Überschneidung über die Tagesgrenze (Nachtschicht)', async (t) => 
     const b9 = await pol8.post('/berichte', { baustelleId: BS.kogler, datum: '2027-11-09' });
     assert.equal((await pol8.putV(`/berichte/${b9.daten.id}`, { personal: [{ benutzerId: 9, von1: '04:00', bis1: '12:00', pauseMin: 0 }] })).status, 200);
     const b8 = await pol.post('/berichte', { baustelleId: BS.pitten, datum: '2027-11-08' });
-    const r = await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
+    const rp = await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
+    assert.equal(rp.status, 200, JSON.stringify(rp.daten)); // 15.11 (G2-016)
+    assert.ok(!/26-038|09\.11\.2027/.test(JSON.stringify(rp.daten)));
+    assert.equal((await pol.putV(`/berichte/${b8.daten.id}`, { personal: b8.daten.personal })).status, 200);
+    const r = await buero.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '22:00', bis1: '06:00', pauseMin: 0, gast: true }] });
     assert.equal(r.status, 400);
     assert.match(r.daten.fehler, /Bericht von Baustelle 26-038 vom 09\.11\.2027/);
     assert.equal((await pol.putV(`/berichte/${b8.daten.id}`, { personal: [...b8.daten.personal, { benutzerId: 9, von1: '18:00', bis1: '22:00', pauseMin: 0, gast: true }] })).status, 200);
@@ -187,14 +198,17 @@ test('D-06: Testdaten nur im Demo-Modus, Einrichtung einer leeren Echt-Datenbank
 
   await t.test('D-06: einrichten() – erste GF, Stammlisten ohne Preise, Regeln', () => {
     const db = oeffneDatenbank(':memory:');
-    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '1234' }), /6 bis 12/);
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '482' }), /4 bis 12/); // 15.21: 4 Ziffern auch für die GF
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '1234' }), /Zahlenfolge/);
     assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '123456' }), /Zahlenfolge/);
+    assert.throws(() => einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '5555' }), /gleichen/);
     assert.throws(() => einrichten(db, { name: 'MP', pnr: 1, pin: '582916' }), /Name/);
     const gf = einrichten(db, { name: 'Michael Pichler', pnr: 1, pin: '582916' });
     assert.equal(gf.pnr, 1);
     assert.equal(db.eins('SELECT COUNT(*) AS n FROM geraet').n, 23);
     assert.equal(db.eins('SELECT SUM(kostensatz) AS s FROM geraet').s, 0);
-    assert.equal(db.eins('SELECT COUNT(*) AS n FROM baustelle').n, 0);
+    assert.equal(db.eins('SELECT COUNT(*) AS n FROM baustelle WHERE intern = 0').n, 0);
+    assert.deepEqual(db.alle('SELECT kst, name FROM baustelle WHERE intern = 1').map((b) => [b.kst, b.name]), [['90-000', 'Büro']]); // 12.25
     assert.equal(db.eins('SELECT muss_pin_aendern FROM benutzer').muss_pin_aendern, 0);
     assert.throws(() => einrichten(db, { name: 'Zweite GF', pnr: 2, pin: '582917' }), /bereits Benutzer/);
     db.schliessen();
