@@ -113,7 +113,9 @@ const EURO_FELDER = new Set([
   'netto', 'brutto', 'ust', 'zahlbetrag', 'skontoGenommen', 'ruecklassOffen', 'ruecklassBetrag', 'summeOffen', 'summeUeberfaellig', 'ruecklaesseOffen', 'verrechnetNetto', 'rechnungen', 'haftruecklass', 'schlussrechnung', 'soll', 'gp',
   // Rechnungen wie auf dem Papier, Fälligkeiten (API.md 15.24)
   'deckungsruecklass', 'skontoBetrag', 'skontoRest', 'mitSkonto', 'ohneSkonto', 'summeOhneSkonto', 'summeMitSkonto', 'summeRuecklass', 'offenGesamt',
-  'differenzen', 'strittig', 'summeStrittig', 'summeDifferenz', 'abzuegeAkzeptiert', 'ueberzahlung', 'einbehaltenBeiZahlung'
+  'differenzen', 'strittig', 'summeStrittig', 'summeDifferenz', 'abzuegeAkzeptiert', 'ueberzahlung', 'einbehaltenBeiZahlung',
+  // Zahlbetrag mit Skonto (API.md 15.26)
+  'zahlbetragMitSkonto', 'skontoZahlbetrag'
 ]);
 // Hinweis: 'fremd' ist bewusst NICHT enthalten (materialbeistellung.fremd ist ein Text ohne €);
 // kosten.fremd verschwindet mit dem ganzen Objekt 'kosten'.

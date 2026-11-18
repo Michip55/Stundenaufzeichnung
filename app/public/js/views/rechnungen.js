@@ -23,7 +23,13 @@ const pv = (betrag, p) => (betrag && p ? Math.sign(betrag) * Math.round(Math.abs
 const zt = (n) => (n == null ? '' : String(n).replace('.', ','));
 const artVon = (x) => (!x ? '' : x.eingabe);
 const wertVon = (x) => (!x ? '' : x.eingabe === 'betrag' ? fmt.betrag(x.betrag) : zt(x.prozent));
-const auswahlArt = (name, wert, keinText, dis) => `<select class="input lg" name="${name}" ${dis}><option value="">${keinText}</option><option value="prozent" ${wert === 'prozent' ? 'selected' : ''}>in %</option><option value="betrag" ${wert === 'betrag' ? 'selected' : ''}>in €</option></select>`;
+const auswahlArt = (name, wert, keinText, dis, mitZahlbetrag = false) => `<select class="input lg" name="${name}" ${dis}><option value="">${keinText}</option><option value="prozent" ${wert === 'prozent' ? 'selected' : ''}>in %</option><option value="betrag" ${wert === 'betrag' ? 'selected' : ''}>in €</option>${mitZahlbetrag ? `<option value="zahlbetrag" ${wert === 'zahlbetrag' ? 'selected' : ''}>Zahlbetrag mit Skonto</option>` : ''}</select>`;
+// 15.26: Beschriftung des Skonto-Werts je Eingabe-Art (in % · in € · Betrag laut Rechnung nach Skonto)
+const SK_LABEL = { prozent: 'Skonto in %', betrag: 'Skonto in €', zahlbetrag: 'Zahlbetrag mit Skonto in €' };
+const SK_PLATZ = { prozent: 'z. B. 3', betrag: 'z. B. 53,27', zahlbetrag: 'z. B. 45.163,20' };
+const SK_EINGABE = { prozent: 'in %', betrag: 'als Betrag', zahlbetrag: 'als Zahlbetrag mit Skonto' };
+/** Skonto-Zeilen unter dem Zahlbetrag (15.26): „Skonto 3 % bis 02.12. − € …“ und „Zahlbetrag mit Skonto € …“ */
+const skontoZeilen = (zeile, prozentWert, skonto, mitSkonto, bis) => `<div data-skonto-wert><dt>Skonto ${esc(fmt.zahl(prozentWert))} %${bis ? ` bis ${esc(fmt.datum(bis).slice(0, 6))}` : ''}</dt><dd>− ${fmt.eur(skonto)}</dd></div>${zeile(mitSkonto)}`;
 const abschnitt = (nr, titel, inhalt, extra = '') => `<section class="re-teil full" data-teil="${nr}"><h4 class="re-h"><span>${nr}</span>${titel}</h4><div class="re-felder">${inhalt}</div>${extra}</section>`;
 
 export async function rechnungDialog(ctx, b, r, fertig) {
@@ -59,8 +65,11 @@ export async function rechnungDialog(ctx, b, r, fertig) {
       </div>
       <div class="full re-papier" id="re-papier" aria-live="polite"></div>`)}
     ${abschnitt(4, 'Zahlungsbedingungen', `
-      <label class="field"><span class="field-label">Skonto</span>${auswahlArt('skontoArt', skArt, 'kein Skonto', dis)}</label>
-      <label class="field" data-skonto><span class="field-label">Skonto <span id="sk-einheit">${skArt === 'betrag' ? 'in €' : 'in %'}</span></span><input class="input lg num" name="skontoWert" inputmode="decimal" autocomplete="off" value="${r && skArt === 'betrag' ? fmt.betrag(r.skontoBetrag) : r && skArt === 'prozent' ? zt(r.skontoProzent) : ''}" placeholder="z. B. 3" ${dis}></label>
+      <label class="field"><span class="field-label">Skonto</span>${auswahlArt('skontoArt', skArt, 'kein Skonto', dis, true)}</label>
+      <label class="field" data-skonto><span class="field-label" id="sk-einheit">${SK_LABEL[skArt] || SK_LABEL.prozent}</span><input class="input lg num" name="skontoWert" inputmode="decimal" autocomplete="off" value="${r && skArt === 'betrag' ? fmt.betrag(r.skontoBetrag) : r && skArt === 'zahlbetrag' ? fmt.betrag(r.zahlbetragMitSkonto) : r && skArt === 'prozent' ? zt(r.skontoProzent) : ''}" placeholder="${SK_PLATZ[skArt] || SK_PLATZ.prozent}" ${dis}></label>
+      <div class="full re-sk-kontrolle" id="re-sk-kontrolle" ${skArt === 'zahlbetrag' ? '' : 'hidden'}>
+        <label class="field"><span class="field-label">Skonto % laut Rechnung <small class="muted">(zur Kontrolle, freiwillig)</small></span><input class="input lg num" name="skontoKontrolle" inputmode="decimal" autocomplete="off" placeholder="z. B. 3" ${dis}></label>
+        <div class="re-papier" id="re-skonto" aria-live="polite"></div></div>
       <label class="field" data-skonto><span class="field-label">Skonto bis (Tage)</span><input class="input lg num" name="skontoTage" inputmode="numeric" autocomplete="off" value="${r && r.skontoTage != null ? r.skontoTage : ''}" placeholder="z. B. 21" ${dis}></label>
       <label class="field"><span class="field-label">Zahlungsziel (Tage)</span><input class="input lg num" name="zahlungszielTage" inputmode="numeric" autocomplete="off" required value="${r ? r.zahlungszielTage ?? '' : ''}" placeholder="z. B. 30"></label>
       <div class="full re-bedingungen" id="re-bedingungen" aria-live="polite"></div>`)}
@@ -85,7 +94,7 @@ export async function rechnungDialog(ctx, b, r, fertig) {
   const bsAktuell = () => (r ? null : baustellen.find((x) => String(x.id) === String(E.baustelle.value)) || null);
   const zahl = (s) => { const t = String(s || '').trim(); if (!t) return null; const n = parseZahl(t); return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : NaN; };
   const prozentZahl = (s) => { const t = String(s || '').trim().replace(',', '.'); return t === '' ? null : Number(t); };
-  const wert = (art, roh) => (art === 'betrag' ? zahl(roh) : prozentZahl(roh));
+  const wert = (art, roh) => (art === 'betrag' || art === 'zahlbetrag' ? zahl(roh) : prozentZahl(roh));
   let stand = {};
   function rechne() {
     const rcEl = form.querySelector('[name="ustModus"]:checked');
@@ -96,7 +105,11 @@ export async function rechnungDialog(ctx, b, r, fertig) {
     for (const a of ['deckung', 'haft', 'skonto']) { const aus = !E[`${a}Art`].value; E[`${a}Wert`].disabled = gesperrt || aus; if (aus) E[`${a}Wert`].value = ''; }
     E.skontoTage.disabled = gesperrt || !E.skontoArt.value; if (!E.skontoArt.value) E.skontoTage.value = '';
     E.haftFreiAb.disabled = !E.haftArt.value;
-    $('#sk-einheit', dlg.el).textContent = E.skontoArt.value === 'betrag' ? 'in €' : 'in %';
+    $('#sk-einheit', dlg.el).textContent = SK_LABEL[E.skontoArt.value] || SK_LABEL.prozent;
+    E.skontoWert.placeholder = SK_PLATZ[E.skontoArt.value] || SK_PLATZ.prozent;
+    const mitZb = E.skontoArt.value === 'zahlbetrag';
+    $('#re-sk-kontrolle', dlg.el).hidden = !mitZb;
+    if (!mitZb) E.skontoKontrolle.value = '';
     E.ustBetrag.readOnly = rc;
     const netto = geldWert(E.netto);
     const ok = Number.isFinite(netto) && netto != null;
@@ -127,15 +140,36 @@ export async function rechnungDialog(ctx, b, r, fertig) {
     const rd = E.datum.value || (r && r.datum);
     const ziel = E.zahlungszielTage.value.trim() === '' ? null : Number(E.zahlungszielTage.value);
     const skArtW = E.skontoArt.value, skW = wert(skArtW, E.skontoWert.value), skT = E.skontoTage.value.trim() === '' ? null : Number(E.skontoTage.value);
-    const skonto = skArtW && Number.isFinite(skW) && skW != null && zahlbetrag != null ? (skArtW === 'betrag' ? skW : pv(zahlbetrag, skW)) : null;
-    const skP = skonto != null && skArtW === 'betrag' && zahlbetrag ? Math.round((skonto / zahlbetrag) * 100000) / 1000 : skW;
+    // 15.26 „Zahlbetrag mit Skonto“: eingetragen ist der Betrag nach Skonto → Skonto € = Zahlbetrag − Betrag (nur wenn kleiner als der Zahlbetrag)
+    const skGueltig = skArtW && Number.isFinite(skW) && skW != null && zahlbetrag != null && (skArtW !== 'zahlbetrag' || (skW > 0 && skW < zahlbetrag - 0.004));
+    const skonto = skGueltig ? (skArtW === 'betrag' ? skW : skArtW === 'zahlbetrag' ? rund(zahlbetrag - skW) : pv(zahlbetrag, skW)) : null;
+    const skP = skonto != null && skArtW !== 'prozent' && zahlbetrag ? Math.round((skonto / zahlbetrag) * 100000) / 1000 : skW;
+    const skBis = Number.isInteger(skT) && skT >= 0 && rd ? fmt.addTage(rd, skT) : null;
     const zeilen = [];
-    if (skArtW && skonto != null && Number.isInteger(skT) && rd) zeilen.push(`<li data-bedingung="skonto"><b>${skT} Tage</b> (bis ${esc(fmt.datum(fmt.addTage(rd, skT)))}) · ${esc(fmt.zahl(skP))} % Skonto · <b class="num">${fmt.eur(rund(zahlbetrag - skonto))}</b></li>`);
+    if (skArtW && skonto != null && skBis) zeilen.push(`<li data-bedingung="skonto"><b>${skT} Tage</b> (bis ${esc(fmt.datum(skBis))}) · ${esc(fmt.zahl(skP))} % Skonto · <b class="num">${fmt.eur(rund(zahlbetrag - skonto))}</b></li>`);
     if (Number.isInteger(ziel) && ziel >= 0 && rd && zahlbetrag != null) zeilen.push(`<li data-bedingung="ziel"><b>${ziel} Tage</b> (bis ${esc(fmt.datum(fmt.addTage(rd, ziel)))}) · ohne Abzug · <b class="num">${fmt.eur(zahlbetrag)}</b></li>`);
     $('#re-bedingungen', dlg.el).innerHTML = zeilen.length ? `<span class="field-label">Zahlungsvereinbarungen</span><ul class="plain re-bed">${zeilen.join('')}</ul>` : '';
+    // 15.26: Kontrolle „Zahlbetrag mit Skonto“ – Hinweis wie bei Netto/USt/Brutto; Skonto % laut Rechnung (freiwillig) wird nachgerechnet
+    let skHinweis = '';
+    if (mitZb && zahlbetrag != null && E.skontoWert.value.trim()) {
+      const hinweis = (art, text, icon) => `<span class="re-hinweis${art === 'info' ? '' : art === 'ok' ? ' ok' : ' warn'}" data-skonto="${art}">${icon ? ic(icon) : ''}<span${art === 'info' ? ' class="muted"' : ''}>${text}</span></span>`;
+      const kRoh = E.skontoKontrolle.value.trim(), kP = prozentZahl(kRoh);
+      if (!Number.isFinite(skW) || skW == null || !(skW > 0)) skHinweis = hinweis('unklar', 'Betrag unklar – bitte so schreiben wie auf der Rechnung, z. B. 45.163,20.', 'alert');
+      else if (!(skW < zahlbetrag - 0.004)) skHinweis = hinweis('zu-hoch', `Der Zahlbetrag mit Skonto muss kleiner sein als der Zahlbetrag (${esc(fmt.eur(zahlbetrag))}).`, 'alert');
+      else if (skonto > zahlbetrag * 0.1 + 0.005) skHinweis = hinweis('zu-viel', `Ergibt ${esc(fmt.zahl(skP))} % Skonto (${esc(fmt.eur(skonto))}) – höchstens 10 % sind möglich. Bitte mit der Rechnung vergleichen.`, 'alert');
+      else if (kRoh && !(Number.isFinite(kP) && kP > 0 && kP <= 10)) skHinweis = hinweis('kontrolle-unklar', 'Skonto % zur Kontrolle unklar – bitte so schreiben: 3 oder 2,5.', 'alert');
+      else if (kRoh) {
+        const gerechnet = rund(zahlbetrag - pv(zahlbetrag, kP));
+        skHinweis = Math.abs(gerechnet - skW) > 0.0101
+          ? hinweis('abweichung', `Skonto ${esc(fmt.zahl(kP))} %: Papier ${esc(fmt.betrag(skW))} – gerechnet ${esc(fmt.betrag(gerechnet))}, bitte prüfen.`, 'alert')
+          : hinweis('ok', `Zahlbetrag − ${esc(fmt.zahl(kP))} % Skonto = ${esc(fmt.betrag(gerechnet))} – passt zur Rechnung.`, 'check');
+      } else skHinweis = hinweis('info', `Ergibt Skonto ${esc(fmt.eur(skonto))} (${esc(fmt.zahl(skP))} %).`);
+    }
+    $('#re-skonto', dlg.el).innerHTML = skHinweis;
     const box = $('#re-vorschau', dlg.el);
-    box.innerHTML = br == null ? '' : `<dl class="re-summe"><div><dt>Netto</dt><dd>${fmt.eur(ok ? netto : null)}</dd></div><div><dt>USt ${rc ? '(Reverse Charge)' : '20 %'}</dt><dd>${fmt.eur(ust)}</dd></div><div><dt>Brutto</dt><dd>${fmt.eur(br)}</dd></div>${rl.deckung ? `<div data-rl-wert="deckung"><dt>Deckungsrücklass</dt><dd>− ${fmt.eur(rl.deckung)}</dd></div>` : ''}${rl.haft ? `<div data-rl-wert="haft"><dt>Haftrücklass</dt><dd>− ${fmt.eur(rl.haft)}</dd></div>` : ''}<div class="sum"><dt>Zahlbetrag</dt><dd id="re-zahlbetrag">${fmt.eur(zahlbetrag)}</dd></div></dl>`;
-    stand = { modus, netto, ust, brutto, fehlerPapier, rl, zahlbetrag, skArtW, skW, skT, skonto, ziel };
+    // Gutschrift: kein Abzug von Skonto (wie Fälligkeiten und „Als bezahlt markieren“) – daher keine „mit Skonto“-Zeilen
+    box.innerHTML = br == null ? '' : `<dl class="re-summe"><div><dt>Netto</dt><dd>${fmt.eur(ok ? netto : null)}</dd></div><div><dt>USt ${rc ? '(Reverse Charge)' : '20 %'}</dt><dd>${fmt.eur(ust)}</dd></div><div><dt>Brutto</dt><dd>${fmt.eur(br)}</dd></div>${rl.deckung ? `<div data-rl-wert="deckung"><dt>Deckungsrücklass</dt><dd>− ${fmt.eur(rl.deckung)}</dd></div>` : ''}${rl.haft ? `<div data-rl-wert="haft"><dt>Haftrücklass</dt><dd>− ${fmt.eur(rl.haft)}</dd></div>` : ''}<div class="sum"><dt>Zahlbetrag</dt><dd id="re-zahlbetrag">${fmt.eur(zahlbetrag)}</dd></div>${!gs && skonto > 0 ? skontoZeilen((w) => `<div class="sum" data-zahlbetrag-skonto><dt>Zahlbetrag mit Skonto</dt><dd id="re-zahlbetrag-skonto">${fmt.eur(w)}</dd></div>`, skP, skonto, rund(zahlbetrag - skonto), skBis) : ''}</dl>`;
+    stand = { modus, netto, ust, brutto, fehlerPapier, rl, zahlbetrag, skArtW, skW, skT, skonto, skP, ziel };
   }
   // sichtbarer Vorschlag: Werte der letzten Rechnung an denselben Auftraggeber (nur auf Knopfdruck übernommen)
   async function vorschlag() {
@@ -147,20 +181,34 @@ export async function rechnungDialog(ctx, b, r, fertig) {
     let l = [];
     try { l = (await get(`/rechnungen?auftraggeber=${encodeURIComponent(bs.auftraggeber)}`)).filter((x) => x.baustelle && x.baustelle.auftraggeber === bs.auftraggeber && x.status !== 'storniert'); } catch (_) { return; }
     const v = l[0]; if (!v || bsAktuell() !== bs) return;
-    const sk = v.skontoEingabe ? `${v.skontoEingabe === 'betrag' ? fmt.eur(v.skontoBetrag) : fmt.zahl(v.skontoProzent) + ' %'} Skonto ${v.skontoTage} Tage` : 'kein Skonto';
+    // „Zahlbetrag mit Skonto“ gilt nur für die eine Rechnung – übernommen wird der Prozentsatz
+    const skE = v.skontoEingabe === 'zahlbetrag' ? 'prozent' : v.skontoEingabe;
+    const sk = skE ? `${skE === 'betrag' ? fmt.eur(v.skontoBetrag) : fmt.zahl(v.skontoProzent) + ' %'} Skonto ${v.skontoTage} Tage` : 'kein Skonto';
     box.innerHTML = `<span class="grow"><b>Letzte Rechnung an ${esc(bs.auftraggeber)}:</b> ${esc(v.nr)} vom ${esc(fmt.datum(v.datum))} – ${v.ustModus === 'reverse_charge' ? 'Reverse Charge' : '20 % USt'}, Ziel ${v.zahlungszielTage} Tage, ${esc(sk)}</span><button type="button" class="btn ghost sm" id="re-vorschlag-ok">Diese Werte übernehmen</button>`;
     box.hidden = false;
     $('#re-vorschlag-ok', box).onclick = () => {
       form.querySelector(`[name="ustModus"][value="${v.ustModus}"]`).checked = true;
       E.zahlungszielTage.value = v.zahlungszielTage ?? '';
-      E.skontoArt.value = v.skontoEingabe || '';
-      E.skontoWert.value = v.skontoEingabe === 'betrag' ? fmt.betrag(v.skontoBetrag) : v.skontoEingabe ? zt(v.skontoProzent) : '';
-      E.skontoTage.value = v.skontoEingabe ? v.skontoTage ?? '' : '';
+      E.skontoArt.value = skE || '';
+      E.skontoWert.value = skE === 'betrag' ? fmt.betrag(v.skontoBetrag) : skE ? zt(v.skontoProzent) : '';
+      E.skontoTage.value = skE ? v.skontoTage ?? '' : '';
+      skWertArt = skE || '';
       hand.ustBetrag = false; hand.brutto = false;
       rechne(); box.hidden = true; toast('Werte übernommen – bitte mit der Rechnung vergleichen.');
     };
   }
-  form.addEventListener('input', rechne); form.addEventListener('change', (e) => { if (e.target.name === 'ustModus' || e.target.name === 'netto') { hand.ustBetrag = hand.ustBetrag && e.target.name !== 'ustModus'; } if (e.target.name === 'baustelle') vorschlag(); rechne(); });
+  // 15.26: Wechsel der Skonto-Art rechnet den eingetragenen Wert um (3 % ↔ € 1.396,80 ↔ Zahlbetrag mit Skonto € 45.163,20)
+  let skWertArt = skArt;
+  function skontoUmrechnen() {
+    const alt = skWertArt, neu = E.skontoArt.value;
+    skWertArt = neu;
+    if (!alt || !neu || alt === neu) return;
+    const zb = stand.zahlbetrag, w = wert(alt, E.skontoWert.value);
+    const sk = !(zb > 0) || !Number.isFinite(w) || w == null || !(w > 0) ? null : alt === 'prozent' ? pv(zb, w) : alt === 'betrag' ? w : w < zb ? rund(zb - w) : null;
+    if (alt === 'prozent' && neu === 'zahlbetrag' && Number.isFinite(w) && w > 0) E.skontoKontrolle.value = zt(w); // Prozent laut Rechnung bleibt zur Kontrolle stehen
+    E.skontoWert.value = sk == null || !(sk > 0) ? '' : neu === 'prozent' ? zt(Math.round((sk / zb) * 100000) / 1000) : neu === 'betrag' ? fmt.betrag(sk) : fmt.betrag(rund(zb - sk));
+  }
+  form.addEventListener('input', rechne); form.addEventListener('change', (e) => { if (e.target.name === 'ustModus' || e.target.name === 'netto') { hand.ustBetrag = hand.ustBetrag && e.target.name !== 'ustModus'; } if (e.target.name === 'baustelle') vorschlag(); if (e.target.name === 'skontoArt') skontoUmrechnen(); rechne(); });
   rechne(); if (!r) vorschlag();
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); rechne(); const f = new FormData(form); const err = $('.form-err', dlg.el);
@@ -177,10 +225,15 @@ export async function rechnungDialog(ctx, b, r, fertig) {
       if (!Number.isFinite(stand.ust) || stand.ust == null || !Number.isFinite(stand.brutto) || stand.brutto == null) return zeig('Bitte USt-Betrag und Brutto wie auf der Rechnung eintragen.');
       if (stand.fehlerPapier) return zeig(`${stand.fehlerPapier} Bitte mit der Rechnung vergleichen.`);
       if (stand.skArtW) {
-        if (!(stand.skW > 0) || (stand.skArtW === 'prozent' && stand.skW > 10)) return zeig(stand.skArtW === 'prozent' ? 'Skonto in Prozent eintragen (0–10).' : 'Skonto-Betrag unklar – bitte so schreiben: 53,27');
+        if (stand.skArtW === 'zahlbetrag') {
+          // 15.26: Betrag laut Rechnung nach Skonto – größer als 0, kleiner als der Zahlbetrag, höchstens 10 % Skonto
+          if (!(stand.skW > 0)) return zeig('Zahlbetrag mit Skonto unklar – bitte so schreiben wie auf der Rechnung, z. B. 45.163,20');
+          if (!(stand.skW < stand.zahlbetrag - 0.004)) return zeig(`Der Zahlbetrag mit Skonto (${fmt.eur(stand.skW)}) muss kleiner sein als der Zahlbetrag (${fmt.eur(stand.zahlbetrag)}).`);
+          if (stand.skonto > stand.zahlbetrag * 0.1 + 0.005) return zeig(`Der Zahlbetrag mit Skonto ergibt ${fmt.zahl(stand.skP)} % Skonto – höchstens 10 % sind möglich. Bitte mit der Rechnung vergleichen.`);
+        } else if (!(stand.skW > 0) || (stand.skArtW === 'prozent' && stand.skW > 10)) return zeig(stand.skArtW === 'prozent' ? 'Skonto in Prozent eintragen (0–10).' : 'Skonto-Betrag unklar – bitte so schreiben: 53,27');
         if (!Number.isInteger(stand.skT) || stand.skT < 0) return zeig('Bitte die Skontofrist in Tagen eintragen.');
       }
-      Object.assign(body, { netto: stand.netto, ustModus: stand.modus, ustBetrag: stand.ust, brutto: stand.brutto, skontoProzent: stand.skArtW === 'prozent' ? stand.skW : null, skontoBetrag: stand.skArtW === 'betrag' ? stand.skW : null, skontoTage: stand.skArtW ? stand.skT : null });
+      Object.assign(body, { netto: stand.netto, ustModus: stand.modus, ustBetrag: stand.ust, brutto: stand.brutto, skontoProzent: stand.skArtW === 'prozent' ? stand.skW : null, skontoBetrag: stand.skArtW === 'betrag' ? stand.skW : null, skontoZahlbetrag: stand.skArtW === 'zahlbetrag' ? stand.skW : null, skontoTage: stand.skArtW ? stand.skT : null });
       for (const a of ['deckung', 'haft']) {
         const art = f.get(`${a}Art`) || '', w = wert(art, f.get(`${a}Wert`));
         if (art && !(w > 0 && (art === 'betrag' || w <= 20))) return zeig(`Bitte den ${RLA[a]} ${art === 'betrag' ? 'in Euro' : 'in Prozent (z. B. 5)'} eintragen – oder „kein ${RLA[a]}“ wählen.`);
@@ -377,7 +430,8 @@ export async function rechnungOeffnen(ctx, id, fertig) {
     <dl class="def-list">${zeile('Bauvorhaben', `${esc(b.kst || '')} ${esc(b.name || '')}`)}${zeile('Auftraggeber', esc(b.auftraggeber || '–'))}${zeile('Rechnungsdatum', esc(fmt.datum(r.datum)))}${zeile('Fällig am', esc(r.faellig ? fmt.datum(r.faellig) : '–'))}
       ${r.empfaenger ? zeile('Rechnungsempfänger', esc(r.empfaenger)) : ''}${r.agZeichen ? zeile('Zeichen des Auftraggebers', esc(r.agZeichen)) : ''}${r.leistungVon || r.leistungBis ? zeile('Leistungszeitraum', esc(`${fmt.datum(r.leistungVon)} bis ${fmt.datum(r.leistungBis)}`)) : ''}
       ${zeile('Netto', fmt.eur(r.netto))}${zeile(r.ustModus === 'reverse_charge' ? 'USt (Reverse Charge)' : `USt ${fmt.zahl(r.ustSatz)} %`, fmt.eur(r.ust))}${zeile('Brutto', fmt.eur(r.brutto))}${['deckung', 'haft'].map((a) => { const x = a === 'haft' ? r.haftruecklass : r.deckungsruecklass; return x ? `<div data-rl="${a}"><dt>${RLA[a]}${x.eingabe === 'prozent' ? ` ${esc(fmt.zahl(x.prozent))} %` : ''}</dt><dd>− ${fmt.eur(x.betrag)}</dd></div>` : ''; }).join('')}${zeile('Zahlbetrag', `<b>${fmt.eur(r.zahlbetrag)}</b>`)}
-      ${r.skontoBetrag ? zeile('Skonto', `${esc(fmt.zahl(r.skontoProzent))} % = ${fmt.eur(r.skontoBetrag)} bis ${esc(r.skontoBis ? fmt.datum(r.skontoBis) : '–')} <small class="muted">(eingetragen ${r.skontoEingabe === 'betrag' ? 'als Betrag' : 'in %'})</small>`) : zeile('Skonto', 'kein Skonto')}
+      ${r.skontoBetrag > 0 && r.typ !== 'gutschrift' ? skontoZeilen((w) => `<div data-zahlbetrag-skonto><dt>Zahlbetrag mit Skonto</dt><dd><b data-wert="zahlbetragMitSkonto">${fmt.eur(w)}</b></dd></div>`, r.skontoProzent, r.skontoBetrag, r.zahlbetragMitSkonto ?? rund(r.zahlbetrag - r.skontoBetrag), r.skontoBis) : ''}
+      ${r.skontoBetrag ? zeile('Skonto', `${esc(fmt.zahl(r.skontoProzent))} % = ${fmt.eur(r.skontoBetrag)} bis ${esc(r.skontoBis ? fmt.datum(r.skontoBis) : '–')} <small class="muted" data-skonto-eingabe="${esc(r.skontoEingabe || '')}">(eingetragen ${SK_EINGABE[r.skontoEingabe] || 'in %'})</small>`) : zeile('Skonto', 'kein Skonto')}
       ${zeile('Bezahlt', fmt.eur(r.bezahlt))}${r.skontoGenommen ? zeile('Skonto genommen', fmt.eur(r.skontoGenommen)) : ''}${r.abzuegeAkzeptiert ? zeile('Abzüge akzeptiert', fmt.eur(r.abzuegeAkzeptiert)) : ''}${zeile('Offen', `<b data-wert="offen">${fmt.eur(r.offen)}</b>${r.strittig ? ` <small class="muted">davon strittig ${fmt.eur(r.strittig)}</small>` : ''}`)}${r.ueberzahlung ? zeile('Überzahlung', fmt.eur(r.ueberzahlung)) : ''}${['deckung', 'haft'].map((a) => { const x = a === 'haft' ? r.haftruecklass : r.deckungsruecklass; return x ? zeile(`${RLA[a]} offen`, `${fmt.eur(x.offen)}${x.freiAb ? ' · frei ab ' + esc(fmt.datum(x.freiAb)) : a === 'deckung' ? ' · frei mit der Schlussrechnung' : ''}`) : ''; }).join('')}
       ${r.notiz ? zeile('Notiz', esc(r.notiz)) : ''}</dl>
     <h4 class="sub-h">Zahlungen <span class="count">${(r.zahlungen || []).length}</span></h4>

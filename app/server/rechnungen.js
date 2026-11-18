@@ -42,7 +42,8 @@ const hatRuecklass = (r, art) => (r[`${art}_betrag`] != null) || !!r[`${art}_pro
  * Beträge einer Rechnung aus den Kopfdaten (je Schritt auf Cent, 12.17) – auch für die Prüfung vor dem Speichern.
  * 15.24: USt und Brutto laut Rechnung (ust_betrag/brutto), sonst gerechnet; Deckungs- und Haftrücklass getrennt
  * (je Betrag oder Prozent vom Brutto); Zahlbetrag = Brutto − Deckungsrücklass − Haftrücklass;
- * Skonto = eingegebener Betrag oder Prozent × Zahlbetrag.
+ * Skonto = eingegebener Betrag oder Prozent × Zahlbetrag (15.26: bei „Zahlbetrag mit Skonto“ steht in skonto_betrag
+ * Zahlbetrag − eingetragener Betrag, beim Speichern gerechnet).
  */
 function betraege(r) {
   const netto = r2(r.netto || 0);
@@ -158,7 +159,9 @@ function rechnungJson(db, r, namen) {
     id: r.id, baustelleId: r.baustelle_id, baustelle: bs, nr: r.nr, typ: r.typ, typName: TYPEN[r.typ], datum: r.datum, leistungVon: r.leistung_von, leistungBis: r.leistung_bis,
     netto: r.netto, ustModus: r.ust_modus, ustSatz: r.ust_modus === 'reverse_charge' ? 0 : r.ust_satz, ust: s.ust, brutto: s.brutto, ustLautRechnung: r.ust_betrag != null || r.brutto != null,
     zahlungszielTage: r.zahlungsziel_tage, faellig: s.faellig,
-    skontoEingabe: r.skonto_betrag != null ? 'betrag' : r.skonto_prozent ? 'prozent' : null, skontoProzent: s.skontoProzent, skontoBetrag: s.skontoMax, skontoTage: r.skonto_tage, skontoBis: s.skontoBis,
+    skontoEingabe: r.skonto_zahlbetrag != null ? 'zahlbetrag' : r.skonto_betrag != null ? 'betrag' : r.skonto_prozent ? 'prozent' : null, skontoProzent: s.skontoProzent, skontoBetrag: s.skontoMax, skontoTage: r.skonto_tage, skontoBis: s.skontoBis,
+    // 15.26: Zahlbetrag − Skonto (bei „Zahlbetrag mit Skonto“ genau der eingetragene Betrag laut Rechnung); ohne Skonto null
+    zahlbetragMitSkonto: s.skontoMax > 0 ? r2(s.zahlbetrag - s.skontoMax) : null,
     deckungsruecklass: rl('deckung'), haftruecklass: rl('haft'),
     // bisherige Felder (Summe beider Rücklässe; ruecklassArt 'beide', wenn beide auf der Rechnung stehen)
     ruecklassArt: arten.length === 2 ? 'beide' : arten[0] || null, ruecklassProzent: arten.length === 1 ? r[`${arten[0]}_prozent`] ?? null : null, ruecklassBetrag: arten.length === 1 ? r[`${arten[0]}_betrag`] ?? null : null,
