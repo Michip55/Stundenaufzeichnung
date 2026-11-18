@@ -145,7 +145,7 @@ async function stammdatenUndLebenslauf(h, z) {
     pruef(r.status === 200, `A2-Stamm: Material im Bericht speichern → ${r.status}`);
     z.berMat = ber.id;
   }
-  for (const r of ['/plan', '/offene-posten', '/preise', '/lohn-vorlagen']) await h.keinZugriff(r);
+  for (const r of ['/plan', '/offene-posten', '/rechnungen', '/faelligkeiten', '/preise', '/lohn-vorlagen']) await h.keinZugriff(r);
   await geh('/baustellen'); await keinEuro('polier baustellen');
   await geh(`/baustelle/${w}`); await keinEuro('polier baustelle');
   pruef(await page.locator('#lebenslauf').count() === 1 && await page.locator('#phase-weiter').count() === 0, 'A2-Leben: Polier sieht den Status nicht oder darf ihn ändern');
@@ -217,11 +217,20 @@ async function stammdatenUndLebenslauf(h, z) {
   await toastWeg();
   // Übersicht: Kacheln
   await geh('/dashboard');
-  // 15.20: neue Übersicht – Offenes als eigene Zeile (Wert rechts), was passt, in der Zeile „… – in Ordnung“ (data-wert 0)
-  const srZeile = page.locator('#bv-kacheln a.ue-row[data-kpi="schlussrechnungen"]');
-  pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 1 && await srZeile.count() === 1 && Number(await srZeile.getAttribute('data-wert')) >= 1 && Number(await srZeile.locator('.ue-wert').innerText()) >= 1, 'A2-Leben: Zeile „Schlussrechnung offen“ fehlt oder zählt nicht');
-  pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Abnahme/Gewährleistung fehlen in der Übersicht');
-  { const kzS = (await api('GET', '/baustellen-kennzahlen')).json; pruef(Number(await srZeile.getAttribute('data-wert')) === kzS.offeneSchlussrechnungen.anzahl && Number(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').getAttribute('data-wert')) === kzS.abnahmeOhneSchlussrechnung, 'A2-Leben: Zahlen der Übersicht weichen vom Server ab'); }
+  // 15.20/15.24: neue Übersicht – mit Preisrecht stehen Rechnungen jeder Art als „Rechnungen“ (in Ordnung bzw. „Offene Rechnungen“) und
+  // „Fälligkeiten“; die Phase „Schlussrechnung“ zählt nur noch als „Schlussrechnung nicht erfasst“ (gelegt, keine Rechnung erfasst)
+  {
+    const kzS = (await api('GET', '/baustellen-kennzahlen')).json, opS = (await api('GET', '/offene-posten')).json;
+    const nE = (kzS.offeneSchlussrechnungen.ohneRechnung || {}).anzahl || 0;
+    const srZeile = page.locator('#bv-kacheln a.ue-row[data-kpi="schlussrechnung-nicht-erfasst"]');
+    pruef(kzS.offeneSchlussrechnungen.anzahl >= 1 && nE >= 1 && await srZeile.count() === 1 && Number(await srZeile.getAttribute('data-wert')) === nE && Number(await srZeile.locator('.ue-wert').innerText()) === nE, `A2-Leben: Zeile „Schlussrechnung nicht erfasst“ fehlt oder zählt nicht (Server ${nE})`);
+    pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 0 && !/Schlussrechnungen offen|Offene Posten/.test(await page.locator('#bv-kacheln').innerText()), 'A2-Leben/15.24: Übersicht spricht noch von „Schlussrechnungen offen“/„Offene Posten“ statt „Rechnungen“');
+    const opZ = page.locator('#bv-kacheln [data-kpi="offene-posten"]');
+    pruef(await opZ.count() === 1 && Number(await opZ.getAttribute('data-wert')) === (opS.anzahlOffen || 0) && /Rechnungen/.test(await opZ.innerText()), `A2-Leben/15.24: „Rechnungen“ in der Übersicht fehlt oder zählt anders als GET /offene-posten (${await opZ.count()})`);
+    pruef(await page.locator('#bv-kacheln a.ue-row[data-kpi="faelligkeiten"][href="#/faelligkeiten"]').count() === 1, 'A2-Leben/15.24: Zeile „Fälligkeiten“ fehlt in „Geld“');
+    pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Abnahme/Gewährleistung fehlen in der Übersicht');
+    pruef(Number(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').getAttribute('data-wert')) === kzS.abnahmeOhneSchlussrechnung, 'A2-Leben: Zahlen der Übersicht weichen vom Server ab');
+  }
   await ueberlauf('dashboard kacheln'); await shot('dashboard-bauvorhaben');
   // bezahlt → archiviert (über die Schnittstelle), dann Archiv-Ansicht
   for (const phase of ['bezahlt', 'archiviert']) { const yb = (await api('GET', `/baustellen/${z.y.id}`)).json; const r = await api('POST', `/baustellen/${z.y.id}/phase`, { phase, version: yb.version }); pruef(r.status === 200, `A2-Leben: Phase ${phase} → ${r.status}`); }
@@ -810,14 +819,16 @@ async function dokumenteUndRechnungen(h, z) {
   await page.waitForSelector('dialog[open] #ref');
   const nr = `RE-${k}-0001`;
   await page.fill('#ref [name="nr"]', nr);
+  await page.check('#ref [name="ustModus"][value="normal"]');
   await page.fill('#ref [name="netto"]', '10.000,00');
   await page.fill('#ref [name="zahlungszielTage"]', '30');
-  pruef((await page.locator('#re-faellig').innerText()).includes(plusTage(heute, 30).split('-').reverse().join('.')), `A2-Re: Fälligkeit nicht aus Datum + Zahlungsziel (${await page.locator('#re-faellig').innerText()})`);
+  // 15.24: Fälligkeit steht in den Zahlungsvereinbarungen („30 Tage (bis TT.MM.JJJJ) · ohne Abzug · € …“)
+  pruef((await page.locator('#re-bedingungen [data-bedingung="ziel"]').innerText()).includes(`30 Tage (bis ${plusTage(heute, 30).split('-').reverse().join('.')})`), `A2-Re: Fälligkeit nicht aus Datum + Zahlungsziel (${await page.locator('#re-bedingungen').innerText()})`);
   await page.check('#ref [name="ustModus"][value="reverse_charge"]');
   pruef(await page.locator('#rc-hinweis').isVisible() && (await page.locator('#re-zahlbetrag').innerText()).includes('10.000,00'), 'A2-Re: Reverse Charge ohne Hinweis oder mit Umsatzsteuer');
   await page.check('#ref [name="ustModus"][value="normal"]');
-  await page.selectOption('#ref [name="ruecklassArt"]', 'haft'); await page.fill('#ref [name="ruecklassProzent"]', '5');
-  await page.fill('#ref [name="skontoProzent"]', '3'); await page.fill('#ref [name="skontoTage"]', '14');
+  await page.selectOption('#ref [name="haftArt"]', 'prozent'); await page.fill('#ref [name="haftWert"]', '5');
+  await page.selectOption('#ref [name="skontoArt"]', 'prozent'); await page.fill('#ref [name="skontoWert"]', '3'); await page.fill('#ref [name="skontoTage"]', '14');
   pruef((await page.locator('#re-zahlbetrag').innerText()).includes('11.400,00'), `A2-Re: Zahlbetrag-Vorschau falsch (${await page.locator('#re-zahlbetrag').innerText()})`);
   await page.setInputFiles('#ref [name="pdf"]', pdfDatei(`${nr}.pdf`, nr));
   await dialogUeberlauf('rechnung erfassen'); await shot('rechnung-erfassen');
@@ -828,8 +839,9 @@ async function dokumenteUndRechnungen(h, z) {
   await toastWeg();
   // doppelte Nummer → Fehler im Formular
   await page.click('#re-neu'); await page.waitForSelector('dialog[open] #ref');
-  await page.fill('#ref [name="nr"]', nr); await page.fill('#ref [name="netto"]', '1,00');
+  await page.fill('#ref [name="nr"]', nr); await page.check('#ref [name="ustModus"][value="normal"]'); await page.fill('#ref [name="netto"]', '1,00'); await page.fill('#ref [name="zahlungszielTage"]', '14');
   await h.absichtlich(async () => { await page.click('#re-ok'); await page.waitForSelector('#ref .form-err:not([hidden])'); });
+  pruef(/gibt es bereits/.test(await page.locator('#ref .form-err').innerText()), `A2-Re: doppelte Nummer nicht vom Server abgewiesen („${await page.locator('#ref .form-err').innerText()}“)`);
   await page.click('dialog[open] [data-zu]');
   // Teilzahlung, Mahnstufe
   await page.locator(`#re-tabelle tr:has-text("${nr}")`).click();
@@ -1066,7 +1078,8 @@ async function dokumenteUndRechnungen(h, z) {
   await keinEuro('polier dokumente'); await ueberlauf('polier dokumente'); await shot('dokumente-polier');
   if (angebot) pruef((await h.absichtlich(() => api('GET', `/baustellen/${W}/dokumente/${angebot.id}`))).status === 403, 'A2-Dok: Polier kann ein finanzielles Dokument direkt abrufen');
   pruef((await h.absichtlich(() => api('GET', `/rechnungen?baustelleId=${W}`))).status === 403, 'A2-Re: Polier kann Rechnungen abrufen');
-  await h.keinZugriff('/offene-posten');
+  pruef((await h.absichtlich(() => api('GET', '/faelligkeiten'))).status === 403, 'A2-Re: Polier kann Fälligkeiten abrufen (15.24)');
+  await h.keinZugriff('/offene-posten'); await h.keinZugriff('/rechnungen'); await h.keinZugriff('/faelligkeiten');
   await abmelden();
 }
 

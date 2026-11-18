@@ -137,7 +137,7 @@ module.exports = function importRouten(api, bt) {
         const alt = { offen: altOffen, status: st.gebucht > 0 ? statusBei(r, st, altOffen) : st.s.status };
         if (doppelt) { zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, typ: r.typ, betrag, datum: zd, alt, neu: alt, aenderung: false, bereitsGebucht: true }); return; }
         // N-007/N-056: keine Überzahlung (wie die händische Zahlung)
-        if (betrag > altOffen + 0.005) { fehler.push({ zeile, text: `${nr}: Die Zahlung (${eur(betrag)}) übersteigt den offenen Betrag (${eur(altOffen)})${r.ruecklass_art ? ' – Rücklass-Auszahlungen bitte händisch als Rücklass erfassen' : ''}. Bitte prüfen.` }); return; }
+        if (betrag > altOffen + 0.005) { fehler.push({ zeile, text: `${nr}: Die Zahlung (${eur(betrag)}) übersteigt den offenen Betrag (${eur(altOffen)})${R.hatRuecklass(r, 'deckung') || R.hatRuecklass(r, 'haft') ? ' – Rücklass-Auszahlungen bitte händisch als Rücklass erfassen' : ''}. Bitte prüfen.` }); return; }
         const neuOffen = R.r2(altOffen - betrag);
         st.gebucht = R.r2(st.gebucht + betrag);
         zugeordnet.push({ zeile, rechnungId: r.id, nr: r.nr, typ: r.typ, betrag, datum: zd, alt, neu: { offen: neuOffen, status: statusBei(r, st, neuOffen) }, aenderung: true, bereitsGebucht: false });

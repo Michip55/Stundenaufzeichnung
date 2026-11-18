@@ -1463,6 +1463,59 @@ CREATE TABLE benutzer_arbeitszeitmodell (
 CREATE INDEX benutzer_arbeitszeitmodell_b ON benutzer_arbeitszeitmodell(benutzer_id, gueltig_ab);
 ALTER TABLE benutzer ADD COLUMN buak_pflichtig INTEGER CHECK (buak_pflichtig IS NULL OR buak_pflichtig IN (0, 1));
 `
+  },
+  {
+    version: 49,
+    name: '15.24: Rechnungen wie auf dem Papier – USt/Brutto, Skonto in %/€, Deckungs- und Haftrücklass, Empfänger',
+    // ust_betrag/brutto: Beträge laut Rechnung (NULL = aus Netto × Satz gerechnet, wie bisher). skonto_betrag: Skonto in €
+    // statt Prozent (gespeichert wird, was eingegeben wurde). Rücklässe getrennt: deckung_*/haft_* (je Prozent ODER Betrag;
+    // Betrag geht vor), haft_frei_ab = Freigabe des Haftrücklasses laut Rechnung. Übernahme aus ruecklass_art/_prozent/_betrag,
+    // danach werden die alten Spalten entfernt (eine Quelle). Zahlungen mit ruecklass = 1 bekommen die Art ihres Rücklasses.
+    sql: `
+ALTER TABLE rechnung ADD COLUMN ust_betrag REAL;
+ALTER TABLE rechnung ADD COLUMN brutto REAL;
+ALTER TABLE rechnung ADD COLUMN skonto_betrag REAL;
+ALTER TABLE rechnung ADD COLUMN deckung_prozent REAL;
+ALTER TABLE rechnung ADD COLUMN deckung_betrag REAL;
+ALTER TABLE rechnung ADD COLUMN haft_prozent REAL;
+ALTER TABLE rechnung ADD COLUMN haft_betrag REAL;
+ALTER TABLE rechnung ADD COLUMN haft_frei_ab TEXT;
+ALTER TABLE rechnung ADD COLUMN empfaenger TEXT;
+ALTER TABLE rechnung ADD COLUMN ag_zeichen TEXT;
+UPDATE rechnung SET
+  deckung_prozent = CASE WHEN ruecklass_art = 'deckung' THEN ruecklass_prozent END,
+  deckung_betrag = CASE WHEN ruecklass_art = 'deckung' THEN ruecklass_betrag END,
+  haft_prozent = CASE WHEN ruecklass_art = 'haft' THEN ruecklass_prozent END,
+  haft_betrag = CASE WHEN ruecklass_art = 'haft' THEN ruecklass_betrag END;
+ALTER TABLE rechnung_zahlung ADD COLUMN ruecklass_art TEXT CHECK (ruecklass_art IS NULL OR ruecklass_art IN ('haft','deckung'));
+UPDATE rechnung_zahlung SET ruecklass_art = COALESCE((SELECT r.ruecklass_art FROM rechnung r WHERE r.id = rechnung_zahlung.rechnung_id), 'haft') WHERE ruecklass = 1;
+ALTER TABLE rechnung DROP COLUMN ruecklass_art;
+ALTER TABLE rechnung DROP COLUMN ruecklass_prozent;
+ALTER TABLE rechnung DROP COLUMN ruecklass_betrag;
+`
+  },
+  {
+    version: 50,
+    name: '15.24: Zahlungsabgleich – Differenzen je Zahlung (akzeptiert, strittig, Rücklass einbehalten, Überzahlung)',
+    // Eine Zeile je Grund einer Differenz zwischen erwartetem und tatsächlich bezahltem Betrag, verknüpft mit der Zahlung
+    // (Rückgängig/Löschen der Zahlung löscht die Zeilen mit). status: akzeptiert (Abzug gilt, schließt den Betrag), strittig
+    // (bleibt offen), einbehalten (zusätzlicher Deckungs-/Haftrücklass), offen/erledigt (Überzahlung).
+    sql: `
+CREATE TABLE rechnung_differenz (
+  id INTEGER PRIMARY KEY,
+  rechnung_id INTEGER NOT NULL REFERENCES rechnung(id) ON DELETE CASCADE,
+  zahlung_id INTEGER REFERENCES rechnung_zahlung(id) ON DELETE CASCADE,
+  grund TEXT NOT NULL CHECK (grund IN ('skonto','deckung','haft','umlage','maengel','spesen','sonstiges','ueberzahlung')),
+  text TEXT,
+  betrag REAL NOT NULL CHECK (betrag > 0),
+  status TEXT NOT NULL CHECK (status IN ('akzeptiert','strittig','einbehalten','offen','erledigt')),
+  skonto_verspaetet INTEGER NOT NULL DEFAULT 0,
+  erfasst TEXT NOT NULL, erfasst_von INTEGER REFERENCES benutzer(id),
+  geaendert TEXT, geaendert_von INTEGER REFERENCES benutzer(id)
+);
+CREATE INDEX rechnung_differenz_r ON rechnung_differenz(rechnung_id);
+CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
+`
   }
 ];
 
