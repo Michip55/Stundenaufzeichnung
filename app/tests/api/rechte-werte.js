@@ -25,8 +25,9 @@ const PREIS_SPALTEN = {
   material: ['ek', 'vk'],
   preis_stand: ['wert'],
   projektposition: ['ep'],
-  rechnung: ['netto', 'ruecklass_betrag'],
+  rechnung: ['netto', 'ust_betrag', 'brutto', 'skonto_betrag', 'deckung_betrag', 'haft_betrag'], // 15.24: Papierwerte, Skonto- und Rücklass-Beträge
   rechnung_zahlung: ['betrag', 'skonto'],
+  rechnung_differenz: ['betrag'], // 15.24 Zahlungsabgleich
   servicebuch_eintrag: ['kosten'],
   budget_alarm: ['basis']
 };
@@ -38,7 +39,7 @@ const KEINE_PREIS_SPALTEN = {
   'budget_alarm.verbrauch': 'Prozent', 'budget_alarm.leistungsstand': 'Prozent', 'leistungsmeldung.menge': 'Menge', 'lv_position.menge': 'Menge',
   'arbeitszeitmodell.wochenstunden': 'Stunden (15.23)', 'arbeitszeitmodell.vollzeit': 'Stunden (15.23)',
   'material.dichte': 't/m³', 'plan_fuhre.menge': 'Menge', 'plan_fuhre.bericht_menge': 'Menge', 'projektposition_menge.menge': 'Menge',
-  'rechnung.ust_satz': 'Prozent', 'rechnung.skonto_prozent': 'Prozent', 'rechnung.ruecklass_prozent': 'Prozent',
+  'rechnung.ust_satz': 'Prozent', 'rechnung.skonto_prozent': 'Prozent', 'rechnung.deckung_prozent': 'Prozent', 'rechnung.haft_prozent': 'Prozent',
   'servicebuch_eintrag.arbeitsstunden_intern': 'Stunden', 'urlaub_konto.anspruch': 'Tage', 'urlaub_konto.uebertrag': 'Tage', 'urlaub_konto.buak_stand': 'Tage',
   'wetter_cache.lat': 'Koordinate', 'wetter_cache.lng': 'Koordinate', 'zaehler.startstand': 'Zählerstand', 'zaehler.versatz': 'Zählerstand',
   'zaehlerstand.anzeige': 'Zählerstand', 'zaehlerstand.wert': 'Zählerstand'

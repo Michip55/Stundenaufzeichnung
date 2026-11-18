@@ -213,9 +213,12 @@ function woche(db, benutzerId, datum, jetzt) {
   const zeilenFuer = (d) => (feld ? ber.zeilen.get(`${benutzerId}|${d}`) : null);
   const gedecktFuer = (d) => (feld ? ber.gedeckt.get(d) : null);
   const tw = tagesuebergreifend(tageswerte(sch, daten, bsMap).map((t0) => mitBericht(t0, zeilenFuer(t0.datum), gedecktFuer(t0.datum), bsMap)), zeilenFuer, gedecktFuer);
+  // 15.23: Modell der Person je Tag; sollStunden = Σ Normalstunden der Woche (Feiertag 0) – nur die eigene Woche, ohne Modellname
+  const modellAm = AZ.zeitachse(db, benutzerId);
   const tage = tw.map((t) => {
     const a = abw.get(t.datum);
-    const o = { datum: t.datum, wochentag: WT_KURZ[wochentag(t.datum)], stunden: t.stunden, pauseMin: t.pauseMin, von: t.von, bis: t.bis, baustellen: t.baustellen };
+    // sollStd = Normalstunden dieses Tages (nicht „soll“: das ist ein Euro-Feld, rechte.js EURO_FELDER) laut eigenem Modell (Feiertag 0) – für den Balken „über Tages-Soll“ in „Meine Woche“
+    const o = { datum: t.datum, wochentag: WT_KURZ[wochentag(t.datum)], stunden: t.stunden, sollStd: AZ.tagSoll(modellAm(t.datum), t.datum), pauseMin: t.pauseMin, von: t.von, bis: t.bis, baustellen: t.baustellen };
     if (t.quelle) o.quelle = t.quelle;
     if (t.unplausibel) o.unplausibel = true;
     if (t.ueberschneidung) o.ueberschneidung = true;
@@ -224,8 +227,6 @@ function woche(db, benutzerId, datum, jetzt) {
     if (f) o.feiertag = f;
     return o;
   });
-  // 15.23: Modell der Person je Tag; sollStunden = Σ Normalstunden der Woche (Feiertag 0) – nur die eigene Woche, ohne Modellname
-  const modellAm = AZ.zeitachse(db, benutzerId);
   const summe = r2(tage.reduce((x, t) => x + t.stunden, 0));
   const z = AZ.zeitraum(tage, modellAm);
   return { von: daten[0], bis: daten[6], tage, summe, ueberstunden: z.ueberstunden, mehrstunden: z.mehrstunden, sollStunden: z.soll };

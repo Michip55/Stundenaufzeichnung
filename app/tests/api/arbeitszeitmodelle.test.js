@@ -274,6 +274,9 @@ test('Arbeitszeitmodelle und BUAK-Pflicht (15.23)', async (t) => {
     const ichB = await s.login(beispiel.id, PIN);
     w = (await ichB.get('/zeit/woche?datum=2026-12-22')).daten;
     assert.deepEqual([w.summe, w.sollStunden, w.ueberstunden, w.mehrstunden], [9.5, 34, 1, 0], 'eigene Woche: Dienstag 9,5 Std. = 1 Überstunde');
+    // „Meine Woche“-Balken (Inhaber 17.11.2026, Bild: „über 8“ bei Büro): Tages-Soll je Tag aus dem eigenen Modell, nicht fest 8
+    assert.deepEqual(w.tage.slice(0, 5).map((t) => t.sollStd), [8.5, 8.5, 8.5, 8.5, 0], 'Büro: Tages-Soll Mo–Do 8,5; Fr 25.12. Feiertag 0');
+    assert.deepEqual((await ich.get('/zeit/woche?datum=2026-12-16')).daten.tage.slice(0, 5).map((t) => t.sollStd), [8, 8, 8, 8, 0], 'Teilzeit (Mitarbeiter): Tages-Soll Mo–Do 8, Fr 0');
     assert.equal((await ich.get('/monat?monat=2026-12')).status, 403);
 
     // Lohn-CSV: Mehrstunden-Spalte; BMD-Vorlage: Lohnart 210 für Mehrstunden; Hinweis zum Modellwechsel

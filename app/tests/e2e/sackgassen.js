@@ -31,9 +31,9 @@ const GROESSEN = [
 ];
 
 // Sichtbare Menüpunkte je Rolle (Reihenfolge wie in der Seitenleiste). Bewusst ausgeschrieben – nicht aus der App abgeleitet.
-const BUERO_MENUE = ['dashboard', 'berichte', 'baustellen', 'plan', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'woche'];
+const BUERO_MENUE = ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'woche'];
 const MENUE = {
-  gf: ['dashboard', 'berichte', 'baustellen', 'plan', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'kolonne', 'woche'],
+  gf: ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'kolonne', 'woche'],
   buero: BUERO_MENUE,
   bauleiter: BUERO_MENUE, // Inhaber 13.11.2026: wie das Büro (Stempeluhr und Urlaub hat auch das Büro)
   polier: ['stempeln', 'partie', 'kolonne', 'berichte', 'woche', 'baustellen', 'einsatz2', 'fuhrpark', 'abwesenheiten', 'urlaub'],
@@ -55,7 +55,7 @@ const PERSONEN = [
 // Gesperrte Begriffe für Polier und Mitarbeiter (sichtbarer Text der ganzen Seite)
 const VERBOTEN = /Nachkalkulation|Kalkulation|Preis|€|Rechnung|Lohngruppe|\bLohn\b|Budget|Auftragssumme|Stundensatz|(?<!keine )\bKosten\b|Kostenübersicht|\bEP\b|Zahlung|Offene Posten|Abwesenheiten (meiner|der) Partie|\babwesend\b|\babw\./;
 // Direkt eingetippte Adressen (alle Routen der SPA mit Rechteprüfung)
-const DIREKT = ['/dashboard', '/kolonne', '/berichte', '/bericht/1', '/baustellen', '/baustellen/archiv', '/baustelle/1', '/plan', '/partie', '/offene-posten', '/preise', '/lohn-vorlagen',
+const DIREKT = ['/dashboard', '/kolonne', '/berichte', '/bericht/1', '/baustellen', '/baustellen/archiv', '/baustelle/1', '/plan', '/partie', '/offene-posten', '/rechnungen', '/faelligkeiten', '/preise', '/lohn-vorlagen',
   '/kalkulation', '/kalkulation/1', '/kalkulation/1/positionen', '/monat', '/benutzer', '/korrektur'];
 // Fach-Anfragen, die vor der Rechteprüfung nie gestellt werden dürfen (Rahmen: Anmeldung, Glocke, Dienste, Status)
 const RAHMEN_API = /^\/api\/(auth\/|benachrichtigungen|integrationen|push\/|zeit\/status|fuhrpark\/schaeden|version|einstellungen\/oeffentlich)/;

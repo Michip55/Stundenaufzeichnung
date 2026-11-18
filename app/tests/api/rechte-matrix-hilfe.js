@@ -752,7 +752,7 @@ async function erstelleBasis() {
     // --- Rechnungen + Zahlung + Mahnung
     F.rechnung = {};
     for (const [bs, g, nr, k] of [[BS.pitten, GELD.bs1, TEXT.rechnungNrBs1, 'bs1'], [BS.reisinger, GELD.bs3, TEXT.rechnungNrBs3, 'bs3']]) {
-      const r = await erwarte(await buero.post(`/baustellen/${bs}/rechnungen`, { nr, typ: 'abschlag', datum: '2026-09-01', netto: g.rechnungNetto, zahlungszielTage: 30 }), 201, 'Rechnung');
+      const r = await erwarte(await buero.post(`/baustellen/${bs}/rechnungen`, { nr, typ: 'abschlag', datum: '2026-09-01', netto: g.rechnungNetto, zahlungszielTage: 30, deckungProzent: 5, haftBetrag: g.haftruecklass, skontoProzent: 2, skontoTage: 14, empfaenger: 'Empfänger-Probe', agZeichen: 'KSt.-Probe' }), 201, 'Rechnung'); // 15.24: beide Rücklässe, Skonto
       F.rechnung[k] = r.id;
       const z = await erwarte(await buero.post(`/rechnungen/${r.id}/zahlungen`, { datum: '2026-10-01', betrag: g.zahlung }), 201, 'Zahlung');
       F.rechnung[`${k}Zahlung`] = (z.zahlungen || []).slice(-1)[0] ? z.zahlungen.slice(-1)[0].id : null;

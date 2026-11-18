@@ -12,7 +12,8 @@ import dashboard from './views/dashboard.js';
 import { baustellen, baustelle } from './views/baustellen.js';
 import { archiv } from './views/lebenslauf.js';
 import plan, { einsatz, partie } from './views/plan.js';
-import { offenePosten } from './views/rechnungen.js';
+import { offenePosten, rechnungenSeite } from './views/rechnungen.js';
+import faelligkeiten from './views/faelligkeiten.js';
 import urlaub from './views/urlaub.js';
 import lohnvorlagen from './views/lohnvorlagen.js';
 import preise from './views/preise.js';
@@ -74,6 +75,8 @@ const NAV = [
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: siehtBaustellen },
   { id: 'plan', pfad: '/plan', text: 'Baustellenplaner', kurz: 'Planer', icon: 'board', darf: darfPlanen },
   { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier'), nurMehr: true }, // Bauleiter: Navigation wie das Büro plus Stempeluhr und Urlaub (kein „Mein Einsatz“ – er arbeitet im Büro)
+  // 15.24: alle Rechnungen über alle Baustellen (Rechte wie Offene Posten); Fälligkeiten über Übersicht und diese Seite
+  { id: 'rechnungen', pfad: '/rechnungen', text: 'Rechnungen', kurz: 'Rechnungen', icon: 'file', darf: eines('preise_sehen') },
   { id: 'offeneposten', pfad: '/offene-posten', text: 'Offene Posten', kurz: 'Posten', icon: 'euro', darf: eines('preise_sehen') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Stammdaten & Preise', kurz: 'Stammdaten', icon: 'tag', darf: eines('preise_sehen', 'stammdaten') },
@@ -127,6 +130,8 @@ const ROUTEN = [
   { muster: /^\/plan$/, nav: 'plan', titel: 'Baustellenplaner', view: plan, darf: darfPlanen },
   { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier') }, // eingeplant werden nur sie (12.25); Bauleiter wie Büro
   { muster: /^\/partie$/, nav: 'partie', titel: 'Meine Partie', view: partie, darf: rolle('polier') },
+  { muster: /^\/rechnungen$/, nav: 'rechnungen', titel: 'Rechnungen', view: rechnungenSeite, darf: eines('preise_sehen') },
+  { muster: /^\/faelligkeiten$/, nav: 'rechnungen', titel: 'Fälligkeiten', view: faelligkeiten, darf: eines('preise_sehen') },
   { muster: /^\/offene-posten$/, nav: 'offeneposten', titel: 'Offene Posten', view: offenePosten, darf: eines('preise_sehen') },
   { muster: /^\/preise$/, nav: 'preise', titel: 'Stammdaten & Preise', view: preise, darf: eines('preise_sehen', 'stammdaten') },
   { muster: /^\/urlaub$/, nav: 'urlaub', titel: 'Urlaub', view: urlaub, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
