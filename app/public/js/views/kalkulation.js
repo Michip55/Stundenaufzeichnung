@@ -1,6 +1,7 @@
 // Nachkalkulation & Budget: Übersicht aller Baustellen und Detail je Baustelle.
 import { get, post, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, geldFelder, geldWert, leer, banner, dialog, bestaetigen, toast, kalkChip, $, $$ } from '../ui.js';
+import { stundenImText } from '../zahl.js';
 
 const FARBE = { lohn: '#3b6fd4', geraete: '#e08a1e', material: '#2a9d8f', fremd: '#8b5fbf' };
 const KTXT = { lohn: 'Lohn', geraete: 'Geräte', material: 'Material', fremd: 'Fremdleistungen' };
@@ -117,9 +118,11 @@ export async function kalkDetail(el, ctx) {
   const pos = k.positionen || {};
   const H_ICON = { alarm: 'alert', kritisch: 'alert', warnung: 'alert', info: 'info' };
   const H_ART = { alarm: 'err', kritisch: 'err', warnung: 'warn', info: 'info' };
-  const posTab = (titel, key, zeilen, mengeFeld, einheit) => `
+  // 15.25: Hinweise vom Server nennen Stunden dezimal („12,5 Std. ohne Lohngruppe“) – Anzeige als „12 Std. 30 Min.“ wie die Lohnzeilen
+  // 15.25: Lohn- und Gerätestunden als Std:Min („8:30 Std.“); andere Mengen (Material, Fremdleistung) bleiben Zahlen
+  const posTab = (titel, key, zeilen, mengeFeld, einheit, menge = fmt.zahl) => `
     <details class="pos" ${zeilen.length ? '' : 'data-leer'}><summary><i class="sw" data-st="background:${FARBE[key]}"></i><span>${titel}</span><b class="num">${fmt.eur(kosten[key] || 0)}</b>${ic('down')}</summary>
-    ${zeilen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Position</th><th class="r">Menge</th><th class="r">Satz</th><th class="r">Betrag</th></tr></thead><tbody>${zeilen.map((z) => `<tr><td>${esc(z.name || z.text || '')}${z.datum ? ` <small class="muted">${fmt.datum(z.datum)}</small>` : ''}</td><td class="r num">${mengeFeld && z[mengeFeld] != null ? fmt.zahl(z[mengeFeld]) + '\u00a0' + esc(z.einheit || einheit || '') : ''}</td><td class="r num">${z.satz != null ? fmt.eur(z.satz) : ''}</td><td class="r num">${fmt.eur(z.betrag)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted sm pad-s">Keine Positionen.</p>'}</details>`;
+    ${zeilen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Position</th><th class="r">Menge</th><th class="r">Satz</th><th class="r">Betrag</th></tr></thead><tbody>${zeilen.map((z) => `<tr><td>${esc(z.name || z.text || '')}${z.datum ? ` <small class="muted">${fmt.datum(z.datum)}</small>` : ''}</td><td class="r num">${mengeFeld && z[mengeFeld] != null ? menge(z[mengeFeld]) + '\u00a0' + esc(z.einheit || einheit || '') : ''}</td><td class="r num">${z.satz != null ? fmt.eur(z.satz) : ''}</td><td class="r num">${fmt.eur(z.betrag)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted sm pad-s">Keine Positionen.</p>'}</details>`;
 
   el.innerHTML = `
   <div class="page">
@@ -142,13 +145,13 @@ export async function kalkDetail(el, ctx) {
       ${budgetBalken(k)}
       <div class="two-stats"><div><small>Budget verbraucht</small><b data-wert="verbrauch">${fmt.pct(k.budgetVerbrauchProzent)}</b></div><div><small>Leistungsstand</small><b>${fmt.pct(k.leistungsstandProzent)}</b></div></div>
     </section>
-    ${(k.hinweise || []).length ? `<div class="stack-s" aria-label="Hinweise">${k.hinweise.map((h) => banner(H_ART[h.typ] || 'info', esc(h.text), H_ICON[h.typ])).join('')}</div>` : ''}
+    ${(k.hinweise || []).length ? `<div class="stack-s" aria-label="Hinweise">${k.hinweise.map((h) => banner(H_ART[h.typ] || 'info', esc(stundenImText(h.text)), H_ICON[h.typ])).join('')}</div>` : ''}
     <div class="two-col">
       <section class="card pad" aria-labelledby="h-kost">
         <div class="card-h"><h3 id="h-kost">Kosten nach Art</h3><b class="num" data-wert="kosten-gesamt">${fmt.eur(kosten.gesamt)}</b></div>
         ${teile.length ? `<div class="stackbar" role="img" aria-label="${teile.map((t) => `${KTXT[t.key]} ${fmt.eur0(t.wert)}`).join(', ')}">${teile.map((t) => `<i data-st="flex:${t.wert};background:${FARBE[t.key]}" title="${KTXT[t.key]}: ${fmt.eur(t.wert)}"></i>`).join('')}</div>` : ''}
-        ${posTab('Lohn', 'lohn', pos.lohn || [], 'stunden', 'Std.')}
-        ${posTab('Geräte', 'geraete', pos.geraete || [], 'stunden', 'Std.')}
+        ${posTab('Lohn', 'lohn', pos.lohn || [], 'stunden', 'Std.', fmt.hm)}
+        ${posTab('Geräte', 'geraete', pos.geraete || [], 'stunden', 'Std.', fmt.hm)}
         ${posTab('Material', 'material', pos.material || [], 'menge', '')}
         ${posTab('Fremdleistungen', 'fremd', pos.fremd || [], null, '')}
         ${ctx.kann('preise_bearbeiten') ? `<button type="button" class="btn ghost sm" data-akt="fremd">${ic('plus')}Fremdleistung erfassen</button>` : ''}

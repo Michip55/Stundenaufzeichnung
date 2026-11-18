@@ -1251,3 +1251,10 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
   .bz-zeile [data-weg] { grid-row: 1; grid-column: 3; }
   .bz-zeile + .bz-zeile { border-top: 1px dashed #e3c98a; padding-top: 10px; }
 }
+
+/* 15.25: Stunden als Std:Min – Schalter „Std:Min | Dezimal“ in der Monatsauswertung */
+.zf-zeile { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.zf-l { font-weight: 600; font-size: 13.5px; color: var(--muted); }
+.zf-schalter { flex: 0 0 auto; } .zf-schalter button { min-width: 92px; justify-content: center; }
+.zf-hinweis { flex: 1 1 200px; min-width: 0; }
+@media (max-width: 719px) { .zf-schalter { flex: 1 1 100%; } .zf-hinweis { flex-basis: 100%; } }
