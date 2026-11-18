@@ -187,7 +187,11 @@ module.exports = function rechnungRouten(api, bt) {
     const hatZahlungen = db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE rechnung_id = ? LIMIT 1', r.id);
     // N-108: nach Zahlungen auch Rechnungsdatum (Fälligkeit, Skontofrist), Skonto und der Wechsel zu/von Gutschrift (Vorzeichen) gesperrt
     const gutschriftWechsel = f.typ !== undefined && (f.typ === 'gutschrift') !== (r.typ === 'gutschrift');
-    if (hatZahlungen && (gutschriftWechsel || ['netto', 'ust_modus', 'ust_satz', 'ust_betrag', 'brutto', 'deckung_prozent', 'deckung_betrag', 'haft_prozent', 'haft_betrag', 'datum', 'skonto_prozent', 'skonto_betrag', 'skonto_zahlbetrag', 'skonto_tage'].some((k) => f[k] !== undefined && f[k] !== r[k]))) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt, Rücklass, Rechnungsdatum, Skonto und der Wechsel zu oder von einer Gutschrift gesperrt.');
+    // 15.26: bei „Zahlbetrag mit Skonto“ ist skonto_betrag gerechnet (pruefeGesamt) – verglichen wird der eingetragene Betrag,
+    // sonst scheitert ein unverändertes Speichern mit skontoBetrag:null an dem gespeicherten gerechneten Skonto
+    const mitZahlbetrag = (f.skonto_zahlbetrag !== undefined ? f.skonto_zahlbetrag : r.skonto_zahlbetrag) != null;
+    const gesperrt = ['netto', 'ust_modus', 'ust_satz', 'ust_betrag', 'brutto', 'deckung_prozent', 'deckung_betrag', 'haft_prozent', 'haft_betrag', 'datum', 'skonto_prozent', 'skonto_betrag', 'skonto_zahlbetrag', 'skonto_tage'].filter((k) => !(mitZahlbetrag && k === 'skonto_betrag'));
+    if (hatZahlungen && (gutschriftWechsel || gesperrt.some((k) => f[k] !== undefined && f[k] !== r[k]))) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt, Rücklass, Rechnungsdatum, Skonto und der Wechsel zu oder von einer Gutschrift gesperrt.');
     pruefeGesamt({ ...r, ...f }, Object.keys(f), f);
     if (f.nr_norm && f.nr_norm !== r.nr_norm && db.eins('SELECT id FROM rechnung WHERE nr_norm = ? AND id <> ?', f.nr_norm, r.id)) throw konflikt('Die Rechnungsnummer gibt es bereits.');
     const k = Object.keys(f);

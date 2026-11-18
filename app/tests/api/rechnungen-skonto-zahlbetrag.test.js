@@ -134,6 +134,42 @@ test('Zahlbetrag mit Skonto (15.26)', async (t) => {
     s.uhr.setze('2026-11-12T09:24:00.000Z');
   });
 
+  await t.test('Nach Zahlung: unverändertes Speichern mit allen Skonto-Feldern geht durch, Änderungen bleiben gesperrt', async () => {
+    s.uhr.setze('2026-11-25T08:00:00Z');
+    try {
+      const r = await neu({ nr: 'ZS-Z2', skontoZahlbetrag: 45163.2 });
+      const z = await c.buero.post(`/rechnungen/${r.id}/zahlungen`, { datum: '2026-11-20', betrag: 1000 });
+      assert.equal(z.status, 201, JSON.stringify(z.daten));
+      let g = (await c.buero.get(`/rechnungen/${r.id}`)).daten;
+      // dieselben Werte in der Form, die der Dialog sonst schickt (skontoProzent/skontoBetrag null, skontoZahlbetrag gesetzt)
+      let u = await c.buero.put(`/rechnungen/${r.id}`, { version: g.version, skontoProzent: null, skontoBetrag: null, skontoZahlbetrag: 45163.2, skontoTage: 14, notiz: 'unverändert' });
+      assert.equal(u.status, 200, JSON.stringify(u.daten));
+      assert.deepEqual([u.daten.skontoEingabe, u.daten.skontoBetrag, u.daten.zahlbetragMitSkonto, u.daten.notiz], ['zahlbetrag', 1396.8, 45163.2, 'unverändert']);
+      assert.deepEqual(zeile(r.id), { p: null, b: 1396.8, z: 45163.2 });
+      g = u.daten;
+      // anderer Betrag, Wechsel zu € bzw. %, kein Skonto und andere Frist bleiben gesperrt
+      for (const body of [
+        { skontoProzent: null, skontoBetrag: null, skontoZahlbetrag: 45000, skontoTage: 14 },
+        { skontoProzent: null, skontoBetrag: 1396.8, skontoZahlbetrag: null, skontoTage: 14 },
+        { skontoProzent: 3, skontoBetrag: null, skontoZahlbetrag: null, skontoTage: 14 },
+        { skontoBetrag: 1000 },
+        { skontoZahlbetrag: null },
+        { skontoProzent: null, skontoBetrag: null, skontoZahlbetrag: 45163.2, skontoTage: 10 },
+      ]) {
+        u = await c.buero.put(`/rechnungen/${r.id}`, { version: g.version, ...body });
+        assert.equal(u.status, 409, JSON.stringify(body));
+        assert.match(u.daten.fehler, /gesperrt/);
+      }
+      assert.deepEqual(zeile(r.id), { p: null, b: 1396.8, z: 45163.2 });
+      // Vergleich: Prozent-Rechnung mit gleichem unverändertem Aufruf
+      const p = await neu({ nr: 'ZS-Z3', skontoProzent: 3 });
+      assert.equal((await c.buero.post(`/rechnungen/${p.id}/zahlungen`, { datum: '2026-11-20', betrag: 1000 })).status, 201);
+      const gp = (await c.buero.get(`/rechnungen/${p.id}`)).daten;
+      u = await c.buero.put(`/rechnungen/${p.id}`, { version: gp.version, skontoProzent: 3, skontoBetrag: null, skontoZahlbetrag: null, skontoTage: 14 });
+      assert.equal(u.status, 200, JSON.stringify(u.daten));
+    } finally { s.uhr.setze('2026-11-12T09:24:00.000Z'); }
+  });
+
   await t.test('Gutschrift: Eingabe möglich, aber kein Skonto-Vorschlag beim Bezahlen (wie bisher)', async () => {
     const r = await neu({ nr: 'ZS-G1', typ: 'gutschrift', deckungProzent: null, skontoZahlbetrag: 47040 }); // 48.000 − 2 %
     assert.deepEqual([r.skontoEingabe, r.skontoBetrag, r.skontoProzent, r.zahlbetragMitSkonto], ['zahlbetrag', 960, 2, 47040]);
