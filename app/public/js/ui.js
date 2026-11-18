@@ -126,15 +126,18 @@ export const fehlerBox = (err, mitNeu = true) => {
 export const banner = (art, text, icon) => `<div class="banner ${art}" role="${art === 'warn' || art === 'err' ? 'alert' : 'note'}">${ic(icon || (art === 'ok' ? 'check' : art === 'info' ? 'info' : 'alert'))}<span>${text}</span></div>`;
 
 /* ---------- Toast ---------- */
-export function toast(text, art = 'ok') {
+// aktion = {text, fn}: Knopf im Toast (z. B. „Rückgängig“, 15.24) – der Toast bleibt dann länger stehen
+export function toast(text, art = 'ok', aktion = null) {
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
-  el.className = 'toast ' + art;
+  el.className = 'toast ' + art + (aktion ? ' mit-aktion' : '');
   el.setAttribute('role', art === 'ok' ? 'status' : 'alert');
-  el.innerHTML = ic(art === 'ok' ? 'check' : 'alert') + `<span>${esc(text)}</span>`;
+  el.innerHTML = ic(art === 'ok' ? 'check' : 'alert') + `<span>${esc(text)}</span>` + (aktion ? `<button type="button" class="toast-aktion">${esc(aktion.text)}</button>` : '');
+  const weg = () => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); };
+  if (aktion) el.querySelector('.toast-aktion').addEventListener('click', () => { weg(); aktion.fn(); });
   root.appendChild(el);
   requestAnimationFrame(() => el.classList.add('in'));
-  setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 300); }, art === 'ok' ? 2800 : 4800);
+  setTimeout(weg, aktion ? 9000 : art === 'ok' ? 2800 : 4800);
 }
 export const fehlerToast = (e) => toast(e && e.netz ? 'Keine Verbindung zum Server.' : (e && e.message) || 'Fehler', 'warn');
 
@@ -260,6 +263,7 @@ export function geldFelder(wurzel) {
       echo.textContent = fehler ? 'Eingabe unklar – bitte so schreiben: 250.000,00' : roh === '' ? '' : `wird gespeichert als ${fmt.eur(w)}`;
     };
     inp.addEventListener('input', zeig);
+    inp.addEventListener('echo', zeig); // Wert im Programm gesetzt (z. B. vorbelegte USt/Brutto, 15.24)
     zeig();
   });
 }

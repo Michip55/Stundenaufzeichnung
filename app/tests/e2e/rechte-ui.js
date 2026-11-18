@@ -40,10 +40,10 @@ const GROESSEN = [{ name: 'handy', width: 390, height: 844, mobil: true }, { nam
   .filter((g) => !process.env.E2E_NUR || process.env.E2E_NUR.split(',').includes(g.name));
 // Menüpunkte (data-nav), die eine Rolle nie sehen darf
 const VERBOTENE_NAV = {
-  mitarbeiter: ['dashboard', 'kolonne', 'berichte', 'baustellen', 'plan', 'partie', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer'],
-  polier: ['dashboard', 'plan', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer'],
+  mitarbeiter: ['dashboard', 'kolonne', 'berichte', 'baustellen', 'plan', 'partie', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer'],
+  polier: ['dashboard', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer'],
   // mit allen vergebbaren Ausnahmen bleiben Preise, Kalkulation, Lohn und Benutzerverwaltung gesperrt (rechte.js GESPERRT)
-  ausnahmen: ['offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer']
+  ausnahmen: ['rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer']
 };
 // Identitäten des Rundgangs (F-044): ohne und mit allen vergebbaren Ausnahmen, dazu der Bauleiter (= Büro)
 const IDENTITAETEN = [
@@ -175,7 +175,7 @@ async function main() {
   let antworten = 0, seiten = 0;
 
   const ROUTEN = ['/stempeln', '/kolonne', '/woche', '/berichte', `/bericht/${F.bericht.bs1}`, `/bericht/${F.bericht.bs3}`, `/bericht/${F.bericht.bs1Alt}`, '/dashboard', '/baustellen', '/baustellen/archiv',
-    `/baustelle/${BS.pitten}`, `/baustelle/${BS.reisinger}`, '/plan', '/einsatz', '/partie', '/offene-posten', '/preise', '/preise?tab=katalog', '/urlaub', '/lohn-vorlagen', '/kalkulation',
+    `/baustelle/${BS.pitten}`, `/baustelle/${BS.reisinger}`, '/plan', '/einsatz', '/partie', '/offene-posten', '/rechnungen', '/faelligkeiten', '/preise', '/preise?tab=katalog', '/urlaub', '/lohn-vorlagen', '/kalkulation',
     `/kalkulation/${BS.pitten}`, `/kalkulation/${BS.pitten}/positionen`, `/kalkulation/${BS.reisinger}`, '/monat', '/benutzer', '/fuhrpark', '/fuhrpark/anlage/4', '/fuhrpark/anlage/30',
     '/mehr', '/zwei-faktor', '/push', '/hilfe', '/abwesenheiten', '/korrektur', '/pin', '/gibt-es-nicht',
     // Inhaber 13.11.2026: Abwesenheiten anderer (Testdaten: Krank 16./17.11., Urlaub im Dezember) dürfen nirgends erscheinen

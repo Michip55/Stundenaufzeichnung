@@ -472,11 +472,17 @@ function abgeleiteteBetraege(db) {
   }
   // Rechnungen: Brutto, USt, offen (Netto − Zahlungen), Summen je Baustelle
   const gezahlt = new Map(alle('SELECT rechnung_id AS r, SUM(betrag) AS s FROM rechnung_zahlung GROUP BY rechnung_id').map((x) => [x.r, x.s]));
-  for (const z of alle('SELECT id, baustelle_id AS bs, netto, ust_satz, ruecklass_prozent FROM rechnung WHERE netto IS NOT NULL')) {
+  for (const z of alle('SELECT id, baustelle_id AS bs, netto, ust_satz, deckung_prozent, haft_prozent, brutto, ust_betrag, skonto_prozent FROM rechnung WHERE netto IS NOT NULL')) {
     const ust = z.ust_satz == null ? 20 : z.ust_satz;
+    // 15.24: Papierwerte (USt/Brutto laut Rechnung), beide Rücklässe vom Brutto, Skonto vom Zahlbetrag
+    if (z.brutto != null) { add(`Rechnung ${z.id} Brutto laut Rechnung`, z.brutto); add(`Rechnung ${z.id} Brutto laut Rechnung offen`, z.brutto - (gezahlt.get(z.id) || 0)); }
+    if (z.ust_betrag != null) add(`Rechnung ${z.id} USt laut Rechnung`, z.ust_betrag);
+    const br = z.brutto != null ? z.brutto : z.netto * (1 + ust / 100);
+    for (const [k, p] of [['Deckungsrücklass', z.deckung_prozent], ['Haftrücklass', z.haft_prozent]]) if (p) { add(`Rechnung ${z.id} ${k}`, br * p / 100); add(`Rechnung ${z.id} ${k} (netto)`, z.netto * p / 100); }
+    if (z.deckung_prozent && z.haft_prozent) add(`Rechnung ${z.id} Rücklässe`, br * (z.deckung_prozent + z.haft_prozent) / 100);
+    if (z.skonto_prozent) { add(`Rechnung ${z.id} Skonto`, br * z.skonto_prozent / 100); add(`Rechnung ${z.id} mit Skonto`, br * (1 - z.skonto_prozent / 100)); }
     add(`Rechnung ${z.id} brutto`, z.netto * (1 + ust / 100)); add(`Rechnung ${z.id} USt`, z.netto * ust / 100);
     add(`Rechnung ${z.id} offen`, z.netto - (gezahlt.get(z.id) || 0)); add(`Rechnung ${z.id} brutto offen`, z.netto * (1 + ust / 100) - (gezahlt.get(z.id) || 0));
-    if (z.ruecklass_prozent) add(`Rechnung ${z.id} Rücklass`, z.netto * z.ruecklass_prozent / 100);
     sum(`Rechnungen Baustelle ${z.bs}`, z.netto); sum(`Rechnungen brutto Baustelle ${z.bs}`, z.netto * (1 + ust / 100)); sum('Rechnungen gesamt', z.netto);
   }
   for (const z of alle('SELECT r.baustelle_id AS bs, SUM(z.betrag) AS s FROM rechnung_zahlung z JOIN rechnung r ON r.id = z.rechnung_id GROUP BY r.baustelle_id')) add(`Zahlungen Baustelle ${z.bs}`, z.s);

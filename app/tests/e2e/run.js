@@ -1263,7 +1263,7 @@ async function laufe(browser, g) {
     /* ============ 4. Bauleiter: in allem wie das Büro (Inhaber 13.11.2026), bekommt den Budget-Alarm ============ */
     ich = await anmelden('bauleiter');
     nav = await navIds();
-    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
+    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
     pruef((await api('GET', '/benachrichtigungen')).json.some((m) => m.typ === 'budget' && m.baustelleId === bsId), 'Budget-Alarm: Bauleiter hat keine Benachrichtigung');
     await page.waitForSelector('#glocke.has');
     await geh('/dashboard', 'bauleiter-dashboard');
@@ -1294,6 +1294,8 @@ async function laufe(browser, g) {
     await geh('/monat', 'bauleiter-monat'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Monatsauswertung gesperrt (wie Büro offen)');
     await geh('/korrektur'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Zeiten korrigieren gesperrt (wie Büro offen)');
     await geh('/offene-posten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Offene Posten gesperrt (wie Büro offen)');
+    await geh('/rechnungen'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#rechnungen-seite #re-neu-alle').count() === 1, 'Bauleiter: Rechnungen gesperrt (wie Büro offen)');
+    await geh('/faelligkeiten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#faelligkeiten').count() === 1, 'Bauleiter: Fälligkeiten gesperrt (wie Büro offen)');
     await geh('/benutzer', 'bauleiter-benutzer'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#matrix, [data-recht-zelle]').count() === 0, 'Bauleiter: Benutzer-Seite gesperrt oder mit Rechte-Matrix (die bleibt bei der Geschäftsführung)');
     await geh('/einsatz'); pruef(await page.locator('#einsatz-karte').count() === 0, 'Bauleiter: „Mein Einsatz“ zeigt einen Einsatz (Bauleiter werden nicht eingeplant)');
     // Fremde Baustelle (anderer Bauleiter): Auftrag, Nachkalkulation und Preise wie beim Büro – auch bearbeiten
@@ -1677,6 +1679,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ARBEITSZEIT) {
       console.log('    Arbeitszeitmodelle (anlegen, zuordnen mit Stichtag, Mehrstunden, BUAK-Pflicht) …');
       try { const az = await require('./arbeitszeit').laufe(browser, g); r.fehler.push(...az.fehler); r.schritte += az.schritte; } catch (e) { r.fehler.push('Abbruch Arbeitszeitmodelle: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Rechnungen wie auf dem Papier, Seite „Rechnungen“, Fälligkeiten (tests/e2e/rechnungen.js, API.md 15.24)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_RECHNUNGEN) {
+      console.log('    Rechnungen (wie auf dem Papier, beide Rücklässe, Filter, Fälligkeiten, kein Geld für Polier/Mitarbeiter) …');
+      try { const re = await require('./rechnungen').laufe(browser, g); r.fehler.push(...re.fehler); r.schritte += re.schritte; } catch (e) { r.fehler.push('Abbruch Rechnungen: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

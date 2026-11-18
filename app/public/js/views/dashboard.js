@@ -47,7 +47,7 @@ export default async function dashboard(el, ctx) {
 
   // Zieltag wie im Planer (G-05): nächster Arbeitstag – am Freitag der Montag, vor einem Feiertag der Tag danach
   const ziel = planer ? naechsterArbeitstag(heute, await feiertage(heute)) : null;
-  const [bs, anw, offen, entw, kalk, mon, kz, op, alleBs, plan, probe, eing] = await Promise.all([
+  const [bs, anw, offen, entw, kalk, mon, kz, op, alleBs, plan, probe, eing, fae] = await Promise.all([
     teil(() => get('/baustellen')),
     teil(() => get('/zeit/anwesend')),
     siehtBerichte ? teil(() => get('/berichte?status=unterschrieben')) : null,
@@ -61,6 +61,7 @@ export default async function dashboard(el, ctx) {
     // Probelauf wie im Planer (ohne Versand): gibt es etwas zu veröffentlichen – auch Fuhren und „entfällt“?
     planer ? teil(() => post('/plan/veroeffentlichen', { von: ziel, bis: ziel, vorschau: true })) : null,
     planer ? teil(() => get('/zeit/heute-eingeteilt')) : null,
+    mitPosten ? teil(() => get('/faelligkeiten')) : null, // 15.24
   ]);
   if (!bs.ok && (bs.fehler.netz || bs.fehler.status === 401)) throw bs.fehler;
   const baustellen = bs.ok ? bs.daten : [];
@@ -183,9 +184,19 @@ export default async function dashboard(el, ctx) {
           zeilen.push(zeile({ href: '#/offene-posten', titel: 'Überfällig', sub: esc(sub), wert: esc(fmt.eur0(o.summeUeberfaellig)), art: 'rot', kpi: 'ueberfaellig', zahl: o.anzahlUeberfaellig, fett: true }));
         }
         const rest = Math.round(((o.summeOffen || 0) - (o.summeUeberfaellig || 0)) * 100) / 100;
-        if (rest > 0) offenText = `<span data-kpi="offene-posten" data-wert="${o.anzahlOffen ?? 0}">${o.anzahlUeberfaellig ? 'Weitere offene Posten' : 'Offene Posten'} ${esc(fmt.eur0(rest))} im Rahmen</span>`;
-        else if (!o.anzahlUeberfaellig) gut.push(gutSpan('offene-posten', 'Offene Posten'));
+        // 15.24: „Rechnungen“ statt „Offene Posten“/„Schlussrechnungen“, wo Rechnungen allgemein gemeint sind
+        if (rest > 0) offenText = `<span data-kpi="offene-posten" data-wert="${o.anzahlOffen ?? 0}">${o.anzahlUeberfaellig ? 'Weitere offene Rechnungen' : 'Offene Rechnungen'} ${esc(fmt.eur0(rest))} im Rahmen</span>`;
+        else if (!o.anzahlUeberfaellig) gut.push(gutSpan('offene-posten', 'Rechnungen'));
       }
+      // 15.24: „Offen gesamt“ (offene Zahlbeträge + einbehaltene Rücklässe) mit Aufteilung – führt zu den Fälligkeiten
+      // (mit Skonto und ohne); ersetzt dann die ruhige Zeile „Offene Rechnungen … im Rahmen“
+      if (fae && fae.ok && fae.daten.offenGesamt) {
+        const og = fae.daten.offenGesamt;
+        const dw = (fae.daten.gruppen || []).find((x) => x.schluessel === 'diese_woche') || { anzahl: 0 };
+        const sub = og.betrag ? [og.ueberfaellig ? `davon überfällig ${esc(fmt.eur0(og.ueberfaellig))}` : '', `in 7 Tagen fällig ${esc(fmt.eur0(og.naechste7Tage))}`, og.ruecklaesse ? `Rücklässe ${esc(fmt.eur0(og.ruecklaesse))}` : '', og.strittig ? `strittig ${esc(fmt.eur0(og.strittig))}` : ''].filter(Boolean).join(' · ') : 'nichts offen';
+        offenText = '';
+        zeilen.push(zeile({ href: '#/faelligkeiten', titel: 'Offen gesamt', sub, wert: esc(fmt.eur0(og.betrag)), kpi: 'faelligkeiten', zahl: dw.anzahl }).replace('<a class="ue-row"', `<a class="ue-row" data-offen-gesamt="${og.betrag}"`));
+      } else if (fae) zeilen.push(nichtAbrufbar('Fälligkeiten', fae));
     }
     if (kalk) {
       if (!kalk.ok) zeilen.push(nichtAbrufbar('Budget', kalk));
@@ -201,14 +212,20 @@ export default async function dashboard(el, ctx) {
       else gut.push(gutSpan('gewaehrleistung', 'Gewährleistung'));
     }
     if (kz) {
-      if (!kz.ok) zeilen.push(nichtAbrufbar('Schlussrechnungen', kz));
+      if (!kz.ok) zeilen.push(nichtAbrufbar('Kennzahlen der Bauvorhaben', kz));
       else {
         const k = kz.daten, sr = k.offeneSchlussrechnungen || { anzahl: 0 }, ohne = k.abnahmeOhneSchlussrechnung || 0;
-        if (sr.anzahl) zeilen.push(zeile({ href: '#/baustellen?phase=schlussrechnung', titel: mz(sr.anzahl, 'Schlussrechnung offen', 'Schlussrechnungen offen'), sub: sr.summe != null ? esc(`${fmt.eur0(sr.summe)} offen (brutto)${sr.ohneRechnung ? ` · ${sr.ohneRechnung.anzahl} ohne erfasste Rechnung` : ''}`) : 'gelegt, noch nicht bezahlt', wert: String(sr.anzahl), kpi: 'schlussrechnungen', zahl: sr.anzahl }));
+        // 15.24: Mit Preisrecht stehen offene Rechnungen jeder Art oben (Überfällig, „Offene Rechnungen … im Rahmen“, Fälligkeiten) –
+        // die Phase „Schlussrechnung“ zählt dann nur noch, wo eine Schlussrechnung gelegt, aber nicht erfasst ist.
+        // Ohne Preisrecht (nur stammdaten) bleibt die Zahl der Bauvorhaben in der Phase „Schlussrechnung“.
+        if (mitPosten && sr.summe != null) {
+          const nE = sr.ohneRechnung ? sr.ohneRechnung.anzahl : 0;
+          if (nE) zeilen.push(zeile({ href: '#/baustellen?phase=schlussrechnung', titel: 'Schlussrechnung nicht erfasst', sub: esc(`${nE} ${mz(nE, 'Bauvorhaben', 'Bauvorhaben')} in „Schlussrechnung“ ohne erfasste Rechnung`), wert: String(nE), kpi: 'schlussrechnung-nicht-erfasst', zahl: nE }));
+        } else if (sr.anzahl) zeilen.push(zeile({ href: '#/baustellen?phase=schlussrechnung', titel: mz(sr.anzahl, 'Bauvorhaben in Schlussrechnung', 'Bauvorhaben in Schlussrechnung'), sub: 'gelegt, noch nicht bezahlt', wert: String(sr.anzahl), kpi: 'schlussrechnungen', zahl: sr.anzahl }));
+        // „Abnahme ohne Schlussrechnung“ ist eine Regel genau zur Schlussrechnung (12.15) – Wortlaut bleibt
         if (ohne) zeilen.push(zeile({ href: '#/baustellen?phase=abgenommen', titel: 'Schlussrechnung fehlt', sub: 'abgenommen, noch keine Schlussrechnung', wert: String(ohne), kpi: 'abnahme-ohne-rechnung', zahl: ohne }));
-        if (!sr.anzahl && !ohne) gut.push(`<span data-kpi="schlussrechnungen" data-wert="0">Schlussrechnungen</span><span data-kpi="abnahme-ohne-rechnung" data-wert="0" hidden></span>`);
-        else if (!sr.anzahl) gut.push(gutSpan('schlussrechnungen', 'Schlussrechnungen'));
-        else if (!ohne) zeilen.push('<span data-kpi="abnahme-ohne-rechnung" data-wert="0" hidden></span>');
+        else zeilen.push('<span data-kpi="abnahme-ohne-rechnung" data-wert="0" hidden></span>');
+        if (!(mitPosten && sr.summe != null) && !sr.anzahl) gut.push(gutSpan('schlussrechnungen', 'Schlussrechnungen'));
         if (k.fertigmeldungenOffen) zeilen.push(zeile({ href: '#/baustellen', titel: mz(k.fertigmeldungenOffen, 'Fertigmeldung offen', 'Fertigmeldungen offen'), sub: 'vom Polier gemeldet', wert: String(k.fertigmeldungenOffen), kpi: 'fertigmeldungen', zahl: k.fertigmeldungenOffen }));
       }
     }

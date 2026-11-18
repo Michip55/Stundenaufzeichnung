@@ -103,11 +103,11 @@ test('Korrekturen Nachprüfung – geld', async (t) => {
     const vorOp = (await c.buero.get('/offene-posten')).daten.ruecklaesseOffen;
     const vorK = (await c.buero.get(`/kalkulation/${BS.kogler}`)).daten.rechnungen.ruecklassOffen;
     // Altbestand (vor der Prüfung angelegt): Gutschrift mit 5 % Rücklass = 60
-    s.db.lauf("INSERT INTO rechnung (baustelle_id, nr, nr_norm, typ, datum, netto, ruecklass_art, ruecklass_prozent, erstellt) VALUES (?, 'G19-ALT', 'g19alt', 'gutschrift', '2026-11-01', 1000, 'deckung', 5, '2026-11-01T08:00:00Z')", BS.kogler);
+    s.db.lauf("INSERT INTO rechnung (baustelle_id, nr, nr_norm, typ, datum, netto, deckung_prozent, erstellt) VALUES (?, 'G19-ALT', 'g19alt', 'gutschrift', '2026-11-01', 1000, 5, '2026-11-01T08:00:00Z')", BS.kogler);
     assert.equal((await c.buero.get('/offene-posten')).daten.ruecklaesseOffen, Math.round((vorOp - 60) * 100) / 100);
     assert.equal((await c.buero.get(`/kalkulation/${BS.kogler}`)).daten.rechnungen.ruecklassOffen, Math.round((vorK - 60) * 100) / 100);
     assert.equal((await c.buero.get(`/baustellen/${BS.kogler}/positionen`)).daten.rechnungen.ruecklassOffen, Math.round((vorK - 60) * 100) / 100);
-    const zeile = csvZeilen((await c.buero.get('/offene-posten.csv')).daten).find((z) => z[0] === 'G19-ALT' && z[1] === 'Rücklass');
+    const zeile = csvZeilen((await c.buero.get('/offene-posten.csv')).daten).find((z) => z[0] === 'G19-ALT' && z[1] === 'Deckungsrücklass');
     assert.equal(zeile[10], '-60');
     s.db.lauf("DELETE FROM rechnung WHERE nr = 'G19-ALT'");
   });
@@ -148,7 +148,7 @@ test('Korrekturen Nachprüfung – geld', async (t) => {
     const z = csvZeilen((await c.buero.get('/offene-posten.csv')).daten);
     const gz = z.find((x) => x[0] === 'G52-G');
     assert.deepEqual([gz[1], gz[7], gz[8], gz[9], gz[10]], ['Gutschrift', '-1140', '-1140', '-500', '-640']);
-    const posten = z.slice(1).filter((x) => op.posten.some((p) => p.nr === x[0]) && x[1] !== 'Rücklass');
+    const posten = z.slice(1).filter((x) => op.posten.some((p) => p.nr === x[0]) && !/rücklass/i.test(x[1])); // 15.24: Rücklass-Zeilen je Art (Deckungs-/Haftrücklass)
     const spalte = Math.round(posten.reduce((a, x) => a + zahl(x[10]), 0) * 100) / 100;
     assert.equal(spalte, op.summeOffen);
     const summe = z.find((x) => x[0] === 'Summe offene Rechnungen');

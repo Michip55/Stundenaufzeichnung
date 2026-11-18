@@ -1157,3 +1157,97 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .az-tage .input { text-align: right; padding-left: 6px; padding-right: 6px; }
 @media (max-width: 560px) { .az-tage { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .az-modell { display: block; font-weight: 400; }
+
+/* 15.24 Rechnungen wie auf dem Papier: Dialog in sechs Abschnitten (PC zweispaltig, Handy einspaltig) */
+@media (min-width: 720px) { dialog.dlg.wide.re-dlg { width: min(880px, calc(100vw - 32px)); max-height: min(92vh, 980px); } }
+.re-form { gap: 14px; }
+.re-teil { border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.re-h { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 15px; font-weight: 700; }
+.re-h > span { flex: none; width: 24px; height: 24px; border-radius: 99px; display: inline-grid; place-items: center; background: var(--bg); color: var(--muted); font-size: 12.5px; font-weight: 700; }
+.re-felder { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .re-felder .full { grid-column: 1 / -1; }
+.re-zeitraum { display: flex; align-items: center; gap: 8px; } .re-zeitraum .input { flex: 1; min-width: 0; }
+.re-drei { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.re-papier:empty { display: none; }
+.re-hinweis { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; font-size: 14px; line-height: 1.35; }
+.re-hinweis .ic { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.re-hinweis.ok { background: var(--green-bg); color: #0f5f2c; } .re-hinweis.warn { background: var(--amber-bg); color: #7a4b00; font-weight: 600; } .re-hinweis.warn .ic { color: var(--amber); }
+.re-bedingungen .field-label { display: block; margin: 0 0 6px; }
+.re-bed { display: flex; flex-direction: column; gap: 4px; background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+.re-bed li { display: block; line-height: 1.5; } .re-bed .num { float: right; margin-left: 12px; }
+.re-rl { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(110px, 140px) minmax(90px, 1fr) minmax(0, 1.3fr); gap: 8px; align-items: center; }
+.re-rl[data-rl="deckung"] { grid-template-columns: minmax(130px, 1fr) minmax(110px, 140px) minmax(90px, 1fr) minmax(0, 1.3fr); }
+.re-rl-t { font-weight: 600; font-size: 14.5px; }
+.re-frei { display: flex; align-items: center; gap: 6px; min-width: 0; } .re-frei .input { flex: 1; min-width: 0; }
+.re-vorschlag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--blue-bg); font-size: 13.5px; line-height: 1.4; }
+.re-vorschlag[hidden] { display: none; }
+@media (max-width: 719px) {
+  .re-felder, .re-drei { grid-template-columns: 1fr; }
+  .re-rl, .re-rl[data-rl="deckung"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .re-rl-t, .re-frei { grid-column: 1 / -1; }
+  .re-teil { padding: 10px 12px 12px; }
+}
+/* Seite „Rechnungen“: Filter */
+.re-filter { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; padding: 12px 14px; align-items: end; }
+.re-filter .field-label { margin: 0; } .re-filter-status { grid-column: 1 / -1; }
+@media (max-width: 719px) { .re-filter { grid-template-columns: repeat(2, minmax(0, 1fr)); } .re-filter .field:first-child { grid-column: 1 / -1; } }
+
+/* 15.24 Fälligkeiten: ruhige Liste wie die Übersicht (.ue-*), eine Spalte, höchstens 860 px */
+.ue-page.fae-page, .ue-page.fae-page[id] { display: flex; flex-direction: column; align-items: stretch; max-width: 880px; gap: 18px; }
+.fae-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.fae-summe { font-size: 14px; font-weight: 700; color: var(--text); letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.fae-row { align-items: center; padding: 0 8px 0 0; gap: 4px; }
+.fae-auf { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 16px; min-height: 60px; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 0; }
+.fae-auf:hover { background: #fafbfc; }
+.fae-ok { flex: none; width: 40px; height: 40px; border-radius: 99px; display: grid; place-items: center; background: none; border: 1.5px solid var(--line); color: var(--muted); }
+.fae-ok .ic { width: 18px; height: 18px; stroke-width: 2.4; } .fae-ok:hover, .fae-ok:focus-visible { border-color: var(--green); color: var(--green); background: var(--green-bg); }
+.fae-row > .ue-chev { margin-right: 11px; }
+.fae-gesamt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; padding: 14px 16px; }
+.fae-g-t { font-size: 15px; font-weight: 600; } .fae-g-b { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+.fae-g-sub { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 13.5px; color: var(--muted); } .fae-g-sub b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; } .fae-g-sub .rot b { color: var(--red-d); }
+.re-og { display: block; color: inherit; text-decoration: none; } .re-og:empty { display: none; }
+.re-bz { text-align: right; white-space: nowrap; }
+#toast-root .toast.mit-aktion { pointer-events: auto; } .toast-aktion { margin-left: 6px; padding: 6px 12px; border-radius: 10px; background: rgba(255, 255, 255, .14); color: #fff; font-weight: 700; font-size: 14px; border: 0; }
+.bz-kopf { margin: 0; line-height: 1.5; } .bz-info { margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: var(--muted); } .bz-info .ic { color: var(--green); width: 18px; height: 18px; flex: none; }
+.fae-betraege { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-variant-numeric: tabular-nums; }
+.fae-zeile { display: grid; grid-template-columns: auto minmax(100px, auto) 150px; gap: 8px; align-items: baseline; font-size: 14px; color: var(--muted); white-space: nowrap; }
+.fae-zeile b { font-size: 16px; font-weight: 700; color: var(--text); text-align: right; } .fae-zeile .fae-l { text-align: right; } .fae-bis { font-size: 13.5px; }
+.fae-zeile.mit b { color: var(--green); } .fae-zeile.rot b, .fae-zeile.rot .fae-bis { color: var(--red-d); }
+.fae-rl { background: #fafbfc; min-height: 52px; } .fae-rl .ue-t { font-size: 14.5px; color: var(--muted); } .fae-rl .fae-zeile b { font-size: 14.5px; font-weight: 600; color: var(--muted); }
+.fae-fuss { margin: 0 4px; font-size: 13px; color: var(--muted); text-align: right; } .fae-fuss b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fae-hinweis { margin: 0 4px; font-size: 12.5px; color: var(--faint); line-height: 1.4; }
+.fae-alle { background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); border-bottom: 0; }
+@media (max-width: 719px) {
+  .fae-row { align-items: flex-start; }
+  .fae-row > .fae-ok, .fae-row > .ue-chev { margin-top: 12px; }
+  .fae-auf { flex-wrap: wrap; row-gap: 6px; padding-right: 4px; }
+  .fae-auf > .ue-txt { flex: 1 1 100%; }
+  .fae-betraege { flex: 1 1 100%; align-items: stretch; }
+  .fae-g-b { font-size: 22px; }
+  .fae-zeile { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .fae-zeile .fae-l { text-align: left; } .fae-bis { min-width: 0; text-align: right; }
+}
+
+/* 15.24 Zahlungsabgleich: erwartet / tatsächlich bezahlt / Differenz, Gründe */
+@media (min-width: 720px) { dialog.dlg.wide.bz-dlg { width: min(900px, calc(100vw - 32px)); max-height: min(92vh, 980px); } }
+.bz-dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; background: var(--bg); border-radius: 12px; padding: 12px; }
+.bz-dl > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .bz-dl dt { font-size: 12px; color: var(--muted); font-weight: 600; } .bz-dl dd { margin: 0; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; }
+.bz-dl small { font-size: 12.5px; color: var(--muted); line-height: 1.35; } .bz-dl [data-bz="erwartet"] { grid-column: 1 / -1; }
+.bz-dl .ok dd { color: var(--green); } .bz-dl .ok dd .ic { width: 18px; height: 18px; } .bz-dl .diff dd { color: #7a4b00; }
+.bz-gruende { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--amber-strong); border-radius: 12px; padding: 12px; background: #fffdf5; }
+.bz-g-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; } .bz-g-kopf .ok-t { color: var(--green); font-weight: 600; display: inline-flex; gap: 4px; align-items: center; } .bz-g-kopf .ok-t .ic { width: 16px; height: 16px; }
+.bz-zeilen { display: flex; flex-direction: column; gap: 8px; }
+.bz-zeile { display: grid; grid-template-columns: minmax(200px, 1.5fr) minmax(150px, 1.5fr) minmax(90px, .7fr) minmax(120px, .8fr) 36px; gap: 8px; align-items: center; }
+.bz-zeile .full { grid-column: 1 / -1; } .bz-zeile.ueber { grid-template-columns: auto minmax(0, 1fr) auto; }
+.bz-ue { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; } .bz-ue .ic { width: 16px; height: 16px; color: var(--blue); }
+.bz-st.einbehalten { font-size: 13px; color: var(--muted); padding: 0 6px; }
+.bz-flag { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #7a4b00; font-weight: 600; } .bz-flag .ic { width: 15px; height: 15px; color: var(--amber); }
+.fae-g-sub .amber b { color: #7a4b00; }
+.fae-diff { background: #fffdf5; }
+@media (max-width: 719px) {
+  .bz-dl { grid-template-columns: 1fr 1fr; }
+  .bz-zeile { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px; }
+  .bz-zeile [data-f="grund"] { grid-column: 1 / 3; } .bz-zeile [data-f="text"] { grid-column: 1 / -1; grid-row: 2; }
+  .bz-zeile [data-f="betrag"] { grid-row: 3; } .bz-zeile [data-f="status"], .bz-zeile .bz-st { grid-row: 3; grid-column: 2 / -1; }
+  .bz-zeile [data-weg] { grid-row: 1; grid-column: 3; }
+  .bz-zeile + .bz-zeile { border-top: 1px dashed #e3c98a; padding-top: 10px; }
+}
