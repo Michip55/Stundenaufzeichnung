@@ -2,6 +2,7 @@
 // 15.25: Stunden in Langform („9 Std. 51 Min.“) statt Dezimalzahl.
 import { get } from '../api.js';
 import { ic, esc, fmt, laden, fehlerBox, $ } from '../ui.js';
+import { stundenSumme } from '../zahl.js';
 
 const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', F: 'Feiertag', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
 export const codeBadge = (c) => (c ? `<span class="code-badge c-${esc(c)}" title="${esc(CODES[c] || c)}">${c === 'abwesend' ? 'abw.' : esc(c)}</span>` : '');
@@ -38,7 +39,7 @@ export default async function woche(el, ctx) {
         <button type="button" class="icon-btn" data-w="7" aria-label="Nächste Woche">${ic('right')}</button>
       </div>
       <div class="kpi-row two">
-        <div class="kpi"><small>Stunden gesamt</small><b id="woche-summe">${fmt.stdLangHtml(w.summe || 0)}</b></div>
+        <div class="kpi"><small>Stunden gesamt</small><b id="woche-summe">${fmt.stdLangHtml(stundenSumme((w.tage || []).map((t) => t.stunden)))}</b></div>
         <div class="kpi"><small>davon Überstunden</small><b id="woche-ue">${fmt.stdLangHtml(w.ueberstunden || 0)}</b></div>
       </div>
       ${w.sollStunden != null ? `<p class="muted sm" id="woche-soll">Soll laut Arbeitszeitmodell: ${esc(fmt.stdLang(w.sollStunden))}${w.mehrstunden ? ` · davon Mehrstunden: ${esc(fmt.stdLang(w.mehrstunden))}` : ''}</p>` : ''}

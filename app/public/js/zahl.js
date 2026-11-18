@@ -131,3 +131,20 @@ export function stundenImText(text) {
     .replace(/(^|[^\d.,])(\d{1,4}),(\d{1,2})[\s ]Std\./g, (_, vor, h, k) => `${vor}${stundenLang(wert(h, k))}`)
     .replace(/(^|[^\d.,])(\d{1,4}),(\d{1,2})[\s ]Arbeitsstunden\b/g, (_, vor, h, k) => `${vor}${stundenLang(wert(h, k))} Arbeitszeit`);
 }
+/**
+ * Minuten eines Stundenwerts mit derselben Rundung wie die Anzeige (stundenHM/stundenLang); keine Zahl → 0.
+ * Grundlage für Summen in Std:Min, die zu den sichtbaren Einzelwerten passen.
+ */
+export function stundenMinuten(stunden) {
+  if (!istStd(stunden)) return 0;
+  const m = Math.round(Math.abs(stunden) * 60);
+  return stunden < 0 ? -m : m;
+}
+/**
+ * Summe in Std:Min aus Einzelwerten: jeder Wert wird erst auf Minuten gerundet (so wie er angezeigt wird), dann addiert.
+ * Ergebnis in Stunden (Minuten / 60). Beispiel: 5 × 7,67 (= 5 × „7:40“) → 38,333… → „38:20“, nicht „38:21“ aus 38,35.
+ * Nur für die Anzeige in Std:Min – der Dezimal-Modus und alle Exporte nehmen weiter die Summen der API.
+ */
+export function stundenSumme(werte) {
+  return (werte || []).reduce((s, h) => s + stundenMinuten(h), 0) / 60;
+}

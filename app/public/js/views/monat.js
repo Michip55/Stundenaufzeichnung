@@ -5,10 +5,30 @@
 import { get } from '../api.js';
 import { ic, esc, fmt, laden, leer, banner, speicher, $ } from '../ui.js';
 import { warnText, warnTextRoh } from './stempeln.js';
+import { stundenSumme } from '../zahl.js';
 
 export const STUNDEN_FORMAT = 'bt_stunden_format';
 const FORMATE = [['hm', 'Std:Min'], ['dezimal', 'Dezimal']];
 const formatJetzt = () => (speicher.lies(STUNDEN_FORMAT, 'hm') === 'dezimal' ? 'dezimal' : 'hm');
+
+/**
+ * 15.25: Summen für die Std:Min-Anzeige so bilden, dass sie zu den sichtbaren Tageswerten passen. Die API summiert auf
+ * 2 Dezimalstellen gerundete Tage (5 × 7,67 = 38,35 = „38:21“), sichtbar sind aber 5 × „7:40“ = „38:20“. Deshalb hier:
+ * Summe (und Lohngruppen-/Modell-Abschnitte) = Summe der auf Minuten gerundeten Tage; Über- und Mehrstunden kommen aus der
+ * API (Regel des Arbeitszeitmodells), auf Minuten gerundet; Normal = Summe − Über − Mehr. Im Dezimal-Modus und in allen
+ * Exporten gelten unverändert die Werte der API.
+ */
+export function minutenSummen(m) {
+  const tage = m.tage || {};
+  const zwischen = (von, bis) => stundenSumme(Object.keys(tage).filter((t) => t >= von && t <= bis).map((t) => tage[t].stunden));
+  const summe = stundenSumme(Object.values(tage).map((z) => z.stunden));
+  const ueberstunden = stundenSumme([m.ueberstunden]), mehrstunden = stundenSumme([m.mehrstunden]);
+  return {
+    ...m, summe, ueberstunden, mehrstunden, normal: Math.max(0, Math.round((summe - ueberstunden - mehrstunden) * 60)) / 60,
+    ...(Array.isArray(m.lohngruppen) ? { lohngruppen: m.lohngruppen.map((l) => ({ ...l, stunden: zwischen(l.von, l.bis) })) } : {}),
+    ...(Array.isArray(m.arbeitszeitmodelle) ? { arbeitszeitmodelle: m.arbeitszeitmodelle.map((a) => ({ ...a, stunden: zwischen(a.von, a.bis) })) } : {})
+  };
+}
 
 export default async function monat(el, ctx) {
   let ym = ctx.query.get('monat') || fmt.iso().slice(0, 7);
@@ -27,7 +47,7 @@ export default async function monat(el, ctx) {
     const h = (n) => (dez ? fmt.zahl(n) : fmt.hm(n));
     const hK = (n) => (dez ? fmt.zahl(n, 1) : fmt.hm(n));
     const tage = (d.tage || []).map((t) => (typeof t === 'string' ? { datum: t } : t));
-    const ma = d.mitarbeiter || [];
+    const ma = dez ? d.mitarbeiter || [] : (d.mitarbeiter || []).map(minutenSummen);
     const sum = (k) => ma.reduce((s, m) => s + (Number(m[k]) || 0), 0);
     const we = (t) => { const w = fmt.dt(t.datum).getDay(); return w === 0 || w === 6 || t.feiertag; };
     el.innerHTML = `

@@ -9,6 +9,8 @@ export const REGEL_TEXT = { tag_oder_woche: 'Tag oder Woche (die größere Über
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 // 15.25: Anzeige als Std:Min – volle Stunden ohne „:00“ (39, 8), sonst 8:30 statt 8,5. Die Eingabefelder bleiben dezimal.
 const std = (x) => { const m = Math.round((x || 0) * 60); return m % 60 ? fmt.hm(x || 0) : String(m / 60); };
+// Im Bearbeiten-Dialog wird dezimal getippt – Live-Summe und Prüfmeldung bleiben deshalb dezimal wie die Eingabe (38,5)
+const stdEingabe = (x) => fmt.zahl(x || 0, 2).replace(/,00$/, '');
 
 /** Kurzbeschreibung eines Modells, z. B. „39 Std. · Mo–Do 8, Fr 7 · Tag oder Woche“ */
 export function modellKurz(m) {
@@ -73,7 +75,7 @@ export async function arbeitszeitTab(box, ctx) {
     const zeigSumme = () => {
       const w = parseZahl(String(form.elements.wochenstunden.value || '').trim());
       const s = summe();
-      $('#az-summe', d.el).textContent = `Summe der Tage: ${std(s)} Std.${isFinite(w) && w > 0 ? (Math.abs(s - w) > 0.011 ? ` – muss ${std(w)} Std. ergeben` : ' ✓') : ''}`;
+      $('#az-summe', d.el).textContent = `Summe der Tage: ${stdEingabe(s)} Std.${isFinite(w) && w > 0 ? (Math.abs(s - w) > 0.011 ? ` – muss ${stdEingabe(w)} Std. ergeben` : ' ✓') : ''}`;
     };
     form.addEventListener('input', zeigSumme); zeigSumme();
     form.addEventListener('submit', async (e) => {
@@ -87,7 +89,7 @@ export async function arbeitszeitTab(box, ctx) {
       if (!(w >= 1 && w <= 60)) return zeig('Bitte Wochenstunden zwischen 1 und 60 eintragen, z. B. 38,5.', 'wochenstunden');
       const stunden = {};
       for (const [k, t] of TAGE) { const h = zahl('t_' + k); if (!(h >= 0 && h <= 12)) return zeig(`${t}: bitte 0 bis 12 Stunden eintragen.`, 'stunden'); stunden[k] = r2(h); }
-      if (Math.abs(summe() - w) > 0.011) return zeig(`Die Tage ergeben ${std(summe())} Std. – zusammen müssen es die Wochenstunden (${std(w)} Std.) sein.`, 'stunden');
+      if (Math.abs(summe() - w) > 0.011) return zeig(`Die Tage ergeben ${stdEingabe(summe())} Std. – zusammen müssen es die Wochenstunden (${stdEingabe(w)} Std.) sein.`, 'stunden');
       const vzRoh = String(form.elements.vollzeit.value || '').trim();
       const vz = vzRoh === '' ? null : parseZahl(vzRoh);
       if (vz != null && !(vz > w && vz <= 60)) return zeig('Vollzeit-Wochenstunden müssen größer als die Wochenstunden sein (höchstens 60) – bei Vollzeit leer lassen.', 'vollzeit');

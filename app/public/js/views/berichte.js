@@ -2,7 +2,7 @@
 // Handy: Schritt-für-Schritt-Assistent. Tablet/PC: Formular im Aufbau der Papiervorlage.
 import { get, post, put, del } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toast, statusChip, entprellt, integBtn, $, $$, integAktiv, integVon, istIntern } from '../ui.js';
-import { stundenAus, personalFehler, bloecke } from '../zahl.js';
+import { stundenAus, personalFehler, bloecke, stundenSumme } from '../zahl.js';
 import { bildVerkleinern } from '../schaden-offline.js';
 import { fernKnopf, fernDialog, fernLinksZeigen, fernWiderrufen, diktatHtml, diktatMikro, diktatVorschlag, lieferscheinKnopf, lieferscheinVorschlag, papierKnopf, papierAnhaengen, papierErkennen } from './bericht-assistent.js';
 
@@ -205,7 +205,8 @@ export async function bericht(el, ctx) {
   const fuhrMarke = (m) => { const z = matZeile(m.id); if (!z.quelle || !(z.ausFuhren > 0)) return ''; return ` <i class="chip xs st-outline" data-aus-fuhre="${esc(z.quelle)}">${ic('truck')}${z.quelle === 'fuhre' ? 'aus Fuhre' : `davon ${esc(fmt.zahl(z.ausFuhren, 2))} ${esc(m.einheit || '')} aus Fuhren`}</i>`; };
   // Material, das im Bericht steht, aber inzwischen deaktiviert ist: bleibt sichtbar, steht aber in keiner neuen Auswahl
   const matListe = () => [...matKat, ...b.material.filter((z) => !matKat.some((m) => m.id === z.materialId)).map((z) => ({ id: z.materialId, name: z.name || 'Material', einheit: z.einheit, deaktiviert: true }))];
-  const gesamt = () => rund2(b.personal.reduce((s, p) => s + (Number(p.stunden) || 0), 0));
+  // 15.25: Gesamtstunden in Std:Min = Summe der angezeigten, auf Minuten gerundeten Personenstunden (passt zu den Zeilen darüber)
+  const gesamtHM = () => fmt.hm(stundenSumme(b.personal.map((p) => Number(p.stunden) || 0)));
 
   /* ---- Speichern (automatisch, entprellt) ---- */
   const offen = new Set();
@@ -274,7 +275,7 @@ export async function bericht(el, ctx) {
       if (neu && Array.isArray(neu.personal) && felder.includes('personal') && !offen.has('personal')) {
         neu.personal.forEach((np) => { const p = b.personal.find((x) => x.benutzerId === np.benutzerId); if (p) { p.stunden = np.stunden; p.hinweis = np.hinweis; } });
         $$('#personal .bp-row', el).forEach((pr) => { const p = b.personal[Number(pr.dataset.i)]; if (p) $('[data-p-std]', pr).textContent = fmt.hm(p.stunden || 0); });
-        const g = $('#gesamt', el); if (g) g.textContent = fmt.hm(gesamt());
+        const g = $('#gesamt', el); if (g) g.textContent = gesamtHM();
       }
       fehlerText = ''; gespeichertUm = Date.now();
     } catch (e) {
@@ -321,7 +322,7 @@ export async function bericht(el, ctx) {
           <label role="cell"><span class="bp-l">Code</span><select class="input s" data-p="code" aria-label="${esc(p.name || '')} Abwesenheits-Code" ${dis()}>${codesFuer(p).map(([k, t]) => `<option value="${k}" title="${esc(t)}" ${(p.code || '') === k ? 'selected' : ''}>${k === 'abwesend' ? 'abw.' : k ? esc(k) : '–'}</option>`).join('')}</select></label>
           <span role="cell" class="bp-del">${editierbar() ? `<button type="button" class="icon-btn sm" data-p-weg aria-label="${esc(p.name || 'Person')} entfernen">${ic('trash')}</button>` : ''}</span>
         </div>`).join('') : `<div class="state empty small">${ic('users')}<p>Für diesen Tag wurde auf dieser Baustelle niemand gestempelt. Personen können händisch ergänzt werden.</p></div>`}
-        <div class="bp-foot"><span>Gesamtstunden</span><b id="gesamt">${fmt.hm(gesamt())}</b></div>
+        <div class="bp-foot"><span>Gesamtstunden</span><b id="gesamt">${gesamtHM()}</b></div>
       </div>
       <p class="pf-legend">K = Krank · U = Urlaub · SW = Schlechtwetter · ZA = Zeitausgleich</p>
       ${editierbar() ? `<div class="add-line">${frei.length ? `<select class="input" id="p-neu" aria-label="Person hinzufügen"><option value="">Person hinzufügen …</option>${partie.length ? `<optgroup label="Partie dieser Baustelle">${partie.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</optgroup>` : ''}${gaeste.length ? `<optgroup label="Gast aus anderer Partie (wird protokolliert)">${gaeste.map((m) => `<option value="${m.id}" data-gast="1">${esc(m.name)} (Gast)</option>`).join('')}</optgroup>` : ''}</select>` : ''}<button type="button" class="btn ghost sm" data-p-sync>${ic('sync')}Aus Stempelungen neu übernehmen</button></div>` : ''}`;
@@ -754,7 +755,7 @@ export async function bericht(el, ctx) {
       else p[k] = t.value;
       // C-02: Arbeitsstunden sind nie frei eingebbar – sie folgen aus Zeiten und Pause (gleiche Regel wie am Server)
       if (k !== 'code' && k !== 'segStunden') { p.stunden = stundenAus(p, b.datum); $('[data-p-std]', pr).textContent = fmt.hm(p.stunden); }
-      $('#gesamt', el).textContent = fmt.hm(gesamt());
+      $('#gesamt', el).textContent = gesamtHM();
       zeilenStatus(pr, p);
       geaendert('personal'); // ungültige Zeilen werden nicht gesendet, bleiben aber sichtbar „nicht gespeichert“
       return;

@@ -82,3 +82,51 @@ test('15.25: Server-Hinweise – nur Stunden mit Dezimalkomma werden zur Langfor
   assert.equal(t(null), null);
   assert.equal(t(undefined), undefined);
 });
+
+test('15.25 Review: Summen in Std:Min aus den auf Minuten gerundeten Einzelwerten (5 × 7:40 = 38:20, nicht 38:21)', async () => {
+  const { stundenSumme: summe, stundenMinuten: minuten, stundenHM: hm, stundenLang: lang } = await laden();
+  // Die API liefert 7:40 als 7,67 und summiert gerundete Tage: 5 × 7,67 = 38,35 = „38:21“
+  assert.equal(hm(38.35), '38:21');
+  assert.equal(hm(summe([7.67, 7.67, 7.67, 7.67, 7.67])), '38:20');
+  assert.equal(lang(summe([7.67, 7.67, 7.67, 7.67, 7.67])), '38 Std. 20 Min.');
+  assert.equal(hm(summe(Array(20).fill(7.67))), '153:20'); // statt 153:24 aus 153,4
+  assert.equal(hm(summe([7.67, 7.67, 7.67])), '23:00'); // Bericht: 3 Personen, statt 23:01 aus 23,01
+  // Minuten wie in der Anzeige gerundet; keine Zahl zählt 0, Minus bleibt Minus
+  assert.equal(minuten(9.85), 591); assert.equal(minuten(9.999), 600); assert.equal(minuten(-0.5), -30);
+  for (const x of [null, undefined, NaN, '8', {}]) assert.equal(minuten(x), 0);
+  assert.equal(summe([]), 0); assert.equal(summe(null), 0); assert.equal(hm(summe([8, null, undefined, 0.5])), '8:30');
+  // Eigenschaft: die Summe ist immer genau die Summe der angezeigten Einzelwerte (zufällige Tage)
+  const zuMin = (t) => { const [h, m] = t.replace('−', '-').split(':').map(Number); return h * 60 + (t.startsWith('−') ? -m : m); };
+  for (let i = 0; i < 500; i++) {
+    const werte = Array.from({ length: 1 + (i % 23) }, () => Math.round(Math.random() * 1200) / 100);
+    assert.equal(zuMin(hm(summe(werte))), werte.reduce((a, w) => a + zuMin(hm(w)), 0), JSON.stringify(werte));
+  }
+});
+
+test('15.25 Review: Monatsauswertung, Meine Woche und Bericht bilden Std:Min-Summen aus den Einzelwerten; Dezimal bleibt API', () => {
+  const monat = fs.readFileSync(path.join(JS, 'views', 'monat.js'), 'utf8');
+  assert.match(monat, /const ma = dez \? d\.mitarbeiter \|\| \[\] : \(d\.mitarbeiter \|\| \[\]\)\.map\(minutenSummen\)/);
+  assert.match(monat, /export function minutenSummen\(m\)/);
+  const woche = fs.readFileSync(path.join(JS, 'views', 'woche.js'), 'utf8');
+  assert.match(woche, /id="woche-summe">\$\{fmt\.stdLangHtml\(stundenSumme\(/);
+  assert.doesNotMatch(woche, /stdLangHtml\(w\.summe/);
+  const ber = fs.readFileSync(path.join(JS, 'views', 'berichte.js'), 'utf8');
+  assert.match(ber, /const gesamtHM = \(\) => fmt\.hm\(stundenSumme\(/);
+  assert.doesNotMatch(ber, /fmt\.hm\(gesamt\(\)\)/);
+});
+
+test('15.25 Review: Arbeitszeitmodell-Dialog meldet dezimal wie die Eingabe; Nachkalkulations-Hinweis in Langform', async () => {
+  const az = fs.readFileSync(path.join(JS, 'views', 'arbeitszeitmodelle.js'), 'utf8');
+  assert.match(az, /Summe der Tage: \$\{stdEingabe\(s\)\} Std\./);
+  assert.match(az, /Die Tage ergeben \$\{stdEingabe\(summe\(\)\)\} Std\./);
+  const kalk = fs.readFileSync(path.join(JS, 'views', 'kalkulation.js'), 'utf8');
+  assert.match(kalk, /esc\(stundenImText\(h\.text\)\)/);
+  // genau der Text vom Server (server/kalkulation.js) – andere Kalkulations-Hinweise haben keine Kommazahl vor „Std.“
+  const { stundenImText: t } = await laden();
+  assert.equal(t('12,5 Std. ohne Lohngruppe – dafür sind keine Lohnkosten gerechnet.'), '12 Std. 30 Min. ohne Lohngruppe – dafür sind keine Lohnkosten gerechnet.');
+  assert.equal(t('Budget-Verbrauch liegt 12,5 Prozentpunkte über dem Leistungsstand – die Kosten laufen der Leistung davon.'), 'Budget-Verbrauch liegt 12,5 Prozentpunkte über dem Leistungsstand – die Kosten laufen der Leistung davon.');
+  const srv = fs.readFileSync(path.join(__dirname, '..', '..', 'server', 'kalkulation.js'), 'utf8');
+  const mitStd = srv.split('\n').filter((z) => /hinweise\.push|text: `/.test(z) && /Std\./.test(z));
+  assert.equal(mitStd.length, 1, mitStd.join('\n'));
+  assert.match(mitStd[0], /ohne Lohngruppe/);
+});
