@@ -1516,6 +1516,16 @@ CREATE TABLE rechnung_differenz (
 CREATE INDEX rechnung_differenz_r ON rechnung_differenz(rechnung_id);
 CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
 `
+  },
+  {
+    version: 51,
+    name: '15.26: Zahlbetrag mit Skonto – Betrag nach Skonto wie auf der Rechnung',
+    // skonto_zahlbetrag: der eingetragene Betrag „zahlbar … abzgl. Skonto € …“ (NULL = Skonto in % bzw. € oder kein Skonto).
+    // Das Skonto in € steht weiter in skonto_betrag (= Zahlbetrag − skonto_zahlbetrag, beim Speichern gerechnet) – Zahlungen,
+    // Fälligkeiten und Offene Posten rechnen unverändert damit. Bestehende Rechnungen bleiben unverändert (Spalte leer).
+    sql: `
+ALTER TABLE rechnung ADD COLUMN skonto_zahlbetrag REAL;
+`
   }
 ];
 

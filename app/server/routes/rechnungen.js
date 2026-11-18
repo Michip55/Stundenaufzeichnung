@@ -60,9 +60,16 @@ module.exports = function rechnungRouten(api, bt) {
     // Skonto: Prozent ODER Betrag (15.24) – gespeichert wird die Eingabe, das andere gerechnet
     if (body.skontoProzent !== undefined) f.skonto_prozent = nullOder(body.skontoProzent, () => v.zahl(body.skontoProzent, 'skontoProzent', { min: 0, max: 10 }));
     if (body.skontoBetrag !== undefined) f.skonto_betrag = nullOder(body.skontoBetrag, () => v.betrag(body.skontoBetrag, 'skontoBetrag', { min: 0, max: 1e9 }));
+    // 15.26: oder als „Zahlbetrag mit Skonto“ (Betrag laut Rechnung nach Abzug) – das Skonto in € rechnet pruefeGesamt
+    if (body.skontoZahlbetrag !== undefined) f.skonto_zahlbetrag = nullOder(body.skontoZahlbetrag, () => v.betrag(body.skontoZahlbetrag, 'skontoZahlbetrag', { min: 0, max: 1e9 }));
     if (f.skonto_prozent && f.skonto_betrag) throw ungueltig('Skonto entweder in Prozent oder als Betrag angeben, nicht beides.');
+    if (f.skonto_zahlbetrag != null && (f.skonto_prozent || f.skonto_betrag)) throw ungueltig('Skonto entweder in Prozent, als Betrag oder als „Zahlbetrag mit Skonto“ angeben – nur eines davon.');
+    if (f.skonto_zahlbetrag != null && !(f.skonto_zahlbetrag > 0)) throw ungueltig('Zahlbetrag mit Skonto: bitte den Betrag wie auf der Rechnung eintragen (größer als 0).');
     if (f.skonto_prozent) f.skonto_betrag = null;
     if (f.skonto_betrag) f.skonto_prozent = null;
+    if (f.skonto_zahlbetrag != null) f.skonto_prozent = null;
+    else if (body.skontoZahlbetrag === undefined && (body.skontoProzent !== undefined || body.skontoBetrag !== undefined)) f.skonto_zahlbetrag = null; // neue Eingabe in % bzw. € ersetzt den Zahlbetrag mit Skonto
+    else if (body.skontoZahlbetrag !== undefined && body.skontoProzent === undefined && body.skontoBetrag === undefined && (!alt || alt.skonto_zahlbetrag != null)) f.skonto_betrag = null; // skontoZahlbetrag:null allein → kein Skonto
     if (body.skontoTage !== undefined) f.skonto_tage = nullOder(body.skontoTage, () => v.zahl(body.skontoTage, 'skontoTage', { min: 0, max: 90, ganz: true }));
     // Rücklässe (15.24): Deckungs- und Haftrücklass getrennt, je Prozent (vom Brutto) ODER Betrag
     for (const art of ['deckung', 'haft']) {
@@ -101,7 +108,7 @@ module.exports = function rechnungRouten(api, bt) {
         f.dokument_id = d.id;
       }
     }
-    const skonto = f.skonto_prozent || f.skonto_betrag;
+    const skonto = f.skonto_prozent || f.skonto_betrag || f.skonto_zahlbetrag;
     if (!teil && ((skonto && !f.skonto_tage) || (f.skonto_tage && !skonto))) throw ungueltig('Skonto: Prozent bzw. Betrag und Frist gemeinsam angeben.');
     return f;
   }
@@ -110,14 +117,26 @@ module.exports = function rechnungRouten(api, bt) {
    * Prüfungen über mehrere Felder auf dem Stand nach dem Speichern (N-019, N-107, 15.24). Beim Ändern (geaendert = Feldnamen)
    * nur die Prüfungen, deren Felder sich ändern – eine Notiz scheitert nicht an früher gespeicherten Werten.
    */
-  function pruefeGesamt(m, geaendert = null) {
+  function pruefeGesamt(m, geaendert = null, f = null) {
     const bei = (...k) => !geaendert || k.some((x) => geaendert.includes(x));
     const BETRAG = ['netto', 'ust_modus', 'ust_satz', 'ust_betrag', 'brutto'];
     const RL = ['deckung_prozent', 'deckung_betrag', 'haft_prozent', 'haft_betrag'];
+    const de = (x) => R.r2(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (bei('typ', ...RL) && m.typ === 'gutschrift' && (R.hatRuecklass(m, 'deckung') || R.hatRuecklass(m, 'haft'))) throw ungueltig('Eine Gutschrift hat keinen Rücklass.');
     if (bei(...BETRAG)) { const papier = R.pruefePapier(m); if (papier) throw ungueltig(papier.text, { erwartet: papier.erwartet }); }
-    const b = R.betraege(m);
+    let b = R.betraege(m);
     if (bei(...BETRAG, ...RL) && b.ruecklass > b.brutto + 0.005) throw ungueltig(`Der Rücklass (${b.ruecklass.toFixed(2).replace('.', ',')}) ist höher als der Bruttobetrag (${b.brutto.toFixed(2).replace('.', ',')}).`);
+    // 15.26 Zahlbetrag mit Skonto: Skonto € = Zahlbetrag − eingetragener Betrag (gespeichert in skonto_betrag; auch neu,
+    // wenn sich Brutto oder Rücklass ändern – der Betrag laut Rechnung bleibt die Eingabe)
+    const mitZahlbetrag = m.skonto_zahlbetrag != null && bei(...BETRAG, ...RL, 'skonto_zahlbetrag');
+    if (mitZahlbetrag) {
+      if (!(m.skonto_zahlbetrag < b.zahlbetrag - 0.004)) throw ungueltig(`Der Zahlbetrag mit Skonto (${de(m.skonto_zahlbetrag)}) muss kleiner sein als der Zahlbetrag (${de(b.zahlbetrag)}).`);
+      m.skonto_betrag = R.r2(b.zahlbetrag - m.skonto_zahlbetrag);
+      m.skonto_prozent = null;
+      if (f) { f.skonto_betrag = m.skonto_betrag; f.skonto_prozent = null; }
+      b = R.betraege(m);
+      if (b.skontoMax > b.zahlbetrag * 0.1 + 0.005) throw ungueltig(`Der Zahlbetrag mit Skonto (${de(m.skonto_zahlbetrag)}) ergibt ein Skonto von ${de(b.skontoMax)} (${String(b.skontoProzent).replace('.', ',')} %) – mehr als 10 % vom Zahlbetrag. Bitte mit der Rechnung vergleichen.`);
+    }
     if (bei(...BETRAG, ...RL, 'skonto_betrag') && m.skonto_betrag != null && m.skonto_betrag > 0 && b.skontoMax > b.zahlbetrag * 0.1 + 0.005) throw ungueltig(`Das Skonto (${b.skontoMax.toFixed(2).replace('.', ',')}) ist höher als 10 % vom Zahlbetrag.`);
   }
 
@@ -145,7 +164,7 @@ module.exports = function rechnungRouten(api, bt) {
     if (!bs) throw nichtGefunden('Baustelle nicht gefunden.');
     if (!req.ctx.hat('preise_bearbeiten') || !sichtbar(req.ctx, bs)) throw keinZugriff('Rechnungen erfassen Büro bzw. GF.');
     const f = felder(v.objekt(req.body), false, bs.id);
-    pruefeGesamt({ ust_modus: 'normal', ust_satz: 20, ...f });
+    pruefeGesamt({ ust_modus: 'normal', ust_satz: 20, ...f }, null, f);
     if (db.eins('SELECT id FROM rechnung WHERE nr_norm = ?', f.nr_norm)) throw konflikt(`Die Rechnungsnummer ${f.nr} gibt es bereits.`);
     f.baustelle_id = bs.id; f.erstellt = jetzt(); f.erstellt_von = req.ctx.benutzer.id;
     const k = Object.keys(f);
@@ -168,8 +187,8 @@ module.exports = function rechnungRouten(api, bt) {
     const hatZahlungen = db.eins('SELECT 1 AS x FROM rechnung_zahlung WHERE rechnung_id = ? LIMIT 1', r.id);
     // N-108: nach Zahlungen auch Rechnungsdatum (Fälligkeit, Skontofrist), Skonto und der Wechsel zu/von Gutschrift (Vorzeichen) gesperrt
     const gutschriftWechsel = f.typ !== undefined && (f.typ === 'gutschrift') !== (r.typ === 'gutschrift');
-    if (hatZahlungen && (gutschriftWechsel || ['netto', 'ust_modus', 'ust_satz', 'ust_betrag', 'brutto', 'deckung_prozent', 'deckung_betrag', 'haft_prozent', 'haft_betrag', 'datum', 'skonto_prozent', 'skonto_betrag', 'skonto_tage'].some((k) => f[k] !== undefined && f[k] !== r[k]))) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt, Rücklass, Rechnungsdatum, Skonto und der Wechsel zu oder von einer Gutschrift gesperrt.');
-    pruefeGesamt({ ...r, ...f }, Object.keys(f));
+    if (hatZahlungen && (gutschriftWechsel || ['netto', 'ust_modus', 'ust_satz', 'ust_betrag', 'brutto', 'deckung_prozent', 'deckung_betrag', 'haft_prozent', 'haft_betrag', 'datum', 'skonto_prozent', 'skonto_betrag', 'skonto_zahlbetrag', 'skonto_tage'].some((k) => f[k] !== undefined && f[k] !== r[k]))) throw konflikt('Nach erfassten Zahlungen sind Betrag, USt, Rücklass, Rechnungsdatum, Skonto und der Wechsel zu oder von einer Gutschrift gesperrt.');
+    pruefeGesamt({ ...r, ...f }, Object.keys(f), f);
     if (f.nr_norm && f.nr_norm !== r.nr_norm && db.eins('SELECT id FROM rechnung WHERE nr_norm = ? AND id <> ?', f.nr_norm, r.id)) throw konflikt('Die Rechnungsnummer gibt es bereits.');
     const k = Object.keys(f);
     if (!k.length) throw ungueltig('Keine Änderungen angegeben.');

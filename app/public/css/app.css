@@ -1180,8 +1180,12 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .re-frei { display: flex; align-items: center; gap: 6px; min-width: 0; } .re-frei .input { flex: 1; min-width: 0; }
 .re-vorschlag { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--blue-bg); font-size: 13.5px; line-height: 1.4; }
 .re-vorschlag[hidden] { display: none; }
+/* 15.26 Zahlbetrag mit Skonto: „Skonto % laut Rechnung (zur Kontrolle)“ und Hinweis in einer Zeile (Handy untereinander) */
+.re-sk-kontrolle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.re-sk-kontrolle[hidden] { display: none; }
+.re-sk-kontrolle .field-label small { font-weight: 400; }
 @media (max-width: 719px) {
-  .re-felder, .re-drei { grid-template-columns: 1fr; }
+  .re-felder, .re-drei, .re-sk-kontrolle { grid-template-columns: 1fr; }
   .re-rl, .re-rl[data-rl="deckung"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .re-rl-t, .re-frei { grid-column: 1 / -1; }
   .re-teil { padding: 10px 12px 12px; }

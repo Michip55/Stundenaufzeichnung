@@ -8,6 +8,8 @@
  *     „Regieaufstellung 000/W26“ abschreiben (Reverse Charge, 3 % Skonto 21 Tage, Ziel 30 Tage): Vorschau der
  *     Zahlungsvereinbarungen wie in Auer; Abweichung Netto/USt/Brutto zeigt einen Hinweis und speichert nicht.
  *  2. Büro: Teilrechnung mit Deckungs- (5 %) UND Haftrücklass (€ 300, frei ab) – Vorschau und Server gleich.
+ *     2b. „Zahlbetrag mit Skonto“ (15.26): Betrag nach Skonto laut Papier, Summenzeilen, Kontrolle Skonto %, Umrechnen beim
+ *     Wechsel der Art, zu hoch → kein Speichern, Abweichung → Hinweis, Bearbeiten hin und zurück, Detail; 320 px ohne Überlauf.
  *  3. Büro: Seite „Rechnungen“ – Filter Baustelle, Status, Art, Zeitraum (gleich der Schnittstelle).
  *  4. Büro: Fälligkeiten (über die Übersicht „Geld“) – Gruppen, „mit Skonto … bis“ / „ohne Skonto … bis“, Rücklass-Zeilen,
  *     Summen gleich GET /faelligkeiten; ruhig (keine Unterstreichung, kein Blau), kein seitlicher Überlauf.
@@ -155,6 +157,88 @@ async function laufe(browser, g, opt = {}) {
       await page.waitForSelector('dialog[open] #re-detail');
       pruef(await page.locator('#re-detail [data-rl="deckung"]').count() === 1 && await page.locator('#re-detail [data-rl="haft"]').count() === 1, 'Detail ohne beide Rücklässe');
       await page.keyboard.press('Escape');
+
+      // 2b) Zahlbetrag mit Skonto (15.26): Betrag nach Skonto wie auf dem Papier – Brutto 48.000,00, Deckungsrücklass 3 % = 1.440,00,
+      // Zahlbetrag 46.560,00, „zahlbar bis … abzgl. 3 % Skonto € 45.163,20“
+      const skD = plus(heute, 6), skBis = plus(skD, 14);
+      await geh('#/rechnungen');
+      await page.waitForSelector('#rechnungen-seite');
+      await page.click('#re-neu-alle');
+      await page.waitForSelector('dialog[open] #ref');
+      await page.selectOption('#ref [name="baustelle"]', String(BS.neustadt));
+      await page.fill('#ref [name="nr"]', 'TR-SK-ZB');
+      await page.selectOption('#ref [name="typ"]', 'teil');
+      await page.fill('#ref [name="datum"]', skD);
+      await page.check('#ref [name="ustModus"][value="normal"]');
+      await page.fill('#ref [name="netto"]', '40.000,00');
+      await page.fill('#ref [name="zahlungszielTage"]', '30');
+      await page.selectOption('#ref [name="deckungArt"]', 'prozent'); await page.fill('#ref [name="deckungWert"]', '3');
+      pruef((await page.locator('#ref [name="skontoArt"] option').allTextContents()).join('|') === 'kein Skonto|in %|in €|Zahlbetrag mit Skonto', `Skonto-Auswahl: ${(await page.locator('#ref [name="skontoArt"] option').allTextContents()).join('|')}`);
+      pruef(await page.locator('#re-sk-kontrolle').isHidden(), 'Kontrollfeld „Skonto % laut Rechnung“ ohne Zahlbetrag mit Skonto sichtbar');
+      await page.selectOption('#ref [name="skontoArt"]', 'zahlbetrag');
+      pruef(await page.locator('#sk-einheit').textContent() === 'Zahlbetrag mit Skonto in €' && await page.locator('#re-sk-kontrolle').isVisible() && /Skonto % laut Rechnung/.test(await page.locator('#re-sk-kontrolle').textContent()), `Zahlbetrag mit Skonto: Beschriftung „${await page.locator('#sk-einheit').textContent()}“ / Kontrollfeld fehlt`);
+      await page.fill('#ref [name="skontoWert"]', '45.163,20'); await page.fill('#ref [name="skontoTage"]', '14');
+      const skZeile = async () => (await page.locator('#re-vorschau [data-skonto-wert]').innerText()).replace(/\s+/g, ' ').trim();
+      pruef((await page.locator('#re-zahlbetrag').innerText()).includes('46.560,00') && /^Skonto 3 % bis \d\d\.\d\d\. − € 1\.396,80$/.test(await skZeile()) && (await skZeile()).includes(`bis ${de(skBis).slice(0, 6)}`), `Summe: Skonto-Zeile „${await skZeile()}“`);
+      pruef((await page.locator('#re-zahlbetrag-skonto').innerText()).includes('45.163,20') && await page.locator('#re-vorschau [data-zahlbetrag-skonto].sum').count() === 1 && /Zahlbetrag mit Skonto/.test(await page.locator('#re-vorschau [data-zahlbetrag-skonto]').innerText()), `Summe: „Zahlbetrag mit Skonto“ fehlt (${await page.locator('#re-vorschau').innerText()})`);
+      pruef((await page.locator('#re-bedingungen li[data-bedingung="skonto"]').innerText()).replace(/\s+/g, ' ').trim() === `14 Tage (bis ${de(skBis)}) · 3 % Skonto · € 45.163,20`, `Zahlungsvereinbarung mit Skonto: ${await page.locator('#re-bedingungen li[data-bedingung="skonto"]').innerText()}`);
+      pruef(/Ergibt Skonto €\s1\.396,80 \(3 %\)/.test(await page.locator('#re-skonto [data-skonto="info"]').innerText()), `Hinweis gerechnetes Skonto: ${await page.locator('#re-skonto').innerText()}`);
+      // Kontrolle mit Skonto % laut Rechnung: passt / weicht ab (Hinweis, kein Sperren)
+      await page.fill('#ref [name="skontoKontrolle"]', '3');
+      pruef(await page.locator('#re-skonto [data-skonto="ok"]').count() === 1 && /passt zur Rechnung/.test(await page.locator('#re-skonto').innerText()), `Kontrolle 3 %: ${await page.locator('#re-skonto').innerText()}`);
+      // Wechsel der Art rechnet um: Zahlbetrag mit Skonto → % → € → zurück
+      await page.selectOption('#ref [name="skontoArt"]', 'prozent');
+      pruef(await page.inputValue('#ref [name="skontoWert"]') === '3' && await page.locator('#re-sk-kontrolle').isHidden() && await page.inputValue('#ref [name="skontoTage"]') === '14', `Wechsel zu %: ${await page.inputValue('#ref [name="skontoWert"]')}`);
+      await page.selectOption('#ref [name="skontoArt"]', 'betrag');
+      pruef(await page.inputValue('#ref [name="skontoWert"]') === '1.396,80' && await page.locator('#sk-einheit').textContent() === 'Skonto in €', `Wechsel zu €: ${await page.inputValue('#ref [name="skontoWert"]')}`);
+      await page.selectOption('#ref [name="skontoArt"]', 'prozent');
+      await page.selectOption('#ref [name="skontoArt"]', 'zahlbetrag');
+      pruef(await page.inputValue('#ref [name="skontoWert"]') === '45.163,20' && await page.inputValue('#ref [name="skontoKontrolle"]') === '3', `Wechsel zurück: ${await page.inputValue('#ref [name="skontoWert"]')} / Kontrolle ${await page.inputValue('#ref [name="skontoKontrolle"]')}`);
+      // zu hoch: Hinweis und kein Speichern
+      await page.fill('#ref [name="skontoWert"]', '46.560,00');
+      pruef(await page.locator('#re-skonto [data-skonto="zu-hoch"]').count() === 1 && await page.locator('#re-vorschau [data-skonto-wert]').count() === 0, 'Zahlbetrag mit Skonto = Zahlbetrag: kein Hinweis oder trotzdem Skonto-Zeile');
+      let postsSk = 0;
+      const zaehleSk = (q) => { if (q.method() === 'POST' && /\/rechnungen$/.test(q.url())) postsSk++; };
+      page.on('request', zaehleSk);
+      await page.click('#re-ok');
+      await page.waitForSelector('#ref .form-err:not([hidden])');
+      pruef(postsSk === 0 && /muss kleiner sein als der Zahlbetrag \(€\s46\.560,00\)/.test(await page.locator('#ref .form-err').innerText()), `zu hoch gespeichert oder ohne klare Meldung: ${await page.locator('#ref .form-err').innerText()}`);
+      page.off('request', zaehleSk);
+      // vom Papier vertippt (45.163,25 statt 45.163,20): Hinweis „Papier … – gerechnet …“, Speichern bleibt möglich
+      await page.fill('#ref [name="skontoWert"]', '45.163,25');
+      pruef(/Skonto 3 %: Papier 45\.163,25 – gerechnet 45\.163,20, bitte prüfen\./.test(await page.locator('#re-skonto [data-skonto="abweichung"]').innerText()), `Abweichungs-Hinweis Skonto: ${await page.locator('#re-skonto').innerText()}`);
+      // Layout: kein seitlicher Überlauf im Dialog (auch bei 320 px am Handy)
+      const dlgUeber = async (wo2) => { const x = await page.evaluate(() => { const b = document.querySelector('dialog[open] .dlg-body'); return { s: b.scrollWidth, c: b.clientWidth, k: [...document.querySelectorAll('#re-sk-kontrolle, #re-vorschau .re-summe, #re-skonto .re-hinweis')].some((e) => e.scrollWidth > e.clientWidth + 1) }; }); pruef(x.s <= x.c + 1 && !x.k, `${wo2}: seitlicher Überlauf im Dialog (${x.s} > ${x.c}${x.k ? ', Skonto-Bereich' : ''})`); };
+      await dlgUeber(`Zahlbetrag mit Skonto ${g.width} px`);
+      if (g.width <= 390) { await page.setViewportSize({ width: 320, height: g.height }); await page.waitForTimeout(150); await dlgUeber('Zahlbetrag mit Skonto 320 px'); await ueberlauf('Rechnung erfassen 320 px'); await page.setViewportSize({ width: g.width, height: g.height }); }
+      if (opt.bilder) { await page.evaluate(() => { const el = document.querySelector('#ref .re-teil[data-teil="4"]'); el.scrollIntoView({ block: 'start' }); el.closest('.dlg-body').scrollTop -= 14; }); await shot(page, '1-erfassen-e-zahlbetrag-mit-skonto'); await page.evaluate(() => document.querySelector('#re-vorschau').scrollIntoView({ block: 'center' })); await shot(page, '1-erfassen-e-zahlbetrag-mit-skonto-summe'); }
+      await page.click('#re-ok');
+      await page.waitForSelector('dialog[open] #ref', { state: 'detached' });
+      await page.waitForSelector('#re-tabelle tr:has-text("TR-SK-ZB")');
+      let zb = (await api(`/rechnungen?baustelleId=${BS.neustadt}`)).json.find((x) => x.nr === 'TR-SK-ZB');
+      pruef(zb && zb.skontoEingabe === 'zahlbetrag' && zb.zahlbetrag === 46560 && zb.zahlbetragMitSkonto === 45163.25 && zb.skontoBetrag === 1396.75 && zb.skontoBis === skBis, `Zahlbetrag mit Skonto am Server: ${JSON.stringify(zb && { e: zb.skontoEingabe, z: zb.zahlbetrag, m: zb.zahlbetragMitSkonto, s: zb.skontoBetrag, b: zb.skontoBis })}`);
+      // Bearbeiten: öffnet wieder als „Zahlbetrag mit Skonto“ mit dem eingetragenen Betrag – korrigieren
+      await page.locator('#re-tabelle tr:has-text("TR-SK-ZB") td:first-child').click();
+      await page.waitForSelector('dialog[open] #re-detail');
+      await page.click('#re-edit');
+      await page.waitForSelector('dialog[open] #ref');
+      pruef(await page.inputValue('#ref [name="skontoArt"]') === 'zahlbetrag' && await page.inputValue('#ref [name="skontoWert"]') === '45.163,25' && await page.locator('#sk-einheit').textContent() === 'Zahlbetrag mit Skonto in €' && await page.locator('#re-sk-kontrolle').isVisible(), `Bearbeiten öffnet nicht als Zahlbetrag mit Skonto (${await page.inputValue('#ref [name="skontoArt"]')} / ${await page.inputValue('#ref [name="skontoWert"]')})`);
+      await page.fill('#ref [name="skontoWert"]', '45.163,20');
+      await page.click('#re-ok');
+      await page.waitForSelector('dialog[open] #ref', { state: 'detached' });
+      zb = (await api(`/rechnungen/${zb.id}`)).json;
+      pruef(zb.skontoEingabe === 'zahlbetrag' && zb.skontoBetrag === 1396.8 && zb.skontoProzent === 3 && zb.zahlbetragMitSkonto === 45163.2, `nach dem Bearbeiten: ${JSON.stringify({ e: zb.skontoEingabe, s: zb.skontoBetrag, p: zb.skontoProzent, m: zb.zahlbetragMitSkonto })}`);
+      // Detail: „Skonto 3 % bis …  − € 1.396,80“, „Zahlbetrag mit Skonto € 45.163,20“, „(eingetragen als Zahlbetrag mit Skonto)“
+      await geh('#/rechnungen');
+      await page.waitForSelector('#re-tabelle tr:has-text("TR-SK-ZB")');
+      await page.locator('#re-tabelle tr:has-text("TR-SK-ZB") td:first-child').click();
+      await page.waitForSelector('dialog[open] #re-detail');
+      const dSk = (await page.locator('#re-detail [data-skonto-wert]').innerText()).replace(/\s+/g, ' ').trim();
+      pruef(dSk === `Skonto 3 % bis ${de(skBis).slice(0, 6)} − € 1.396,80` && (await page.locator('#re-detail [data-wert="zahlbetragMitSkonto"]').innerText()).includes('45.163,20') && /\(eingetragen als Zahlbetrag mit Skonto\)/.test(await page.locator('#re-detail [data-skonto-eingabe="zahlbetrag"]').innerText()), `Detail Zahlbetrag mit Skonto: „${dSk}“ / ${await page.locator('#re-detail').innerText()}`);
+      if (opt.bilder) await page.evaluate(() => document.querySelector('#re-detail [data-skonto-wert]').scrollIntoView({ block: 'center' }));
+      await shot(page, '1-erfassen-f-detail-zahlbetrag-mit-skonto');
+      await page.keyboard.press('Escape');
+      await geh('#/dashboard'); // die nächsten Rechnungen kommen über die Schnittstelle – „Rechnungen“ danach neu laden
 
       // weitere Rechnungen über die Schnittstelle (verschiedene Ziele, Skonti, USt-Arten)
       const neu = async (bs, b) => { const r = await api(`/baustellen/${bs}/rechnungen`, 'POST', { typ: 'abschlag', ...b }); pruef(r.status === 201, `Testrechnung ${b.nr}: ${r.status} ${JSON.stringify(r.json).slice(0, 120)}`); return r.json; };
