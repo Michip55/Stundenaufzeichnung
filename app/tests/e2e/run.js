@@ -343,7 +343,7 @@ async function laufe(browser, g) {
     // B-06: Schicht über Mitternacht ist erfassbar und wird gespeichert
     await zeit(0, 'von1', '22:00'); await zeit(0, 'bis1', '06:00');
     pruef(await page.locator('.bp-row').nth(0).locator('.bp-nacht:not([hidden])').count() === 1, 'B-06: Hinweis „+1 Tag“ fehlt bei Schicht über Mitternacht');
-    pruef((await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()) === '7,5', `B-06: Stunden über Mitternacht falsch (${await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()})`);
+    pruef((await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()) === '7:30', `B-06: Stunden über Mitternacht falsch (15.25: Std:Min) (${await page.locator('.bp-row').nth(0).locator('[data-p-std]').innerText()})`);
     await page.waitForSelector('#save-state[data-zustand="ok"]', { timeout: 8000 }).catch(() => {});
     pruef(await zustand() === 'ok', `B-06: Nachtschicht wurde nicht gespeichert (Zustand ${await zustand()}: ${await page.locator('#unsaved').innerText().catch(() => '')})`);
     let p0 = (await api('GET', `/berichte/${berichtId}`)).json.personal[0];
@@ -1684,6 +1684,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_RECHNUNGEN) {
       console.log('    Rechnungen (wie auf dem Papier, beide Rücklässe, Filter, Fälligkeiten, kein Geld für Polier/Mitarbeiter) …');
       try { const re = await require('./rechnungen').laufe(browser, g); r.fehler.push(...re.fehler); r.schritte += re.schritte; } catch (e) { r.fehler.push('Abbruch Rechnungen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Stunden als Std:Min, Schalter „Std:Min | Dezimal“ in der Monatsauswertung, Exporte bleiben dezimal (tests/e2e/zeitformat.js, API.md 15.25)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ZEITFORMAT) {
+      console.log('    Zeitformat (Std:Min statt Dezimal, Schalter in der Monatsauswertung, Meine Woche, Stempeluhr, CSV bleibt dezimal) …');
+      try { const zf = await require('./zeitformat').laufe(browser, g); r.fehler.push(...zf.fehler); r.schritte += zf.schritte; } catch (e) { r.fehler.push('Abbruch Zeitformat: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

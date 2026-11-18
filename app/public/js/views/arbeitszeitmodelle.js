@@ -7,7 +7,8 @@ import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, bestaetigen, toas
 export const TAGE = [['mo', 'Mo'], ['di', 'Di'], ['mi', 'Mi'], ['do', 'Do'], ['fr', 'Fr'], ['sa', 'Sa'], ['so', 'So']];
 export const REGEL_TEXT = { tag_oder_woche: 'Tag oder Woche (die größere Überschreitung)', woche: 'nur Woche' };
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
-const std = (x) => fmt.zahl(x || 0, 2).replace(/,00$/, '');
+// 15.25: Anzeige als Std:Min – volle Stunden ohne „:00“ (39, 8), sonst 8:30 statt 8,5. Die Eingabefelder bleiben dezimal.
+const std = (x) => { const m = Math.round((x || 0) * 60); return m % 60 ? fmt.hm(x || 0) : String(m / 60); };
 
 /** Kurzbeschreibung eines Modells, z. B. „39 Std. · Mo–Do 8, Fr 7 · Tag oder Woche“ */
 export function modellKurz(m) {

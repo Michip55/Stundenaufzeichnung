@@ -127,7 +127,8 @@ async function laufe(browser, g) {
       const lukas = d.mitarbeiter.find((x) => x.id === U.mitarbeiter);
       pruef(lukas && lukas.mehrstunden > 0, `API: Lukas ohne Mehrstunden ${JSON.stringify(lukas && [lukas.summe, lukas.ueberstunden, lukas.mehrstunden])}`);
       const zelle = (await page.locator(`tr[data-ma="${U.mitarbeiter}"] [data-mehr]`).innerText()).trim();
-      const erwartet = lukas.mehrstunden.toLocaleString('de-AT', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
+      // 15.25: Std:Min (9:51 statt 9,85)
+      const mm = Math.round(lukas.mehrstunden * 60), erwartet = `${Math.floor(mm / 60)}:${String(mm % 60).padStart(2, '0')}`;
       pruef(zelle === erwartet, `Spalte „Mehr“: „${zelle}“ statt „${erwartet}“`);
       const name = await page.locator(`tr[data-ma="${U.mitarbeiter}"] [data-az-name]`).innerText();
       pruef(name.trim() === MODELL, `Modell unter dem Namen: „${name}“`);

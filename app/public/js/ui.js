@@ -1,5 +1,5 @@
 // BauTag – gemeinsame Bausteine der Oberfläche: Icons, Formatierung (de-AT), Dialoge, Zustände.
-import { parseZahl, starkGeaendert } from './zahl.js';
+import { parseZahl, starkGeaendert, stundenHM, stundenLang } from './zahl.js';
 
 const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -94,7 +94,12 @@ export const fmt = {
   uhr: (s) => { if (!s) return '–'; if (/^\d{1,2}:\d{2}/.test(s)) return s.slice(0, 5); const d = new Date(s); return isNaN(d) ? '–' : `${p2(d.getHours())}:${p2(d.getMinutes())}`; },
   zeitpunkt: (s) => { if (!s) return '–'; const d = new Date(s); if (isNaN(d)) return esc(s); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}, ${p2(d.getHours())}:${p2(d.getMinutes())}`; },
   dauer: (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 3600)}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`; },
-  hm: (stunden) => { if (!istZahl(stunden)) return '–'; const m = Math.round(stunden * 60); return `${Math.floor(m / 60)}:${p2(m % 60)}`; },
+  // 15.25: Arbeitszeit als Stunden:Minuten – hm „9:51“ (Tabellen, Summen, Kacheln, Listen), stdLang „9 Std. 51 Min.“ (einzelne Werte).
+  // stdLangHtml: wie stdLang, die Einheiten in <i> (für Kacheln mit kleiner Einheit). Exporte und PDFs bleiben dezimal.
+  hm: (stunden) => stundenHM(stunden),
+  stdLang: (stunden) => stundenLang(stunden),
+  // Zahl und Einheit bleiben zusammen (geschütztes Leerzeichen): auf schmalen Handys bricht nur „25 Std.“ / „51 Min.“ um
+  stdLangHtml: (stunden) => esc(stundenLang(stunden)).replace(/(\d) (Std\.|Min\.)/g, '$1\u00a0<i>$2</i>'),
   monat: (ym) => { const [y, m] = ym.split('-').map(Number); return `${MON[m - 1]} ${y}`; },
 };
 // Zahleneingabe (de-AT) liegt in zahl.js – dort auch unter Node getestet (Prüfbericht B-04)
@@ -179,7 +184,8 @@ export const speicher = {
     // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
     // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
     // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch'];
+    // 15.25: bt_stunden_format = Anzeige der Monatsauswertung „hm“ (Std:Min) oder „dezimal“ – nur eine Einstellung, keine Daten
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
