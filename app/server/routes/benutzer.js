@@ -24,6 +24,12 @@ function protokollFuer(ctx, zeilen) {
   return zeilen.filter((p) => !EURO_ARTEN.includes(p.art)).map((p) => ({ ...p, alt: saeubern(p.alt), neu: saeubern(p.neu) }));
 }
 
+/** 15.29: Zeitkorrektur der GF an den eigenen Stempelzeiten (Kennzeichen im Protokoll-„neu“, server/routes/zeit.js) */
+function selbstkorrekturIm(p) {
+  if (p.art !== 'zeitkorrektur' || !p.neu) return false;
+  try { return JSON.parse(p.neu).selbstkorrektur === true; } catch (_) { return false; }
+}
+
 /** Dienstliche Telefonnummer (12.8d): Ziffern, +, Leerzeichen, ≤ 30 */
 function telefonPruefen(t) {
   if (t === null || t === '') return null;
@@ -92,7 +98,8 @@ module.exports = function benutzerRouten(api, bt) {
       ausnahmen: db.alle('SELECT benutzer_id, recht, erteilt, erteilt_von FROM benutzer_recht ORDER BY benutzer_id, recht')
         .map((a) => ({ benutzerId: a.benutzer_id, name: namen.get(a.benutzer_id), recht: a.recht, erteilt: a.erteilt, erteiltVon: a.erteilt_von })),
       protokoll: protokollFuer(req.ctx, db.alle('SELECT * FROM protokoll ORDER BY id DESC LIMIT 300')).map((p) => ({
-        id: p.id, zeit: p.zeit, benutzerId: p.benutzer_id, name: namen.get(p.benutzer_id) || null, art: p.art, objekt: p.objekt, alt: p.alt, neu: p.neu, text: p.text
+        id: p.id, zeit: p.zeit, benutzerId: p.benutzer_id, name: namen.get(p.benutzer_id) || null, art: p.art, objekt: p.objekt, alt: p.alt, neu: p.neu, text: p.text,
+        ...(selbstkorrekturIm(p) ? { selbstkorrektur: true } : {}) // 15.29: Selbstkorrektur der GF erkennbar
       }))
     });
   });

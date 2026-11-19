@@ -250,10 +250,15 @@ function meldeStempelungTrotzAbwesenheit(bt, liste) {
   }
 }
 
+/** 15.29: zuletzt von der Person selbst korrigiert (nur die GF darf das) – Büro-Korrektur mit erfasst_von = Person */
+// rolle-ok: 'buero' ist hier die Buchungsquelle „Korrektur“, kein Rollenname und keine Zugriffsentscheidung
+const istSelbstkorrektur = (b) => b.quelle === 'buero' && b.erfasst_von != null && b.erfasst_von === b.benutzer_id && !b.automatisch;
+
 function buchungJson(b) {
   const z = new Date(b.zeit);
   return { id: b.id, benutzerId: b.benutzer_id, typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(z), datum: wienDatum(z), baustelleId: b.baustelle_id, quelle: b.quelle, erfasstVon: b.erfasst_von,
-    automatisch: Boolean(b.automatisch), nachgetragen: Boolean(b.nachgetragen), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null };
+    automatisch: Boolean(b.automatisch), nachgetragen: Boolean(b.nachgetragen), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null,
+    ...(istSelbstkorrektur(b) ? { selbstkorrektur: true } : {}) };
 }
 
 module.exports = function zeitRouten(api, bt) {
@@ -432,9 +437,21 @@ module.exports = function zeitRouten(api, bt) {
     if (nachher > vorher) throw konflikt('Die Korrektur ergibt eine ungültige Stempelfolge (z. B. zweimal „kommen“ oder „gehen“ ohne „kommen“).');
   }
   const fehlerVorher = (benutzerId) => ungueltigeUebergaenge(db.alle('SELECT typ FROM buchung WHERE benutzer_id = ? ORDER BY zeit, id', benutzerId));
-  const nichtSelbst = (ctx, benutzerId) => {
-    if (benutzerId === ctx.benutzer.id) throw keinZugriff('Eigene Stempelzeiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
+  /**
+   * Vier-Augen-Prinzip: eigene Stempelzeiten korrigiert eine andere Person. Ausnahme (API.md 15.29, Inhaber 19.11.2026):
+   * die Geschäftsführung darf ihre eigenen Zeiten selbst korrigieren – die Korrektur wird dann im Protokoll markiert.
+   * Vorbehalt der GF wie „Archiv aufheben“ und die Bericht-Selbstfreigabe (15.4): kein Recht der Matrix drückt „nur die GF
+   * persönlich“ aus („benutzer“ ist die Benutzerverwaltung), und über Matrix/Ausnahmen darf es niemand sonst bekommen.
+   * @returns {string} '' (fremde Zeiten) oder der Zusatz für den Protokolltext (Selbstkorrektur der GF)
+   */
+  const SELBSTKORREKTUR = ' (Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten)';
+  const selbstPruefen = (ctx, benutzerId) => {
+    if (benutzerId !== ctx.benutzer.id) return '';
+    if (ctx.benutzer.rolle !== 'gf') throw keinZugriff('Eigene Stempelzeiten korrigiert eine andere Person (Vier-Augen-Prinzip).'); // rolle-ok: Vorbehalt der GF (15.29) wie Archiv aufheben und Selbstfreigabe
+    return SELBSTKORREKTUR;
   };
+  /** Kennzeichen im Protokoll-„neu“ (zusätzlich zum Text), damit Listen die Selbstkorrektur ohne Textvergleich erkennen */
+  const mitKennzeichen = (neu, zusatz) => (zusatz ? { ...(neu || {}), selbstkorrektur: true } : neu);
   const grundAus = (body) => v.text(body.grund, 'grund', { max: 300, min: 3 });
   function korrekturZeit(wert, feld = 'zeit') {
     const z = zeitMitZone(wert, feld);
@@ -452,7 +469,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/buchungen', brauche('stammdaten'), (req, res) => {
     const body = v.objekt(req.body);
     const benutzerId = v.id(body.benutzerId, 'benutzerId');
-    nichtSelbst(req.ctx, benutzerId);
+    const zusatz = selbstPruefen(req.ctx, benutzerId);
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
     const zeit = korrekturZeit(body.zeit);
@@ -464,7 +481,7 @@ module.exports = function zeitRouten(api, bt) {
       const r = db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst) VALUES (?, ?, ?, ?, 'buero', ?, ?)`,
         benutzerId, typ, zeit.toISOString(), bsId, req.ctx.benutzer.id, jetzt);
       pruefeFolge(benutzerId, vorher);
-      db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${r.id}`, neu: { benutzerId, typ, zeit: zeit.toISOString(), baustelleId: bsId }, text: `Buchung nachgetragen: ${grund}` });
+      db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${r.id}`, neu: mitKennzeichen({ benutzerId, typ, zeit: zeit.toISOString(), baustelleId: bsId }, zusatz), text: `Buchung nachgetragen: ${grund}${zusatz}` });
       return r.id;
     });
     res.status(201).json(buchungJson(db.eins('SELECT * FROM buchung WHERE id = ?', id)));
@@ -474,7 +491,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
-    nichtSelbst(req.ctx, alt.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, alt.benutzer_id);
     const body = v.objekt(req.body);
     const grund = grundAus(body);
     const f = {};
@@ -494,7 +511,7 @@ module.exports = function zeitRouten(api, bt) {
       db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ?, automatisch = 0, nachgetragen = 0, pause_auto_bis = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, bis, id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
-        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle }, neu: { zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id }, text: `Buchung korrigiert: ${grund}` });
+        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle }, neu: mitKennzeichen({ zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id }, zusatz), text: `Buchung korrigiert: ${grund}${zusatz}` });
     });
     res.json(buchungJson(db.eins('SELECT * FROM buchung WHERE id = ?', id)));
   });
@@ -503,7 +520,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
-    nichtSelbst(req.ctx, alt.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, alt.benutzer_id);
     const grund = grundAus(v.objekt(req.body || {}));
     const jetzt = bt.uhr().toISOString();
     db.transaktion(() => {
@@ -511,7 +528,7 @@ module.exports = function zeitRouten(api, bt) {
       db.lauf('DELETE FROM buchung WHERE id = ?', id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
-        alt: { benutzerId: alt.benutzer_id, typ: alt.typ, zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, erfasstVon: alt.erfasst_von }, text: `Buchung gelöscht: ${grund}` });
+        alt: { benutzerId: alt.benutzer_id, typ: alt.typ, zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, erfasstVon: alt.erfasst_von }, neu: mitKennzeichen(undefined, zusatz), text: `Buchung gelöscht: ${grund}${zusatz}` });
     });
     res.json({ ok: true });
   });
@@ -524,7 +541,8 @@ module.exports = function zeitRouten(api, bt) {
       beginn: new Date(sch.start).toISOString(), ende: sch.offen ? null : new Date(sch.ende).toISOString(),
       baustellen: [...new Set(sch.intervalle.map((i) => i.baustelleId).filter(Boolean))],
       arbeitMin: sch.arbeitMin, pauseMin: sch.pauseMin, offen: sch.offen, unplausibel: Boolean(sch.unplausibel),
-      buchungIds: sch.buchungen.map((b) => b.id)
+      buchungIds: sch.buchungen.map((b) => b.id),
+      ...(sch.buchungen.some((b) => istSelbstkorrektur({ ...b, benutzer_id: benutzerId })) ? { selbstkorrektur: true } : {})
     };
   }
 
@@ -537,7 +555,7 @@ module.exports = function zeitRouten(api, bt) {
     const bis = req.query.bis === undefined ? heute : v.datum(String(req.query.bis), 'bis');
     if (bis < von) throw ungueltig('bis liegt vor von.');
     if (plusTage(von, 93) < bis) throw ungueltig('Zeitraum höchstens 93 Tage.');
-    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, erfasst_von, automatisch FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
       benutzerId, wienZuDate(plusTage(von, -1)).toISOString(), wienZuDate(plusTage(bis, 2)).toISOString());
     const jetzt = bt.uhr();
     res.json(plausibilisieren(schichten(b, jetzt), jetzt).filter((x) => x.datum >= von && x.datum <= bis).map((x) => schichtJson(benutzerId, x)));
@@ -546,7 +564,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/schichten', brauche('stammdaten'), (req, res) => {
     const body = v.objekt(req.body);
     const benutzerId = v.id(body.benutzerId, 'benutzerId');
-    nichtSelbst(req.ctx, benutzerId);
+    const zusatz = selbstPruefen(req.ctx, benutzerId);
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
     const bsId = korrekturBaustelle(body.baustelleId);
     const datum = v.datum(body.datum, 'datum');
@@ -594,10 +612,10 @@ module.exports = function zeitRouten(api, bt) {
       ins('gehen', ende, null);
       pruefeFolge(benutzerId, vorher);
       db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
-        neu: { benutzerId, baustelleId: bsId, datum, von: vonHm, bis: bisHm, pauseMin }, text: `Schicht nachgetragen: ${grund}` });
+        neu: mitKennzeichen({ benutzerId, baustelleId: bsId, datum, von: vonHm, bis: bisHm, pauseMin }, zusatz), text: `Schicht nachgetragen: ${grund}${zusatz}` });
       return id;
     });
-    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit <= ? ORDER BY zeit, id', benutzerId, start.toISOString(), ende.toISOString());
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, erfasst_von, automatisch FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit <= ? ORDER BY zeit, id', benutzerId, start.toISOString(), ende.toISOString());
     const sch = schichten(b, jetzt).find((x) => x.buchungen[0].id === kommenId);
     res.status(201).json(schichtJson(benutzerId, sch));
   });
@@ -606,7 +624,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Schicht-ID');
     const k = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!k || k.typ !== 'kommen') throw nichtGefunden('Schicht nicht gefunden (ID der „kommen“-Buchung angeben).');
-    nichtSelbst(req.ctx, k.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, k.benutzer_id);
     const grund = grundAus(v.objekt(req.body || {}));
     const folgende = db.alle('SELECT * FROM buchung WHERE benutzer_id = ? AND (zeit > ? OR (zeit = ? AND id > ?)) ORDER BY zeit, id', k.benutzer_id, k.zeit, k.zeit, k.id);
     const teil = [k];
@@ -621,7 +639,7 @@ module.exports = function zeitRouten(api, bt) {
       for (const b of teil) db.lauf('DELETE FROM buchung WHERE id = ?', b.id);
       pruefeFolge(k.benutzer_id, vorher);
       db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
-        alt: teil.map((b) => ({ id: b.id, typ: b.typ, zeit: b.zeit, baustelleId: b.baustelle_id, quelle: b.quelle })), text: `Schicht gelöscht: ${grund}` });
+        alt: teil.map((b) => ({ id: b.id, typ: b.typ, zeit: b.zeit, baustelleId: b.baustelle_id, quelle: b.quelle })), neu: mitKennzeichen(undefined, zusatz), text: `Schicht gelöscht: ${grund}${zusatz}` });
     });
     res.json({ ok: true, geloescht: teil.length });
   });
