@@ -4,6 +4,7 @@
 import { get, post, put, api } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, toast, speicher, $ } from '../ui.js';
 import { wienIso, wienLokal, wienHeute, stundenAus } from '../zahl.js';
+import { standortLage, kartenLink, genauText } from '../standort.js';
 
 const TYP = { kommen: 'Kommen', gehen: 'Gehen', pause_start: 'Pause Beginn', pause_ende: 'Pause Ende', wechsel: 'Baustellenwechsel' };
 const QUELLE = { app: 'App', offline: 'offline nachgebucht', kolonne: 'durch Polier', buero: 'Korrektur Büro' };
@@ -23,6 +24,13 @@ export default async function korrektur(el, ctx) {
   let liste = [], schichten = [];
   const bsName = (id) => { const b = baustellen.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
   const person = () => (leute.find((m) => m.id === benutzerId) || {}).name || '';
+  // 15.30: Standort beim Stempeln (nur wenn die Person es selbst eingeschaltet hatte) – Lage zur Baustelle und Link zur Karte
+  const ortHtml = (x) => {
+    const l = standortLage(x.standort, baustellen.find((b) => b.id === x.baustelleId));
+    if (!l) return '';
+    const g = genauText(x.standort.genauigkeit);
+    return `<span class="korr-ort" data-lage="${l.art}" title="Standort beim Stempeln${g ? ', Genauigkeit ' + g : ''}">${ic('pin', 'xs')}${esc(l.text)} · <a href="${esc(kartenLink(x.standort))}" target="_blank" rel="noopener noreferrer" data-karte>Karte</a></span>`;
+  };
   const bsWahl = (gewaehlt, leerText) => `<select class="input lg" name="baustelleId" ${leerText ? '' : 'required'}>${leerText ? `<option value="">${leerText}</option>` : ''}${baustellen.filter((b) => b.status !== 'abgeschlossen' || b.id === gewaehlt).map((b) => `<option value="${b.id}" ${gewaehlt === b.id ? 'selected' : ''}>${esc(bsName(b.id))}</option>`).join('')}</select>`;
 
   el.innerHTML = `
@@ -57,7 +65,7 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}${ortHtml(x)}</small></span>
         <button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }

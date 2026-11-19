@@ -1526,6 +1526,17 @@ CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
     sql: `
 ALTER TABLE rechnung ADD COLUMN skonto_zahlbetrag REAL;
 `
+  },
+  {
+    // Nummer 54: 52 und 53 sind für die gleichzeitig entstehenden Abschnitte 15.27–15.29 frei gehalten (beim Zusammenführen
+    // ggf. neu nummerieren – die Reihenfolge der Migrationen untereinander ist gleichgültig, Lücken sind erlaubt).
+    version: 54,
+    name: '15.30: Standort beim Stempeln – Einwilligung je Person (freiwillig, nur selbst einschaltbar)',
+    // standort_einwilligung: Zeitpunkt, zu dem die Person „Standort beim Stempeln mitsenden“ selbst eingeschaltet hat
+    // (NULL = aus, Standard). Gilt je Person am Server, nicht je Gerät – auf einem geteilten Tablet erbt niemand die Wahl.
+    sql: `
+ALTER TABLE benutzer ADD COLUMN standort_einwilligung TEXT;
+`
   }
 ];
 

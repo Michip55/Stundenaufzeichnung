@@ -91,6 +91,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Mein Einsatz**: morgen, Uhrzeit, Treffpunkt, Polier anrufen, Route öffnen, meine Notiz.
 - [ ] **Kollegen** in „Mein Einsatz“: Zeile **„Mit dir eingeteilt: …“** mit den Namen der Kollegen am selben veröffentlichten Einsatz (nur Namen – keine Notizen, keine Telefonnummern, keine Abwesenheiten). Erst nach dem Veröffentlichen sichtbar.
 - [ ] **Stempeln** (auch im Flugmodus testen: Stempelung wird nachgereicht).
+- [ ] **Standort beim Stempeln** (freiwillig): unter „Mehr“ selbst einschalten → das Handy fragt sofort um Erlaubnis. Abmelden und wieder anmelden → bleibt an. Stempeln → unter dem Knopf „Standort erfasst (±… m)“; das Büro sieht in „Zeiten korrigieren“ „bei der Baustelle“ (oder die Entfernung) und „Karte“. Ausschalten → nichts mehr erfasst. Am geteilten Tablet erbt die nächste Person die Einstellung nicht.
 - [ ] **Pause mit fester Dauer**: „Pause“ → **30 Min** wählen → Uhr zeigt „Pause bis …“. Handy weglegen (auch Flugmodus oder ausschalten) – nach 30 Minuten läuft die Arbeitszeit von selbst weiter, in „Heute“ steht „Pause beendet – automatisch“. **„Pause beenden“** geht jederzeit früher; **„offen“** läuft wie bisher, bis man sie beendet. Es kommt keine Erinnerung.
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.

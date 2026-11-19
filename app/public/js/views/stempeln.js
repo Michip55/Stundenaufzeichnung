@@ -4,9 +4,11 @@ import { get, post } from '../api.js';
 import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, wieBuero, istIntern, $, $$ } from '../ui.js';
 import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
-import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText } from '../offline.js';
+import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText, wartetAufStandort, standortZurBuchung } from '../offline.js';
 import { pauseWaehlen, pausenAuswahl, merkeAuswahl, bisText } from '../pausen.js';
 import { stundenImText } from '../zahl.js';
+import { ortHolen, genauText } from '../standort.js';
+import { standortEingeschaltet, standortAltUebernehmen } from '../standort-einwilligung.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
@@ -39,18 +41,16 @@ function wendeAn(st, b) {
   return neu;
 }
 
-async function standortHolen() {
-  // Standort nur im Moment des Stempelns und nur, wenn in den Einstellungen eingeschaltet
-  if (!speicher.lies('bt_standort', false) || !navigator.geolocation) return null;
-  return new Promise((fertig) => {
-    const t = setTimeout(() => fertig(null), 4000);
-    navigator.geolocation.getCurrentPosition(
-      (p) => { clearTimeout(t); fertig({ lat: p.coords.latitude, lng: p.coords.longitude, genauigkeit: Math.round(p.coords.accuracy) }); },
-      () => { clearTimeout(t); fertig(null); },
-      { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 },
-    );
-  });
-}
+// 15.30: Standort nur im Moment des Stempelns und nur, wenn die Person es selbst eingeschaltet hat (je Person am Server).
+// Die Buchung geht sofort mit der Zeit des Drückens hinaus; die Ortung (bis 15 s) wird danach angehängt.
+const ORT = { timeout: 15000, maximumAge: 60000 };
+const ORT_TEXT = {
+  laeuft: () => 'Standort wird ermittelt …',
+  ok: (o) => `Standort erfasst${genauText(o.genauigkeit) ? ` (${genauText(o.genauigkeit)})` : ''}${o.offline ? ' – wird mit der Buchung gesendet' : ''}`,
+  fehlt: () => 'Standort nicht verfügbar',
+  verweigert: () => 'Standort nicht verfügbar – das Gerät erlaubt BauTag keinen Zugriff (siehe „Mehr“)',
+};
+const ortHtml = (o) => `<p class="cc-standort" id="cc-standort" role="status" aria-live="polite"${o ? ` data-zustand="${o.zustand}"` : ' hidden'}>${o ? `${ic('pin', 'xs')}<span>${esc(ORT_TEXT[o.zustand](o))}</span>` : ''}</p>`;
 
 export default async function stempeln(el, ctx) {
   let st = null;
@@ -59,6 +59,8 @@ export default async function stempeln(el, ctx) {
   let wahl = speicher.lies('bt_baustelle');
   let beschaeftigt = false;
   let timer = null;
+  let ort = null; // 15.30: Standort der letzten Stempelung {zustand:'laeuft'|'ok'|'fehlt'|'verweigert', genauigkeit?, offline?}
+  let ortLauf = 0;
 
   async function lade() {
     try {
@@ -140,7 +142,8 @@ export default async function stempeln(el, ctx) {
             ? `<div class="cc-time" id="cc-zeit" aria-live="off">${fmt.uhr(new Date().toISOString())}</div><div class="cc-date">${esc(fmt.datumLang(new Date()))} · <span class="run-state aus">Nicht eingestempelt</span></div>`
             : `<div class="run-state"><i class="pulse"></i>${laeuft ? 'Arbeitszeit läuft' : 'Pause läuft'}<span>seit ${fmt.uhr(st.seit)} Uhr</span></div><div class="cc-time big" id="cc-zeit" role="timer" aria-label="${laeuft ? 'Arbeitszeit' : 'Pause'} seit ${fmt.uhr(st.seit)} Uhr">${fmt.dauer(Date.now() - new Date(st.seit).getTime())}</div>${pause ? `<div class="pause-bis" id="pause-bis" data-bis="${esc(st.pauseBis || '')}">${ic('clock', 'xs')}${st.pauseBis ? `<span>${esc(bisText(st.pauseBis))} Uhr</span> <small class="muted">· endet von selbst</small>` : '<span>Pause offen</span> <small class="muted">· bis „Pause beenden“</small>'}</div>` : ''}<div class="cc-date">${esc(fmt.datumLang(new Date()))}</div>`}
           ${aktion}
-          <p class="cc-note">${ic('info')}<span>${speicher.lies('bt_standort', false) ? 'Standort wird nur im Moment des Stempelns erfasst – keine laufende Ortung.' : 'Standort wird nicht erfasst (in „Mehr“ einschaltbar, dann nur im Moment des Stempelns).'}</span></p>
+          ${ortHtml(ort)}
+          <p class="cc-note" id="cc-standort-note">${ic('info')}<span>${standortEingeschaltet(ctx) ? 'Standort wird nur im Moment des Stempelns erfasst – keine laufende Ortung.' : 'Standort wird nicht erfasst (freiwillig – in „Mehr“ selbst einschaltbar, dann nur im Moment des Stempelns).'}</span></p>
         </section>
         ${(st.warnungen || []).map((w) => banner('warn', esc(warnText(w)))).join('')}
         ${abg.length ? `<section class="card" id="abgelehnt" aria-labelledby="h-abg">
@@ -185,34 +188,65 @@ export default async function stempeln(el, ctx) {
     beschaeftigt = true;
     $$('[data-stempel],[data-akt]', el).forEach((b) => { b.disabled = true; });
     const zeit = new Date().toISOString();
+    // 15.30: Ortung gleich beim Drücken starten – die Buchung wartet nicht darauf
+    const ortP = standortEingeschaltet(ctx) ? ortHolen(ORT) : null;
+    const lauf = ++ortLauf;
+    ort = ortP ? { zustand: 'laeuft' } : null;
+    const ortZeile = $('#cc-standort', el); if (ortZeile) ortZeile.outerHTML = ortHtml(ort);
+    let buchungId = null, nr = null;
     const body = { typ };
     if (typ === 'pause_start' && dauerMin != null) body.dauerMin = dauerMin; // 15.22
     let abfrage = null;
     if (baustelleId != null) body.baustelleId = baustelleId;
     try {
-      const ort = await standortHolen();
-      if (ort) body.standort = ort;
       if (warteschlange().length) await nachsenden(); // Reihenfolge wahren
-      if (warteschlange().length) throw { netz: navigator.onLine === false, status: 503 };
+      if (warteschlange().length) throw { netz: navigator.onLine === false, status: 503, reihe: warteschlange().every(wartetAufStandort) };
       const antwort = await post('/zeit/stempeln', body);
+      buchungId = antwort && antwort.buchungId;
       if (typ === 'gehen' && antwort && Array.isArray(antwort.zaehlerAbfrage) && antwort.zaehlerAbfrage.length) abfrage = antwort.zaehlerAbfrage;
       setzOnline(true);
       toast((TYP[typ] || [typ])[0] + (body.dauerMin ? ` – ${body.dauerMin} Min, endet um ${fmt.uhr(new Date(new Date(zeit).getTime() + body.dauerMin * 60000).toISOString())} Uhr.` : ' – gebucht.'));
     } catch (e) {
       if (vorlaeufig(e)) {
         // Kein Netz oder Server gerade nicht bereit: Buchung behalten und später senden
-        einreihen({ ...body, zeit });
+        nr = einreihen({ ...body, zeit, ...(ortP ? { standortWartet: Date.now() } : {}) });
         if (e.netz) setzOnline(false);
-        toast(e.netz ? 'Keine Verbindung – Buchung gespeichert, wird nachgesendet.' : 'Server gerade nicht erreichbar – Buchung gespeichert, wird nachgesendet.', 'warn');
+        toast(e.netz ? 'Keine Verbindung – Buchung gespeichert, wird nachgesendet.' : e.reihe ? 'Buchung gespeichert – wird gleich nach der vorigen gesendet.' : 'Server gerade nicht erreichbar – Buchung gespeichert, wird nachgesendet.', 'warn');
       } else {
         toast(e.message, 'warn');
       }
     }
     beschaeftigt = false;
+    if (ortP) {
+      if (buchungId || nr) standortAnhaengen(ortP, { buchungId, nr, lauf });
+      else if (lauf === ortLauf) ort = null; // nichts gebucht (abgelehnt) – kein Standort
+    }
     if (!ctx.aktuell()) return;
     try { await lade(); zeichne(); } catch (e) { toast(e.message, 'warn'); }
     // Servicebuch 7.3: nach dem Ausstempeln um den Kilometer-/Betriebsstundenstand bitten (überspringbar)
     if (abfrage) zaehlerAbfrage(ctx, abfrage);
+  }
+
+  /** 15.30: Ergebnis der Ortung an die eben gebuchte Stempelung hängen (online: eigene Schnittstelle, offline: in die Warteschlange) */
+  async function standortAnhaengen(ortP, { buchungId, nr, lauf }) {
+    const r = await ortP;
+    let neu;
+    if (!r.standort) {
+      if (nr) standortZurBuchung(nr, null);
+      neu = { zustand: r.fehler === 'verweigert' ? 'verweigert' : 'fehlt' };
+    } else if (nr) {
+      neu = standortZurBuchung(nr, r.standort) ? { zustand: 'ok', genauigkeit: r.standort.genauigkeit, offline: true } : { zustand: 'fehlt' };
+    } else {
+      neu = { zustand: 'fehlt' };
+      for (let versuch = 0; versuch < 3; versuch++) {
+        try { await post(`/zeit/stempeln/${buchungId}/standort`, { standort: r.standort }); neu = { zustand: 'ok', genauigkeit: r.standort.genauigkeit }; break; }
+        catch (e) { if (!vorlaeufig(e)) break; await new Promise((w) => setTimeout(w, 4000)); }
+      }
+    }
+    if (lauf !== ortLauf) return; // inzwischen neu gestempelt – die Anzeige gehört der neueren Stempelung
+    ort = neu;
+    const z = ctx.aktuell() && $('#cc-standort', el);
+    if (z) z.outerHTML = ortHtml(ort);
   }
 
   el.addEventListener('click', async (e) => {
@@ -250,6 +284,7 @@ export default async function stempeln(el, ctx) {
     }
   });
 
+  await standortAltUebernehmen(ctx); // 15.30: alte Wahl nur am Gerät (bt_standort) einmal an den Server übernehmen
   await lade();
   zeichne();
   return () => clearInterval(timer);

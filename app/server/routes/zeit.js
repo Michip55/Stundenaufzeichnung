@@ -14,6 +14,8 @@ const PA = require('../pausen');
 
 const MAX_RUECK_MS = 24 * 60 * 60 * 1000;
 const MAX_VOR_MS = 2 * 60 * 1000;
+// 15.30: Ein Standort lässt sich nur so lange an die eigene, gerade gestempelte Buchung anhängen
+const STANDORT_NACH_MS = 10 * 60 * 1000;
 const RE_ISO_TZ = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 const KOLONNEN_ROLLEN = ['mitarbeiter', 'polier'];
 
@@ -56,10 +58,23 @@ function zeitStatus(db, benutzerId, jetzt) {
   };
 }
 
+/** 15.30: Standort aus der Anfrage prüfen ({lat, lng, genauigkeit?}) – 400 bei ungültigen Werten */
+function standortAus(standort) {
+  const s = v.objekt(standort, 'standort');
+  return {
+    lat: v.zahl(s.lat, 'standort.lat', { min: -90, max: 90 }),
+    lng: v.zahl(s.lng, 'standort.lng', { min: -180, max: 180 }),
+    genauigkeit: v.zahl(s.genauigkeit, 'standort.genauigkeit', { min: 0, max: 100000, pflicht: false })
+  };
+}
+/** 15.30: Hat die Person „Standort beim Stempeln mitsenden“ selbst eingeschaltet? (sonst wird nie ein Standort gespeichert) */
+const standortEingewilligt = (db, benutzerId) => Boolean((db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', benutzerId) || {}).e);
+
 /**
  * Eine Stempelung buchen (eigene oder für die Kolonne). Wirft ApiFehler (400/409).
+ * `ergebnis` (optional) erhält `buchungId` der neuen Buchung (fehlt, wenn nichts gebucht wurde) und `standort` (gespeichert ja/nein).
  */
-function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort, dauerMin }) {
+function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort, dauerMin, ergebnis }) {
   const { db } = bt;
   const jetzt = bt.uhr();
   const dauer = PA.pruefeDauer(dauerMin, typ); // 15.22: geplante Pausendauer (null = offen)
@@ -80,12 +95,10 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
   }
   let geo = { lat: null, lng: null, genauigkeit: null };
   if (standort !== undefined && standort !== null) {
-    const s = v.objekt(standort, 'standort');
-    geo = {
-      lat: v.zahl(s.lat, 'standort.lat', { min: -90, max: 90 }),
-      lng: v.zahl(s.lng, 'standort.lng', { min: -180, max: 180 }),
-      genauigkeit: v.zahl(s.genauigkeit, 'standort.genauigkeit', { min: 0, max: 100000, pflicht: false })
-    };
+    geo = standortAus(standort);
+    // 15.30: nur mit der Einwilligung der Person selbst (Schalter in „Mehr“) – sonst wird der Standort verworfen, die
+    // Buchung aber angenommen (z. B. offline erfasst, inzwischen ausgeschaltet); nie für eine andere Person (Kolonne)
+    if (erfasstVon !== benutzerId || !standortEingewilligt(db, benutzerId)) geo = { lat: null, lng: null, genauigkeit: null };
   }
   return db.transaktion(() => {
     PA.pausenAbschliessen(db, jetzt, benutzerId); // 15.22: fällige automatische Pausenenden zuerst
@@ -124,8 +137,9 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
     // jede neue Buchung beendet eine noch ausstehende geplante Pause dieser Person (Merker löschen)
     db.lauf('UPDATE buchung SET pause_auto_bis = NULL WHERE benutzer_id = ? AND pause_auto_bis IS NOT NULL', benutzerId);
     const bis = dauer ? new Date(zeitpunkt.getTime() + dauer * 60000).toISOString() : null;
-    db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit, pause_plan_min, pause_auto_bis)
+    const neu = db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit, pause_plan_min, pause_auto_bis)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, benutzerId, typ, zeitpunkt.toISOString(), bsId, quelle, erfasstVon, jetzt.toISOString(), geo.lat, geo.lng, geo.genauigkeit, dauer, bis);
+    if (ergebnis) { ergebnis.buchungId = neu.id; ergebnis.standort = geo.lat !== null; }
     // offline nachgesendet und schon vorbei: Ende sofort eintragen (genau Beginn + Dauer)
     if (bis) PA.pausenAbschliessen(db, jetzt, benutzerId);
     if (typ === 'gehen') azgNachGehen(bt, benutzerId, jetzt);
@@ -179,10 +193,16 @@ function meldeStempelungTrotzAbwesenheit(bt, liste) {
   }
 }
 
+/**
+ * Buchung als JSON – nur für die Person selbst bzw. mit Recht stammdaten (Büro, Bauleiter = Büro, GF). 15.30: `standort`
+ * (Koordinaten beim Stempeln) steht deshalb nur hier; keine andere Antwort mit Buchungen (Kolonne, Übersicht, Monat,
+ * Exporte) enthält Koordinaten.
+ */
 function buchungJson(b) {
   const z = new Date(b.zeit);
   return { id: b.id, benutzerId: b.benutzer_id, typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(z), datum: wienDatum(z), baustelleId: b.baustelle_id, quelle: b.quelle, erfasstVon: b.erfasst_von,
-    automatisch: Boolean(b.automatisch), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null };
+    automatisch: Boolean(b.automatisch), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null,
+    standort: b.lat != null && b.lng != null ? { lat: b.lat, lng: b.lng, genauigkeit: b.genauigkeit ?? null } : null };
 }
 
 module.exports = function zeitRouten(api, bt) {
@@ -196,14 +216,39 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/stempeln', brauche('zeit_eigen'), (req, res) => {
     const body = v.objekt(req.body);
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
-    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort, dauerMin: body.dauerMin });
+    const ergebnis = {};
+    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort, dauerMin: body.dauerMin, ergebnis });
     const antwort = zeitStatus(db, req.ctx.benutzer.id, bt.uhr());
+    // 15.30: ID der neuen Buchung (für das Nachreichen des Standorts) und ob ein mitgesendeter Standort gespeichert wurde
+    antwort.buchungId = ergebnis.buchungId ?? null;
+    antwort.standortGespeichert = Boolean(ergebnis.standort);
     // Servicebuch (API.md 11.4): nach dem Ausstempeln eigene Fahrzeuge mit altem Zählerstand abfragen
     if (typ === 'gehen') {
       const { ladeStand } = require('../fuhrpark-daten');
       antwort.zaehlerAbfrage = require('../fuhrpark-erinnerung').zaehlerAbfrage(ladeStand(db, wienDatum(bt.uhr())), req.ctx.benutzer.id);
     }
     res.json(antwort);
+  });
+
+  /**
+   * 15.30: Standort zur eigenen, gerade gestempelten Buchung nachreichen. Die Stempelung wird sofort zum Zeitpunkt des
+   * Drückens gebucht; die Ortung (bis ~15 s) folgt hier. Nur: eigene Buchung, von der Person selbst in der App erfasst
+   * (`app`/`offline`), höchstens 10 Minuten alt, noch ohne Standort (nie überschreiben), Einwilligung eingeschaltet.
+   * Fremde/unbekannte Buchung → 404 (verrät nichts), sonst 409 mit Grund; ungültige Koordinaten → 400.
+   */
+  api.post('/zeit/stempeln/:id/standort', brauche('zeit_eigen'), (req, res) => {
+    const id = v.pfadId(req.params.id, 'Buchungs-ID');
+    const ich = req.ctx.benutzer.id;
+    const b = db.eins('SELECT id, benutzer_id, erfasst_von, quelle, erfasst, lat FROM buchung WHERE id = ?', id);
+    if (!b || b.benutzer_id !== ich || b.erfasst_von !== ich || !['app', 'offline'].includes(b.quelle)) throw nichtGefunden('Buchung nicht gefunden – ein Standort lässt sich nur an die eigene, gerade gestempelte Buchung anhängen.');
+    const geo = standortAus(v.objekt(req.body).standort);
+    if (!standortEingewilligt(db, ich)) throw konflikt('„Standort beim Stempeln mitsenden“ ist ausgeschaltet – es wird kein Standort gespeichert.');
+    if (b.lat !== null) throw konflikt('Für diese Buchung ist schon ein Standort gespeichert – er wird nicht überschrieben.');
+    const alter = bt.uhr().getTime() - new Date(b.erfasst).getTime();
+    if (!(alter <= STANDORT_NACH_MS)) throw konflikt('Ein Standort lässt sich nur in den ersten 10 Minuten nach dem Stempeln anhängen.');
+    const r = db.lauf('UPDATE buchung SET lat = ?, lng = ?, genauigkeit = ? WHERE id = ? AND lat IS NULL', geo.lat, geo.lng, geo.genauigkeit, id);
+    if (!r.changes) throw konflikt('Für diese Buchung ist schon ein Standort gespeichert – er wird nicht überschrieben.');
+    res.json({ ok: true, buchungId: id, standort: geo });
   });
 
   /** Wer ist gerade eingestempelt (Dashboard „Heute“). Bauleiter/Polier: nur eigene Baustellen. */

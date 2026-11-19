@@ -32,6 +32,7 @@
     "GET /api/auth/ich": { "r": "J J J J J", "grund": "4 Auth (Lohngruppe nur mit stammdaten/lohn/benutzer, 15.7 F-059)" },
     "GET /api/auth/geraet-schluessel": { "r": "E E E E E", "query": "?benutzerId={ichOderAnderer}", "grund": "15.5 nur der eigene Geräteschlüssel (auch GF nie fremd)" },
     "PUT /api/auth/telefon": { "r": "J J J J J", "body": { "telefon": "+43 660 1234567" }, "grund": "12.8d eigene Nummer" },
+    "PUT /api/auth/standort": { "r": "E E E E E", "body": { "an": true, "benutzerId": "{ichOderAnderer}" }, "grund": "15.30 Standort beim Stempeln: jede Person nur für sich selbst (auch GF nie für andere)" },
     "POST /api/auth/pin": { "r": "J J J J J", "body": { "alt": "1234", "neu": "583920" }, "grund": "7 eigene PIN" },
     "GET /api/fern/:token": { "r": "O O O O O", "pfad": "/api/fern/{token}", "grund": "12.9 öffentlich mit Token (AG-Fassung ohne €)" },
     "GET /api/fern/:token/pdf": { "r": "O O O O O", "pfad": "/api/fern/{token}/pdf", "grund": "12.9" },
@@ -67,6 +68,7 @@
 
     "GET /api/zeit/status": { "r": "J J J J J", "grund": "4 Zeit: zeit_eigen" },
     "POST /api/zeit/stempeln": { "r": "J J J J J", "body": { "typ": "kommen", "baustelleId": 1 }, "grund": "4 Zeit: zeit_eigen" },
+    "POST /api/zeit/stempeln/:id/standort": { "r": "E E E E E", "pfad": "/api/zeit/stempeln/{buchungEigen}/standort", "body": { "standort": { "lat": 47.7333, "lng": 16.1833, "genauigkeit": 20 } }, "erfolg": { "vorher": [["POST", "/api/zeit/stempeln", { "typ": "kommen", "baustelleId": 1 }], ["PUT", "/api/auth/standort", { "an": true }]], "pfad": "/api/zeit/stempeln/{vorherId}/standort" }, "grund": "15.30 nur die eigene, gerade gestempelte Buchung (fremd 404; eigene ältere bzw. schon mit Standort 409)" },
     "GET /api/zeit/anwesend": { "r": "N N J J J", "grund": "6: freigeben/stammdaten/lohn/kalk_sehen (Bauleiter = Büro, 15.4)" },
     "GET /api/zeit/heute-eingeteilt": { "r": "N N J J J", "grund": "15.20: Übersicht „Eingestempelt N / M“, „Eingeteilte fehlen noch“ – allein stammdaten (Bauleiter = Büro)" },
     "GET /api/zeit/kolonne": { "r": "N E N N J", "query": "?baustelleId={bs}", "varianten": [{"query": "?baustelleId={bs}&plan=1"}], "grund": "6: kolonne, nur eigene Baustellen" },

@@ -27,7 +27,7 @@ function erwartung(eintrag, rolle) {
 /** Platzhalter je Rolle und Variante (eigen = Objekt im eigenen Bereich, fremd = außerhalb) */
 const BEREICHS_PLATZHALTER = new Set(['bs', 'bericht', 'berichtAlt', 'berichtFoto', 'berichtLieferschein', 'berichtLink', 'rechnung', 'zahlung', 'pos', 'posStand', 'posMenge', 'leistung', 'nachtrag', 'fremd', 'lv',
   'dok', 'einsatz', 'einsatzPerson', 'einsatzAnlage', 'fuhre', 'fuhreFoto', 'abschnitt', 'anfrage', 'schaden', 'schadenFoto', 'ichOderAnderer', 'person', 'abwEigen', 'antragEigen', 'abwAnderer', 'antragAnderer',
-  'benachrichtigung', 'pushAbo', 'bsVersion']);
+  'benachrichtigung', 'pushAbo', 'bsVersion', 'buchungEigen']);
 function platzhalter(F, rolle, variante, ueber = {}) {
   const e = variante !== 'fremd';
   const anderRolle = rolle === 'gf' ? 'buero' : 'gf';
@@ -67,6 +67,8 @@ function platzhalter(F, rolle, variante, ueber = {}) {
     antragAnderer: e ? F.urlaubAnderer : F.urlaubFremd,
     benachrichtigung: e ? F.benachrichtigung[rolle] : F.benachrichtigung[anderRolle],
     pushAbo: e ? F.pushAbo[rolle] : F.pushAbo[anderRolle],
+    // 15.30: eigene (ältere) Buchung der Rolle bzw. die eines anderen Mitarbeiters
+    buchungEigen: e ? F.buchungEigen[rolle] : F.buchung.anderer,
     // ohne Bereich
     anlage: F.anlage, zaehler: F.zaehler, zaehlerstand: F.zaehlerstand, planposition: F.planposition, vorlage: F.vorlage, mangel: F.mangel, eintrag: F.eintrag,
     katalogPos: F.katalogPos, katalogStand: F.katalogStand, preisStand: F.preisStand, kategorie: F.kategorie, lohnVorlage: F.lohnVorlage, lohngruppeVerlauf: F.lohngruppeVerlauf, arbeitszeitVerlauf: F.arbeitszeitVerlauf,

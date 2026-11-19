@@ -35,11 +35,30 @@ export function abgelehntErledigt(nr) { speicher.setz(KEY_ABGELEHNT, alleAbgeleh
 export const vorlaeufig = (err) => !!err && (err.netz || err.status >= 500 || err.status === 429 || err.status === 408);
 
 export function einreihen(buchung) {
-  if (benutzerId == null) return;
+  if (benutzerId == null) return null;
   const liste = alle();
-  liste.push({ ...buchung, benutzerId, zeit: buchung.zeit || new Date().toISOString(), nr: Date.now() + '-' + Math.random().toString(36).slice(2, 7) });
+  const nr = Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+  liste.push({ ...buchung, benutzerId, zeit: buchung.zeit || new Date().toISOString(), nr });
   speicher.setz(KEY, liste);
   melden();
+  return nr;
+}
+// 15.30: Eine Buchung mit `standortWartet` (Zeitpunkt) wartet kurz auf die Ortung, damit der Standort mitgesendet wird –
+// höchstens STANDORT_WARTEN_MS, danach geht sie auch ohne Standort (z. B. App inzwischen geschlossen).
+const STANDORT_WARTEN_MS = 40000;
+export const wartetAufStandort = (e) => !!e && typeof e.standortWartet === 'number' && Date.now() - e.standortWartet < STANDORT_WARTEN_MS;
+/** 15.30: Ergebnis der Ortung an die noch wartende Buchung `nr` hängen (standort = null: ohne Standort senden). true = gefunden */
+export function standortZurBuchung(nr, standort) {
+  if (benutzerId == null) return false;
+  let gefunden = false;
+  speicher.setz(KEY, alle().map((e) => {
+    if (e.nr !== nr || e.versiegelt || e.benutzerId !== benutzerId) return e;
+    gefunden = true;
+    const { standortWartet, ...rest } = e; // eslint-disable-line no-unused-vars
+    return standort ? { ...rest, standort } : rest;
+  }));
+  if (gefunden && navigator.onLine !== false) lauf.then(() => nachsenden()); // nach einem gerade laufenden Nachsenden
+  return gefunden;
 }
 function ablehnen(e, err) {
   const liste = alleAbgelehnt();
@@ -66,6 +85,7 @@ async function nachsendenLauf() {
     for (const e of offen) {
       // 15.5 (F-030): vor JEDEM Senden – ist noch die Person angemeldet, die die Buchung erfasst hat?
       if (benutzerId !== fuer || e.benutzerId !== benutzerId) break;
+      if (wartetAufStandort(e)) break; // 15.30: Ortung läuft noch – Reihenfolge wahren, gleich danach senden
       try {
         const body = { typ: e.typ, zeit: e.zeit, quelle: 'offline' };
         if (e.baustelleId != null) body.baustelleId = e.baustelleId;

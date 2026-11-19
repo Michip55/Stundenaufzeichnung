@@ -71,7 +71,9 @@ function kontoVerwaltbar(db, ctx, ziel) {
 function benutzerVoll(b, db, heute) {
   return {
     id: b.id, name: b.name, rolle: b.rolle, lohngruppe: b.lohngruppe_id, baustelleId: b.baustelle_id, pnr: b.pnr, aktiv: b.aktiv === 1, telefon: b.telefon || null, standardKostenstelleId: b.standard_kostenstelle_id || null,
-    arbeitszeitmodell: AZ.modellIdAm(db, b.id, heute), buakPflichtig: AZ.buakPflichtig(b), buakPflichtigVorgabe: b.buak_pflichtig == null
+    arbeitszeitmodell: AZ.modellIdAm(db, b.id, heute), buakPflichtig: AZ.buakPflichtig(b), buakPflichtigVorgabe: b.buak_pflichtig == null,
+    // 15.30: nur OB die Person „Standort beim Stempeln“ selbst eingeschaltet hat (seit wann) – ändern kann es nur sie selbst
+    standortEinwilligung: b.standort_einwilligung || null
   };
 }
 
