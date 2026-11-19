@@ -32,7 +32,8 @@ const MAX_PNG_BYTES = 400 * 1024;
 
 function ladeBerichtRoh(db, id) {
   S.vorbereiten(db, id); // 15.15 (H-G4): Ausgangsstand der Sichtversion vor jeder Änderung
-  const b = db.eins('SELECT * FROM bericht WHERE id = ?', id);
+  // 15.34: gelöschte Berichte (Papierkorb) gibt es für alle Routen nicht – 404 wie ein unbekannter Bericht
+  const b = db.eins('SELECT * FROM bericht WHERE id = ? AND geloescht_zeit IS NULL', id);
   if (!b) return null;
   b.personal = db.alle(`SELECT bp.*, u.name FROM bericht_personal bp JOIN benutzer u ON u.id = bp.benutzer_id
     WHERE bp.bericht_id = ? ORDER BY bp.pos, bp.id`, id);
@@ -147,7 +148,7 @@ function anlagenZumBericht(db, b, o, S) {
   }
   const vorschlag = {};
   for (const z of db.alle(`SELECT bg.geraet_id, bg.anlage_id FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id
-      WHERE r.baustelle_id = ? AND bg.anlage_id IS NOT NULL AND r.datum <= ? ORDER BY r.datum, r.id`, b.baustelle_id, b.datum)) {
+      WHERE r.baustelle_id = ? AND bg.anlage_id IS NOT NULL AND r.datum <= ? AND r.geloescht_zeit IS NULL ORDER BY r.datum, r.id`, b.baustelle_id, b.datum)) {
     const A = S.anlagen.get(z.anlage_id);
     if (A && !A.row.ausgeschieden) vorschlag[z.geraet_id] = z.anlage_id;
   }
@@ -271,7 +272,7 @@ function pruefePersonal(db, liste, kontext) {
         }
       }
       for (const o of db.alle(`SELECT bp.von1, bp.bis1, bp.von2, bp.bis2, r.id, r.datum, b.kst FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-          JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ?`, benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)) {
+          JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ? AND r.geloescht_zeit IS NULL`, benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)) {
         const oIv = bloeckeAlsZeitpunkte(o.datum, o); // D-03: echte Zeitpunkte des jeweiligen Berichtstags
         if (zeilenIv.some((r) => oIv.some((x) => iv(r, x) > 0))) {
           ueberschneidung(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
@@ -450,7 +451,7 @@ module.exports = function berichtRouten(api, bt) {
     const ctx = req.ctx;
     if (!ctx.hat('bericht_erstellen') && !ctx.hat('bericht_freigeben')) throw keinZugriff('Bautagesberichte sind für Ihre Rolle nicht freigeschaltet.');
     const q = req.query;
-    const bedingungen = [];
+    const bedingungen = ['r.geloescht_zeit IS NULL']; // 15.34: Papierkorb nur unter GET /berichte/papierkorb
     const p = [];
     // Bereich schon in SQL (vor LIMIT)
     const ber = bereich(ctx.benutzer);
@@ -467,7 +468,7 @@ module.exports = function berichtRouten(api, bt) {
         (SELECT u.erfasst_von FROM unterschrift u WHERE u.bericht_id = r.id AND u.rolle = 'an') AS an_von,
         (SELECT p.name FROM benutzer p WHERE p.id = b.polier_id) AS polier_name
       FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
-      ${bedingungen.length ? 'WHERE ' + bedingungen.join(' AND ') : ''} ORDER BY r.datum DESC, b.kst LIMIT 1000`, ...p);
+      WHERE ${bedingungen.join(' AND ')} ORDER BY r.datum DESC, b.kst LIMIT 1000`, ...p);
     const sichtbar = zeilen.filter((z) => baustelleImBereich(ctx.benutzer, { id: z.baustelle_id, polier_id: z.polier_id, bauleiter_id: z.bauleiter_id }));
     // F-006/F-011 (API.md 15.1): personalAnzahl = Zeilen, die der Aufrufer im Detail sieht (verborgene Abwesende zählen nicht)
     const anzahl = new Map();
@@ -515,7 +516,7 @@ module.exports = function berichtRouten(api, bt) {
     // (sonst verriete ein Probebericht vor der Abnahme „archiviert“ = bezahlt und Rücklass erledigt); storniert bleibt gesperrt
     const immerGesperrt = sicht ? ['archiviert', 'storniert'].includes(bs.phase) : BV.neutralePhase(bs) === 'storniert';
     if (bs.status === 'abgeschlossen' && (immerGesperrt || !seit || datum > seit)) throw ungueltig(`Baustelle ${bs.kst} ist abgeschlossen (${BV.phaseName(BV.sichtPhase(req.ctx, bs))}) – für Mängelbehebung zuerst wieder auf „In Arbeit“ setzen.`);
-    const vorhanden = db.eins('SELECT id FROM bericht WHERE baustelle_id = ? AND datum = ?', baustelleId, datum);
+    const vorhanden = require('../papierkorb').aktiverBericht(db, baustelleId, datum); // 15.34: gelöschte zählen nicht
     if (vorhanden) throw konflikt('Für diese Baustelle und diesen Tag gibt es bereits einen Bericht.', { id: vorhanden.id });
     const zeit = jetzt();
     const id = db.transaktion(() => {
@@ -533,6 +534,49 @@ module.exports = function berichtRouten(api, bt) {
       } catch (_) { /* Wetter ist optional */ }
     }
     res.status(201).json(berichtJson(db, req.ctx, ladeBerichtRoh(db, id)));
+  });
+
+  /* ---------- 15.34: Löschen mit Papierkorb (Recht bericht_loeschen, Inhaber 19.11.2026) ---------- */
+  const P = require('../papierkorb');
+  const LOESCH_TEXT = 'Bautagesberichte löschen ist für Ihre Rolle nicht freigeschaltet.';
+  const BEREICH_TEXT = 'Dieser Bericht gehört zu einer Baustelle außerhalb Ihres Bereichs.';
+  const bsZeile = (z) => ({ id: z.baustelle_id, polier_id: z.polier_id, bauleiter_id: z.bauleiter_id });
+
+  // vor GET /berichte/:id registriert (sonst wäre „papierkorb“ eine Berichts-ID)
+  api.get('/berichte/papierkorb', (req, res) => {
+    if (!req.ctx.hat('bericht_loeschen')) throw keinZugriff(LOESCH_TEXT);
+    const jetztIso = jetzt();
+    const berichte = P.geloeschte(db)
+      .filter((z) => baustelleImBereich(req.ctx.benutzer, bsZeile(z)) && P.endgueltigAm(z.geloescht_zeit) > jetztIso)
+      .map((z) => P.eintragJson(db, z));
+    res.json({ fristTage: P.FRIST_TAGE, berichte });
+  });
+
+  api.post('/berichte/:id/loeschen', (req, res) => {
+    if (!req.ctx.hat('bericht_loeschen')) throw keinZugriff(LOESCH_TEXT); // 15.7 (F-036): Recht vor Existenz und Body
+    const b = ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
+    if (!b) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!baustelleImBereich(req.ctx.benutzer, b.baustelle)) throw keinZugriff(BEREICH_TEXT);
+    const body = v.objekt(req.body);
+    const grund = v.text(body.grund, 'grund', { max: 500, pflicht: false }) || '';
+    if (grund.length < P.MIN_GRUND) throw ungueltig(`Bitte kurz begründen, warum der Bericht gelöscht wird (mindestens ${P.MIN_GRUND} Zeichen).`);
+    pruefeBerichtVersion(body, b, true, db, req.ctx); // gelöscht wird nur der gesehene Stand
+    const r = P.loeschen(bt, req.ctx, b, grund);
+    res.json({ ok: true, id: b.id, ...r });
+  });
+
+  api.post('/berichte/:id/wiederherstellen', (req, res) => {
+    if (!req.ctx.hat('bericht_loeschen')) throw keinZugriff(LOESCH_TEXT);
+    const id = v.pfadId(req.params.id, 'Berichts-ID');
+    const z = P.geloeschte(db, { id })[0];
+    if (!z) throw nichtGefunden('Dieser Bericht ist nicht im Papierkorb.');
+    if (!baustelleImBereich(req.ctx.benutzer, bsZeile(z))) throw keinZugriff(BEREICH_TEXT);
+    const body = v.objekt(req.body);
+    if (body.version !== undefined && v.zahl(body.version, 'version', { min: 1, max: 1e9, ganz: true }) !== z.version) {
+      throw konflikt('Der Papierkorb wurde inzwischen geändert. Bitte neu laden.', { version: z.version });
+    }
+    const b = P.wiederherstellen(bt, req.ctx, z);
+    res.json(berichtJson(db, req.ctx, b));
   });
 
   api.get('/berichte/:id', (req, res) => {

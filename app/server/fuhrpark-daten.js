@@ -37,7 +37,7 @@ function ladeStand(db, H) {
   const grenze90 = plusTage(H, -90);
   const nz = new Map();
   for (const z of db.alle(`SELECT bg.bericht_id, bg.geraet_id, bg.anlage_id, bg.stunden, b.datum, b.status, b.baustelle_id
-      FROM bericht_geraet bg JOIN bericht b ON b.id = bg.bericht_id WHERE b.status <> 'entwurf' ORDER BY b.datum, b.id`)) {
+      FROM bericht_geraet bg JOIN bericht b ON b.id = bg.bericht_id WHERE b.status <> 'entwurf' AND b.geloescht_zeit IS NULL ORDER BY b.datum, b.id`)) {
     let aid = z.anlage_id;
     if (!aid) { const k = aktivJeGeraet.get(z.geraet_id) || []; if (k.length === 1) aid = k[0]; }
     const A = aid ? anlagen.get(aid) : null;

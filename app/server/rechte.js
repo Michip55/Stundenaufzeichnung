@@ -17,6 +17,8 @@ const RECHTE = [
   { schluessel: 'kolonne', text: 'Kolonne (Partie) stempeln' },
   { schluessel: 'bericht_erstellen', text: 'Bautagesbericht erstellen' },
   { schluessel: 'bericht_freigeben', text: 'Bautagesbericht freigeben' },
+  // Inhaber 19.11.2026 (API.md 15.34): löschen (jeder Status, mit Begründung) und aus dem Papierkorb wiederherstellen
+  { schluessel: 'bericht_loeschen', text: 'Bautagesberichte löschen' },
   { schluessel: 'preise_sehen', text: 'Preise und €-Werte sehen' },
   { schluessel: 'preise_bearbeiten', text: 'Preise, Auftragssumme und Nachträge bearbeiten' },
   { schluessel: 'kalk_sehen', text: 'Nachkalkulation und Budget sehen' },
@@ -31,9 +33,9 @@ const STANDARD_MATRIX = {
   mitarbeiter: { zeit_eigen: true },
   polier: { zeit_eigen: true, kolonne: true, bericht_erstellen: true },
   // Inhaber 13.11.2026: „Bauleiter ist eigentlich Büro … in allem wie Büro“ → gleiche Standardrechte wie Büro
-  bauleiter: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
-  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
-  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
+  bauleiter: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
+  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
+  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
 };
 
 /** Für diese Rollen technisch gesperrt – weder per Matrix noch per Ausnahme vergebbar. */

@@ -1283,3 +1283,20 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .korr-ort a { color: var(--blue); text-decoration: underline; }
 /* Prüfbefund n8-g (Bild 07/14): die Personen-Auswahl ist am PC breit genug für „Name (eigene Zeiten)“ */
 @media (min-width: 720px) { .toolbar .field.inline.k-person { flex: 0 1 320px; } }
+/* 15.34: Bautagesbericht löschen (rot umrandet, nur mit Recht bericht_loeschen) und Papierkorb */
+.btn.ghost.btn-loeschen { color: var(--red-d); border-color: #f0c7c4; } .btn.ghost.btn-loeschen:hover { background: var(--red-bg); border-color: #e9a9a4; }
+.loesch-kopf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 14px; border-radius: var(--r-sm); background: #f6f7f9; border: 1px solid var(--line); }
+.loesch-kopf b { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; } .loesch-kopf span:not(.chip) { grid-column: 1; color: var(--muted); font-size: 13.5px; }
+.loesch-kopf .chip { grid-column: 2; grid-row: 1 / span 2; }
+.pk-list { list-style: none; } .pk-list > li { border-bottom: 1px solid var(--line-2); } .pk-list > li:last-child { border: 0; }
+.pk-row { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; }
+.pk-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .pk-txt > b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pk-txt > small { color: var(--muted); }
+.pk-info, .pk-frist { font-size: 13px; color: var(--muted); } .pk-frist b { color: var(--text); font-weight: 700; }
+.pk-grund { font-size: 13.5px; font-style: italic; overflow-wrap: anywhere; }
+.pk-hinweis { font-size: 13px; color: var(--amber); font-weight: 600; } .pk-hinweis a { color: var(--blue); text-decoration: underline; }
+.pk-akt { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+@media (max-width: 719px) {
+  .form-top .btn-loeschen { height: 36px; padding: 0 10px; }
+  .pk-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px; } .pk-row .rep-date { width: 74px; }
+  .pk-akt { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; } .pk-akt .btn { flex: 1 1 auto; max-width: 240px; }
+}

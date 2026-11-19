@@ -914,6 +914,14 @@ async function erstelleBasis() {
       F.bericht[`${kk}Link`] = link.id;
       F.bericht[`${kk}Token`] = link.url.split('/').pop();
     }
+    // --- 15.34: je Baustelle ein gelöschter Bericht im Papierkorb (für GET /berichte/papierkorb und …/wiederherstellen)
+    for (const [bs, kk] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) {
+      let tag = '2026-10-14';
+      while (s.db.eins('SELECT 1 AS x FROM bericht WHERE baustelle_id = ? AND datum = ?', bs, tag)) tag = require('../../server/datum').plusTage(tag, -1);
+      const g = await erwarte(await gf.post('/berichte', { baustelleId: bs, datum: tag }), 201, 'Bericht für den Papierkorb');
+      await erwarte(await gf.post(`/berichte/${g.id}/loeschen`, { grund: 'Rechte-Test: doppelt angelegt', version: g.version }), 200, 'Bericht löschen');
+      F.bericht[`${kk}Geloescht`] = g.id;
+    }
     // --- N-112 (15.7): Dokument „Lieferscheine“ auf BS 1, hochgeladen von der GF – Polier/Mitarbeiter sehen es nie
     F.dok.lieferscheinBs1 = await dok(BS.pitten, 'lieferscheine', `${TEXT.lieferschein}-DOK`);
     // --- Fuhrpark: Schäden (Mitarbeiter 2 eigener, Mitarbeiter 14 fremder), Mängel

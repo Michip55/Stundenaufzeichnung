@@ -60,6 +60,16 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Übersicht nach geänderten Rechten** (als GF unter Rechte-Einstellungen dem Büro „Bautagesbericht erstellen“, „… freigeben“ und „Stammdaten pflegen“ wegnehmen, dann als Büro anmelden): am PC stehen „Heute“ und „Rechnungen“ nebeneinander; zusätzlich „Preise und €-Werte sehen“ und „Nachkalkulation und Budget sehen“ weg → nur „Heute“, über die ganze Breite, ohne €-Beträge. Danach die Rechte wieder zurücksetzen.
 - [ ] **Dokument** zu einer Baustelle hochladen (z. B. Angebot als PDF).
 
+**Bautagesbericht löschen (Papierkorb)**
+- [ ] Einen **unterschriebenen** Bericht öffnen → oben **„Bericht löschen“** (rot umrandet). Das Fenster zeigt Baustelle, Datum und Status und warnt „bereits unterschrieben – die Unterschriften werden mitgelöscht“. Bei einem **freigegebenen** Bericht steht „freigegeben … fehlt dann in Nachkalkulation, Monatsauswertung, Lohn und Regie“.
+- [ ] „Bericht löschen“ im Fenster geht erst mit einer **Begründung** (mindestens 5 Zeichen). Abbrechen ändert nichts.
+- [ ] Nach dem Löschen: zurück in der Liste, Hinweis „im Papierkorb bis TT.MM.JJJJ“ (30 Tage). Der Bericht fehlt in der Liste, in der Übersicht („Zur Freigabe“), in der Nachkalkulation der Baustelle (Stunden/Regie weniger) und in der Monatsauswertung. Die **Stempelzeiten** der Leute sind unverändert (Meine Woche/Korrektur).
+- [ ] Ein Link „Unterschrift per Link“, der vor dem Löschen verschickt wurde, sagt jetzt „nicht mehr gültig“ – auch nach dem Wiederherstellen.
+- [ ] Bautagesberichte → **„Papierkorb“**: der Bericht steht dort mit Grund, „Gelöscht am … von …“ und „Endgültig weg am …“. **Wiederherstellen** → er ist wieder in der Liste, mit allen Zeilen, Fotos und Unterschriften, im alten Status.
+- [ ] Bericht löschen, dann für **denselben Tag einen neuen Bericht** anlegen (geht) → im Papierkorb ist „Wiederherstellen“ gesperrt mit dem Hinweis „Für diesen Tag gibt es einen neuen Bericht …“ und Link zum neuen Bericht.
+- [ ] Als GF unter Rechte-Einstellungen beim **Bauleiter** „Bautagesberichte löschen“ wegnehmen → Stefan Aigner sieht weder „Bericht löschen“ noch „Papierkorb“; wieder einschalten. (Das Recht steht in der Rechte-Matrix wie alle anderen.)
+- [ ] Benutzer & Rechte → Protokoll: Löschen und Wiederherstellen stehen dort mit Begründung.
+
 **Urlaub**
 - [ ] Offene Anträge → einen **ganzen Antrag** mit einem Klick genehmigen (keine Einzeltage). Den **eigenen** Antrag und das **eigene** Urlaubskonto kann niemand selbst entscheiden oder ändern (Vier-Augen-Prinzip).
 - [ ] Einen genehmigten Antrag **korrigieren** (einen Tag herausnehmen) → Urlaubskonto rechnet neu.
@@ -86,6 +96,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Bautagesbericht** ausfüllen, Fuhren-Mengen „aus Fuhre“ übernehmen, Foto anhängen, **Unterschrift per Link** an den Auftraggeber schicken.
 - [ ] **Schlechtwetter melden** → Antwort „Schlechtwetter gemeldet – das Büro bestätigt.“
 - [ ] **Lieferschein fotografieren**: Den eigenen sieht er wieder (auch mit Preisen), Lieferscheine anderer nicht.
+- [ ] **Bericht löschen** gibt es für den Polier nicht: weder der Knopf im Bericht noch „Papierkorb“ in der Liste; die Adresse `#/berichte/papierkorb` zeigt „Seite nicht verfügbar“.
 - [ ] **Darf NICHT sehen** (bitte gezielt suchen): keine Preise, keine €-Beträge, keine Nachkalkulation, keine Rechnungen, **keine Abwesenheiten anderer** (weder Urlaub noch Krank, auch nicht als Zahl), keine Lohngruppen (auch nicht die eigene), keine Lieferscheine anderer. Gesperrte Funktionen erscheinen gar nicht erst im Menü.
 
 ## 3. Mitarbeiter (Lukas Brandstätter)

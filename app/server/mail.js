@@ -61,7 +61,8 @@ function alarm(bt, betreff, text) {
  */
 function berichtVersenden(bt, berichtId, an, benutzerId = null) {
   const { db } = bt;
-  const b = db.eins('SELECT r.id, r.datum, s.kst, s.name, s.kurz FROM bericht r JOIN baustelle s ON s.id = r.baustelle_id WHERE r.id = ?', berichtId);
+  const b = db.eins('SELECT r.id, r.datum, s.kst, s.name, s.kurz FROM bericht r JOIN baustelle s ON s.id = r.baustelle_id WHERE r.id = ? AND r.geloescht_zeit IS NULL', berichtId); // 15.34
+  if (!b) throw require('./fehler').nichtGefunden('Bericht nicht gefunden.');
   const betreff = `Bautagesbericht ${b.kst} ${b.kurz || b.name} vom ${b.datum.split('-').reverse().join('.')}`;
   const id = db.lauf("INSERT INTO mail_ausgang (art, bezug, an, betreff, status, erstellt, erstellt_von) VALUES ('bericht', ?, ?, ?, 'wartet', ?, ?)", `bericht:${berichtId}`, an, betreff, bt.uhr().toISOString(), benutzerId).id;
   const lauf = (async () => {

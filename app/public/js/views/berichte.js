@@ -19,6 +19,7 @@ export async function berichte(el, ctx) {
       <label class="field inline"><span class="vh">Baustelle</span><select class="input" id="f-bs"><option value="">Alle Baustellen</option>${baustellen.filter((b) => !istIntern(b)).map((b) => `<option value="${b.id}" ${String(b.id) === f.baustelleId ? 'selected' : ''}>${esc((b.kst ? b.kst + ' · ' : '') + b.name)}</option>`).join('')}</select></label>
       <label class="field inline"><span class="vh">Status</span><select class="input" id="f-st"><option value="">Alle Status</option><option value="entwurf">Entwurf</option><option value="unterschrieben">Unterschrieben – zur Freigabe</option><option value="freigegeben">Freigegeben</option></select></label>
       <span class="grow"></span>
+      ${ctx.kann('bericht_loeschen') ? `<a class="btn ghost" id="papierkorb" href="#/berichte/papierkorb">${ic('trash')}Papierkorb</a>` : ''}
       ${darfNeu ? `<button type="button" class="btn primary" id="neu">${ic('plus')}Neuer Bericht</button>` : ''}
     </div>
     <section class="card" id="liste" aria-live="polite">${laden()}</section>
@@ -64,6 +65,46 @@ export async function berichte(el, ctx) {
     if (e.target.closest('[data-nochmal]')) ladeListe();
     if (e.target.closest('#neu')) neuerBericht(ctx, baustellen, f.baustelleId);
     if (e.target.closest('#papier-liste')) $('#papier-liste-datei', el).click();
+  });
+  await ladeListe();
+}
+
+/* =================== Papierkorb (API.md 15.34) =================== */
+export async function papierkorb(el, ctx) {
+  el.innerHTML = `<div class="page">
+    <a class="link-back" href="#/berichte">${ic('left')}Alle Berichte</a>
+    ${banner('info', 'Gelöschte Bautagesberichte bleiben <b>30 Tage</b> hier und können wiederhergestellt werden. Danach werden sie endgültig gelöscht.', 'trash')}
+    <section class="card" id="pk-liste" aria-live="polite">${laden()}</section>
+  </div>`;
+  async function ladeListe() {
+    const box = $('#pk-liste', el);
+    let r;
+    try { r = await get('/berichte/papierkorb'); }
+    catch (e) { box.innerHTML = `<div class="state">${ic('alert')}<p>${esc(e.message)}</p><button class="btn ghost sm" type="button" data-nochmal>Erneut versuchen</button></div>`; return; }
+    if (!ctx.aktuell()) return;
+    const liste = r.berichte || [];
+    box.innerHTML = liste.length ? `<ul class="pk-list">${liste.map((b) => `<li class="pk-row" data-pk="${b.id}">
+        <span class="rep-date"><b>${esc(fmt.datumKurz(b.datum))}</b><small>${fmt.dt(b.datum).getFullYear()}</small></span>
+        <span class="pk-txt"><b>${esc(b.baustelle || 'Baustelle')}</b><small>${esc(b.kst || '')}</small>
+          <span class="pk-info">Gelöscht am ${esc(fmt.zeitpunkt(b.geloescht.zeit))}${b.geloescht.von ? ` von ${esc(b.geloescht.von.name)}` : ''}</span>
+          <span class="pk-grund">„${esc(b.geloescht.grund || '')}“</span>
+          <span class="pk-frist" data-pk-frist>Endgültig weg am <b>${esc(fmt.datum(b.endgueltigDatum))}</b></span>
+          ${b.wiederherstellbar ? '' : `<span class="pk-hinweis" data-pk-konflikt>Für diesen Tag gibt es einen neuen Bericht – Wiederherstellen erst, wenn er gelöscht ist. <a href="#/bericht/${b.neuerBerichtId}">Neuen Bericht öffnen</a></span>`}
+        </span>
+        <span class="pk-akt">${statusChip(b.status)}<button type="button" class="btn ghost sm" data-wieder="${b.id}" ${b.wiederherstellbar ? '' : 'disabled'}>${ic('undo')}Wiederherstellen</button></span>
+      </li>`).join('')}</ul>` : leer('Der Papierkorb ist leer.', 'trash');
+  }
+  el.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-nochmal]')) ladeListe();
+    const k = e.target.closest('[data-wieder]');
+    if (!k) return;
+    k.disabled = true;
+    try {
+      const b = await post(`/berichte/${k.dataset.wieder}/wiederherstellen`, {});
+      const bs = b.baustelle || {};
+      toast(`Bericht ${bs.kst || ''} vom ${fmt.datum(b.datum)} wiederhergestellt.`, 'ok', { text: 'Öffnen', fn: () => { location.hash = `#/bericht/${b.id}`; } });
+      await ladeListe();
+    } catch (x) { toast(x.netz ? 'Keine Verbindung – nicht wiederhergestellt.' : x.message, 'warn'); k.disabled = false; if (x.status === 409 || x.status === 404) ladeListe(); }
   });
   await ladeListe();
 }
@@ -511,6 +552,7 @@ export async function bericht(el, ctx) {
         ${statusChip(b.status)}
         <span class="chip st-blue" id="ki-chip" hidden></span>
         ${editierbar() ? '<span class="save-state neutral" id="save-state" role="status"></span>' : ''}
+        ${ctx.kann('bericht_loeschen') ? `<button type="button" class="btn ghost sm btn-loeschen" id="bericht-loeschen">${ic('trash')}Bericht löschen</button>` : ''}
       </div>
       ${b.status === 'entwurf' && signiert() ? `<div id="gesperrt-hinweis">${banner('info', '<b>Inhalt gesperrt:</b> Es liegt bereits eine Unterschrift vor. Der Bericht kann nicht mehr geändert werden – es fehlt nur noch die zweite Unterschrift.', 'lock')}</div>` : !editierbar() && b.status === 'entwurf' ? banner('info', 'Nur Ansicht – zum Bearbeiten fehlt die Berechtigung.') : ''}
       ${b.selbstfreigabe ? `<div id="selbstfreigabe">${banner('warn', '<b>Selbstfreigabe:</b> Dieser Bericht wurde von derselben Person freigegeben, die die Unterschrift des Auftragnehmers erfasst hat (nur der Geschäftsführung möglich, im Protokoll vermerkt).')}</div>` : ''}
@@ -705,6 +747,7 @@ export async function bericht(el, ctx) {
       return;
     }
     if (e.target.closest('#freigeben')) { freigeben(); }
+    if (e.target.closest('#bericht-loeschen')) { loeschen(); }
   });
   el.addEventListener('change', async (e) => {
     const t = e.target;
@@ -810,6 +853,45 @@ export async function bericht(el, ctx) {
       } else toast(e.message, 'warn');
     }
   }
+  /* ---- 15.34: Bericht löschen (Papierkorb, 30 Tage wiederherstellbar) – nur mit Recht bericht_loeschen ---- */
+  async function loeschen() {
+    await allesSichern(); // offene Änderungen zuerst speichern – gelöscht wird der zuletzt gespeicherte Stand (version)
+    const warnung = b.status === 'freigegeben'
+      ? banner('warn', '<b>Der Bericht ist freigegeben.</b> Nach dem Löschen fehlt er in Nachkalkulation, Monatsauswertung, Lohn und Regie.')
+      : b.status === 'unterschrieben' || signiert()
+        ? banner('warn', `<b>Der Bericht ist bereits unterschrieben${b.status === 'unterschrieben' ? '' : ' (eine Unterschrift)'}.</b> Die Unterschriften werden mitgelöscht.`)
+        : '';
+    const d = dialog({
+      titel: 'Bericht löschen?',
+      inhalt: `<form id="bl" class="stack-s" novalidate>
+        <div class="loesch-kopf" data-loesch-kopf><b>${esc(bs.name || '')}</b><span>${esc(bs.kst || '')} · ${esc(fmt.datumLang(b.datum))}</span>${statusChip(b.status)}</div>
+        ${warnung}
+        <p class="muted sm">Der Bericht kommt in den <b>Papierkorb</b> und kann dort 30 Tage lang wiederhergestellt werden. Danach ist er endgültig weg – mit Fotos und Unterschriften. Die Stempelzeiten bleiben erhalten.</p>
+        <label class="field"><span class="field-label">Begründung (Pflicht)</span><textarea class="input area" name="grund" rows="3" maxlength="500" required placeholder="z. B. doppelt angelegt, falsche Baustelle"></textarea></label>
+        <p class="form-err" role="alert" hidden></p></form>`,
+      fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn danger" type="submit" form="bl" id="bl-ok" disabled>Bericht löschen</button>',
+    });
+    const feld = $('textarea', d.el), ok = $('#bl-ok', d.el), err = $('.form-err', d.el);
+    feld.addEventListener('input', () => { ok.disabled = feld.value.trim().length < 5; });
+    feld.focus();
+    $('#bl', d.el).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const grund = feld.value.trim();
+      if (grund.length < 5) { err.hidden = false; err.textContent = 'Bitte kurz begründen (mindestens 5 Zeichen).'; return; }
+      ok.disabled = true;
+      try {
+        const r = await post(`/berichte/${id}/loeschen`, { grund, version: b.version });
+        d.zu();
+        toast(`Bericht gelöscht – im Papierkorb bis ${fmt.datum(fmt.iso(new Date(r.endgueltigAm)))}.`);
+        location.hash = '#/berichte';
+      } catch (x) {
+        if (x.status === 409) await versionHolen();
+        err.hidden = false; err.textContent = x.netz ? 'Keine Verbindung – der Bericht wurde nicht gelöscht.' : x.status === 409 ? 'Der Bericht wurde inzwischen geändert. Bitte noch einmal auf „Bericht löschen“ tippen.' : x.message;
+        ok.disabled = false;
+      }
+    });
+  }
+
   async function freigeben() {
     if (!(await bestaetigen('Bericht freigeben?', 'Der Bericht fließt damit in Nachkalkulation und Monatsauswertung ein.', 'Freigeben'))) return;
     try {

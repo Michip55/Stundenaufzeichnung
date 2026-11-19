@@ -98,7 +98,7 @@ function baustellenMap(db) {
 function berichtsZeilen(db, vonDatum, bisDatum, benutzerId = null) {
   const z = db.alle(`SELECT bp.benutzer_id, bp.stunden, bp.von1, bp.bis1, bp.von2, bp.bis2, bp.pause_min, bp.code, r.datum, r.baustelle_id
     FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-    WHERE r.status = 'freigegeben' AND r.datum BETWEEN ? AND ? ${benutzerId ? 'AND bp.benutzer_id = ?' : ''}`,
+    WHERE r.status = 'freigegeben' AND r.geloescht_zeit IS NULL AND r.datum BETWEEN ? AND ? ${benutzerId ? 'AND bp.benutzer_id = ?' : ''}`, // 15.34: ohne Papierkorb
   ...[vonDatum, bisDatum, ...(benutzerId ? [benutzerId] : [])]);
   const zeilen = new Map();
   for (const x of z) {
@@ -107,7 +107,7 @@ function berichtsZeilen(db, vonDatum, bisDatum, benutzerId = null) {
     zeilen.get(k).push(x);
   }
   const gedeckt = new Map();
-  for (const r of db.alle("SELECT baustelle_id, datum FROM bericht WHERE status = 'freigegeben' AND datum BETWEEN ? AND ?", vonDatum, bisDatum)) {
+  for (const r of db.alle("SELECT baustelle_id, datum FROM bericht WHERE status = 'freigegeben' AND geloescht_zeit IS NULL AND datum BETWEEN ? AND ?", vonDatum, bisDatum)) {
     if (!gedeckt.has(r.datum)) gedeckt.set(r.datum, new Set());
     gedeckt.get(r.datum).add(r.baustelle_id);
   }
@@ -249,7 +249,7 @@ function monat(db, monatStr, jetzt) {
     .filter((b) => mitDaten.has(b.id) || (b.aktiv && ['mitarbeiter', 'polier'].includes(b.rolle)));
   // M-01: SEG-Stunden nur aus freigegebenen Berichten
   const seg = new Map(db.alle(`SELECT bp.benutzer_id, SUM(bp.seg_stunden) AS s FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-    WHERE r.status = 'freigegeben' AND r.datum BETWEEN ? AND ? GROUP BY bp.benutzer_id`, erster, letzter).map((z) => [z.benutzer_id, z.s || 0]));
+    WHERE r.status = 'freigegeben' AND r.geloescht_zeit IS NULL AND r.datum BETWEEN ? AND ? GROUP BY bp.benutzer_id`, erster, letzter).map((z) => [z.benutzer_id, z.s || 0]));
   const warnungen = [];
   const beantragt = [];
   const offeneSchichten = [];
@@ -326,7 +326,7 @@ function monat(db, monatStr, jetzt) {
   });
   // D-10: GF-Selbstfreigaben kennzeichnen
   for (const r of db.alle(`SELECT r.id, r.datum, b.kst, u.id AS uid, u.name FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
-      LEFT JOIN benutzer u ON u.id = r.freigegeben_von WHERE r.selbstfreigabe = 1 AND r.datum BETWEEN ? AND ?`, erster, letzter)) {
+      LEFT JOIN benutzer u ON u.id = r.freigegeben_von WHERE r.selbstfreigabe = 1 AND r.geloescht_zeit IS NULL AND r.datum BETWEEN ? AND ?`, erster, letzter)) {
     warnungen.push({ benutzerId: r.uid, name: r.name, datum: r.datum, typ: 'selbstfreigabe', stufe: 'hinweis', berichtId: r.id, text: `Bericht ${r.kst} vom ${r.datum.split('-').reverse().join('.')} von derselben Person unterschrieben (AN) und freigegeben.` });
   }
   return {
