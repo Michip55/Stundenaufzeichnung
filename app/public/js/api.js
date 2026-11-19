@@ -211,7 +211,10 @@ export async function api(methode, pfad, body, opt0 = {}) {
   const signal = gebunden && abbruch ? abbruch.signal : undefined;
   const veraltet = () => gebunden && gen !== generation;
   if (abmeldenWartet && gebunden && !opt0.vorAbmelden && pfad !== '/auth/logout') throw new VeraltetFehler();
-  if (pfad !== '/auth/logout' && !opt0.vorAbmelden) await abmeldenNachholen();
+  // Prüfbefund n8-s: nachgesendete Einträge der Person (ersteller, z. B. eine offline gestempelte Buchung, deren Ortung eben fertig
+  // wurde) gehen während des Wartens ebenfalls noch unter ihrer Sitzung hinaus – sonst holte ihr Nachsenden das Abmelden VOR dem
+  // Nachtrag nach. Der Server nimmt sie nur unter der Sitzung genau dieser Person an (X-BauTag-Ersteller); app.js wartet auf sie.
+  if (pfad !== '/auth/logout' && !opt0.vorAbmelden && !(abmeldenWartet && !gebunden)) await abmeldenNachholen();
   if (veraltet()) throw new VeraltetFehler();
   const opt = { method: methode, credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (signal) opt.signal = signal;

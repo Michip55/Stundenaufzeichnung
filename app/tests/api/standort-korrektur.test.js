@@ -102,6 +102,15 @@ test('15.30 Prüfbefund n8-g: Migration 55 löscht Standorte ohne Einwilligung (
     buche(2, 51, '2026-11-09T06:00:00.000Z', 47.6); // vor der Einwilligung
     buche(3, 51, '2026-11-11T06:00:00.000Z', 47.7); // nach der Einwilligung
     buche(4, 50, '2026-11-11T06:00:00.000Z', null);
+    // Prüfbefund n8-s: vor der Einwilligung gestempelt, nach dem Einschalten vom Büro korrigiert (bis 15.30 blieb der Standort dabei
+    // stehen; PUT setzt quelle 'buero', erfasst_von und erfasst auf die Korrektur) – zählt nicht als „nach der Einwilligung erfasst“
+    alt.lauf("INSERT INTO benutzer (id, name, rolle, pin_hash, aktiv, erstellt) VALUES (52, 'Büro', 'buero', 'x', 1, ?)", t0);
+    alt.lauf("INSERT INTO buchung (id, benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit) VALUES (5, 51, 'kommen', '2026-11-10T06:00:00.000Z', 1, 'buero', 52, '2026-11-18T09:00:00.000Z', 47.5, 16.2, 9)");
+    // … ebenso eine von einer anderen Person erfasste Buchung (Kolonne) und eine Zeile nur mit Genauigkeit
+    alt.lauf("INSERT INTO buchung (id, benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit) VALUES (6, 51, 'wechsel', '2026-11-12T06:00:00.000Z', 1, 'kolonne', 52, '2026-11-12T06:00:00.000Z', 47.5, 16.2, 9)");
+    alt.lauf("INSERT INTO buchung (id, benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit) VALUES (7, 50, 'wechsel', '2026-11-12T07:00:00.000Z', 1, 'app', 50, '2026-11-12T07:00:00.000Z', NULL, NULL, 12)");
+    // selbst offline gestempelt nach der Einwilligung → bleibt
+    alt.lauf("INSERT INTO buchung (id, benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit) VALUES (8, 51, 'wechsel', '2026-11-12T08:00:00.000Z', 1, 'offline', 51, '2026-11-12T08:05:00.000Z', 47.8, 16.3, 11)");
     alt.schliessen();
 
     const app = createApp({ dbPath: datei, uhr: () => new Date('2026-11-19T10:00:00Z'), seed: false, demo: false, loginListe: false });
@@ -112,7 +121,11 @@ test('15.30 Prüfbefund n8-g: Migration 55 löscht Standorte ohne Einwilligung (
       assert.deepEqual(g(1), { lat: null, lng: null, genauigkeit: null });
       assert.deepEqual(g(2), { lat: null, lng: null, genauigkeit: null });
       assert.deepEqual(g(3), { lat: 47.7, lng: 16.2, genauigkeit: 9 });
-      assert.equal(db.eins('SELECT COUNT(*) AS n FROM buchung').n, 4, 'Buchungen selbst bleiben');
+      assert.deepEqual(g(5), { lat: null, lng: null, genauigkeit: null }, 'vom Büro korrigierte Alt-Buchung behält den Standort');
+      assert.deepEqual(g(6), { lat: null, lng: null, genauigkeit: null }, 'von einer anderen Person erfasste Buchung behält den Standort');
+      assert.deepEqual(g(7), { lat: null, lng: null, genauigkeit: null });
+      assert.deepEqual(g(8), { lat: 47.8, lng: 16.3, genauigkeit: 11 });
+      assert.equal(db.eins('SELECT COUNT(*) AS n FROM buchung').n, 8, 'Buchungen selbst bleiben');
       assert.equal(db.eins('PRAGMA integrity_check').integrity_check, 'ok');
     } finally { db.schliessen(); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

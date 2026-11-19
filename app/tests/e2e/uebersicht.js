@@ -13,6 +13,8 @@
  *  5. „Klassische Übersicht verwenden“ unter „Mehr“ stellt die alte Ansicht wieder her – und zurück.
  *  6. Polier mit Ausnahme „Berichte freigeben“ sieht die Übersicht ohne Geld und ohne Planer (auch nicht im Netz);
  *     Polier und Mitarbeiter ohne Ausnahme sehen sie gar nicht.
+ *  7. Prüfbefunde n8-s: klassische Übersicht – zweite Kachelreihe direkt unter der ersten; Büro ohne Berichtsrechte und ohne
+ *     Stammdaten (Rechte-Matrix) – „Heute“ und „Rechnungen“ ab 720 px nebeneinander, keine leere rechte Hälfte.
  */
 const { chromium } = require('playwright');
 const { starte, U, BS, START } = require('../api/hilfe');
@@ -170,6 +172,9 @@ async function laufe(browser, g) {
       pruef(await page.locator('#opt-klassisch').isChecked(), `${wo}: Schalter lässt sich nicht einschalten`);
       await geh('/dashboard');
       pruef(await page.locator('#ue').count() === 0 && await page.locator('.kpi-row [data-kpi="freigabe"] b').count() === 1 && await page.locator('#anwesend-karte li').count() >= 1 && await page.locator('#bv-kacheln.kpi-row').count() === 1, `${wo}: klassische Übersicht wird nicht wiederhergestellt`);
+      // Prüfbefund n8-s: die zweite Kachelreihe (#bv-kacheln) steht direkt unter der ersten, nicht am Seitenende
+      const klass = await page.evaluate(() => { const b = document.getElementById('bv-kacheln'); if (!b || !b.parentElement) return null; return [...b.parentElement.children].filter((e) => e.getBoundingClientRect().height > 0).sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top).map((e) => e.id || e.className); });
+      pruef(!!klass && klass[1] === 'bv-kacheln' && /kpi-row/.test(klass[0]), `${wo}: klassische Übersicht – Kachelreihe „Bauvorhaben“ nicht direkt unter der ersten Kachelreihe (${JSON.stringify(klass)})`);
       await geh('/mehr');
       pruef(await page.locator('#opt-klassisch').isChecked(), `${wo}: Schalter merkt sich die Wahl nicht`);
       await page.click('#klassisch-zeile');
@@ -203,6 +208,22 @@ async function laufe(browser, g) {
         pruef(!antworten.some((a) => GELD_PFADE.test(a.pfad) || /^\/api\/(zeit\/anwesend|berichte\?status)/.test(a.pfad)), `${wo}: Übersicht fragt trotzdem Daten an`);
       });
     }
+
+    /* ---------------- Prüfbefund n8-s: Rechte-Matrix geändert – Büro ohne Berichtsrechte und ohne Stammdaten ---------------- */
+    // Die rechte Spalte (Zur Freigabe + Einteilung) bleibt leer: „Heute“ und „Rechnungen“ stehen ab 720 px nebeneinander im
+    // Raster (keine leere rechte Hälfte), am Handy untereinander in dieser Reihenfolge
+    for (const recht of ['bericht_erstellen', 'bericht_freigeben', 'stammdaten']) { const r = await gf.put('/rechte/matrix', { rolle: 'buero', recht, wert: false }); if (r.status >= 300) throw new Error(`Matrix ${recht}: ${r.status}`); }
+    await sitzung(U.buero, async ({ page, geh }) => {
+      const wo = `Übersicht Büro ohne Berichte/Stammdaten/${g.name}`;
+      await geh('/dashboard');
+      pruef(await page.locator('#ue').count() === 1 && await page.locator('#ue-freigabe, #ue-plan').count() === 0 && await page.locator('#ue-heute').count() === 1 && await page.locator('#bv-kacheln').count() === 1, `${wo}: Vorbedingung – Abschnitte ${JSON.stringify(await page.locator('#ue section, #ue [id]').evaluateAll((l) => l.map((e) => e.id)))}`);
+      const lage = await page.evaluate(() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { oben: Math.round(b.top), unten: Math.round(b.bottom), links: Math.round(b.left), rechts: Math.round(b.right) }; }; const p = document.getElementById('ue').getBoundingClientRect(); return { heute: r('ue-heute'), geld: r('bv-kacheln'), seite: { links: Math.round(p.left), rechts: Math.round(p.right) } }; });
+      if (lage.heute && lage.geld) {
+        if (g.width >= 720) pruef(Math.abs(lage.geld.oben - lage.heute.oben) < 2 && lage.geld.links > lage.heute.rechts, `${wo}: rechte Hälfte leer bzw. nicht nebeneinander (${JSON.stringify(lage)})`);
+        else pruef(lage.heute.unten <= lage.geld.oben && Math.abs(lage.geld.links - lage.heute.links) < 2, `${wo}: am Handy nicht Heute – Rechnungen untereinander (${JSON.stringify(lage)})`);
+      } else pruef(false, `${wo}: Abschnitte für die Lageprüfung fehlen (${JSON.stringify(lage)})`);
+      pruef(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth) <= 1, `${wo}: horizontaler Überlauf`);
+    });
   } finally { await s.stop(); }
   return { fehler, schritte };
 }

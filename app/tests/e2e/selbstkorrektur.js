@@ -237,7 +237,20 @@ async function laufe(browser, g) {
       await page.waitForTimeout(400);
       const nichts = await page.locator('#kf .form-err').innerText().catch(() => '');
       page.off('request', mitschnitt);
-      pruef(gesendet.length === 0 && /Nichts geändert/.test(nichts), `GF Stempeln/${g.name}: unveränderte Buchung gesendet (${JSON.stringify(gesendet)}, „${nichts}“)`);
+      pruef(gesendet.length === 0 && nichts.trim() === 'Nichts geändert – bitte Uhrzeit oder Baustelle ändern.', `GF Stempeln/${g.name}: unveränderte Buchung gesendet (${JSON.stringify(gesendet)}, „${nichts}“)`);
+      await dlg(page).locator('[data-zu]').first().click();
+      await page.waitForTimeout(200);
+      // Prüfbefund n8-s: bei „Gehen“ (kein Baustellen-Feld im Dialog) nennt der Hinweis nur die Uhrzeit
+      gesendet.length = 0;
+      page.on('request', mitschnitt);
+      await page.locator(`#k-liste [data-aendern="${gId}"]`).click();
+      await page.waitForSelector('#kf', { timeout: 5000 });
+      await page.locator('#kf [name="grund"]').fill('nur geöffnet');
+      await dlg(page).locator('button[type="submit"]').click();
+      await page.waitForTimeout(400);
+      const nichtsG = await page.locator('#kf .form-err').innerText().catch(() => '');
+      page.off('request', mitschnitt);
+      pruef(gesendet.length === 0 && nichtsG.trim() === 'Nichts geändert – bitte die Uhrzeit ändern.', `GF Stempeln/${g.name}: Gehen unverändert – Hinweis „${nichtsG}“ bzw. gesendet ${JSON.stringify(gesendet)}`);
       await dlg(page).locator('[data-zu]').first().click();
       await page.waitForTimeout(200);
       // Buchung nachtragen: Baustelle nur bei Kommen/Baustellenwechsel

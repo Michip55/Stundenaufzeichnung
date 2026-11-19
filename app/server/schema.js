@@ -1564,10 +1564,15 @@ ALTER TABLE benutzer ADD COLUMN standort_einwilligung TEXT;
     // Bis 15.30 speicherte die App den Standort mit dem alten Geräteschalter ohne Einwilligung der Person (und ohne Hinweis, dass
     // das Büro ihn sieht); seit 15.30 zeigt die Korrektur Standorte an. Gelöscht werden die Koordinaten jeder Buchung, für die
     // die Person (noch) nicht eingewilligt hatte, als die Buchung erfasst wurde. Die Buchungen selbst bleiben unverändert.
+    // Prüfbefund n8-s: behalten nur bei der eigenen Stempelung (erfasst_von = Person, quelle app/offline) – PUT /zeit/buchungen/:id
+    // setzt erfasst auf den Zeitpunkt der Korrektur (quelle 'buero'), und bis 15.30 blieb der Standort dabei stehen; eine vor der
+    // Einwilligung gestempelte, danach korrigierte Buchung gälte sonst als „nach der Einwilligung erfasst“. Auch Zeilen mit nur
+    // `genauigkeit` werden geleert.
     sql: `
 UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL
- WHERE (lat IS NOT NULL OR lng IS NOT NULL)
-   AND NOT EXISTS (SELECT 1 FROM benutzer b WHERE b.id = buchung.benutzer_id AND b.standort_einwilligung IS NOT NULL AND b.standort_einwilligung <= buchung.erfasst);
+ WHERE (lat IS NOT NULL OR lng IS NOT NULL OR genauigkeit IS NOT NULL)
+   AND NOT (erfasst_von IS NOT NULL AND erfasst_von = benutzer_id AND quelle IN ('app', 'offline') AND lat IS NOT NULL AND lng IS NOT NULL
+        AND EXISTS (SELECT 1 FROM benutzer b WHERE b.id = buchung.benutzer_id AND b.standort_einwilligung IS NOT NULL AND b.standort_einwilligung <= buchung.erfasst));
 `
   }
 ];

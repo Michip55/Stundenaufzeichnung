@@ -180,7 +180,7 @@ export default async function korrektur(el, ctx) {
           // Uhrzeit unverändert (Minute wie angezeigt): nicht mitsenden – sonst fielen die Sekunden der Stempelung weg und mit ihnen
           // der Standort (15.31: geänderte Zeit entfernt ihn)
           if (!neu && String(f.get('zeit')) === lokal(x.zeit)) delete body.zeit;
-          if (!neu && body.zeit === undefined && body.baustelleId === undefined) { m.hidden = false; m.textContent = 'Nichts geändert – bitte Uhrzeit oder Baustelle ändern.'; return; }
+          if (!neu && body.zeit === undefined && body.baustelleId === undefined) { m.hidden = false; m.textContent = MIT_BAUSTELLE.includes(typ) ? 'Nichts geändert – bitte Uhrzeit oder Baustelle ändern.' : 'Nichts geändert – bitte die Uhrzeit ändern.'; return; } // Prüfbefund n8-s: Gehen/Pause ohne Baustellen-Feld
           if (neu) await post('/zeit/buchungen', { ...body, benutzerId, typ }); else await put(`/zeit/buchungen/${x.id}`, body);
         }
         d.zu(); toast(loeschen ? 'Buchung gelöscht.' : neu ? 'Buchung nachgetragen.' : 'Buchung geändert.'); ladeListe();

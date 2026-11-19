@@ -1134,7 +1134,8 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .ue-plan.kompakt .ue-plan-kopf b { font-size: 15px; font-weight: 600; }
 /* Prüfbefund n8-g (Bild 12): zwei Spalten, die unabhängig wachsen; am Handy lösen sie sich auf (Reihenfolge per order) */
 .ue-spalte { display: contents; }
-.ue-page > .ue-voll { order: 0; } #ue-heute { order: 1; } #ue-freigabe { order: 2; } #bv-kacheln { order: 3; } .ue-spalte > #ue-plan { order: 4; }
+/* Prüfbefund n8-s: nur in den Spalten der neuen Übersicht – die klassische Übersicht nutzt dieselbe ID #bv-kacheln */
+.ue-page > .ue-voll { order: 0; } .ue-spalte > #ue-heute { order: 1; } .ue-spalte > #ue-freigabe { order: 2; } .ue-spalte > #bv-kacheln { order: 3; } .ue-spalte > #ue-plan { order: 4; }
 @media (min-width: 720px) {
   .ue-page { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: start; align-content: start; }
   .ue-spalte { display: flex; flex-direction: column; gap: 20px; min-width: 0; }

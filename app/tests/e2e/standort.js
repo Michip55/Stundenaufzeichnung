@@ -23,7 +23,8 @@
  *  9. Prüfbefunde n8-g, wartendes Abmelden: die nächste Person am geteilten Gerät wartet nicht auf die Ortung der vorigen;
  *     ein Fenster-Fokus schickt das Abmelden nicht vor dem Standort hinaus; Seite beim Warten geschlossen → Sitzung (auch die
  *     Wochen-Sitzung) beendet, keine Daten der Person am Gerät, /api/auth/ich 401; App beim Warten abgestürzt → beim nächsten
- *     Öffnen fertig abgemeldet und aufgeräumt.
+ *     Öffnen fertig abgemeldet und aufgeräumt. Prüfbefund n8-s (9e): Buchung wartet in der Warteschlange (Server nicht erreichbar),
+ *     sofort abgemeldet → nach der Ortung geht die Buchung samt Standort noch vor dem Abmelden hinaus.
  *  8. Zusammen mit „Pause beim Gehen“ (15.27), Fabian: Gehen → Dialog → 30 Min → eine Stempel-Anfrage mit pauseBeimGehen,
  *     danach der Standort an der Gehen-Buchung (nicht an den nachgetragenen Pausenbuchungen).
  */
@@ -453,6 +454,42 @@ async function laufe(browser, g) {
     pruef(await e9b.evaluate(() => /(^|; )bt_bindung=[^;]/.test(document.cookie)) === false, 'Nach Absturz neu geöffnet: Bindungs-Cookie noch gesetzt');
     await e9b.close();
     await e9.ctx.close();
+
+    // 9e) Prüfbefund n8-s: Buchung bei wackeliger Verbindung in die Warteschlange (Server nicht erreichbar), gleich abgemeldet –
+    // die Ortung wird fertig, das Nachsenden der Buchung (mit Standort) geht noch unter der Sitzung hinaus, das Abmelden erst danach
+    const g9 = await kontext({ langsamMs: 5000 });
+    await g9.anmelden(4);
+    const reiheG = [];
+    g9.page.on('request', (r) => { const u = r.url(); if (u.includes('/api/')) reiheG.push(`${r.method()} ${u.replace(/^.*\/api/, '').replace(/\?.*$/, '')}`); });
+    await g9.geh('#/stempeln');
+    await g9.page.waitForSelector('.clock-card[data-status="arbeit"], .clock-card[data-status="pause"]');
+    const vorG = letzte(4);
+    await g9.page.route('**/api/zeit/stempeln', (r) => (r.request().method() === 'POST' ? r.abort('internetdisconnected') : r.continue()));
+    const typG = (await g9.page.locator('[data-stempel="pause_ende"]').count()) ? 'pause_ende' : 'pause_start';
+    await g9.page.click(`[data-stempel="${typG}"]`);
+    if (typG === 'pause_start') { await g9.page.waitForSelector('dialog[open] #pause-wahl'); await g9.page.click('dialog[open] [data-pause-min="offen"]'); }
+    const qG = () => g9.page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'));
+    try { await g9.page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').some((e) => typeof e.standortWartet === 'number'), null, { timeout: 4000 }); } catch (e) { /* unten geprüft */ }
+    const qG1 = await qG();
+    pruef(qG1.length === 1 && qG1[0].typ === typG && typeof qG1[0].standortWartet === 'number', `Vorbedingung 9e: Buchung nicht wartend in der Warteschlange (${JSON.stringify(qG1)})`);
+    await g9.page.unroute('**/api/zeit/stempeln'); // Verbindung wieder da
+    await g9.geh('#/mehr');
+    reiheG.length = 0;
+    await g9.page.click('#abmelden');
+    const dG = g9.page.locator('dialog[open] .btn.primary, dialog[open] .btn.danger');
+    try { await dG.first().waitFor({ timeout: 2000 }); await dG.first().click(); } catch (e) { /* keine Rückfrage */ }
+    let warteG = 0;
+    try { await g9.page.waitForSelector('#abmelden-standort', { timeout: 3000 }); warteG = 1; } catch (e) { /* unten geprüft */ }
+    pruef(warteG === 1, '9e: kein „Standort wird noch gesendet …“ beim Abmelden mit wartender Buchung');
+    await g9.page.waitForSelector('.login-user, #login-suche', { timeout: 25000 });
+    await g9.page.waitForTimeout(500);
+    const nachG = letzte(4);
+    pruef(nachG.id > vorG.id && nachG.typ === typG && nachG.quelle === 'offline' && nahe(nachG), `9e: wartende Buchung nicht (mit Standort) vor dem Abmelden angekommen (${JSON.stringify({ nachG, reihe: reiheG })})`);
+    const iStG = reiheG.indexOf('POST /zeit/stempeln'), iAbG = reiheG.indexOf('POST /auth/logout');
+    pruef(iStG >= 0 && iAbG > iStG, `9e: Abmelden vor dem Nachsenden gesendet (${JSON.stringify(reiheG)})`);
+    pruef((await qG()).length === 0, `9e: Buchung bleibt in der Warteschlange (${JSON.stringify(await qG())})`);
+    pruef(await warteBis(() => sitzungen() === 0, 3000), `9e: Sitzung danach noch am Server (${sitzungen()})`);
+    await g9.zu('Wartende Buchung beim Abmelden');
 
     /* ---- 8) Zusammen mit „Pause beim Gehen“ (15.27): Standort an der Gehen-Buchung, nicht an der nachgetragenen Pause ---- */
     s.uhr.plus(300); // Fabian ist seit 6) eingestempelt (ohne Pause) – 5 Std. später gehen, die Pause passt in die Schicht

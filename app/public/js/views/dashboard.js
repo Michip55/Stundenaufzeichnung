@@ -246,13 +246,15 @@ export default async function dashboard(el, ctx) {
     : `<p class="ue-kopf" id="ue-kopf" data-punkte="0">${esc(datumText)}</p><div class="ue-erledigt" id="ue-erledigt" role="status">${ic('check')}<span>Alles erledigt – nichts wartet auf Sie.</span></div>`;
 
   const oben = planInfo && planInfo.oben;
-  const spalte = (html) => (html.trim() ? `<div class="ue-spalte">${html}</div>` : '');
+  const spalte = (html) => `<div class="ue-spalte">${html}</div>`;
+  // Prüfbefund n8-s: bliebe eine Spalte leer (z. B. ohne Berichtsrechte und ohne Einteilung nach einer Änderung der Rechte),
+  // stehen die Abschnitte der anderen direkt im Raster nebeneinander – keine leere rechte Hälfte
+  const links = heuteHtml() + geldHtml(), rechts = freigabeHtml() + (planer && !oben ? planKarte() : '');
   el.innerHTML = `
   <div class="page ue-page" id="ue">
     <div class="ue-voll">${kopf}</div>
     ${oben ? `<div class="ue-voll">${planKarte()}</div>` : ''}
-    ${spalte(heuteHtml() + geldHtml())}
-    ${spalte(freigabeHtml() + (planer && !oben ? planKarte() : ''))}
+    ${links.trim() && rechts.trim() ? spalte(links) + spalte(rechts) : links + rechts}
   </div>`;
 
   /* ---------- Bedienung ---------- */

@@ -3,7 +3,7 @@
 import { get, post, abmeldenVormerken, abmeldenSenden, abmeldenOffen, abmeldenWarten, abmeldenBeimSchliessen, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
-import { standortNachtragOffen, standortNachtraegeFertig } from './standort-einwilligung.js';
+import { standortNachtragOffen, standortNachtraegeFertig, STANDORT_ABMELDEN_MS } from './standort-einwilligung.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
@@ -425,14 +425,14 @@ window.addEventListener('hashchange', zeige);
 /* ---------- An-/Abmelden ---------- */
 // 15.5 (F-029/F-046): Aufräumen nach dem Abmelden (laufendes Nachsenden abwarten, versiegeln, löschen) – die nächste Anmeldung wartet darauf
 let geraetAufgeraeumt = Promise.resolve();
-function geraetAufraeumen({ amServer = false } = {}) {
+function geraetAufraeumen({ amServer = false, still = false } = {}) {
   geraetAufgeraeumt = geraetAufgeraeumt.then(async () => {
     const sub = await geraetPushAbo();
     // 15.16 (H-S1): das Abmelden am Server läuft im Hintergrund. Es ist schon vorgemerkt (bt_abmelden_offen) – jede weitere Anfrage
     // holt es zuerst nach –, und ohne Bindungs-Cookie gilt die Sitzung ohnehin nicht mehr. Die Anmeldeseite wartet nicht auf das Netz.
     if (amServer) {
       if (sub && sub.endpoint) abmeldenVormerken(sub.endpoint); // 15.5 (F-014): Push-Abo dieses Geräts am Server mitlöschen
-      abmeldenSenden().catch((e) => { if (e && e.netz) toast('Ohne Verbindung abgemeldet. Am Server wird das Abmelden bei der nächsten Verbindung nachgeholt.', 'warn'); });
+      abmeldenSenden().catch((e) => { if (e && e.netz && !still) toast('Ohne Verbindung abgemeldet. Am Server wird das Abmelden bei der nächsten Verbindung nachgeholt.', 'warn'); });
     }
     // 15.12 (G2-032): auch beim Sitzungsablauf (401) endet das Push-Abo im Browser – am Server ist es mit der Sitzung schon gelöscht
     await pushAbmelden(sub);
@@ -500,7 +500,9 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     ich = null; setzBenutzer(null);
     // Prüfbefund n8-g: ein Abmelden war vorgemerkt, wurde aber nicht fertig (App beim Warten auf den Standort geschlossen oder
     // abgestürzt) – jetzt fertig machen: Bindungs-Cookie weg, Abmelden am Server, versiegeln, Daten der Person vom Gerät
-    if (abmeldenOffen()) { bindungLoeschen(); await geraetAufraeumen({ amServer: true }); } else await versiegeln().catch(() => {});
+    // Prüfbefund n8-s: still – bt_abmelden_offen steht auch nach jedem gewöhnlichen Abmelden ohne Verbindung, bis es am Server
+    // nachgeholt ist; beim Öffnen ohne Netz hat sich niemand gerade abgemeldet (keine Meldung „Ohne Verbindung abgemeldet …“)
+    if (abmeldenOffen()) { bindungLoeschen(); await geraetAufraeumen({ amServer: true, still: true }); } else await versiegeln().catch(() => {});
     return;
   }
   try {
@@ -600,7 +602,11 @@ function standortAbwarten() {
       fertig0();
     };
     window.addEventListener('pagehide', schliessen); document.addEventListener('visibilitychange', verborgen);
-    standortNachtraegeFertig().then(fertig);
+    // Prüfbefund n8-s: danach auch ein dadurch gestartetes Nachsenden (offline gestempelte Buchung mit ihrem Standort) abwarten –
+    // es geht noch unter dieser Sitzung hinaus (api.js); insgesamt höchstens STANDORT_ABMELDEN_MS
+    const frist = Date.now() + STANDORT_ABMELDEN_MS;
+    const nachgesendet = () => Promise.race([Promise.all([nachsendenFertig(), schadenNachsendenFertig(), fuhrenNachsendenFertig()]).catch(() => {}), new Promise((r) => setTimeout(r, Math.max(0, frist - Date.now())))]);
+    standortNachtraegeFertig().then(nachgesendet).then(fertig);
     const b = $('#abmelden-sofort'); if (b) b.addEventListener('click', () => fertig());
   });
 }
