@@ -211,7 +211,9 @@ export default async function stempeln(el, ctx) {
       const antwort = await post('/zeit/stempeln', body);
       if (typ === 'gehen' && antwort && Array.isArray(antwort.zaehlerAbfrage) && antwort.zaehlerAbfrage.length) abfrage = antwort.zaehlerAbfrage;
       setzOnline(true);
-      toast((TYP[typ] || [typ])[0] + (body.dauerMin ? ` – ${body.dauerMin} Min, endet um ${fmt.uhr(new Date(new Date(zeit).getTime() + body.dauerMin * 60000).toISOString())} Uhr.` : ' – gebucht.') + ntText);
+      // 15.27: Pause war inzwischen schon gebucht (z. B. vom Polier) – Gehen gebucht, die Angabe nicht übernommen
+      const verworfen = body.pauseBeimGehen && antwort && antwort.pauseVerworfen ? ' Deine Pausenangabe wurde nicht übernommen – in dieser Schicht war schon eine Pause gebucht.' : '';
+      toast((TYP[typ] || [typ])[0] + (body.dauerMin ? ` – ${body.dauerMin} Min, endet um ${fmt.uhr(new Date(new Date(zeit).getTime() + body.dauerMin * 60000).toISOString())} Uhr.` : ' – gebucht.') + (verworfen || ntText), verworfen ? 'warn' : undefined);
     } catch (e) {
       if (vorlaeufig(e)) {
         // Kein Netz oder Server gerade nicht bereit: Buchung behalten und später senden
@@ -239,7 +241,19 @@ export default async function stempeln(el, ctx) {
       return;
     }
     if (s && !s.disabled && s.dataset.stempel === 'gehen' && fragePauseBeimGehen(st)) {
-      // 15.27: heute (in dieser Schicht) keine Pause gestempelt → vor dem Gehen nach der Pause fragen; Abbrechen bucht nichts
+      // 15.27: heute (in dieser Schicht) keine Pause gestempelt → vor dem Gehen nach der Pause fragen; Abbrechen bucht nichts.
+      // Mit Netz zuerst den Stand frisch holen: der Polier kann die Pause inzwischen über die Kolonne gebucht oder die Baustelle
+      // gewechselt haben (die Stempeluhr lädt nicht laufend nach). Ohne Netz gilt der gespeicherte Stand – sollte die Pause
+      // dann schon gebucht sein, nimmt der Server das Gehen trotzdem an und verwirft nur die Pausenangabe.
+      if (beschaeftigt) return;
+      if (!offlineModus && navigator.onLine !== false && !warteschlange().length) {
+        beschaeftigt = true;
+        try { await lade(); zeichne(); } catch (err) { /* alter Stand bleibt – der Server prüft ohnehin */ }
+        beschaeftigt = false;
+        if (!ctx.aktuell()) return;
+      }
+    }
+    if (s && !s.disabled && s.dataset.stempel === 'gehen' && fragePauseBeimGehen(st)) {
       const auswahl = (Array.isArray(st.pausenAuswahl) ? st.pausenAuswahl : pausenAuswahl()).filter((m) => Number.isInteger(m) && m > 0);
       if (auswahl.length) {
         const start = schichtStart(st);

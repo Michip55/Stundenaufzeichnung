@@ -55,18 +55,49 @@ export function zeitpunktAus(hhmm, jetzt) {
 }
 
 /**
- * Vorschlag für „Beginn ca.“ (ms): 12:00, wenn eine Pause der Dauer `dauer` dort in die Schicht passt; sonst die Mitte der
- * Schicht, auf 15 Min gerundet und so verschoben, dass die Pause zwischen Kommen und jetzt liegt.
+ * Vorschlag für „Beginn ca.“ (ms) für eine Pause der Dauer `dauer`, die zu den übrigen Buchungen der Schicht passt
+ * (z. B. Baustellenwechsel – die Pause darf ihn nicht überschneiden):
+ * - liegt 12:00 in der Schicht: 12:00, sonst die nächstgelegene freie Viertelstunde (Gehen kurz nach Mittag → davor,
+ *   Wechsel um 12:10 → 12:15);
+ * - sonst die Mitte der Schicht minus halbe Pause, auf 15 Min gerundet (13:00–18:00 → 15:15), bzw. die nächstgelegene
+ *   freie Viertelstunde dazu;
+ * - passt keine Viertelstunde (kurze Schicht, viele Buchungen): ein freier Beginn auf die Minute (ab Kommen, ab einer
+ *   Buchung, bis kurz vor einer Buchung, bis jetzt).
+ * Passt die Pause gar nicht hinein, der Mittelwert in der Schicht (die Prüfung sagt dann, warum).
  */
-export function vorschlagBeginn(start, jetzt, dauer = 30) {
+export function vorschlagBeginn(start, jetzt, dauer = 30, buchungen = []) {
   const d = dauer * MS_MIN;
   const mittag = zeitpunktAus('12:00', jetzt);
-  if (mittag >= start && mittag + d <= jetzt) return mittag;
-  let m = Math.round((start + (jetzt - start) / 2 - d / 2) / VIERTEL) * VIERTEL;
-  if (m < start) m = Math.ceil(start / VIERTEL) * VIERTEL;
+  const anker = mittag >= start && mittag < jetzt ? mittag : Math.round((start + (jetzt - start) / 2 - d / 2) / VIERTEL) * VIERTEL;
+  const passt = (b) => !pruefePause({ start, jetzt, beginn: b, dauer, buchungen }).fehler;
+  const naeher = (a, b) => Math.abs(a - anker) - Math.abs(b - anker) || a - b;
+  const viertel = [];
+  for (let b = Math.ceil(start / VIERTEL) * VIERTEL; b + d <= jetzt; b += VIERTEL) viertel.push(b);
+  const v = viertel.sort(naeher).find(passt);
+  if (v != null) return v;
+  const minute = (x) => Math.ceil(x / MS_MIN) * MS_MIN;
+  const zeiten = sortiert(buchungen).map((x) => ms(x.zeit)).filter((t) => t > start && t < jetzt);
+  const frei = [start, ...zeiten.map(minute), ...zeiten.map((t) => Math.floor((t - 1) / MS_MIN) * MS_MIN - d), Math.floor(jetzt / MS_MIN) * MS_MIN - d]
+    .filter((b) => b >= start - MS_MIN).sort(naeher).find(passt);
+  if (frei != null) return frei;
+  let m = anker;
   if (m + d > jetzt) m = Math.floor((jetzt - d) / VIERTEL) * VIERTEL;
   if (m < start) m = start; // Schicht zu kurz – die Prüfung sagt es
   return m;
+}
+
+/**
+ * EIN Vorschlag für alle angebotenen Dauern (das Feld „Beginn ca.“ gilt für jeden Dauer-Knopf): gerechnet mit der
+ * größten Dauer, die irgendwo in die Schicht passt – dann passt derselbe Beginn auch für jede kürzere. Passt keine,
+ * der Vorschlag für die kleinste (die Prüfung meldet „passt nicht hinein“).
+ */
+export function vorschlagFuerAuswahl({ start, jetzt, auswahl, buchungen = [] }) {
+  const dauern = [...new Set(auswahl)].filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => b - a);
+  for (const dauer of dauern) {
+    const b = vorschlagBeginn(start, jetzt, dauer, buchungen);
+    if (!pruefePause({ start, jetzt, beginn: b, dauer, buchungen }).fehler) return b;
+  }
+  return vorschlagBeginn(start, jetzt, dauern.length ? dauern[dauern.length - 1] : 30, buchungen);
 }
 
 /**

@@ -1,7 +1,7 @@
 // Vordefinierte Pausen (Inhaber 17.11.2026, API.md 15.22): Auswahl „30 Min · 45 Min · 60 Min · offen“ für Stempeluhr und Kolonne.
 // Mit fester Dauer endet die Pause am Server von selbst (start + Dauer) – auch ohne Netz oder bei ausgeschaltetem Handy.
 import { esc, fmt, dialog, speicher } from './ui.js';
-import { hm, zeitpunktAus, vorschlagBeginn, pruefePause } from './pause-gehen.js';
+import { hm, zeitpunktAus, vorschlagFuerAuswahl, pruefePause } from './pause-gehen.js';
 
 export const STANDARD = [30, 45, 60];
 const KEY = 'bt_pausen';
@@ -44,14 +44,13 @@ export function pauseWaehlen({ titel = 'Pause – wie lange?', auswahl = pausenA
  * @param {{auswahl:number[], start:number, buchungen:Array, jetzt?:()=>number}} o  start = Kommen der Schicht (ms)
  */
 export function pauseFrageBeimGehen({ auswahl, start, buchungen = [], jetzt = () => Date.now() }) {
-  const kleinste = Math.min(...auswahl);
-  let geaendert = false; // „Beginn ca.“ von Hand geändert? Sonst passt der Vorschlag sich der gewählten Dauer an
-  const vorschlag = (dauer) => vorschlagBeginn(start, jetzt(), dauer);
+  // EIN Vorschlag für alle Dauern (passt für jede, die überhaupt in die Schicht passt) – gebucht wird immer, was im Feld steht
+  const vorschlag = vorschlagFuerAuswahl({ start, jetzt: jetzt(), auswahl, buchungen });
   const d = dialog({
     titel: 'Heute keine Pause gestempelt',
     inhalt: `<div class="pause-gehen" id="pause-gehen">
       <p class="pg-frage"><b>Wie lange war deine Pause?</b></p>
-      <label class="field pg-beginn"><span class="field-label">Beginn ca.</span><input type="time" class="input lg" id="pg-beginn" value="${esc(hm(vorschlag(kleinste)))}" required aria-describedby="pg-fehler"></label>
+      <label class="field pg-beginn"><span class="field-label">Beginn ca.</span><input type="time" class="input lg" id="pg-beginn" value="${esc(hm(vorschlag))}" required aria-describedby="pg-fehler"></label>
       <div class="pause-wahl" id="pg-wahl" role="group" aria-label="Dauer der Pause">
         ${auswahl.map((m) => `<button type="button" class="pause-opt" data-pg-min="${m}"><b>${m} Min</b><small data-pg-spanne></small></button>`).join('')}</div>
       <p class="pg-fehler" id="pg-fehler" role="alert" hidden></p>
@@ -61,7 +60,7 @@ export function pauseFrageBeimGehen({ auswahl, start, buchungen = [], jetzt = ()
   });
   const feld = d.el.querySelector('#pg-beginn');
   const fehler = d.el.querySelector('#pg-fehler');
-  const beginnFuer = (dauer) => (geaendert ? zeitpunktAus(feld.value, jetzt()) : vorschlag(dauer));
+  const beginnFuer = () => zeitpunktAus(feld.value, jetzt());
   const spannen = () => {
     for (const b of d.el.querySelectorAll('[data-pg-min]')) {
       const m = Number(b.dataset.pgMin), von = beginnFuer(m);
@@ -69,7 +68,7 @@ export function pauseFrageBeimGehen({ auswahl, start, buchungen = [], jetzt = ()
     }
   };
   spannen();
-  feld.addEventListener('input', () => { geaendert = true; fehler.hidden = true; feld.removeAttribute('aria-invalid'); spannen(); });
+  feld.addEventListener('input', () => { fehler.hidden = true; feld.removeAttribute('aria-invalid'); spannen(); });
   d.el.addEventListener('click', (e) => {
     if (e.target.closest('[data-pg-keine]')) { d.zu('keine'); return; }
     const b = e.target.closest('[data-pg-min]');

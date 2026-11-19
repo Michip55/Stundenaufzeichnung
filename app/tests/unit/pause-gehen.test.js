@@ -36,15 +36,15 @@ test('15.27 Wann fragt „Gehen“ nach der Pause?', async () => {
   assert.equal(fragePauseBeimGehen(st('arbeit', [])), false, 'ohne bekannten Schichtbeginn nicht fragen');
 });
 
-test('15.27 Vorschlag „Beginn ca.“: 12:00, sonst Mitte der Schicht auf 15 Min', async () => {
+test('15.27 Vorschlag „Beginn ca.“: 12:00 bzw. nächste passende Viertelstunde, sonst Mitte der Schicht auf 15 Min', async () => {
   const { vorschlagBeginn, hm } = await laden();
   assert.equal(hm(vorschlagBeginn(t('07:00'), t('16:00'), 30)), '12:00');
   assert.equal(hm(vorschlagBeginn(t('07:00'), t('12:30'), 30)), '12:00', 'genau bis jetzt passt');
   // 13:00–18:00: 12:00 liegt vor dem Kommen → Mitte (15:30) minus halbe Pause = 15:15
   assert.equal(hm(vorschlagBeginn(t('13:00'), t('18:00'), 30)), '15:15');
   assert.equal(hm(vorschlagBeginn(t('13:00'), t('18:00'), 60)), '15:00');
-  // 06:00–12:10: 12:00 + 30 > jetzt → Mitte 09:05 − 15 = 08:50 → 08:45
-  assert.equal(hm(vorschlagBeginn(t('06:00'), t('12:10'), 30)), '08:45');
+  // 06:00–12:10: 12:00 liegt in der Schicht, aber 12:00 + 30 > jetzt → nächstgelegene passende Viertelstunde davor
+  assert.equal(hm(vorschlagBeginn(t('06:00'), t('12:10'), 30)), '11:30');
   // kurze Schicht 13:07–13:50 → auf 15 Min gerundet, aber in der Schicht
   const v = vorschlagBeginn(t('13:07'), t('13:50'), 30);
   assert.ok(v >= t('13:07') && v + 30 * 60000 <= t('13:50'), hm(v));
@@ -53,6 +53,54 @@ test('15.27 Vorschlag „Beginn ca.“: 12:00, sonst Mitte der Schicht auf 15 Mi
   // Nachtschicht 20:00–04:00: 12:00 liegt nicht in der Schicht → Mitte 00:00 − 15 = 23:45 (Vortag)
   const n = vorschlagBeginn(t('20:00', '2026-11-17'), t('04:00'), 30);
   assert.equal(n, t('23:45', '2026-11-17'));
+});
+
+test('15.27 Vorschlag weicht Buchungen der Schicht aus (Baustellenwechsel um die Mittagszeit) – Review N8', async () => {
+  const { vorschlagBeginn, pruefePause, hm } = await laden();
+  const iso = (x) => new Date(t(x)).toISOString();
+  const buch = [{ typ: 'kommen', zeit: iso('07:00') }, { typ: 'wechsel', zeit: iso('12:10') }];
+  for (const dauer of [30, 45, 60]) {
+    const v = vorschlagBeginn(t('07:00'), t('16:00'), dauer, buch);
+    assert.equal(hm(v), '12:15', `${dauer} Min`);
+    assert.ok(!pruefePause({ start: t('07:00'), jetzt: t('16:00'), beginn: v, dauer, buchungen: buch }).fehler);
+  }
+  // Wechsel 12:20, Gehen 12:50: nach dem Wechsel ist kein Platz für 30 Min → vor dem Wechsel (11:45 – 12:15)
+  const b2 = [{ typ: 'kommen', zeit: iso('07:00') }, { typ: 'wechsel', zeit: iso('12:20') }];
+  assert.equal(hm(vorschlagBeginn(t('07:00'), t('12:50'), 30, b2)), '11:45');
+  // Wechsel genau 12:00 – Pause darf mit dem Wechsel beginnen
+  assert.equal(hm(vorschlagBeginn(t('07:00'), t('16:00'), 30, [{ typ: 'wechsel', zeit: iso('12:00') }])), '12:00');
+  // kurze Schicht mit Wechsel, keine Viertelstunde frei: Beginn auf die Minute
+  const b3 = [{ typ: 'kommen', zeit: iso('13:07') }, { typ: 'wechsel', zeit: iso('13:20') }];
+  const v3 = vorschlagBeginn(t('13:07'), t('13:58'), 30, b3);
+  assert.ok(!pruefePause({ start: t('13:07'), jetzt: t('13:58'), beginn: v3, dauer: 30, buchungen: b3 }).fehler, hm(v3));
+  // Schicht mit Sekunden beim Kommen: der Vorschlag ist über das Feld (HH:MM) wieder gültig
+  const s4 = t('13:07') + 25000;
+  const v4 = vorschlagBeginn(s4, t('13:45'), 30, []);
+  const feld = t(hm(v4));
+  assert.ok(!pruefePause({ start: s4, jetzt: t('13:45'), beginn: feld, dauer: 30, buchungen: [] }).fehler, hm(v4));
+});
+
+test('15.27 EIN Vorschlag für alle Dauern – das Feld zeigt, was gebucht wird (Review N8)', async () => {
+  const { vorschlagFuerAuswahl, pruefePause, hm } = await laden();
+  const iso = (x) => new Date(t(x)).toISOString();
+  const pruef = (start, jetzt, buchungen, erwartet, passend) => {
+    const v = vorschlagFuerAuswahl({ start: t(start), jetzt: t(jetzt), auswahl: [30, 45, 60], buchungen });
+    if (erwartet) assert.equal(hm(v), erwartet, `${start}–${jetzt}`);
+    for (const dauer of passend) assert.ok(!pruefePause({ start: t(start), jetzt: t(jetzt), beginn: t(hm(v)), dauer, buchungen }).fehler, `${start}–${jetzt} ${dauer} Min ab ${hm(v)}`);
+    return v;
+  };
+  pruef('07:00', '16:00', [], '12:00', [30, 45, 60]);
+  pruef('07:00', '09:00', [], '07:30', [30, 45, 60]); // Mitte für 60 Min – passt auch für 30 und 45
+  pruef('13:00', '18:00', [], '15:00', [30, 45, 60]);
+  pruef('07:00', '12:45', [], '11:45', [30, 45, 60]);
+  pruef('07:00', '16:00', [{ typ: 'wechsel', zeit: iso('12:10') }], '12:15', [30, 45, 60]);
+  // 07:00–07:50: 60 Min passt nicht hinein → mit 45 gerechnet, gilt auch für 30
+  pruef('07:00', '07:50', [], null, [30, 45]);
+  // zu kurz für alles: Vorschlag ab Kommen, die Prüfung meldet es
+  assert.equal(vorschlagFuerAuswahl({ start: t('13:00'), jetzt: t('13:20'), auswahl: [30, 45, 60] }), t('13:00'));
+  // Nachtschicht 22:00–06:00 → Mitte für 60 Min, gilt für alle
+  const n = vorschlagFuerAuswahl({ start: t('22:00', '2026-11-17'), jetzt: t('06:00'), auswahl: [30, 45, 60] });
+  assert.equal(n, t('01:30'));
 });
 
 test('15.27 Uhrzeit aus dem Feld: letztes Auftreten bis jetzt (über Mitternacht gestern)', async () => {

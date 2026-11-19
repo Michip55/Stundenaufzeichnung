@@ -125,13 +125,18 @@ test('15.27 pauseInSchicht im Status: nach einer gestempelten Pause true, nach d
   assert.equal(r.daten.status, 'arbeit');
   assert.equal(r.daten.pauseInSchicht, true);
   s.uhr.setze(um('15:00'));
+  // Pause schon gebucht (z. B. Bildschirm mit altem Stand): die Angabe wird verworfen, das Gehen gilt (Review N8)
   r = await ma.post('/zeit/stempeln', { typ: 'gehen', pauseBeimGehen: { beginn: um('13:30'), dauerMin: 30 } });
-  assert.equal(r.status, 409, 'zweite Pause in derselben Schicht nicht nachtragen');
-  assert.match(r.daten.fehler, /schon eine Pause gebucht/);
-  assert.equal(buchungen(s, MA).length, 3, 'nichts gebucht');
-  r = await ma.post('/zeit/stempeln', { typ: 'gehen' });
-  assert.equal(r.status, 200);
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.equal(r.daten.status, 'aus');
+  assert.equal(r.daten.pauseVerworfen, 'in der Schicht ist schon eine Pause gebucht');
   assert.equal(r.daten.pauseInSchicht, false);
+  assert.equal(r.daten.heute.pauseMin, 30, 'nur die gestempelte Pause zählt');
+  const b = buchungen(s, MA);
+  assert.deepEqual(b.map((x) => [x.typ, x.nachgetragen]), [['kommen', 0], ['pause_start', 0], ['pause_ende', 0], ['gehen', 0]]);
+  const p = s.db.eins('SELECT text FROM protokoll WHERE objekt = ?', `buchung:${b[3].id}`);
+  assert.equal(p && p.text, 'Pausenangabe beim Gehen verworfen (30 Min ab 13:30) – in der Schicht ist schon eine Pause gebucht');
+  assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE text LIKE 'Pause beim Gehen nachgetragen%'").n, 0);
   // neue Schicht am selben Tag: wieder ohne Pause
   s.uhr.setze(um('17:00'));
   r = await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
@@ -149,7 +154,7 @@ test('15.27 Ablehnungen: klare Meldung, nichts gebucht (weder Pause noch Gehen)'
     assert.equal(r.status, status, `${JSON.stringify(body)} → ${r.status} ${JSON.stringify(r.daten)}`);
     if (muster) assert.match(r.daten.fehler, muster);
     assert.equal(buchungen(s, MA).length, vorher, `${JSON.stringify(body)}: etwas gebucht`);
-    assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE text LIKE 'Pause beim Gehen%'").n, 0);
+    assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM protokoll WHERE text LIKE 'Pause%beim Gehen%'").n, 0);
   };
   await fall({ typ: 'pause_start', pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } }, 400, /nur bei „gehen“/);
   await fall({ typ: 'gehen', pauseBeimGehen: 'mittag' }, 400);
@@ -172,13 +177,14 @@ test('15.27 Ablehnungen: klare Meldung, nichts gebucht (weder Pause noch Gehen)'
     assert.match(r.daten.fehler, /Um 10:00 Uhr ist eine andere Buchung \(Baustelle gewechselt\)/);
     assert.equal(buchungen(s, MA).length, mitWechsel);
   }
-  // in der Pause: Gehen beendet sie ohne Nachtrag
+  // in der Pause: Gehen beendet sie, die Pausenangabe wird verworfen (die Pause läuft ja schon)
   await ma.post('/zeit/stempeln', { typ: 'pause_start' });
   let r = await ma.post('/zeit/stempeln', { typ: 'gehen', pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } });
-  assert.equal(r.status, 409);
-  assert.match(r.daten.fehler, /Gerade läuft eine Pause/);
-  r = await ma.post('/zeit/stempeln', { typ: 'gehen' });
-  assert.equal(r.status, 200);
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.equal(r.daten.status, 'aus');
+  assert.equal(r.daten.pauseVerworfen, 'in der Schicht läuft schon eine Pause');
+  assert.deepEqual(buchungen(s, MA).slice(-2).map((x) => [x.typ, x.zeit, x.nachgetragen]), [['pause_start', iso('15:00'), 0], ['gehen', iso('15:00'), 0]]);
+  assert.ok(s.db.eins("SELECT 1 AS x FROM protokoll WHERE text = 'Pausenangabe beim Gehen verworfen (30 Min ab 12:00) – in der Schicht läuft schon eine Pause'"));
   // nicht eingestempelt
   r = await ma.post('/zeit/stempeln', { typ: 'gehen', pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } });
   assert.equal(r.status, 409);
@@ -236,12 +242,79 @@ test('15.27 ohne Netz: Kommen und „Gehen mit Pause“ aus der Warteschlange in
   assert.equal(r.status, 200, JSON.stringify(r.daten));
   b = buchungen(s, MA);
   assert.deepEqual(b.slice(-4).map((x) => [x.typ, x.zeit]), [['kommen', iso('15:20')], ['pause_start', iso('17:00')], ['pause_ende', iso('17:20')], ['gehen', iso('20:30')]]);
-  // abgelehnt beim Nachsenden (Pause nach dem Gehen) → 400, die Warteschlange zeigt die Buchung als „nicht übernommen“
+  // Beim Nachsenden passt die Pause nicht (mehr) in die Schicht (hier: nach dem Gehen) → das Gehen gilt trotzdem,
+  // die Pausenangabe wird verworfen und protokolliert – das Arbeitsende darf nicht verloren gehen (Review N8)
   await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
   s.uhr.setze(um('23:00'));
   r = await ma.post('/zeit/stempeln', { typ: 'gehen', zeit: um('22:00'), pauseBeimGehen: { beginn: um('21:45'), dauerMin: 30 } }, kopf);
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.match(r.daten.pauseVerworfen, /^passt nicht in die Schicht: Die Pause muss bis 22:00 Uhr zu Ende sein/);
+  assert.equal((await ma.get('/zeit/status')).daten.status, 'aus');
+  b = buchungen(s, MA);
+  assert.deepEqual(b.slice(-2).map((x) => [x.typ, x.zeit]), [['kommen', iso('21:00')], ['gehen', iso('22:00')]]);
+  assert.match(s.db.eins('SELECT text FROM protokoll WHERE objekt = ?', `buchung:${b[b.length - 1].id}`).text, /^Pausenangabe beim Gehen verworfen \(30 Min ab 21:45\) – passt nicht in die Schicht/);
+});
+
+test('15.27 ohne Netz: Polier hat die Pause inzwischen über die Kolonne gebucht → Gehen wird trotzdem gebucht (Review N8)', async (t) => {
+  const s = await umgebung(t);
+  const ma = await s.login(MA);
+  const pol = await s.login(U.polier);
+  const kopf = { 'x-bautag-ersteller': String(MA) };
+  let r = await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
+  assert.equal(r.status, 200);
+  // Handy ohne Netz; der Polier bucht um 12:00 die Pause für die Partie
+  s.uhr.setze(um('12:00'));
+  r = await pol.post('/zeit/kolonne', { typ: 'pause_start', baustelleId: BS.pitten, benutzerIds: [MA], dauerMin: 30 });
+  assert.ok(r.daten.ergebnisse.every((x) => x.ok), JSON.stringify(r.daten));
+  // um 16:00 „Gehen“ mit Pausenangabe 30 Min ab 11:45 (offline erfasst), um 16:10 nachgesendet
+  s.uhr.setze(um('16:10'));
+  r = await ma.post('/zeit/stempeln', { typ: 'gehen', zeit: um('16:00'), quelle: 'offline', pauseBeimGehen: { beginn: um('11:45'), dauerMin: 30 } }, kopf);
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.equal(r.daten.status, 'aus');
+  assert.equal(r.daten.pauseVerworfen, 'in der Schicht ist schon eine Pause gebucht');
+  assert.equal(r.daten.heute.pauseMin, 30);
+  assert.equal(r.daten.heute.stunden, 8.5);
+  const b = buchungen(s, MA);
+  assert.deepEqual(b.map((x) => [x.typ, x.zeit, x.quelle, x.nachgetragen]), [
+    ['kommen', iso('07:00'), 'app', 0], ['pause_start', iso('12:00'), 'kolonne', 0], ['pause_ende', iso('12:30'), 'kolonne', 0], ['gehen', iso('16:00'), 'offline', 0]]);
+  assert.equal(s.db.eins('SELECT text FROM protokoll WHERE objekt = ?', `buchung:${b[3].id}`).text, 'Pausenangabe beim Gehen verworfen (30 Min ab 11:45) – in der Schicht ist schon eine Pause gebucht');
+  // Polier hat eine Pause begonnen, die noch läuft (offen) → Gehen beendet sie, Angabe verworfen
+  const d = await s.login(DANIEL);
+  s.uhr.setze(um('16:20'));
+  await d.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
+  s.uhr.setze(um('19:00'));
+  r = await pol.post('/zeit/kolonne', { typ: 'pause_start', baustelleId: BS.pitten, benutzerIds: [DANIEL] });
+  assert.ok(r.daten.ergebnisse.every((x) => x.ok), JSON.stringify(r.daten));
+  s.uhr.setze(um('19:40'));
+  r = await d.post('/zeit/stempeln', { typ: 'gehen', zeit: um('19:30'), quelle: 'offline', pauseBeimGehen: { beginn: um('18:00'), dauerMin: 30 } }, { 'x-bautag-ersteller': String(DANIEL) });
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.equal(r.daten.status, 'aus');
+  assert.equal(r.daten.pauseVerworfen, 'in der Schicht läuft schon eine Pause');
+  assert.deepEqual(buchungen(s, DANIEL).map((x) => x.typ), ['kommen', 'pause_start', 'gehen']);
+});
+
+test('15.27 ohne Netz: Baustellenwechsel (z. B. über die Kolonne) liegt in der angegebenen Pause → Gehen gilt, Angabe verworfen', async (t) => {
+  const s = await umgebung(t);
+  const ma = await s.login(MA);
+  const kopf = { 'x-bautag-ersteller': String(MA) };
+  await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
+  s.uhr.setze(um('12:10'));
+  await ma.post('/zeit/stempeln', { typ: 'wechsel', baustelleId: BS.kogler });
+  s.uhr.setze(um('16:10'));
+  let r = await ma.post('/zeit/stempeln', { typ: 'gehen', zeit: um('16:00'), pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } }, kopf);
+  assert.equal(r.status, 200, JSON.stringify(r.daten));
+  assert.match(r.daten.pauseVerworfen, /Um 12:10 Uhr ist eine andere Buchung \(Baustelle gewechselt\)/);
+  assert.deepEqual(buchungen(s, MA).map((x) => x.typ), ['kommen', 'wechsel', 'gehen']);
+  // mit Netz (die Person steht davor und kann die Uhrzeit ändern) bleibt es bei der Meldung – nichts gebucht
+  const d = await s.login(DANIEL);
+  s.uhr.setze(um('07:00'));
+  await d.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
+  s.uhr.setze(um('12:10'));
+  await d.post('/zeit/stempeln', { typ: 'wechsel', baustelleId: BS.kogler });
+  s.uhr.setze(um('16:00'));
+  r = await d.post('/zeit/stempeln', { typ: 'gehen', pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } });
   assert.equal(r.status, 400);
-  assert.equal((await ma.get('/zeit/status')).daten.status, 'arbeit');
+  assert.deepEqual(buchungen(s, DANIEL).map((x) => x.typ), ['kommen', 'wechsel']);
 });
 
 test('15.27 Kolonne bleibt unverändert: kein Nachtrag über die Kolonne', async (t) => {

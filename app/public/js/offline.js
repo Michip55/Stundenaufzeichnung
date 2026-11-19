@@ -61,7 +61,7 @@ async function nachsendenLauf() {
   if (!offen.length) return;
   const fuer = benutzerId;
   laeuft = true; melden();
-  let gesendet = 0, neuAbgelehnt = 0;
+  let gesendet = 0, neuAbgelehnt = 0, pauseVerworfen = 0;
   try {
     for (const e of offen) {
       // 15.5 (F-030): vor JEDEM Senden – ist noch die Person angemeldet, die die Buchung erfasst hat?
@@ -72,7 +72,8 @@ async function nachsendenLauf() {
         if (e.standort) body.standort = e.standort;
         if (e.dauerMin != null) body.dauerMin = e.dauerMin; // 15.22: geplante Pausendauer – der Server trägt das Ende ein
         if (e.pauseBeimGehen) body.pauseBeimGehen = e.pauseBeimGehen; // 15.27: „Gehen“ mit nachgetragener Pause – eine Buchung, Reihenfolge bleibt
-        await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
+        const antwort = await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
+        if (e.pauseBeimGehen && antwort && antwort.pauseVerworfen) pauseVerworfen++; // 15.27: Gehen gilt, Pausenangabe nicht
         gesendet++;
         online = true;
       } catch (err) {
@@ -90,6 +91,7 @@ async function nachsendenLauf() {
     const sichtbar = benutzerId === fuer;
     if (sichtbar && neuAbgelehnt) toast(neuAbgelehnt === 1 ? 'Eine Offline-Buchung wurde nicht übernommen – siehe Stempeluhr.' : `${neuAbgelehnt} Offline-Buchungen wurden nicht übernommen – siehe Stempeluhr.`, 'warn');
     if (sichtbar && gesendet) toast(gesendet === 1 ? 'Offline-Buchung nachgesendet.' : `${gesendet} Offline-Buchungen nachgesendet.`);
+    if (sichtbar && pauseVerworfen) toast('„Gehen“ ist übernommen. Die Pausenangabe dazu nicht – in der Schicht war schon eine Pause gebucht oder sie passte nicht hinein. Das Büro sieht es im Protokoll.', 'warn');
     if (sichtbar && (gesendet || neuAbgelehnt)) window.dispatchEvent(new CustomEvent('bt:nachgesendet'));
   }
 }

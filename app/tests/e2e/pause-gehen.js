@@ -11,10 +11,16 @@
  *     Heute „Pause 30 min“, Arbeitszeit 8 Std. 30 Min., Zeitleiste „beim Gehen nachgetragen“, AZG-Hinweis weg, Meine Woche
  *     8 Std. 30 Min., Korrekturen (Büro) mit Hinweis „beim Gehen nachgetragen“.
  *  2. Name mit einem Wort („Schwarz“): Begrüßung „Schwarz“; „Keine Pause“ bucht nur Gehen (Handy: bei 320 px).
- *  3. Schicht 13:00–18:00: Beginn ca. 15:15 statt 12:00; Beginn 17:45 → Meldung, nichts gebucht; 15:00 → gebucht.
+ *  2a. Schicht 07:00–10:00: ein Vorschlag für alle Dauern (08:00), die Spannen unter den Knöpfen beginnen alle dort.
+ *  3. Schicht 13:00–18:00: Beginn ca. 15:00 statt 12:00; Beginn 17:45 → Meldung, nichts gebucht; 15:00 → gebucht.
  *  4. Live gestempelte Pause → „Gehen“ ohne Dialog.
  *  5. Ohne Netz: „Gehen“ mit 45 Min → eine Buchung in der Warteschlange, Zeitleiste zeigt die Pause; nach dem Nachsenden
  *     am Server Pause 12:00–12:45 und Gehen in dieser Reihenfolge.
+ *  6. Baustellenwechsel um 12:10 (vom Polier, die Stempeluhr zeigt noch den alten Stand): „Gehen“ holt den Stand neu,
+ *     Beginn ca. 12:15 (nicht 12:00), alle Spannen ab 12:15; „60 Min“ bucht 12:15–13:15.
+ *  7. Ohne Netz, der Polier bucht inzwischen die Pause über die Kolonne: Dialog erscheint (alter Stand), „30 Min“ →
+ *     nach dem Nachsenden ist das Gehen gebucht (nicht „nicht übernommen“), nur die Kolonnen-Pause zählt, Hinweis + Protokoll.
+ *  8. Mit Netz, Pause inzwischen über die Kolonne gebucht: „Gehen“ holt den Stand neu und fragt nicht.
  */
 const { chromium } = require('playwright');
 const { starte, U, BS } = require('../api/hilfe');
@@ -27,8 +33,8 @@ const GROESSEN = [
 const TAG = '2026-11-18'; // Mi – nach den Testdaten
 const um = (hm) => new Date(`${TAG}T${hm}:00+01:00`);
 const hmVon = (iso) => new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
-const MA = U.mitarbeiter, DANIEL = 3, ROLAND = 4, FABIAN = 6;
-const NAME = { [MA]: 'Pilz Thomas', [DANIEL]: 'Schwarz', [ROLAND]: 'Roland Kerschbaumer', [FABIAN]: 'Fabian Stickler', [U.buero]: 'Martina Koller' };
+const MA = U.mitarbeiter, DANIEL = 3, ROLAND = 4, FABIAN = 6, KARL = 7, CHRISTIAN = 9, GUENTER = 10;
+const NAME = { [MA]: 'Pilz Thomas', [DANIEL]: 'Schwarz', [ROLAND]: 'Roland Kerschbaumer', [FABIAN]: 'Fabian Stickler', [KARL]: 'Karl Ungersböck', [CHRISTIAN]: 'Christian Trimmel', [GUENTER]: 'Günter Scherz', [U.buero]: 'Martina Koller' };
 const ws = (t) => String(t || '').replace(/\s+/g, ' ').trim();
 
 async function laufe(browser, g) {
@@ -37,13 +43,13 @@ async function laufe(browser, g) {
   const pruef = (ok, text) => { schritte++; if (!ok) { fehler.push(`Pause beim Gehen/${g.name}: ${text}`); console.log(`    ✗ Pause beim Gehen/${g.name}: ${text}`); } };
   const s = await starte({ test: true });
   try {
-    s.db.lauf(`DELETE FROM buchung WHERE benutzer_id IN (${[MA, DANIEL, ROLAND, FABIAN].join(',')}) AND zeit >= '2026-11-10'`);
+    s.db.lauf(`DELETE FROM buchung WHERE benutzer_id IN (${[MA, DANIEL, ROLAND, FABIAN, KARL, CHRISTIAN, GUENTER].join(',')}) AND zeit >= '2026-11-10'`);
     s.db.lauf('DELETE FROM abwesenheit WHERE datum = ?', TAG);
     // „Nachname Vorname“ wie in der Firma angelegt; eine Person mit nur einem Wort
     s.db.lauf('UPDATE benutzer SET name = ? WHERE id = ?', NAME[MA], MA);
     s.db.lauf('UPDATE benutzer SET name = ? WHERE id = ?', NAME[DANIEL], DANIEL);
     s.uhr.setze(um('07:00').toISOString());
-    const buchungen = (id) => s.db.alle('SELECT typ, zeit, quelle, automatisch, nachgetragen FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', id, um('00:00').toISOString());
+    const buchungen = (id) => s.db.alle('SELECT typ, zeit, quelle, automatisch, nachgetragen, baustelle_id FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', id, um('00:00').toISOString());
 
     async function sitzung(benutzerId, wo, f, breite) {
       const ctx = await browser.newContext({ viewport: { width: breite || g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, serviceWorkers: 'block' });
@@ -171,7 +177,10 @@ async function laufe(browser, g) {
       await kommen(page, gleich);
       await vergeht(3 * 60); // 10:00 – 12:00 liegt noch nicht in der Schicht
       await page.click('[data-stempel="gehen"]'); await offen(page);
-      pruef(await page.inputValue('dialog[open] #pg-beginn') === '08:15', `Beginn ca. bei 07:00–10:00: „${await page.inputValue('dialog[open] #pg-beginn')}“ statt 08:15 (Mitte der Schicht)`);
+      // ein Vorschlag für alle Dauern: Mitte der Schicht für 60 Min (08:00) – gilt auch für 30 und 45 (Review N8)
+      pruef(await page.inputValue('dialog[open] #pg-beginn') === '08:00', `Beginn ca. bei 07:00–10:00: „${await page.inputValue('dialog[open] #pg-beginn')}“ statt 08:00 (Mitte der Schicht)`);
+      const sp2 = (await page.locator('dialog[open] [data-pg-min] small').allInnerTexts()).map(ws);
+      pruef(JSON.stringify(sp2) === JSON.stringify(['08:00 – 08:30', '08:00 – 08:45', '08:00 – 09:00']), `Spannen widersprechen dem Feld: ${JSON.stringify(sp2)}`);
       await ueberlauf(page, `Dialog bei ${g.name === 'handy' ? 320 : g.width} px`);
       await gleich();
       await page.click('dialog[open] [data-pg-keine]');
@@ -187,7 +196,7 @@ async function laufe(browser, g) {
       await kommen(page, gleich);
       await vergeht(5 * 60); // 18:00
       await page.click('[data-stempel="gehen"]'); await offen(page);
-      pruef(await page.inputValue('dialog[open] #pg-beginn') === '15:15', `Beginn ca. bei 13:00–18:00: „${await page.inputValue('dialog[open] #pg-beginn')}“ statt 15:15`);
+      pruef(await page.inputValue('dialog[open] #pg-beginn') === '15:00', `Beginn ca. bei 13:00–18:00: „${await page.inputValue('dialog[open] #pg-beginn')}“ statt 15:00`);
       await page.fill('dialog[open] #pg-beginn', '17:45');
       await page.click('dialog[open] [data-pg-min="30"]');
       await page.waitForSelector('dialog[open] #pg-fehler:not([hidden])');
@@ -255,6 +264,81 @@ async function laufe(browser, g) {
       await page.waitForSelector('#sync[data-abgelehnt="0"]');
       const st = await page.evaluate(async () => (await fetch('/api/zeit/status')).json());
       pruef(st.status === 'aus' && st.heute.pauseMin === 45, `ohne Netz, nach dem Nachsenden: ${st.status}, Pause ${st.heute.pauseMin}`);
+    });
+
+    // Buchung „vom Polier über die Kolonne“ direkt am Server (das Gerät der Person erfährt davon nichts)
+    const kolonne = (id, typ, hm, extra = {}) => {
+      const k = buchungen(id).find((x) => x.typ === 'kommen');
+      s.db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, pause_plan_min) VALUES (?, ?, ?, ?, 'kolonne', ?, ?, ?)`,
+        id, typ, um(hm).toISOString(), extra.baustelleId ?? (k && k.baustelle_id), U.polier, new Date(s.uhr()).toISOString(), extra.dauerMin ?? null);
+    };
+
+    /* ---- 6) Baustellenwechsel um 12:10: Vorschlag weicht aus, ein Beginn für alle Dauern (Review N8) ---- */
+    s.uhr.setze(um('07:00').toISOString());
+    await sitzung(KARL, 'Wechsel zu Mittag', async ({ page, geh, vergeht, gleich }) => {
+      await geh('#/stempeln');
+      await kommen(page, gleich);
+      await vergeht(9 * 60); // 16:00
+      kolonne(KARL, 'wechsel', '12:10', { baustelleId: BS.kogler });
+      await gleich();
+      await page.click('[data-stempel="gehen"]'); await offen(page);
+      pruef(await page.inputValue('dialog[open] #pg-beginn') === '12:15', `Wechsel 12:10: Beginn ca. „${await page.inputValue('dialog[open] #pg-beginn')}“ statt 12:15`);
+      const sp = (await page.locator('dialog[open] [data-pg-min] small').allInnerTexts()).map(ws);
+      pruef(JSON.stringify(sp) === JSON.stringify(['12:15 – 12:45', '12:15 – 13:00', '12:15 – 13:15']), `Wechsel 12:10: Spannen ${JSON.stringify(sp)}`);
+      await gleich();
+      await page.click('dialog[open] [data-pg-min="60"]');
+      await page.waitForSelector('.clock-card[data-status="aus"]');
+      const b = buchungen(KARL);
+      pruef(JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)])) === JSON.stringify([['kommen', '07:00'], ['wechsel', '12:10'], ['pause_start', '12:15'], ['pause_ende', '13:15'], ['gehen', '16:00']]), `Wechsel 12:10, 60 Min: ${JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)]))}`);
+    });
+
+    /* ---- 7) Ohne Netz + Kolonnen-Pause: das Gehen geht nicht verloren (Review N8) ---- */
+    s.uhr.setze(um('07:00').toISOString());
+    await sitzung(CHRISTIAN, 'Ohne Netz, Kolonnen-Pause', async ({ page, ctx, geh, vergeht, gleich }) => {
+      await geh('#/stempeln');
+      await kommen(page, gleich);
+      await vergeht(5 * 60); // 12:00
+      await ctx.setOffline(true);
+      kolonne(CHRISTIAN, 'pause_start', '12:00', { dauerMin: 30 });
+      kolonne(CHRISTIAN, 'pause_ende', '12:30');
+      await vergeht(4 * 60); // 16:00
+      await page.click('[data-stempel="gehen"]'); await offen(page);
+      await page.click('dialog[open] [data-pg-min="30"]');
+      await page.waitForSelector('#sync[data-ausstehend="1"]');
+      await page.waitForSelector('.clock-card[data-status="aus"]');
+      await vergeht(5);
+      await ctx.setOffline(false);
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]').length === 0, null, { timeout: 30000, polling: 200 });
+      const b = buchungen(CHRISTIAN);
+      pruef(JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit), x.quelle, x.nachgetragen])) === JSON.stringify([['kommen', '07:00', 'app', 0], ['pause_start', '12:00', 'kolonne', 0], ['pause_ende', '12:30', 'kolonne', 0], ['gehen', '16:00', 'offline', 0]]), `Kolonnen-Pause offline, am Server: ${JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit), x.quelle, x.nachgetragen]))}`);
+      await page.waitForSelector('#sync[data-abgelehnt="0"]').catch(() => {});
+      pruef(await page.getAttribute('#sync', 'data-abgelehnt') === '0', `Kolonnen-Pause offline: abgelehnt ${await page.getAttribute('#sync', 'data-abgelehnt')}`);
+      const toasts = ws((await page.locator('.toast').allInnerTexts()).join(' | '));
+      pruef(/Die Pausenangabe dazu nicht/.test(toasts), `Kolonnen-Pause offline: Hinweis fehlt („${toasts}“)`);
+      const st = await page.evaluate(async () => (await fetch('/api/zeit/status')).json());
+      pruef(st.status === 'aus' && st.heute.pauseMin === 30, `Kolonnen-Pause offline, Status: ${st.status}, Pause ${st.heute.pauseMin}`);
+      const prot = s.db.eins("SELECT text FROM protokoll WHERE text LIKE 'Pausenangabe beim Gehen verworfen%' ORDER BY id DESC");
+      pruef(prot && prot.text === 'Pausenangabe beim Gehen verworfen (30 Min ab 12:00) – in der Schicht ist schon eine Pause gebucht', `Protokoll: ${prot && prot.text}`);
+    });
+
+    /* ---- 8) Mit Netz, Pause inzwischen über die Kolonne gebucht → keine Frage (Review N8) ---- */
+    s.uhr.setze(um('07:00').toISOString());
+    await sitzung(GUENTER, 'Kolonnen-Pause, alter Stand', async ({ page, geh, vergeht, gleich }) => {
+      await geh('#/stempeln');
+      await kommen(page, gleich);
+      await vergeht(9 * 60); // 16:00
+      kolonne(GUENTER, 'pause_start', '12:00', { dauerMin: 30 });
+      kolonne(GUENTER, 'pause_ende', '12:30');
+      await gleich();
+      let dialogGesehen = false;
+      await page.evaluate(() => { window.__pgGesehen = false; new MutationObserver(() => { if (document.querySelector('#pause-gehen')) window.__pgGesehen = true; }).observe(document.body, { childList: true, subtree: true }); });
+      await page.click('[data-stempel="gehen"]');
+      await page.waitForSelector('.clock-card[data-status="aus"]').catch(() => {});
+      dialogGesehen = await page.evaluate(() => window.__pgGesehen);
+      pruef(!dialogGesehen, 'Kolonnen-Pause (alter Stand): Dialog erscheint trotzdem');
+      const b = buchungen(GUENTER);
+      pruef(JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)])) === JSON.stringify([['kommen', '07:00'], ['pause_start', '12:00'], ['pause_ende', '12:30'], ['gehen', '16:00']]), `Kolonnen-Pause (alter Stand): ${JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)]))}`);
     });
   } finally { await s.stop(); }
   return { fehler, schritte };
