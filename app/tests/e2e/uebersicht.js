@@ -84,7 +84,7 @@ async function laufe(browser, g) {
       const lay = await page.evaluate(() => { const p = document.querySelector('#ue'); const cs = getComputedStyle(p); return { disp: cs.display, spalten: cs.gridTemplateColumns.split(' ').filter(Boolean).length, breite: p.getBoundingClientRect().width }; });
       if (g.width >= 720) pruef(lay.disp === 'grid' && lay.spalten === 2 && lay.breite <= 1100, `${wo}: PC/Tablet nicht zweispaltig bzw. zu breit (${JSON.stringify(lay)})`);
       else pruef(lay.disp !== 'grid' || lay.spalten === 1, `${wo}: Handy mehrspaltig (${JSON.stringify(lay)})`);
-      pruef(await page.locator('#bv-kacheln').count() === 1, `${wo}: Abschnitt „Geld“ fehlt fürs Büro`);
+      pruef(await page.locator('#bv-kacheln').count() === 1, `${wo}: Abschnitt „Rechnungen“ fehlt fürs Büro`);
       const kopf = await page.locator('#ue-kopf').innerText();
       pruef(/\d{1,2}:\d{2}/.test(kopf) && (/Punkte? brauch/.test(kopf) || await page.locator('#ue-erledigt').count() === 1), `${wo}: Kopfzeile ohne Uhrzeit/Punkte („${kopf}“)`);
 

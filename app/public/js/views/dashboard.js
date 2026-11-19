@@ -1,5 +1,5 @@
 // Übersicht (API.md 15.20, Inhaber 17.11.2026): ruhig, oben nur, was jetzt jemanden braucht.
-// Reihenfolge: Datum · „N Punkte brauchen Sie“ – Einteilung für morgen (nur Planer) – Heute – Zur Freigabe – Geld.
+// Reihenfolge: Datum · „N Punkte brauchen Sie“ – Einteilung für morgen (nur Planer) – Heute – Zur Freigabe – Rechnungen.
 // Farbe nur für Handlungsbedarf (rot: Freigaben, Überfälliges; gelb: Warnungen). Zeilen sind ganze, tippbare Flächen.
 // Die bisherige Übersicht liegt unverändert in dashboard-klassisch.js – umschaltbar unter „Mehr“ (je Gerät, bis zum Abmelden).
 import { get, post } from '../api.js';
@@ -232,7 +232,7 @@ export default async function dashboard(el, ctx) {
     // Alles, was passt, in EINER ruhigen Zeile
     const gutText = gut.length ? gut.reduce((a, x, i) => a + (i === 0 ? '' : i === gut.length - 1 ? ' und ' : ', ') + x, '') : '';
     const okZeile = offenText || gutText ? `<div class="ue-ok-zeile" id="ue-geld-ok">${ic('check')}<span>${offenText}${offenText && gutText ? ' · ' : ''}${gutText} – <b>in Ordnung</b></span></div>` : '';
-    return abschnitt('bv-kacheln', op || kalk ? 'Geld' : 'Bauvorhaben', zeilen.join('') + okZeile);
+    return abschnitt('bv-kacheln', op || kalk ? 'Rechnungen' : 'Bauvorhaben', zeilen.join('') + okZeile);
   }
 
   /* ---------- Kopfzeile: Datum, Uhrzeit, wie viel wartet ---------- */
