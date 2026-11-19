@@ -9,6 +9,8 @@ import { standortLage, kartenLink, genauText } from '../standort.js';
 
 const TYP = { kommen: 'Kommen', gehen: 'Gehen', pause_start: 'Pause Beginn', pause_ende: 'Pause Ende', wechsel: 'Baustellenwechsel' };
 const QUELLE = { app: 'App', offline: 'offline nachgebucht', kolonne: 'durch Polier', buero: 'Korrektur Büro' };
+// Eine Baustelle haben nur „kommen“ und „wechsel“ (der Server lehnt sie bei anderen Arten ab bzw. übernimmt sie nicht)
+const MIT_BAUSTELLE = ['kommen', 'wechsel'];
 const lokal = (iso) => wienLokal(iso);
 const alsIso = (wert) => wienIso(wert.slice(0, 10), wert.slice(11, 16));
 const uhr = (x) => (!x ? '–' : /^\d{1,2}:\d{2}/.test(x) ? x.slice(0, 5) : lokal(x).slice(11));
@@ -48,7 +50,7 @@ export default async function korrektur(el, ctx) {
   <div class="page">
     ${banner('info', `Korrekturen ändern die Lohnstunden. Jede Änderung braucht einen <b>Grund</b> und wird unveränderbar protokolliert. ${gfSelbst ? 'Ihre eigenen Zeiten können Sie als Geschäftsführung selbst korrigieren – das wird im Protokoll als Selbstkorrektur vermerkt.' : 'Die eigenen Zeiten korrigiert immer eine andere Person.'}`, 'shield')}
     <div class="toolbar">
-      <label class="field inline"><span class="vh">Mitarbeiter</span><select class="input" id="k-ma">${leute.map((m) => `<option value="${m.id}" ${m.id === benutzerId ? 'selected' : ''}>${esc(m.name)}${m.id === ichId ? ' (eigene Zeiten)' : ''}${m.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select></label>
+      <label class="field inline k-person"><span class="vh">Mitarbeiter</span><select class="input" id="k-ma">${leute.map((m) => `<option value="${m.id}" ${m.id === benutzerId ? 'selected' : ''}>${esc(m.name)}${m.id === ichId ? ' (eigene Zeiten)' : ''}${m.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select></label>
       <label class="field inline"><span class="vh">von</span><input class="input" type="date" id="k-von" value="${von}"></label>
       <label class="field inline"><span class="vh">bis</span><input class="input" type="date" id="k-bis" value="${bis}"></label>
       <span class="grow"></span>
@@ -67,7 +69,7 @@ export default async function korrektur(el, ctx) {
     schichten.sort((a, b) => (`${a.datum} ${a.beginn}` < `${b.datum} ${b.beginn}` ? 1 : -1));
     sbox.innerHTML = schichten.length ? `<ul class="plain rows korr" id="k-schichtliste">${schichten.map((x) => `<li data-schicht="${x.id}">
         <span class="korr-datum"><b>${esc(fmt.datumKurz(x.datum))}</b></span>
-        <span class="grow"><b>${esc(uhr(x.beginn))} – ${x.offen ? '<em class="pend">offen</em>' : esc(uhr(x.ende))} Uhr${x.arbeitMin != null && !x.offen ? ` · ${esc(fmt.stdLang(x.arbeitMin / 60))}` : ''}</b><small>${esc((x.baustellen || []).map(bsName).join(', '))}${x.pauseMin ? ` · Pause ${x.pauseMin} min` : ''}</small></span>
+        <span class="grow"><b>${esc(uhr(x.beginn))} – ${x.offen ? '<em class="pend">offen</em>' : esc(uhr(x.ende))} Uhr${x.arbeitMin != null && !x.offen ? ` · ${esc(fmt.stdLang(x.arbeitMin / 60))}` : ''}</b><small>${esc((x.baustellen || []).map(bsName).join(', '))}${x.pauseMin ? ` · Pause ${x.pauseMin} Min.` : ''}</small></span>
         ${x.selbstkorrektur ? SELBST_CHIP : ''}${x.unplausibel ? '<span class="chip xs st-red">unplausibel – zählt 0 Std.</span>' : x.offen ? '<span class="chip xs st-amber">läuft</span>' : ''}
         <button type="button" class="btn ghost sm" data-schicht-weg="${x.id}">${ic('trash')}Ganze Schicht löschen</button></li>`).join('')}</ul>` : leer('Keine Schichten in diesem Zeitraum.', 'clock');
     liste.sort((a, b) => (a.zeit < b.zeit ? 1 : -1));
@@ -76,7 +78,13 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.nachgetragen ? ' · <span class="chip xs st-amber" data-nachgetragen title="Keine Pause gestempelt – beim Gehen in der Stempeluhr nachgetragen">beim Gehen nachgetragen</span>' : ''}${x.quelle && x.quelle !== 'app' && !x.selbstkorrektur ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}${ortHtml(x)}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${[
+        // ohne Baustelle (Pause, Gehen aus Korrekturen) kein „–“; Quellen ohne Text (z. B. Beispieldaten) nicht roh anzeigen
+        x.baustelleId != null ? esc(bsName(x.baustelleId)) : '',
+        x.automatisch ? 'automatisch (geplante Pause)' : '',
+        x.nachgetragen ? '<span class="chip xs st-amber" data-nachgetragen title="Keine Pause gestempelt – beim Gehen in der Stempeluhr nachgetragen">beim Gehen nachgetragen</span>' : '',
+        x.quelle && x.quelle !== 'app' && QUELLE[x.quelle] && !x.selbstkorrektur ? `<span data-quelle="${esc(x.quelle)}">${esc(QUELLE[x.quelle])}</span>` : '',
+      ].filter(Boolean).join(' · ')}${ortHtml(x)}</small></span>
         ${x.selbstkorrektur ? SELBST_CHIP : ''}<button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }
@@ -146,11 +154,16 @@ export default async function korrektur(el, ctx) {
         ${loeschen ? `<p>${esc(TYP[x.typ] || x.typ)} am ${esc(fmt.datum(lokal(x.zeit).slice(0, 10)))} um ${esc(lokal(x.zeit).slice(11))} Uhr wird gelöscht.</p>` : `
         ${neu ? `<label class="field"><span class="field-label">Art</span><select class="input lg" name="typ">${Object.entries(TYP).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span class="field-label">Zeitpunkt (österreichische Ortszeit)</span><input class="input lg" type="datetime-local" name="zeit" required value="${lokal(x ? x.zeit : new Date().toISOString())}" max="${lokal(new Date().toISOString())}"></label>
-        <label class="field"><span class="field-label">Baustelle</span>${bsWahl(x && x.baustelleId, '– unverändert / keine –')}</label>`}
+        ${neu || MIT_BAUSTELLE.includes(x.typ) ? `<label class="field" id="kf-bs"${neu ? ' hidden' : ''}><span class="field-label">Baustelle</span>${bsWahl(x && x.baustelleId, neu ? '– bitte wählen –' : '– unverändert –')}</label>` : ''}
+        ${!neu && x.standort ? '<p class="muted sm" id="kf-ort-hinweis">Wird die Uhrzeit geändert, wird der Standort der ursprünglichen Stempelung entfernt.</p>' : ''}`}
         ${selbstHinweis()}${grundFeld}
         <p class="form-err" role="alert" hidden></p></form>`,
       fuss: `<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn ${loeschen ? 'danger' : 'primary'}" type="submit" form="kf">${loeschen ? 'Löschen' : 'Speichern'}</button>`,
     });
+    // Nachtragen: Baustelle nur bei „Kommen“ und „Baustellenwechsel“
+    const typWahl = $('#kf select[name="typ"]', d.el);
+    const bsFeld = () => { const b = $('#kf-bs', d.el); if (b && typWahl) b.hidden = !MIT_BAUSTELLE.includes(typWahl.value); };
+    if (typWahl) { typWahl.addEventListener('change', bsFeld); bsFeld(); }
     $('#kf', d.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target); const m = $('.form-err', d.el);
       const grund = grundAus(f, m); if (!grund) return;
@@ -158,8 +171,17 @@ export default async function korrektur(el, ctx) {
         if (loeschen) await api('DELETE', `/zeit/buchungen/${x.id}`, { grund });
         else {
           const body = { zeit: alsIso(String(f.get('zeit'))), grund };
-          if (f.get('baustelleId')) body.baustelleId = Number(f.get('baustelleId'));
-          if (neu) await post('/zeit/buchungen', { ...body, benutzerId, typ: f.get('typ') }); else await put(`/zeit/buchungen/${x.id}`, body);
+          const typ = neu ? String(f.get('typ')) : x.typ;
+          const bs = f.get('baustelleId') ? Number(f.get('baustelleId')) : null;
+          // Prüfbefund n8-g: die Baustelle nur bei „Kommen“/„Baustellenwechsel“ senden – beim Ändern nur, wenn sie geändert wurde
+          // (gestempelte Gehen-/Pausenbuchungen tragen am Server die Baustelle, ändern lässt sie sich dort aber nicht)
+          if (MIT_BAUSTELLE.includes(typ) && bs != null && (neu || bs !== x.baustelleId)) body.baustelleId = bs;
+          if (neu && MIT_BAUSTELLE.includes(typ) && bs == null) { m.hidden = false; m.textContent = 'Bitte die Baustelle wählen.'; return; }
+          // Uhrzeit unverändert (Minute wie angezeigt): nicht mitsenden – sonst fielen die Sekunden der Stempelung weg und mit ihnen
+          // der Standort (15.31: geänderte Zeit entfernt ihn)
+          if (!neu && String(f.get('zeit')) === lokal(x.zeit)) delete body.zeit;
+          if (!neu && body.zeit === undefined && body.baustelleId === undefined) { m.hidden = false; m.textContent = 'Nichts geändert – bitte Uhrzeit oder Baustelle ändern.'; return; }
+          if (neu) await post('/zeit/buchungen', { ...body, benutzerId, typ }); else await put(`/zeit/buchungen/${x.id}`, body);
         }
         d.zu(); toast(loeschen ? 'Buchung gelöscht.' : neu ? 'Buchung nachgetragen.' : 'Buchung geändert.'); ladeListe();
       } catch (err) { m.hidden = false; m.textContent = err.message; }

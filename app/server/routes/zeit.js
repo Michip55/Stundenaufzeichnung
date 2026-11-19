@@ -552,6 +552,10 @@ module.exports = function zeitRouten(api, bt) {
       f.baustelle_id = korrekturBaustelle(body.baustelleId);
     }
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben (zeit, baustelleId).');
+    // 15.30 (Prüfbefund n8-g): der Standort gehört zum Moment der Stempelung – wird die Zeit geändert, ist die Buchung eine
+    // Korrektur ohne Ort; der Standort der ursprünglichen Stempelung wird entfernt (nicht an die neue Zeit gehängt)
+    const ortWeg = f.zeit !== undefined && f.zeit !== alt.zeit && (alt.lat != null || alt.lng != null);
+    if (ortWeg) { f.lat = null; f.lng = null; f.genauigkeit = null; }
     const jetzt = bt.uhr().toISOString();
     db.transaktion(() => {
       const vorher = fehlerVorher(alt.benutzer_id);
@@ -562,7 +566,7 @@ module.exports = function zeitRouten(api, bt) {
       db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ?, automatisch = 0, nachgetragen = 0, pause_auto_bis = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, bis, id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
-        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle }, neu: mitKennzeichen({ zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id }, zusatz), text: `Buchung korrigiert: ${grund}${zusatz}` });
+        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, ...(ortWeg ? { standort: true } : {}) }, neu: mitKennzeichen({ zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id, ...(ortWeg ? { standort: null } : {}) }, zusatz), text: `Buchung korrigiert: ${grund}${ortWeg ? ' (Standort der ursprünglichen Stempelung entfernt)' : ''}${zusatz}` });
     });
     res.json(buchungJson(db.eins('SELECT * FROM buchung WHERE id = ?', id)));
   });

@@ -11,6 +11,9 @@
  *  2. Nach dem Speichern tragen Schicht und Buchungen das Kennzeichen „Selbstkorrektur GF“, ebenso Benutzer → Protokoll.
  *  3. GF für eine andere Person: kein Hinweis, kein Kennzeichen.
  *     Ist die GF die einzige wählbare Person (ohne gemerkte Wahl), sind ihre eigenen Zeiten gewählt und geladen.
+ *     Prüfbefund n8-g: über die Stempeluhr gestempeltes Kommen/Gehen (Gehen trägt am Server die Baustelle) – Gehen ändern bietet
+ *     keine Baustelle an und speichert die neue Zeit; Kommen ändern sendet die unveränderte Baustelle nicht mit; Nachtragen zeigt
+ *     die Baustelle nur bei Kommen/Baustellenwechsel. Ab 720 px steht „Name (eigene Zeiten)“ ganz in der Auswahl.
  *  4. Büro: der eigene Name steht nicht zur Wahl, die Adresse mit der eigenen ID zeigt eine andere Person, der Server lehnt ab (403).
  *     Das Büro sieht an den Zeiten der GF das Kennzeichen.
  */
@@ -80,6 +83,21 @@ async function laufe(browser, g) {
       // 1) eigene Zeiten wählen
       await page.selectOption('#k-ma', String(U.gf));
       await listeGeladen();
+      // Prüfbefund n8-g (Bild 07/14): ab Tablet-Breite steht „Name (eigene Zeiten)“ ganz in der Auswahl (nicht abgeschnitten)
+      if (g.width >= 720) {
+        const passt = await page.evaluate(() => {
+          const sel = document.querySelector('#k-ma'); const cs = getComputedStyle(sel);
+          const c = document.createElement('canvas').getContext('2d'); c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+          const text = sel.options[sel.selectedIndex].text;
+          return { text, noetig: Math.ceil(c.measureText(text).width) + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), breite: sel.clientWidth };
+        });
+        pruef(passt.noetig <= passt.breite, `GF/${g.name}: „${passt.text}“ abgeschnitten (braucht ${passt.noetig} px, Auswahl ${passt.breite} px)`);
+        // am PC bleibt „Ganze Schicht nachtragen“ in derselben Zeile wie die Auswahl
+        if (g.width >= 1440) {
+          const zeile = await page.evaluate(() => Math.abs(document.querySelector('#k-ma').getBoundingClientRect().top - document.querySelector('#k-schicht').getBoundingClientRect().top));
+          pruef(zeile < 20, `GF/${g.name}: „Ganze Schicht nachtragen“ rutscht in eine eigene Zeile (${Math.round(zeile)} px)`);
+        }
+      }
       pruef(await page.locator('#k-schichtliste li').count() === 0, `GF/${g.name}: GF hat schon Schichten (Testvoraussetzung)`);
       // Schicht nachtragen: Hinweis, Grund Pflicht
       await page.locator('#k-schicht').click();
@@ -171,6 +189,70 @@ async function laufe(browser, g) {
       await dlg(page).locator('[data-zu]').first().click();
       await page.waitForTimeout(200);
       await page.unroute('**/api/mitarbeiter');
+
+      // 1c) Prüfbefund n8-g: echte Stempelung über die Stempeluhr – „Gehen“ trägt am Server die Baustelle; die Uhrzeit lässt sich
+      //     ändern, ohne die Baustelle anzufassen (der Dialog bietet sie bei Gehen/Pause nicht an und sendet sie nicht mit)
+      s.uhr.setze('2026-11-12T05:24:00.000+01:00');
+      const k1 = await api('POST', '/zeit/stempeln', { typ: 'kommen', baustelleId: 1 });
+      s.uhr.setze(START);
+      const g1 = await api('POST', '/zeit/stempeln', { typ: 'gehen' });
+      const kId = k1.json && k1.json.buchungId, gId = g1.json && g1.json.buchungId;
+      pruef(k1.status === 200 && g1.status === 200 && s.db.eins('SELECT baustelle_id AS b FROM buchung WHERE id = ?', gId).b === 1, `GF Stempeln/${g.name}: Vorbedingung (Gehen mit Baustelle) ${k1.status}/${g1.status}`);
+      await geh(`/korrektur?benutzerId=${U.gf}&von=2026-11-12&bis=2026-11-12`);
+      await listeGeladen();
+      await page.locator(`#k-liste [data-aendern="${gId}"]`).click();
+      await page.waitForSelector('#kf', { timeout: 5000 });
+      pruef(await page.locator('#kf select[name="baustelleId"]').count() === 0, `GF Stempeln/${g.name}: Gehen ändern bietet eine Baustelle an`);
+      await page.locator('#kf [name="zeit"]').fill('2026-11-12T10:00');
+      await page.locator('#kf [name="grund"]').fill('früher gegangen');
+      await dlg(page).locator('button[type="submit"]').click();
+      await page.waitForSelector('#kf', { state: 'detached', timeout: 6000 }).catch(() => {});
+      const fehlerText = await page.locator('#kf .form-err:not([hidden])').innerText({ timeout: 500 }).catch(() => '');
+      pruef(!fehlerText && await page.locator('#kf').count() === 0, `GF Stempeln/${g.name}: Gehen ändern – Dialog bleibt offen („${fehlerText}“)`);
+      pruef(s.db.eins('SELECT zeit FROM buchung WHERE id = ?', gId).zeit === '2026-11-12T09:00:00.000Z', `GF Stempeln/${g.name}: geänderte Gehen-Zeit nicht am Server (${s.db.eins('SELECT zeit FROM buchung WHERE id = ?', gId).zeit})`);
+      if (await page.locator('#kf').count()) { await dlg(page).locator('[data-zu]').first().click(); await page.waitForTimeout(200); }
+      await listeGeladen();
+      // Kommen: Baustelle vorgewählt; nur die Zeit geändert → keine baustelleId gesendet, Baustelle bleibt
+      const gesendet = [];
+      const mitschnitt = (r) => { if (r.method() === 'PUT' && r.url().includes('/api/zeit/buchungen/')) gesendet.push(JSON.parse(r.postData() || '{}')); };
+      page.on('request', mitschnitt);
+      await page.locator(`#k-liste [data-aendern="${kId}"]`).click();
+      await page.waitForSelector('#kf', { timeout: 5000 });
+      pruef(await page.locator('#kf select[name="baustelleId"]').inputValue() === '1', `GF Stempeln/${g.name}: Kommen ändern ohne vorgewählte Baustelle`);
+      await page.locator('#kf [name="zeit"]').fill('2026-11-12T05:00');
+      await page.locator('#kf [name="grund"]').fill('früher begonnen');
+      await dlg(page).locator('button[type="submit"]').click();
+      await page.waitForSelector('#kf', { state: 'detached', timeout: 6000 }).catch(() => {});
+      page.off('request', mitschnitt);
+      const kNach = s.db.eins('SELECT baustelle_id AS b, zeit FROM buchung WHERE id = ?', kId);
+      pruef(gesendet.length === 1 && !('baustelleId' in gesendet[0]) && kNach.b === 1 && kNach.zeit === '2026-11-12T04:00:00.000Z', `GF Stempeln/${g.name}: Kommen ändern sendet ${JSON.stringify(gesendet)} (${JSON.stringify(kNach)})`);
+      // nichts geändert → Hinweis, keine Anfrage (die Uhrzeit würde sonst ohne Sekunden neu gespeichert)
+      await listeGeladen();
+      gesendet.length = 0;
+      page.on('request', mitschnitt);
+      await page.locator(`#k-liste [data-aendern="${kId}"]`).click();
+      await page.waitForSelector('#kf', { timeout: 5000 });
+      await page.locator('#kf [name="grund"]').fill('nur geöffnet');
+      await dlg(page).locator('button[type="submit"]').click();
+      await page.waitForTimeout(400);
+      const nichts = await page.locator('#kf .form-err').innerText().catch(() => '');
+      page.off('request', mitschnitt);
+      pruef(gesendet.length === 0 && /Nichts geändert/.test(nichts), `GF Stempeln/${g.name}: unveränderte Buchung gesendet (${JSON.stringify(gesendet)}, „${nichts}“)`);
+      await dlg(page).locator('[data-zu]').first().click();
+      await page.waitForTimeout(200);
+      // Buchung nachtragen: Baustelle nur bei Kommen/Baustellenwechsel
+      await page.locator('#k-neu').click();
+      await page.waitForSelector('#kf', { timeout: 5000 });
+      const bsSichtbar = () => page.locator('#kf select[name="baustelleId"]').isVisible();
+      pruef(await bsSichtbar(), `GF Nachtragen/${g.name}: Kommen ohne Baustellen-Auswahl`);
+      await page.selectOption('#kf select[name="typ"]', 'gehen');
+      pruef(!(await bsSichtbar()), `GF Nachtragen/${g.name}: Gehen mit Baustellen-Auswahl`);
+      await page.selectOption('#kf select[name="typ"]', 'wechsel');
+      pruef(await bsSichtbar(), `GF Nachtragen/${g.name}: Baustellenwechsel ohne Baustellen-Auswahl`);
+      await dlg(page).locator('[data-zu]').first().click();
+      await page.waitForTimeout(200);
+      // aufräumen: die Gegenprobe des Büros (4) zählt die Kennzeichen an den übrigen Zeiten der GF
+      s.db.lauf('DELETE FROM buchung WHERE id IN (?, ?)', kId, gId);
     });
 
     // 3) GF korrigiert eine andere Person über die Oberfläche: kein Kennzeichen

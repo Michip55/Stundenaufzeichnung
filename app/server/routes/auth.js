@@ -242,14 +242,18 @@ module.exports = function authRouten(api, bt) {
     const an = v.bool(body.an, 'an');
     const alt = (db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', ich.id) || {}).e || null;
     const neu = an ? alt || bt.uhr().toISOString() : null;
+    let geloescht = 0;
     if (neu !== alt) {
       db.transaktion(() => {
         db.lauf('UPDATE benutzer SET standort_einwilligung = ? WHERE id = ?', neu, ich.id);
-        db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ich.id, art: 'benutzer', objekt: `benutzer:${ich.id}`, alt: { standortEinwilligung: alt }, neu: { standortEinwilligung: neu },
-          text: an ? `${ich.name} hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet (Einwilligung)` : `${ich.name} hat „Standort beim Stempeln mitsenden“ ausgeschaltet (Einwilligung widerrufen)` });
+        // Prüfbefund n8-g: der Widerruf löscht die gespeicherten Standorte der Person (sie beruhten allein auf der Einwilligung);
+        // das Büro sieht danach keine früheren Standorte mehr. Die Buchungen selbst bleiben unverändert.
+        if (!an) geloescht = db.lauf('UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL WHERE benutzer_id = ? AND (lat IS NOT NULL OR lng IS NOT NULL)', ich.id).changes;
+        db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ich.id, art: 'benutzer', objekt: `benutzer:${ich.id}`, alt: { standortEinwilligung: alt }, neu: { standortEinwilligung: neu, ...(an ? {} : { standorteGeloescht: geloescht }) },
+          text: an ? `${ich.name} hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet (Einwilligung)` : `${ich.name} hat „Standort beim Stempeln mitsenden“ ausgeschaltet (Einwilligung widerrufen, ${geloescht === 1 ? '1 gespeicherter Standort' : `${geloescht} gespeicherte Standorte`} gelöscht)` });
       });
     }
-    res.json({ standortEinwilligung: neu });
+    res.json({ standortEinwilligung: neu, ...(an ? {} : { standorteGeloescht: geloescht }) });
   });
 
   /** Eigene PIN ändern (auch bei erzwungener Änderung) */

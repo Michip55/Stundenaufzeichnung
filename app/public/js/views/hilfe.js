@@ -51,7 +51,7 @@ export default async function hilfe(el, ctx) {
         <li><b>PIN vergessen oder Konto gesperrt?</b> Das Büro setzt die PIN zurück bzw. entsperrt.</li>
         <li><b>PIN ändern:</b> unter „Mehr“ → „PIN ändern“. Die PIN kennt nur die Person selbst.</li>
         <li><b>Ohne Netz:</b> Stempeln und Schadensmeldungen werden am Gerät gespeichert und später gesendet. Alles andere braucht eine Verbindung.</li>
-        <li id="hilfe-standort"><b>Standort beim Stempeln:</b> freiwillig – nur du selbst schaltest es unter „Mehr“ ein oder aus, und es bleibt für dich gespeichert (auch nach dem Abmelden, nie für andere am selben Gerät). Erfasst wird nur im Moment des Stempelns; unter der Uhr steht „Standort erfasst“, und das Büro sieht bei der Buchung, ob du bei der Baustelle warst.</li></ul></section>
+        <li id="hilfe-standort"><b>Standort beim Stempeln:</b> freiwillig – nur du selbst schaltest es unter „Mehr“ ein oder aus, und es bleibt für dich gespeichert (auch nach dem Abmelden, nie für andere am selben Gerät). Erfasst wird nur im Moment des Stempelns; unter der Uhr steht „Standort erfasst“, und das Büro sieht bei der Buchung, ob du bei der Baustelle warst. Schaltest du es aus, werden deine gespeicherten Standorte gelöscht.</li></ul></section>
     </div>`;
     bindeInstall(el, zeichne);
   }

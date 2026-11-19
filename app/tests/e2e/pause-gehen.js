@@ -8,7 +8,7 @@
  *  1. „Pilz Thomas“ (angelegt als Nachname Vorname): Begrüßung „Guten Morgen, Thomas“. Kommen 07:00, um 16:00 AZG-Hinweis
  *     „ohne 30 Min. Pause“; „Gehen“ → Dialog „Heute keine Pause gestempelt“ (30/45/60 Min, „Keine Pause“, Beginn ca. 12:00,
  *     Fokus auf „30 Min“, kein Überlauf); Abbrechen und X buchen nichts; „30 Min“ bucht Pause 12:00–12:30 und Gehen:
- *     Heute „Pause 30 min“, Arbeitszeit 8 Std. 30 Min., Zeitleiste „beim Gehen nachgetragen“, AZG-Hinweis weg, Meine Woche
+ *     Heute „Pause 30 Min.“, Arbeitszeit 8 Std. 30 Min., Zeitleiste „beim Gehen nachgetragen“, AZG-Hinweis weg, Meine Woche
  *     8 Std. 30 Min., Korrekturen (Büro) mit Hinweis „beim Gehen nachgetragen“.
  *  2. Name mit einem Wort („Schwarz“): Begrüßung „Schwarz“; „Keine Pause“ bucht nur Gehen (Handy: bei 320 px).
  *  2a. Schicht 07:00–10:00: ein Vorschlag für alle Dauern (08:00), die Spannen unter den Knöpfen beginnen alle dort.
@@ -142,7 +142,7 @@ async function laufe(browser, g) {
       const toast = ws(await page.locator('.toast').first().innerText().catch(() => ''));
       pruef(/Pause 30 Min ab 12:00 Uhr nachgetragen/.test(toast), `Rückmeldung „${toast}“`);
       const summe = ws(await page.locator('.sum-grid').innerText());
-      pruef(/Pause 30 min/.test(summe) && /Arbeitszeit 8 Std\. 30 Min\./.test(summe), `Heute: „${summe}“ statt Arbeitszeit 8 Std. 30 Min. / Pause 30 min`);
+      pruef(/Pause 30 Min\./.test(summe) && /Arbeitszeit 8 Std\. 30 Min\./.test(summe), `Heute: „${summe}“ statt Arbeitszeit 8 Std. 30 Min. / Pause 30 Min.`);
       const nt = (await page.locator('.timeline li[data-nachgetragen]').allInnerTexts()).map(ws);
       pruef(nt.length === 2 && nt[0].includes('12:00') && nt[0].includes('Pause begonnen (30 Min)') && nt[1].includes('12:30') && nt.every((x) => x.includes('beim Gehen nachgetragen')), `Zeitleiste: ${JSON.stringify(nt)}`);
       pruef(!/§ 11 AZG/.test(await page.locator('#view').innerText()), 'AZG-Hinweis „ohne Pause“ nach dem Nachtragen noch sichtbar');
@@ -252,7 +252,7 @@ async function laufe(browser, g) {
       pruef(nt.length === 2 && nt[0].includes('12:00') && nt[1].includes('12:45') && nt.every((x) => /noch nicht gesendet/.test(x)), `ohne Netz: Zeitleiste ${JSON.stringify(nt)}`);
       const reihe = (await page.locator('.timeline li time').allInnerTexts()).map(ws);
       pruef(JSON.stringify(reihe) === JSON.stringify([...reihe].sort()), `ohne Netz: Zeitleiste nicht nach Uhrzeit: ${reihe.join(', ')}`);
-      pruef(/Pause 45 min/.test(ws(await page.locator('.sum-grid').innerText())), `ohne Netz: Heute „${ws(await page.locator('.sum-grid').innerText())}“`);
+      pruef(/Pause 45 Min\./.test(ws(await page.locator('.sum-grid').innerText())), `ohne Netz: Heute „${ws(await page.locator('.sum-grid').innerText())}“`);
       await vergeht(10);
       await ctx.setOffline(false);
       await page.evaluate(() => window.dispatchEvent(new Event('online')));

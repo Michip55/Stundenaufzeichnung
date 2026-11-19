@@ -125,7 +125,7 @@ async function laufe(browser, g) {
       const summe = (await page.locator('.sum-grid').innerText()).replace(/\s+/g, ' ');
       await page.reload(); await page.waitForSelector('.clock-card[data-status="arbeit"]');
       const summe2 = (await page.locator('.sum-grid').innerText()).replace(/\s+/g, ' ');
-      pruef(/Pause (39|40|41) min/.test(summe2), `Stempeluhr „Heute“: „${summe2}“ (vorher „${summe}“)`);
+      pruef(/Pause (39|40|41) Min\./.test(summe2), `Stempeluhr „Heute“: „${summe2}“ (vorher „${summe}“)`);
       // c) offen: läuft weiter
       await page.click('[data-stempel="pause_start"]');
       await pauseDialog(page);

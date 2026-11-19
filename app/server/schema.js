@@ -1557,6 +1557,18 @@ ALTER TABLE buchung ADD COLUMN nachgetragen INTEGER NOT NULL DEFAULT 0;
     sql: `
 ALTER TABLE benutzer ADD COLUMN standort_einwilligung TEXT;
 `
+  },
+  {
+    version: 55,
+    name: '15.30 (Prüfbefund n8-g): Standorte ohne Einwilligung löschen',
+    // Bis 15.30 speicherte die App den Standort mit dem alten Geräteschalter ohne Einwilligung der Person (und ohne Hinweis, dass
+    // das Büro ihn sieht); seit 15.30 zeigt die Korrektur Standorte an. Gelöscht werden die Koordinaten jeder Buchung, für die
+    // die Person (noch) nicht eingewilligt hatte, als die Buchung erfasst wurde. Die Buchungen selbst bleiben unverändert.
+    sql: `
+UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL
+ WHERE (lat IS NOT NULL OR lng IS NOT NULL)
+   AND NOT EXISTS (SELECT 1 FROM benutzer b WHERE b.id = buchung.benutzer_id AND b.standort_einwilligung IS NOT NULL AND b.standort_einwilligung <= buchung.erfasst);
+`
   }
 ];
 

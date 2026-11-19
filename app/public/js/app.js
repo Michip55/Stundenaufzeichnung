@@ -1,6 +1,6 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, abmeldenSenden, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
+import { get, post, abmeldenVormerken, abmeldenSenden, abmeldenOffen, abmeldenWarten, abmeldenBeimSchliessen, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import { standortNachtragOffen, standortNachtraegeFertig } from './standort-einwilligung.js';
@@ -286,7 +286,7 @@ window.addEventListener('bt:sync', zeigeSync);
 
 /* ---------- Benachrichtigungen (Glocke) ---------- */
 async function holeMeldungen() {
-  if (!ich || gemerktPruefen()) return; // 15.16 (H-S2)
+  if (!ich || abmeldenLauf || gemerktPruefen()) return; // 15.16 (H-S2); Prüfbefund n8-g: nicht während des (wartenden) Abmeldens
   try { meldungen = await get('/benachrichtigungen'); setzOnline(true); zeigeGlocke(); } catch (e) { if (e.netz) setzOnline(false); }
   holeSchadenZahl();
 }
@@ -298,7 +298,7 @@ function zeigeBadge() {
   $$('.nav-badge[data-badge]').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.dataset.schNeu = schadenNeu; b.dataset.schWartet = schadenWartet; b.title = text; });
 }
 async function holeSchadenZahl() {
-  if (!ich) return;
+  if (!ich || abmeldenLauf) return;
   const id = ich.benutzer.id;
   let wartet = (await schadenUngesendet(id)).length;
   if (wartet) { await schadenNachsenden(id); wartet = (await schadenUngesendet(id)).length; }
@@ -496,7 +496,13 @@ async function nachLogin() {
 async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
   await geraetAufgeraeumt;
   // Beim Start ohne gemerkte Anmeldung gleich zur Anmeldeseite (spart eine sichere 401-Antwort)
-  if (nurMitHinweis && !speicher.lies('bt_ich')) { ich = null; setzBenutzer(null); await versiegeln().catch(() => {}); return; }
+  if (nurMitHinweis && !speicher.lies('bt_ich')) {
+    ich = null; setzBenutzer(null);
+    // Prüfbefund n8-g: ein Abmelden war vorgemerkt, wurde aber nicht fertig (App beim Warten auf den Standort geschlossen oder
+    // abgestürzt) – jetzt fertig machen: Bindungs-Cookie weg, Abmelden am Server, versiegeln, Daten der Person vom Gerät
+    if (abmeldenOffen()) { bindungLoeschen(); await geraetAufraeumen({ amServer: true }); } else await versiegeln().catch(() => {});
+    return;
+  }
   try {
     ich = await get('/auth/ich');
     ich.rechte = ich.rechte || [];
@@ -560,7 +566,7 @@ let abmeldenLauf = null;
 function abmelden(opt = {}) {
   if (abmeldenLauf) return abmeldenLauf;
   abmeldenVormerken(); // vor allem anderen: ab jetzt geht keine Anfrage mehr unter dieser Sitzung hinaus
-  const ab = () => { const f = lokalAbmelden({ amServer: true }); if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn'); return f; };
+  const ab = () => { abmeldenWarten(false); const f = lokalAbmelden({ amServer: true }); if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn'); return f; };
   abmeldenLauf = (standortNachtragOffen() ? standortAbwarten().then(ab) : ab()).finally(() => { abmeldenLauf = null; });
   return abmeldenLauf;
 }
@@ -575,8 +581,25 @@ function standortAbwarten() {
   toastsWeg();
   lauf++; clearInterval(pollTimer);
   ichVergessen();
+  abmeldenWarten(true); // Prüfbefund n8-g: bis zum Abmelden geht nur noch der Nachtrag hinaus (api.js)
   root.innerHTML = `<div class="state" role="status" id="abmelden-standort"><span class="spinner" aria-hidden="true"></span><p>Abmelden … Standort wird noch gesendet …</p><button type="button" class="btn ghost sm" id="abmelden-sofort">Nicht warten</button></div>`;
-  return new Promise((fertig) => {
+  return new Promise((fertig0) => {
+    let offen = true;
+    // Prüfbefund n8-g: Seite wird geschlossen oder verborgen (App gewechselt, Tab zu) – nichts darf das überleben: Abmelden am
+    // Server sofort (keepalive), Bindungs-Cookie löschen (ohne es gilt die Sitzung nicht mehr, auch die Wochen-Sitzung nicht) und
+    // die Daten der Person vom Gerät nehmen. Nur bt_tresor bleibt, bis das Versiegeln nachgeholt ist (beim nächsten Öffnen).
+    const schliessen = () => {
+      if (!offen) return;
+      abmeldenBeimSchliessen(); bindungLoeschen(); speicher.raeumeBenutzer({ behalten: ['bt_tresor'] });
+      fertig();
+    };
+    const verborgen = () => { if (document.visibilityState === 'hidden') schliessen(); };
+    const fertig = () => {
+      if (!offen) return; offen = false;
+      window.removeEventListener('pagehide', schliessen); document.removeEventListener('visibilitychange', verborgen);
+      fertig0();
+    };
+    window.addEventListener('pagehide', schliessen); document.addEventListener('visibilitychange', verborgen);
     standortNachtraegeFertig().then(fertig);
     const b = $('#abmelden-sofort'); if (b) b.addEventListener('click', () => fertig());
   });
@@ -639,7 +662,7 @@ window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').c
 window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });
-window.addEventListener('focus', () => { if (ich && !gemerktPruefen()) { holeMeldungen(); nachsenden(); } });
+window.addEventListener('focus', () => { if (ich && !abmeldenLauf && !gemerktPruefen()) { holeMeldungen(); nachsenden(); } }); // Prüfbefund n8-g: nicht beim wartenden Abmelden
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* ohne SW läuft die App normal weiter */ }); });

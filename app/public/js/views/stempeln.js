@@ -8,8 +8,8 @@ import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnt
 import { pauseWaehlen, pausenAuswahl, merkeAuswahl, bisText, pauseFrageBeimGehen } from '../pausen.js';
 import { grussName, schichtStart, fragePauseBeimGehen } from '../pause-gehen.js';
 import { stundenImText } from '../zahl.js';
-import { ortHolen, ortErlaubnis, genauText } from '../standort.js';
-import { standortEingeschaltet, standortAltUebernehmen, nachtragLaeuft, nachtragLaeuftSchon, nachtragMerken, nachtragStandort, nachtragErledigt, nachtraegeGemerkt } from '../standort-einwilligung.js';
+import { ortHolen, genauText } from '../standort.js';
+import { standortEingeschaltet, standortAltEntfernen, nachtragLaeuft, nachtragLaeuftSchon, nachtragErgebnis, nachtragMerken, nachtragStandort, nachtragErledigt, nachtraegeGemerkt } from '../standort-einwilligung.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
@@ -168,7 +168,7 @@ export default async function stempeln(el, ctx) {
       <div class="stack">
         <section class="card pad">
           <div class="card-h"><h3>Heute</h3><span class="chip st-outline">${esc(fmt.datumKurz(new Date()))}</span></div>
-          <div class="sum-grid"><div><small>Arbeitszeit</small><b id="heute-arbeitszeit">${fmt.stdLangHtml(st.heute.stunden || 0)}</b></div><div><small>Pause</small><b>${fmt.zahl(st.heute.pauseMin || 0, 0)} <i>min</i></b></div></div>
+          <div class="sum-grid"><div><small>Arbeitszeit</small><b id="heute-arbeitszeit">${fmt.stdLangHtml(st.heute.stunden || 0)}</b></div><div><small>Pause</small><b id="heute-pause">${fmt.zahl(st.heute.pauseMin || 0, 0)}\u00a0<i>Min.</i></b></div></div>
           ${buch.length ? `<ol class="timeline" aria-label="Buchungen heute">${buch.map((x) => { const [t, c] = TYP[x.typ] || [x.typ, '']; return `<li class="${c}"${x.automatisch ? ' data-automatisch' : ''}${x.nachgetragen ? ' data-nachgetragen' : ''}><time>${esc(x.uhrzeit || fmt.uhr(x.zeit))}</time><i></i><div><b>${esc(t)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min)` : ''}${x.automatisch ? ' – automatisch' : ''}</b><small>${esc(bsName(x.baustelleId))}${x.nachgetragen ? ' · beim Gehen nachgetragen' : ''}${x.ausstehend ? ' · <em class="pend">noch nicht gesendet</em>' : x.nachgetragen ? '' : x.quelle === 'offline' ? ' · offline nachgebucht' : x.quelle === 'kolonne' ? ' · durch Polier' : ''}</small></div></li>`; }).join('')}</ol>` : `<div class="state empty small">${ic('clock')}<p>Heute noch keine Buchung.</p></div>`}
         </section>
         <button type="button" class="card pad link-card" id="schaden-kurz" data-akt="schaden">${ic('camera')}<span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span>${ic('right')}</button>
@@ -251,7 +251,7 @@ export default async function stempeln(el, ctx) {
   function standortAnhaengen(ortP, { buchungId, nr, lauf, standort = null }) {
     const gen = sitzungGeneration();
     if (buchungId) nachtragMerken(ctx.ich.benutzer.id, buchungId);
-    return nachtragLaeuft(buchungId ? `b${buchungId}` : `q${nr}`, (async () => {
+    return ortAnzeigen(lauf, nachtragLaeuft(buchungId ? `b${buchungId}` : `q${nr}`, (async () => {
       const r = standort ? { standort } : await ortP;
       let neu;
       if (!r.standort) {
@@ -270,24 +270,36 @@ export default async function stempeln(el, ctx) {
         }
         if (!behalten) nachtragErledigt(buchungId); // ohne Netz: gemerkt lassen, die Stempeluhr versucht es später noch einmal
       }
-      if (lauf !== ortLauf) return; // inzwischen neu gestempelt – die Anzeige gehört der neueren Stempelung
+      return neu;
+    })().catch(() => null)));
+  }
+  /** Ergebnis eines (laufenden) Nachtrags anzeigen – auch in einer neueren Stempeluhr-Ansicht, die ihn nicht selbst gestartet hat */
+  function ortAnzeigen(lauf, p) {
+    p.then((neu) => {
+      if (!neu || lauf !== ortLauf) return; // inzwischen neu gestempelt – die Anzeige gehört der neueren Stempelung
       ort = neu;
       const z = ctx.aktuell() && $('#cc-standort', el);
       if (z) z.outerHTML = ortHtml(ort);
-    })().catch(() => {}));
+    });
+    return p;
   }
 
-  /** 15.30: am Gerät gemerkte Nachträge dieser Person (App nach dem Stempeln geschlossen oder neu geladen) nachholen */
-  async function nachtraegeFortsetzen() {
-    const offen = nachtraegeGemerkt(ctx.ich.benutzer.id).filter((x) => !nachtragLaeuftSchon(`b${x.buchungId}`));
+  /**
+   * 15.30: am Gerät gemerkte Nachträge dieser Person (App nach dem Stempeln geschlossen oder neu geladen) nachholen – aber nur
+   * mit dem Standort, der beim Stempeln schon ermittelt war. Prüfbefund n8-g: keine neue Ortung beim Öffnen; ein späterer Ort
+   * (bis zu 10 Minuten danach, z. B. schon unterwegs) gehört nicht zur Stempelung. Ohne gemerkten Standort → verworfen.
+   */
+  function nachtraegeFortsetzen() {
+    const gemerkt = nachtraegeGemerkt(ctx.ich.benutzer.id);
+    // läuft schon (z. B. aus einer eben ersetzten Ansicht derselben Seite): nur das Ergebnis hier anzeigen
+    for (const x of gemerkt.filter((y) => nachtragLaeuftSchon(`b${y.buchungId}`))) { ort = { zustand: 'laeuft' }; ortAnzeigen(++ortLauf, nachtragErgebnis(`b${x.buchungId}`)); }
+    const offen = gemerkt.filter((x) => !nachtragLaeuftSchon(`b${x.buchungId}`));
     if (!offen.length) return;
     if (!standortEingeschaltet(ctx)) { offen.forEach((x) => nachtragErledigt(x.buchungId)); return; }
-    const erlaubnis = offen.some((x) => !x.standort) ? await ortErlaubnis() : 'granted';
     for (const x of offen) {
-      // ohne schon ermittelten Standort nur neu orten, wenn das Gerät es ohne Rückfrage erlaubt (keine Frage beim Öffnen)
-      if (!x.standort && erlaubnis !== 'granted' && erlaubnis !== null) { nachtragErledigt(x.buchungId); continue; }
+      if (!x.standort) { nachtragErledigt(x.buchungId); continue; }
       ort = { zustand: 'laeuft' };
-      standortAnhaengen(x.standort ? null : ortHolen(ORT), { buchungId: x.buchungId, lauf: ++ortLauf, standort: x.standort || null });
+      standortAnhaengen(null, { buchungId: x.buchungId, lauf: ++ortLauf, standort: x.standort });
     }
   }
 
@@ -349,8 +361,8 @@ export default async function stempeln(el, ctx) {
     }
   });
 
-  await standortAltUebernehmen(ctx); // 15.30: alte Wahl nur am Gerät (bt_standort) einmal an den Server übernehmen
-  await nachtraegeFortsetzen();
+  standortAltEntfernen(); // 15.30: alte Wahl nur am Gerät (bt_standort) gilt nicht als Einwilligung – entfernen
+  nachtraegeFortsetzen();
   await lade();
   zeichne();
   return () => clearInterval(timer);

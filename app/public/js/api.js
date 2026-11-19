@@ -48,6 +48,23 @@ export function abmeldenVormerken(endpoint) {
   try { localStorage.setItem(ABMELDEN_OFFEN, JSON.stringify({ seit: new Date().toISOString(), ...(endpoint ? { endpoint } : {}) })); } catch (e) { /* gesperrt */ }
 }
 export const abmeldenOffen = () => !!merker();
+/**
+ * Prüfbefund n8-g (15.30): Während das Abmelden auf einen Standort-Nachtrag wartet (app.js standortAbwarten), geht keine andere
+ * Anfrage der Person hinaus – sonst holte sie das vorgemerkte Abmelden VOR dem Nachtrag nach (Fokus, Glocke …) und der
+ * Standort ginge verloren. Solche Anfragen enden als VeraltetFehler (die Ansicht der Person ist ohnehin schon geschlossen).
+ */
+let abmeldenWartet = false;
+export function abmeldenWarten(an) { abmeldenWartet = !!an; }
+/**
+ * Prüfbefund n8-g: die Seite wird geschlossen bzw. verborgen, während das Abmelden wartet – das Abmelden am Server sofort
+ * absetzen (keepalive: überlebt das Schließen), mit dem Sitzungs-Cookie, das noch gilt. Danach löscht app.js das Bindungs-Cookie.
+ */
+export function abmeldenBeimSchliessen() {
+  const m = merker();
+  try {
+    fetch('/api/auth/logout', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(m && m.endpoint ? { endpoint: m.endpoint } : {}) }).catch(() => {});
+  } catch (e) { /* ohne Netz: das Abmelden bleibt vorgemerkt und wird beim nächsten Öffnen nachgeholt */ }
+}
 /** Bindungs-Cookie der Sitzung löschen (geht ohne Netz) – danach gilt das HttpOnly-Sitzungs-Cookie am Server nicht mehr */
 export function bindungLoeschen() {
   try { document.cookie = `bt_bindung=; Path=/; Max-Age=0; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) { /* egal */ }
@@ -193,6 +210,7 @@ export async function api(methode, pfad, body, opt0 = {}) {
   const gen = generation;
   const signal = gebunden && abbruch ? abbruch.signal : undefined;
   const veraltet = () => gebunden && gen !== generation;
+  if (abmeldenWartet && gebunden && !opt0.vorAbmelden && pfad !== '/auth/logout') throw new VeraltetFehler();
   if (pfad !== '/auth/logout' && !opt0.vorAbmelden) await abmeldenNachholen();
   if (veraltet()) throw new VeraltetFehler();
   const opt = { method: methode, credentials: 'same-origin', headers: { Accept: 'application/json' } };

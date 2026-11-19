@@ -85,6 +85,13 @@ async function laufe(browser, g) {
       if (g.width >= 720) pruef(lay.disp === 'grid' && lay.spalten === 2 && lay.breite <= 1100, `${wo}: PC/Tablet nicht zweispaltig bzw. zu breit (${JSON.stringify(lay)})`);
       else pruef(lay.disp !== 'grid' || lay.spalten === 1, `${wo}: Handy mehrspaltig (${JSON.stringify(lay)})`);
       pruef(await page.locator('#bv-kacheln').count() === 1, `${wo}: Abschnitt „Rechnungen“ fehlt fürs Büro`);
+      // Prüfbefund n8-g (Bild 12): „Rechnungen“ schließt direkt an „Heute“ an (keine Lücke bis zum Ende von „Zur Freigabe“);
+      // am Handy bleibt die Reihenfolge Heute – Zur Freigabe – Rechnungen
+      const lage = await page.evaluate(() => { const r = (id) => { const e = document.getElementById(id); if (!e) return null; const b = e.getBoundingClientRect(); return { oben: b.top, unten: b.bottom, links: b.left }; }; return { heute: r('ue-heute'), frei: r('ue-freigabe'), geld: r('bv-kacheln') }; });
+      if (lage.heute && lage.geld && lage.frei) {
+        if (g.width >= 720) pruef(lage.geld.oben - lage.heute.unten <= 32 && Math.abs(lage.geld.links - lage.heute.links) < 2 && lage.frei.links > lage.heute.links, `${wo}: Lücke zwischen „Heute“ und „Rechnungen“ bzw. Spalten falsch (${JSON.stringify(lage)})`);
+        else pruef(lage.heute.oben < lage.frei.oben && lage.frei.oben < lage.geld.oben, `${wo}: Reihenfolge am Handy nicht Heute – Zur Freigabe – Rechnungen (${JSON.stringify(lage)})`);
+      } else pruef(false, `${wo}: Abschnitte für die Lageprüfung fehlen (${JSON.stringify(lage)})`);
       const kopf = await page.locator('#ue-kopf').innerText();
       pruef(/\d{1,2}:\d{2}/.test(kopf) && (/Punkte? brauch/.test(kopf) || await page.locator('#ue-erledigt').count() === 1), `${wo}: Kopfzeile ohne Uhrzeit/Punkte („${kopf}“)`);
 

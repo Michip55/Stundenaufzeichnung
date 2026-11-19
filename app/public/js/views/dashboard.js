@@ -1,5 +1,7 @@
 // Übersicht (API.md 15.20, Inhaber 17.11.2026): ruhig, oben nur, was jetzt jemanden braucht.
 // Reihenfolge: Datum · „N Punkte brauchen Sie“ – Einteilung für morgen (nur Planer) – Heute – Zur Freigabe – Rechnungen.
+// Ab 720 px zwei Spalten, die unabhängig voneinander wachsen (links Heute + Rechnungen, rechts Zur Freigabe + Einteilung) – keine
+// Lücke unter „Heute“, wenn „Zur Freigabe“ länger ist (Prüfbefund n8-g). Am Handy eine Spalte in der obigen Reihenfolge (CSS order).
 // Farbe nur für Handlungsbedarf (rot: Freigaben, Überfälliges; gelb: Warnungen). Zeilen sind ganze, tippbare Flächen.
 // Die bisherige Übersicht liegt unverändert in dashboard-klassisch.js – umschaltbar unter „Mehr“ (je Gerät, bis zum Abmelden).
 import { get, post } from '../api.js';
@@ -244,14 +246,13 @@ export default async function dashboard(el, ctx) {
     : `<p class="ue-kopf" id="ue-kopf" data-punkte="0">${esc(datumText)}</p><div class="ue-erledigt" id="ue-erledigt" role="status">${ic('check')}<span>Alles erledigt – nichts wartet auf Sie.</span></div>`;
 
   const oben = planInfo && planInfo.oben;
+  const spalte = (html) => (html.trim() ? `<div class="ue-spalte">${html}</div>` : '');
   el.innerHTML = `
   <div class="page ue-page" id="ue">
     <div class="ue-voll">${kopf}</div>
     ${oben ? `<div class="ue-voll">${planKarte()}</div>` : ''}
-    ${heuteHtml()}
-    ${freigabeHtml()}
-    ${geldHtml()}
-    ${planer && !oben ? planKarte() : ''}
+    ${spalte(heuteHtml() + geldHtml())}
+    ${spalte(freigabeHtml() + (planer && !oben ? planKarte() : ''))}
   </div>`;
 
   /* ---------- Bedienung ---------- */

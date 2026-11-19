@@ -17,6 +17,13 @@
  *  7. Langsame Ortung (5 s, kalter GPS-Start), Roland: Pause und sofort abmelden → „Standort wird noch gesendet …“, danach
  *     abgemeldet und der Standort an der Buchung; Pause beenden und die App sofort neu laden → die Stempeluhr holt den
  *     Nachtrag nach. Dazu in 4): Buchung auf einer archivierten Baustelle zeigt die Entfernung (nicht nur „Standort“).
+ *     Prüfbefund n8-g: nach dem Neuladen wird nie neu geortet – ohne schon ermittelten Standort wird der Nachtrag verworfen,
+ *     ein schon ermittelter (nur das Senden hing) wird gesendet. Ein alter Geräteschalter bt_standort gilt nicht als Einwilligung;
+ *     Ausschalten löscht die gespeicherten Standorte.
+ *  9. Prüfbefunde n8-g, wartendes Abmelden: die nächste Person am geteilten Gerät wartet nicht auf die Ortung der vorigen;
+ *     ein Fenster-Fokus schickt das Abmelden nicht vor dem Standort hinaus; Seite beim Warten geschlossen → Sitzung (auch die
+ *     Wochen-Sitzung) beendet, keine Daten der Person am Gerät, /api/auth/ich 401; App beim Warten abgestürzt → beim nächsten
+ *     Öffnen fertig abgemeldet und aufgeräumt.
  *  8. Zusammen mit „Pause beim Gehen“ (15.27), Fabian: Gehen → Dialog → 30 Min → eine Stempel-Anfrage mit pauseBeimGehen,
  *     danach der Standort an der Gehen-Buchung (nicht an den nachgetragenen Pausenbuchungen).
  */
@@ -151,10 +158,13 @@ async function laufe(browser, g) {
     const pause = letzte(U.mitarbeiter);
     pruef(pause.typ === 'pause_start' && pause.quelle === 'offline' && Math.abs(pause.lat - NAHE.latitude) < 1e-6, `offline nachgesendet ohne Standort (${JSON.stringify(pause)})`);
     await k.abmelden();
-    // Roland am selben Gerät: erbt nichts
+    // Roland am selben Gerät: erbt nichts. Prüfbefund n8-g: ein alter Geräteschalter (bt_standort = true, bis 15.29) ist keine
+    // Einwilligung – er wird nur entfernt, nicht an den Server übernommen
     await k.anmelden(4);
+    await page.evaluate(() => localStorage.setItem('bt_standort', 'true'));
     await geh('#/mehr');
-    pruef(!(await schalter(page).isChecked()), 'Geteiltes Gerät: Roland erbt Lukas’ Einstellung');
+    pruef(!(await schalter(page).isChecked()), 'Geteiltes Gerät: Roland erbt Lukas’ Einstellung bzw. der alte Geräteschalter gilt als Einwilligung');
+    pruef(einw(4) === null && await page.evaluate(() => localStorage.getItem('bt_standort')) === null, `Alter Geräteschalter: Einwilligung ${einw(4)}, bt_standort ${await page.evaluate(() => localStorage.getItem('bt_standort'))}`);
     await geh('#/stempeln');
     pruef((await text('#cc-standort-note')).includes('Standort wird nicht erfasst'), 'Geteiltes Gerät: Roland sieht „Standort wird nur … erfasst“');
     await page.waitForSelector('.clock-card[data-status="aus"] [data-stempel="kommen"]');
@@ -213,6 +223,9 @@ async function laufe(browser, g) {
     await umlegen(l.page);
     await l.page.waitForTimeout(400);
     pruef(!(await schalter(l.page).isChecked()) && einw(U.mitarbeiter) === null, 'Ausschalten: am Server nicht aus');
+    // Prüfbefund n8-g: der Widerruf löscht die gespeicherten Standorte (Text in „Mehr“ sagt es)
+    pruef(s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ? AND lat IS NOT NULL', U.mitarbeiter).n === 0, 'Ausschalten: gespeicherte Standorte nicht gelöscht');
+    pruef((await l.text('#standort-zeile')).includes('Ausschalten löscht deine gespeicherten Standorte'), 'Mehr: Hinweis „Ausschalten löscht …“ fehlt');
     await l.geh('#/stempeln');
     pruef((await l.text('#cc-standort-note')).includes('Standort wird nicht erfasst'), 'Ausschalten: Hinweis unter den Knöpfen');
     await l.page.waitForSelector('[data-stempel="pause_ende"]');
@@ -282,7 +295,8 @@ async function laufe(browser, g) {
     pruef((await w.api('/auth/ich')).status === 401, 'Sofort abmelden: Sitzung danach noch gültig');
     pruef(await wocheWeg(), `Sofort abmelden: Wochen-Sitzung bleibt am Server bestehen (${JSON.stringify(woche())})`);
     pruef(await gemerkt() === null, 'Sofort abmelden: Nachtrag bleibt am Gerät gemerkt');
-    // App gleich nach dem Stempeln neu laden
+    // App gleich nach dem Stempeln neu laden – Prüfbefund n8-g: nach dem Neuladen wird NICHT neu geortet (ein späterer Ort gehört
+    // nicht zur Stempelung); ohne schon ermittelten Standort wird der Nachtrag verworfen
     await w.anmelden(4);
     await w.geh('#/stempeln');
     await w.page.waitForSelector('[data-stempel="pause_ende"]');
@@ -290,21 +304,41 @@ async function laufe(browser, g) {
     await w.page.waitForSelector('.clock-card[data-status="arbeit"]');
     const pe7 = letzte(4);
     const m7 = JSON.parse(await gemerkt() || '[]');
-    pruef(pe7.typ === 'pause_ende' && pe7.lat === null && m7.length === 1 && m7[0].buchungId === pe7.id && m7[0].benutzerId === 4, `Neu laden: Nachtrag nicht am Gerät gemerkt (${JSON.stringify({ pe7, m7 })})`);
+    pruef(pe7.typ === 'pause_ende' && pe7.lat === null && m7.length === 1 && m7[0].buchungId === pe7.id && m7[0].benutzerId === 4 && !m7[0].standort, `Neu laden: Nachtrag nicht am Gerät gemerkt (${JSON.stringify({ pe7, m7 })})`);
     await w.page.reload();
     await w.page.waitForSelector('#view');
     if (!/#\/stempeln/.test(w.page.url())) await w.geh('#/stempeln');
-    await ortZeile(w.page, /^Standort erfasst \(±25 m\)$/, 'Neu laden: Stempeluhr holt den Standort nach');
-    await w.page.waitForTimeout(300);
+    await w.page.waitForTimeout(6500); // länger als die Ortung (5 s) – es darf keine starten
     const pe7b = s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', pe7.id);
-    pruef(nahe(pe7b), `Neu laden: Standort ging verloren (${JSON.stringify(pe7b)})`);
-    pruef(await gemerkt() === null, 'Neu laden: Nachtrag nach dem Senden noch gemerkt');
-    // noch einmal neu laden: nichts mehr offen, keine neue Ortung
-    const rufe = await w.page.evaluate(() => window.__ortRufe || 0);
+    pruef(await w.page.evaluate(() => window.__ortRufe || 0) === 0, `Neu laden ohne ermittelten Standort: neue Ortung gestartet (${await w.page.evaluate(() => window.__ortRufe || 0)})`);
+    pruef(pe7b.lat === null, `Neu laden ohne ermittelten Standort: späterer Ort an der Buchung (${JSON.stringify(pe7b)})`);
+    pruef(await gemerkt() === null, 'Neu laden: verworfener Nachtrag noch gemerkt');
+    pruef(await w.page.locator('#cc-standort').isHidden() || !/erfasst/.test(await w.text('#cc-standort')), 'Neu laden: Anzeige „Standort erfasst“ ohne Standort');
+    // schon ermittelter Standort, nur das Senden hängt (z. B. Funkloch) → nach dem Neuladen wird genau dieser Standort gesendet
+    let haengt = true; // die Anfrage der Seite vor dem Neuladen bleibt hängen (wird beim Neuladen abgebrochen, erreicht den Server nie)
+    await w.page.route('**/api/zeit/stempeln/*/standort', (r) => { if (!haengt) r.continue(); });
+    await w.page.click('[data-stempel="pause_start"]');
+    await w.page.waitForSelector('dialog[open] #pause-wahl');
+    await w.page.click('dialog[open] [data-pause-min="offen"]');
+    await w.page.waitForSelector('.clock-card[data-status="pause"]');
+    const p9 = letzte(4);
+    try { await w.page.waitForFunction(() => { const l = JSON.parse(localStorage.getItem('bt_standort_nachtrag') || '[]'); return l.length === 1 && l[0].standort; }, null, { timeout: 12000 }); } catch (e) { /* unten geprüft */ }
+    const m9 = JSON.parse(await gemerkt() || '[]');
+    pruef(m9.length === 1 && m9[0].buchungId === p9.id && m9[0].standort && Math.abs(m9[0].standort.lat - NAHE.latitude) < 1e-6, `Neu laden: ermittelter Standort nicht gemerkt (${JSON.stringify(m9)})`);
+    pruef(s.db.eins('SELECT lat FROM buchung WHERE id = ?', p9.id).lat === null, 'Vorbedingung: Standort vor dem Neuladen schon am Server');
+    haengt = false;
     await w.page.reload();
     await w.page.waitForSelector('#view');
-    await w.page.waitForTimeout(800);
-    pruef(await w.page.evaluate(() => window.__ortRufe || 0) === 0 && rufe >= 1, `Neu laden ohne offenen Nachtrag: Ortung trotzdem gestartet (${rufe})`);
+    if (!/#\/stempeln/.test(w.page.url())) await w.geh('#/stempeln');
+    await ortZeile(w.page, /^Standort erfasst \(±25 m\)$/, 'Neu laden: Stempeluhr sendet den gemerkten Standort');
+    await w.page.waitForTimeout(300);
+    pruef(nahe(s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', p9.id)), `Neu laden: gemerkter Standort ging verloren (${JSON.stringify(s.db.eins('SELECT lat FROM buchung WHERE id = ?', p9.id))})`);
+    pruef(await w.page.evaluate(() => window.__ortRufe || 0) === 0, 'Neu laden mit gemerktem Standort: trotzdem neu geortet');
+    pruef(await gemerkt() === null, 'Neu laden: Nachtrag nach dem Senden noch gemerkt');
+    await w.page.unroute('**/api/zeit/stempeln/*/standort');
+    await w.page.click('[data-stempel="pause_ende"]');
+    await w.page.waitForSelector('.clock-card[data-status="arbeit"]');
+    await w.page.waitForTimeout(5500); // Ortung dieser Stempelung abwarten
     // „Nicht warten“: sofort abgemeldet, danach geht unter der beendeten Sitzung nichts mehr hinaus
     await w.geh('#/stempeln');
     await w.page.waitForSelector('.clock-card[data-status="arbeit"] [data-stempel="pause_start"]');
@@ -326,6 +360,99 @@ async function laufe(browser, g) {
     pruef(p8b.typ === 'pause_start' && p8b.lat === null && !w.anfragen.some((x) => /\/standort$/.test(x.url)), `„Nicht warten“: Standort trotzdem gesendet (${JSON.stringify({ p8b, a: w.anfragen.map((x) => x.url) })})`);
     pruef(await gemerkt() === null, '„Nicht warten“: Nachtrag bleibt am Gerät gemerkt');
     await w.zu('Langsame Ortung');
+
+    /* ---- 9) Prüfbefunde n8-g: wartendes Abmelden (geteiltes Gerät, Fokus, Seite geschlossen bzw. abgestürzt) ---- */
+    const BLEIBT = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format',
+      'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt']); // ui.js raeumeBenutzer: GERAET + WARTEND
+    const sitzungen = () => s.db.alle('SELECT art FROM sitzung WHERE benutzer_id = 4').length;
+    const warteBis = async (f, ms) => { for (let i = 0; i < ms / 100 && !f(); i++) await new Promise((r) => setTimeout(r, 100)); return f(); };
+    // Roland stempelt (Pause bzw. Pause beenden – je nach Stand) und tippt in „Mehr“ auf Abmelden; die Ortung läuft noch
+    const stempeltUndAbmelden = async (x) => {
+      await x.geh('#/stempeln');
+      await x.page.waitForSelector('.clock-card[data-status="arbeit"], .clock-card[data-status="pause"]');
+      if (await x.page.locator('[data-stempel="pause_ende"]').count()) { await x.page.click('[data-stempel="pause_ende"]'); await x.page.waitForSelector('.clock-card[data-status="arbeit"]'); }
+      else { await x.page.click('[data-stempel="pause_start"]'); await x.page.waitForSelector('dialog[open] #pause-wahl'); await x.page.click('dialog[open] [data-pause-min="offen"]'); await x.page.waitForSelector('.clock-card[data-status="pause"]'); }
+      const b = letzte(4);
+      await x.geh('#/mehr');
+      await x.page.click('#abmelden');
+      await x.page.waitForSelector('#abmelden-standort', { timeout: 3000 });
+      return b;
+    };
+    const restSchluessel = (pg) => pg.evaluate((erlaubt) => Object.keys(localStorage).filter((k) => k.startsWith('bt_') && !erlaubt.includes(k)), [...BLEIBT]);
+
+    // 9a) geteiltes Gerät: A meldet sich mit „Nicht warten“ ab – B wartet beim Abmelden nicht auf A's Ortung
+    const a9 = await kontext({ langsamMs: 12000 });
+    await a9.anmelden(4);
+    await stempeltUndAbmelden(a9);
+    await a9.page.click('#abmelden-sofort');
+    await a9.page.waitForSelector('.login-user, #login-suche', { timeout: 5000 });
+    await a9.anmelden(U.mitarbeiter); // Lukas, Standort aus
+    await a9.geh('#/mehr');
+    const t9 = Date.now();
+    await a9.page.click('#abmelden');
+    const d9 = a9.page.locator('dialog[open] .btn.primary, dialog[open] .btn.danger');
+    if (await d9.count()) await d9.first().click();
+    const warteB = await a9.page.locator('#abmelden-standort').count();
+    await a9.page.waitForSelector('.login-user, #login-suche', { timeout: 15000 });
+    pruef(warteB === 0 && Date.now() - t9 < 2500, `Geteiltes Gerät: die nächste Person wartet beim Abmelden auf den Standort der vorigen (${warteB ? 'Hinweis „Standort wird noch gesendet …“, ' : ''}${Date.now() - t9} ms)`);
+    await a9.zu('Geteiltes Gerät, Nachtrag der vorigen Person');
+
+    // 9b) Fenster-Fokus während des Wartens schickt das Abmelden nicht vor dem Standort hinaus
+    const b9 = await kontext({ langsamMs: 5000 });
+    await b9.anmelden(4);
+    const reihe = [];
+    b9.page.on('request', (r) => { const u = r.url(); if (u.includes('/api/')) reihe.push(`${r.method()} ${u.replace(/^.*\/api/, '').replace(/\?.*$/, '')}`); });
+    const bf = await stempeltUndAbmelden(b9);
+    reihe.length = 0;
+    await b9.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await b9.page.waitForSelector('.login-user, #login-suche', { timeout: 20000 });
+    const bfNach = s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', bf.id);
+    const iOrt = reihe.indexOf(`POST /zeit/stempeln/${bf.id}/standort`), iAb = reihe.indexOf('POST /auth/logout');
+    pruef(nahe(bfNach) && iOrt >= 0 && (iAb < 0 || iOrt < iAb), `Fokus beim Warten: Standort verloren bzw. Abmelden zuerst gesendet (${JSON.stringify({ lat: bfNach.lat, reihe })})`);
+    pruef(await warteBis(() => sitzungen() === 0, 3000), 'Fokus beim Warten: Sitzung danach noch am Server');
+    await b9.zu('Fokus beim Warten');
+
+    // 9c) Seite wird während des Wartens geschlossen: Sitzung (auch die Wochen-Sitzung) endet, keine Daten der Person bleiben am Gerät
+    const c9 = await kontext({ langsamMs: 15000 });
+    await c9.anmelden(4);
+    pruef(sitzungen() === 1, 'Vorbedingung: Roland nicht angemeldet');
+    await stempeltUndAbmelden(c9);
+    await c9.page.close();
+    pruef(await warteBis(() => sitzungen() === 0, 4000), `Seite geschlossen: Sitzung bleibt am Server gültig (${sitzungen()})`);
+    const c9b = await c9.ctx.newPage();
+    await c9b.goto(s.basis + '/manifest.webmanifest'); // gleiche Herkunft, ohne die App zu starten
+    // bt_tresor (nur Geräteschlüssel + ID, keine Daten) bleibt, bis das Versiegeln beim nächsten Öffnen nachgeholt ist
+    const rest9 = (await restSchluessel(c9b)).filter((x) => x !== 'bt_tresor');
+    pruef(rest9.length === 0, `Seite geschlossen: Daten der Person bleiben am Gerät (${rest9.join(', ')})`);
+    const ich9 = await c9b.evaluate(async () => (await fetch('/api/auth/ich')).status);
+    pruef(ich9 === 401, `Seite geschlossen: /api/auth/ich im selben Browser ${ich9}`);
+    await c9b.goto(s.basis + '/#/login');
+    await c9b.waitForSelector('.login-user, #login-suche', { timeout: 10000 });
+    await c9b.waitForTimeout(800);
+    const rest9b = await restSchluessel(c9b);
+    pruef(rest9b.length === 0, `Seite geschlossen, App wieder geöffnet: am Gerät bleibt ${rest9b.join(', ')}`);
+    await c9b.close();
+    await c9.ctx.close();
+
+    // 9d) App stürzt während des Wartens ab (kein pagehide): beim nächsten Öffnen wird das Abmelden fertig gemacht
+    const e9 = await kontext({ langsamMs: 15000 });
+    await e9.anmelden(4);
+    await stempeltUndAbmelden(e9);
+    const cdp = await e9.ctx.newCDPSession(e9.page);
+    const absturz = e9.page.waitForEvent('crash', { timeout: 5000 }).catch(() => null);
+    cdp.send('Page.crash').catch(() => {});
+    await absturz;
+    const e9b = await e9.ctx.newPage();
+    await e9b.goto(s.basis + '/#/login');
+    await e9b.waitForSelector('.login-user, #login-suche', { timeout: 10000 });
+    await e9b.waitForTimeout(800);
+    const rest9d = await restSchluessel(e9b);
+    pruef(rest9d.length === 0, `Nach Absturz neu geöffnet: Daten der Person bleiben am Gerät (${rest9d.join(', ')})`);
+    pruef(await warteBis(() => sitzungen() === 0, 3000), `Nach Absturz neu geöffnet: Sitzung bleibt am Server (${sitzungen()})`);
+    pruef(await e9b.evaluate(async () => (await fetch('/api/auth/ich')).status) === 401, 'Nach Absturz neu geöffnet: /api/auth/ich nicht 401');
+    pruef(await e9b.evaluate(() => /(^|; )bt_bindung=[^;]/.test(document.cookie)) === false, 'Nach Absturz neu geöffnet: Bindungs-Cookie noch gesetzt');
+    await e9b.close();
+    await e9.ctx.close();
 
     /* ---- 8) Zusammen mit „Pause beim Gehen“ (15.27): Standort an der Gehen-Buchung, nicht an der nachgetragenen Pause ---- */
     s.uhr.plus(300); // Fabian ist seit 6) eingestempelt (ohne Pause) – 5 Std. später gehen, die Pause passt in die Schicht

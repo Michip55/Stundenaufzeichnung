@@ -7,7 +7,7 @@ import { schadenMelden } from './schaeden.js';
 import { fuhrenWartend } from './fuhren.js';
 import { KLASSISCH, klassischAn } from './dashboard.js';
 import { ortHolen, ortErlaubnis } from '../standort.js';
-import { standortEingeschaltet, standortSetzen, standortAltUebernehmen } from '../standort-einwilligung.js';
+import { standortEingeschaltet, standortSetzen, standortAltEntfernen } from '../standort-einwilligung.js';
 
 // 15.30: Hinweis, wenn das Gerät den Standort nicht freigibt (der Schalter bleibt an – erlaubt man es später, wirkt er)
 export const STANDORT_HILFE = 'Das Gerät erlaubt BauTag gerade keinen Zugriff auf den Standort. So erlauben: <b>iPhone:</b> Einstellungen → Datenschutz &amp; Sicherheit → Ortungsdienste → „Safari-Websites“ (bzw. die installierte BauTag-App) → „Beim Verwenden der App“. <b>Android:</b> in Chrome beim Schloss neben der Adresse → Berechtigungen → Standort → Zulassen. Bis dahin wird kein Standort mitgesendet.';
@@ -31,7 +31,7 @@ export default async function mehr(el, ctx) {
   const u = ctx.ich.benutzer;
   const [integ, gesund] = await Promise.all([ctx.integrationen(), get('/gesundheit').catch(() => null)]);
   const s = syncStatus();
-  await standortAltUebernehmen(ctx); // 15.30: alte Wahl nur am Gerät einmal an den Server übernehmen
+  standortAltEntfernen(); // 15.30: alte Wahl nur am Gerät gilt nicht als Einwilligung – die Person schaltet hier selbst ein
   const standort = standortEingeschaltet(ctx);
   el.innerHTML = `
   <div class="page narrow wide-md">
@@ -44,7 +44,7 @@ export default async function mehr(el, ctx) {
     <section class="card" aria-labelledby="einst-h">
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
       ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue', woche: ctx.ich.sitzungArt === 'woche' && geraetArtFuer(u.id) === 'eigen' })}
-      <label class="switch-row" id="standort-zeile"><span><b>Standort beim Stempeln mitsenden</b><small>Freiwillig, nur du selbst schaltest es ein – gilt für dich auf jedem Gerät, bis du es ausschaltest. Nur im Moment des Stempelns, keine laufende Ortung. Das Büro sieht bei deinen Buchungen, ob du bei der Baustelle warst.</small></span>
+      <label class="switch-row" id="standort-zeile"><span><b>Standort beim Stempeln mitsenden</b><small>Freiwillig, nur du selbst schaltest es ein – gilt für dich auf jedem Gerät, bis du es ausschaltest. Nur im Moment des Stempelns, keine laufende Ortung. Das Büro sieht bei deinen Buchungen, ob du bei der Baustelle warst. Ausschalten löscht deine gespeicherten Standorte.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation || standort ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
       <div class="banner warn standort-hinweis" id="standort-hinweis" role="alert" hidden>${ic('alert')}<span></span></div>
       ${ctx.navErlaubt().some((n) => n.id === 'dashboard') ? `<label class="switch-row" id="klassisch-zeile"><span><b>Klassische Übersicht verwenden</b><small>Die bisherige Übersicht mit Kacheln statt der neuen, ruhigen Ansicht. Gilt auf diesem Gerät bis zum Abmelden.</small></span>
@@ -79,7 +79,7 @@ export default async function mehr(el, ctx) {
       return;
     }
     sw.disabled = false;
-    if (!an) { zeigeHinweis(''); toast('Standort wird nicht mehr erfasst.'); return; }
+    if (!an) { zeigeHinweis(''); toast('Standort wird nicht mehr erfasst – deine gespeicherten Standorte sind gelöscht.'); return; }
     const r = await ortP;
     if (!ctx.aktuell() || !sw.checked) return;
     toast(r.standort ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Eingeschaltet – der Standort ist am Gerät aber gerade nicht verfügbar (siehe Hinweis).', r.standort ? undefined : 'warn');

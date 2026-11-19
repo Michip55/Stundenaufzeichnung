@@ -169,9 +169,25 @@ test('15.30 Standort beim Stempeln', async (t) => {
     s.uhr.plus(1);
     r = await ma.post('/zeit/stempeln', { typ: 'gehen' });
     const g = r.daten.buchungId;
-    assert.equal((await ma.put('/auth/standort', { an: false })).status, 200);
+    // Prüfbefund n8-g: der Widerruf löscht die gespeicherten Standorte der Person (nicht die Buchungen), mit Anzahl im Protokoll
+    const mitOrt = s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ? AND lat IS NOT NULL', U.mitarbeiter).n;
+    assert.ok(mitOrt >= 2 && geo(kommenId).lat !== null, `Vorbedingung: ${mitOrt} Standorte`);
+    const buchungenVorher = s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ?', U.mitarbeiter).n;
+    const fremdVorher = s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id <> ? AND lat IS NOT NULL', U.mitarbeiter).n;
+    const wr = await ma.put('/auth/standort', { an: false });
+    assert.equal(wr.status, 200);
+    assert.equal(wr.daten.standorteGeloescht, mitOrt);
     assert.equal(einw(U.mitarbeiter), null);
-    assert.match(prot(U.mitarbeiter).at(-1).text, /ausgeschaltet/);
+    assert.match(prot(U.mitarbeiter).at(-1).text, /ausgeschaltet \(Einwilligung widerrufen, \d+ gespeicherte Standorte gelöscht\)/);
+    assert.equal(JSON.parse(prot(U.mitarbeiter).at(-1).neu).standorteGeloescht, mitOrt);
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ? AND (lat IS NOT NULL OR lng IS NOT NULL OR genauigkeit IS NOT NULL)', U.mitarbeiter).n, 0);
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id = ?', U.mitarbeiter).n, buchungenVorher);
+    assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM buchung WHERE benutzer_id <> ? AND lat IS NOT NULL', U.mitarbeiter).n, fremdVorher);
+    for (const c of [ma, buero, gf]) assert.ok((await c.get(`/zeit/buchungen?benutzerId=${U.mitarbeiter}&von=2026-11-01&bis=2026-11-30`)).daten.every((b) => b.standort === null));
+    // erneutes „aus“ ändert nichts (kein weiterer Protokolleintrag)
+    const nProt = prot(U.mitarbeiter).length;
+    assert.equal((await ma.put('/auth/standort', { an: false })).status, 200);
+    assert.equal(prot(U.mitarbeiter).length, nProt);
     assert.equal((await ma.post(`/zeit/stempeln/${g}/standort`, { standort: PUNKT })).status, 409);
     assert.equal(geo(g).lat, null);
     // offline nachgesendet mit Standort, aber Einwilligung inzwischen aus → Buchung ja, Standort nein
@@ -187,6 +203,7 @@ test('15.30 Standort beim Stempeln', async (t) => {
     assert.equal(r.daten.standortGespeichert, true);
     assert.deepEqual(geo(r.daten.buchungId), PUNKT);
     assert.equal(s.db.eins('SELECT quelle FROM buchung WHERE id = ?', r.daten.buchungId).quelle, 'offline');
+    kommenId = r.daten.buchungId; // die früheren Standorte sind mit dem Widerruf gelöscht – ab hier gilt diese Buchung
   });
 
   await t.test('Sichtbar: die Person selbst und Recht stammdaten (Büro, Bauleiter, GF) in GET /zeit/buchungen; Polier/Mitarbeiter nie fremd', async () => {

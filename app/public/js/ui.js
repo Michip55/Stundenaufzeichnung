@@ -179,7 +179,9 @@ export const speicher = {
   // Es bleibt nur, was nichts über eine Person verrät (GERAET) – und noch nicht gesendete Meldungen (WARTEND, M-04):
   // die gehören genau einem Benutzer, werden nie mit einer fremden Sitzung gesendet und verschwinden nach dem Senden.
   // 15.5 (F-046): vorher versiegelt tresor.js die WARTEND-Einträge der Person (AES-GCM) – für andere unlesbar.
-  raeumeBenutzer() {
+  // Prüfbefund n8-g: `behalten` – zusätzlich (nur) diese Schlüssel stehen lassen (Seite wird während des wartenden Abmeldens
+  // geschlossen: bt_tresor bleibt, bis das Versiegeln beim nächsten Öffnen nachgeholt ist – app.js ladeIch)
+  raeumeBenutzer({ behalten = [] } = {}) {
     // 15.5: bt_abmelden_offen = am Server noch nachzuholendes Abmelden (nur ggf. die Push-Adresse dieses Geräts, keine Person)
     // 15.8: bt_geraet_art = Gerätewahl „eigen“/„geteilt“ – gehört zum Gerät, nicht zur Person
     // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
@@ -188,7 +190,7 @@ export const speicher = {
     const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
-      try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
+      try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k) || behalten.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }
     }
     // Der Service Worker speichert nie /api – zur Sicherheit trotzdem alles unter /api aus dem Cache nehmen
     if (window.caches) caches.keys().then((namen) => Promise.all(namen.map(async (n) => { const c = await caches.open(n); for (const anfrage of await c.keys()) if (new URL(anfrage.url).pathname.startsWith('/api/')) await c.delete(anfrage); }))).catch(() => {});

@@ -1,7 +1,7 @@
 // BauTag – „Standort beim Stempeln mitsenden“ (API.md 15.30): die Wahl gilt je PERSON am Server (benutzer.standort_einwilligung),
 // nicht je Gerät – auf einem geteilten Tablet erbt niemand die Einstellung einer anderen Person. Der Schalter ist die
 // Einwilligung der Person selbst (freiwillig, Standard aus).
-import { put } from './api.js';
+import { put, sitzungGeneration } from './api.js';
 import { speicher } from './ui.js';
 
 /** Hat die angemeldete Person den Standort beim Stempeln selbst eingeschaltet? */
@@ -17,17 +17,13 @@ export async function standortSetzen(ctx, an) {
 }
 
 /**
- * Bis 15.29 stand die Wahl nur am Gerät (bt_standort) und ging bei jedem Abmelden verloren. Steht sie noch auf „an“, gehört
- * sie der angemeldeten Person (beim Abmelden und beim Benutzerwechsel wird sie gelöscht): einmal an den Server übernehmen,
- * danach den alten Schlüssel entfernen. Ohne Netz bleibt er bis zum nächsten Versuch.
+ * Bis 15.29 stand die Wahl nur am Gerät (bt_standort, alter Text ohne Hinweis, dass das Büro den Ort sieht). ~~Steht sie noch
+ * auf „an“, wird sie einmal für die angemeldete Person an den Server übernommen.~~ Prüfbefund n8-g: das wäre eine Einwilligung,
+ * die die Person mit dem neuen Text nie gegeben hat – der alte Schlüssel wird nur entfernt; die Person schaltet in „Mehr“ selbst
+ * ein (die Stempeluhr zeigt dann „Standort wird nicht erfasst …“).
  */
-export async function standortAltUebernehmen(ctx) {
-  const alt = speicher.lies('bt_standort', null);
-  if (alt === null || !ctx || !ctx.ich || !ctx.ich.benutzer) return;
-  if (alt === true && !standortEingeschaltet(ctx)) {
-    try { await standortSetzen(ctx, true); } catch (e) { if (e && (e.netz || e.status >= 500)) return; }
-  }
-  speicher.weg('bt_standort');
+export function standortAltEntfernen() {
+  if (speicher.lies('bt_standort', null) !== null) speicher.weg('bt_standort');
 }
 
 /*
@@ -35,27 +31,37 @@ export async function standortAltUebernehmen(ctx) {
  * POST /zeit/stempeln/:id/standort angehängt. Damit er nicht verloren geht, wenn die Person sich gleich abmeldet oder die App
  * schließt bzw. neu lädt:
  *  - im Speicher der Seite: das Abmelden wartet kurz auf laufende Nachträge (app.js, höchstens STANDORT_ABMELDEN_MS);
- *  - am Gerät (bt_standort_nachtrag, Buchung + ggf. schon ermittelter Standort): nach einem Neuladen holt die Stempeluhr
- *    den Nachtrag derselben Person nach, solange der Server ihn annimmt (10 Minuten). Beim Abmelden wird der Schlüssel wie
- *    alle Daten der Person gelöscht (ui.js raeumeBenutzer).
+ *  - am Gerät (bt_standort_nachtrag, Buchung + ggf. schon ermittelter Standort): nach einem Neuladen sendet die Stempeluhr
+ *    derselben Person den schon ermittelten Standort nach, solange der Server ihn annimmt (10 Minuten); ohne ermittelten
+ *    Standort wird der Nachtrag verworfen (keine neue Ortung beim Öffnen, Prüfbefund n8-g). Beim Abmelden wird der Schlüssel
+ *    wie alle Daten der Person gelöscht (ui.js raeumeBenutzer).
  */
 export const STANDORT_ABMELDEN_MS = 20000;
 const NACHTRAG = 'bt_standort_nachtrag';
 const NACHTRAG_MS = 10 * 60 * 1000; // wie der Server (zeit.js STANDORT_NACH_MS)
-const laufend = new Map(); // Schlüssel (Buchung bzw. Warteschlangen-Nr.) → Promise des Nachtrags
+// Schlüssel (Buchung bzw. Warteschlangen-Nr.) → {p: Promise des Nachtrags, gen: Generation der Anmeldung, unter der er lief}.
+// Prüfbefund n8-g: nur Nachträge der aktuellen Anmeldung zählen – am geteilten Gerät wartet das Abmelden der nächsten Person
+// nie auf die Ortung der vorigen (deren Nachtrag sendet nach dem Wechsel ohnehin nichts mehr, stempeln.js).
+const laufend = new Map();
+const aktuelle = () => [...laufend.values()].filter((x) => x.gen === sitzungGeneration());
 
 /** Nachtrag `p` (Promise, das nie abgelehnt wird) unter `schluessel` als laufend führen */
 export function nachtragLaeuft(schluessel, p) {
-  laufend.set(schluessel, p);
-  p.then(() => { if (laufend.get(schluessel) === p) laufend.delete(schluessel); }, () => { if (laufend.get(schluessel) === p) laufend.delete(schluessel); });
+  const e = { p, gen: sitzungGeneration() };
+  laufend.set(schluessel, e);
+  const weg = () => { if (laufend.get(schluessel) === e) laufend.delete(schluessel); };
+  p.then(weg, weg);
   return p;
 }
 export const nachtragLaeuftSchon = (schluessel) => laufend.has(schluessel);
-export const standortNachtragOffen = () => laufend.size > 0;
-/** wartet, bis alle laufenden Nachträge fertig sind – höchstens `maxMs` */
+/** Promise eines laufenden Nachtrags (Ergebnis für die Anzeige); läuft keiner, ein Promise mit `null` */
+export const nachtragErgebnis = (schluessel) => (laufend.has(schluessel) ? laufend.get(schluessel).p : Promise.resolve(null));
+export const standortNachtragOffen = () => aktuelle().length > 0;
+/** wartet, bis alle laufenden Nachträge der aktuellen Anmeldung fertig sind – höchstens `maxMs` */
 export function standortNachtraegeFertig(maxMs = STANDORT_ABMELDEN_MS) {
-  if (!laufend.size) return Promise.resolve();
-  return Promise.race([Promise.allSettled([...laufend.values()]), new Promise((r) => setTimeout(r, maxMs))]).then(() => {});
+  const l = aktuelle();
+  if (!l.length) return Promise.resolve();
+  return Promise.race([Promise.allSettled(l.map((x) => x.p)), new Promise((r) => setTimeout(r, maxMs))]).then(() => {});
 }
 
 const gemerkt = () => { const l = speicher.lies(NACHTRAG, []); return Array.isArray(l) ? l : []; };
