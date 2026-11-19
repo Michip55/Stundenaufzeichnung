@@ -125,12 +125,17 @@ module.exports = function authRouten(api, bt) {
    * Sitzung anlegen (nach PIN bzw. PIN + zweitem Faktor). 15.5: Eine mitgeschickte alte Sitzung endet immer (Rotation).
    * `bindung: true` (App am Gerät): die Sitzung gilt nur mit dem Bindungs-Cookie, das die App beim Abmelden löscht.
    * `pushEndpoint`: Push-Abo dieses Geräts – gehört es einer anderen Person, wird es gelöscht (F-014).
+   * 15.28: `geraet: "eigen"` (Gerätewahl „Eigenes Handy“, nur zusammen mit `bindung: true`) → Wochen-Sitzung bis Montag 00:00
+   * Wiener Zeit, für jede Rolle; jeder andere Wert → normale Sitzung. Die Wahl bestimmt nur die Lebensdauer, nie Rechte oder Rolle.
+   * Mit Zwei-Faktor-Anmeldung kommt die Wahl mit dem zweiten Schritt (`POST /auth/login/2fa`).
    */
   function anmelden(req, res, b) {
     if (req.token) auth.beendeSitzung(db, req.token);
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const s = auth.neueSitzung(db, b.id, bt.uhr(), { bindung: body.bindung === true });
-    auth.setzeCookie(req, res, typeof s === 'string' ? s : s.token, typeof s === 'string' ? null : s.bindung);
+    const jetzt = bt.uhr();
+    const s = auth.neueSitzung(db, b.id, jetzt, { bindung: body.bindung === true, woche: auth.istWochenWahl(body.geraet, body.bindung) });
+    const bis = typeof s === 'string' ? null : s.bis;
+    auth.setzeCookie(req, res, typeof s === 'string' ? s : s.token, typeof s === 'string' ? null : s.bindung, bis ? (new Date(bis).getTime() - jetzt.getTime()) / 1000 : null);
     if (typeof body.pushEndpoint === 'string' && body.pushEndpoint.length <= 1000) {
       const weg = db.lauf('DELETE FROM push_abo WHERE endpoint = ? AND benutzer_id <> ?', body.pushEndpoint, b.id).changes;
       if (weg) db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: b.id, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `${b.name} hat sich an einem Gerät angemeldet, das Push-Meldungen einer anderen Person erhielt – Abo der anderen Person gelöscht` });
@@ -184,8 +189,32 @@ module.exports = function authRouten(api, bt) {
       mussPinAendern: b.muss_pin_aendern === 1,
       sitzungMinuten: auth.inaktivMinuten(b.rolle, bt.sitzung),
       sperreMinuten: auth.sperreMinuten(b.rolle, bt.sitzung), // 15.5: Abmelden am Gerät nach Untätigkeit
+      ...sitzungAngaben(req),
       zweiFaktor: require('./zweifaktor').stand(db, b)
     });
+  });
+
+  /** 15.28: Lebensdauer der Sitzung – `sitzungArt` "woche" (bis `sitzungBis`, Montag 00:00 Wiener Zeit) oder "normal" */
+  function sitzungAngaben(req) {
+    const a = req.sitzungArt || {};
+    return { sitzungArt: a.art === 'woche' ? 'woche' : 'normal', sitzungBis: a.art === 'woche' ? a.bis : null };
+  }
+
+  /**
+   * 15.28: Gerätewahl der angemeldeten Person in „Mehr“ → `{art: "eigen"|"geteilt"}`. „geteilt“ stellt eine Wochen-Sitzung sofort
+   * auf die normalen Regeln (Untätigkeit je Rolle und Höchstdauer ab jetzt, höchstens bis zum Wochenende); „eigen“ ändert an der
+   * laufenden Sitzung nichts – die Woche gilt erst ab der nächsten Anmeldung mit PIN (sonst könnte jemand an einem geteilten
+   * Gerät die Sitzung einer anderen Person ohne PIN auf eine Woche verlängern). → {sitzungArt, sitzungBis}
+   */
+  api.post('/auth/geraet', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const art = v.objekt(req.body).art;
+    if (art !== 'eigen' && art !== 'geteilt') throw ungueltig('art muss "eigen" oder "geteilt" sein.');
+    if (art === 'geteilt' && auth.sitzungAufNormal(db, req.token, bt.uhr())) {
+      req.sitzungArt = { art: 'normal', bis: null };
+      db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'sicherheit', objekt: `benutzer:${req.ctx.benutzer.id}`, text: `${req.ctx.benutzer.name}: Gerät auf „Geteiltes Gerät“ gestellt – Anmeldung gilt nicht mehr bis Sonntag` });
+    }
+    res.json(sitzungAngaben(req));
   });
 
   /** Eigene dienstliche Telefonnummer (12.8d) */

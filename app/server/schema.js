@@ -1526,6 +1526,18 @@ CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
     sql: `
 ALTER TABLE rechnung ADD COLUMN skonto_zahlbetrag REAL;
 `
+  },
+  {
+    version: 52,
+    name: '15.28: PIN nur einmal pro Woche – Lebensdauer der Sitzung je Gerätewahl',
+    // art: 'woche' = Anmeldung am „Eigenen Handy“ (gebundene App-Sitzung) – gilt ohne Untätigkeitsgrenze bis `bis`
+    // (Montag 00:00 Wiener Zeit nach der Anmeldung). 'normal' = bisherige Regeln (Untätigkeit je Rolle, Höchstdauer).
+    // Wechselt die Person in „Mehr“ auf „Geteiltes Gerät“, wird die Sitzung 'normal'; `bis` bleibt dann als Obergrenze.
+    // Bestehende Sitzungen bleiben 'normal' (unverändert).
+    sql: `
+ALTER TABLE sitzung ADD COLUMN art TEXT NOT NULL DEFAULT 'normal' CHECK (art IN ('normal','woche'));
+ALTER TABLE sitzung ADD COLUMN bis TEXT;
+`
   }
 ];
 

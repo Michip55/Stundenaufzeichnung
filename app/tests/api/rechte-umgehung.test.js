@@ -335,12 +335,16 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });
 
-  await t.test('15.8: Gerätewahl- und Rechte-Angaben bei der Anmeldung ändern am Server nichts (Rolle, Rechte, Sperre, Sitzungsdauer)', async () => {
+  // 15.28: die Gerätewahl „eigen“ bestimmt seither die LEBENSDAUER der gebundenen App-Sitzung (bis Sonntag 24:00) – sonst nichts:
+  // Rolle, Rechte, Sperrzeit und Sitzungsdauer bleiben, mit und ohne Bindung (Lebensdauer: pin-woche.test.js)
+  await t.test('15.8 / 15.28: Gerätewahl- und Rechte-Angaben bei der Anmeldung ändern am Server nichts (Rolle, Rechte, Sperre, Sitzungsdauer) – „eigen“ nur die Lebensdauer', async () => {
     const v = [];
-    for (const r of H.ROLLEN) {
+    for (const [r, mitBindung] of H.ROLLEN.flatMap((x) => [[x, false], [x, true]])) {
       const normal = (await (await s.login(H.ID[r])).get('/auth/ich')).daten;
       const kl = s.client();
-      const a = await kl.post('/auth/login', { benutzerId: H.ID[r], pin: '1234', geraet: 'eigen', geraetArt: 'eigen', eigenesGeraet: true, sperreMinuten: 0, sitzungMinuten: 99999, rolle: 'gf', rechte: ['preise_sehen', 'benutzer', 'lohn'] });
+      const a = await kl.post('/auth/login', { benutzerId: H.ID[r], pin: '1234', ...(mitBindung ? { bindung: true } : {}), geraet: 'eigen', geraetArt: 'eigen', eigenesGeraet: true, sperreMinuten: 0, sitzungMinuten: 99999, sitzungArt: 'woche', sitzungBis: '2099-01-01T00:00:00Z', art: 'woche', bis: '2099-01-01T00:00:00Z', rolle: 'gf', rechte: ['preise_sehen', 'benutzer', 'lohn'] });
+      // mit Bindung braucht der Client auch das Bindungs-Cookie (der Test-Client merkt sich nur bt_session)
+      if (mitBindung) { const bind = /bt_bindung=([0-9a-f]{64})/.exec(a.headers.get('set-cookie') || ''); kl.cookie = `${kl.cookie}; bt_bindung=${bind ? bind[1] : ''}`; }
       if (a.status !== 200) { v.push(`${r} Anmeldung mit Gerätewahl-Angaben → ${a.status}`); continue; }
       v.push(...await H.scanne(r, a, { route: 'POST /api/auth/login', url: '/auth/login (mit Gerätewahl-Angaben)' }));
       const ich = (await kl.get('/auth/ich')).daten;
@@ -348,6 +352,10 @@ test('Umgehungsversuche gegen die Rechteprüfung (Prüfbericht 7)', { timeout: 1
       if (ich.benutzer.rolle !== normal.benutzer.rolle) v.push(`${r}: Rolle nach Anmeldung mit Angaben ${ich.benutzer.rolle}`);
       if (JSON.stringify([...ich.rechte].sort()) !== JSON.stringify([...normal.rechte].sort())) v.push(`${r}: Rechte nach Anmeldung mit Angaben ${ich.rechte.join(',')} ≠ ${normal.rechte.join(',')}`);
       for (const f of ['sperreMinuten', 'sitzungMinuten']) if (ich[f] !== normal[f]) v.push(`${r}: ${f} ${ich[f]} ≠ ${normal[f]} (Server vertraut der Gerätewahl)`);
+      // 15.28: Woche nur mit Bindung, Ende immer vom Server berechnet (Montag 00:00 Wiener Zeit), nie aus dem Body
+      const sollBis = mitBindung ? require('../../server/auth').wochenEnde(s.uhr()).toISOString() : null;
+      if (ich.sitzungArt !== (mitBindung ? 'woche' : 'normal') || ich.sitzungBis !== sollBis) v.push(`${r}${mitBindung ? ' (gebunden)' : ''}: Lebensdauer ${ich.sitzungArt}/${ich.sitzungBis} statt ${mitBindung ? 'woche' : 'normal'}/${sollBis}`);
+      if (mitBindung && (await s.client(String(kl.cookie).split(';')[0]).get('/auth/ich')).status !== 401) v.push(`${r}: Wochen-Sitzung ohne Bindungs-Cookie gültig`);
     }
     assert.deepEqual(v, [], `\n${v.join('\n')}`);
   });

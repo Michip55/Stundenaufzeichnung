@@ -1650,6 +1650,11 @@ async function laufe(browser, g) {
       console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
       try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // PIN nur einmal pro Woche am eigenen Handy, geteiltes Gerät unverändert (tests/e2e/pin-woche.js, API.md 15.28)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PIN_WOCHE) {
+      console.log('    PIN einmal pro Woche (eigenes Handy bis Sonntag, Montag PIN, geteiltes Gerät unverändert) …');
+      try { const pw = await require('./pin-woche').laufe(browser, g); r.fehler.push(...pw.fehler); r.schritte += pw.schritte; } catch (e) { r.fehler.push('Abbruch PIN-Woche: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     // Nachkontrolle Sitzung/Gerät: sofortiges Abmelden bei langsamem Netz, zweiter Tab (tests/e2e/sitzung-n2.js, API.md 15.16)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
       console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');

@@ -2,12 +2,15 @@
 /**
  * Anmeldung: PIN-Hash (scrypt + Salt, timingSafeEqual), Sitzungen in der Tabelle `sitzung`
  * (nur SHA-256 des Tokens gespeichert), Cookie bt_session (HttpOnly, SameSite=Strict, Secure bei HTTPS),
- * Ablauf nach 12 h Inaktivität, Sperre nach 5 Fehlversuchen für 5 Minuten.
+ * ~~Ablauf nach 12 h Inaktivität~~ Ablauf je Sitzungsart (API.md 15.28): „normal“ nach Untätigkeit je Rolle (Feld 12 h, Büro 60 min)
+ * und spätestens nach BAUTAG_SITZUNG_MAX_H; „woche“ (Anmeldung am eigenen Handy) bis Montag 00:00 Wiener Zeit.
+ * Sperre nach 5 Fehlversuchen für 5 Minuten.
  */
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { ApiFehler, nichtAngemeldet } = require('./fehler');
 const { kontext, verwaltungsStufe, ladeRechteFuer } = require('./rechte');
+const D = require('./datum');
 
 /** Verwaltungsstufe des Kontos (15.5): 1 Mitarbeiter/Polier, 2 Büro/Bauleiter, 3 GF – nach Rolle und tatsächlichen Rechten */
 function kontoStufe(db, benutzerId) {
@@ -75,6 +78,16 @@ function sperreMinuten(rolle, k) {
 }
 const INAKTIV_MS = 12 * 60 * 60 * 1000; // Standard Mitarbeiter/Polier (Kompatibilität)
 
+/**
+ * 15.28 (Inhaber 19.11.2026): Ende der Kalenderwoche von `jetzt` – Sonntag 24:00 = Montag 00:00 Wiener Zeit (Date, UTC).
+ * Sommer-/Winterzeit: der Montag wird als Wiener Datum bestimmt und erst dann in UTC umgerechnet (datum.wienZuDate).
+ */
+function wochenEnde(jetzt) {
+  return D.wienZuDate(D.plusTage(D.wochenbeginn(D.wienDatum(jetzt)), 7), '00:00');
+}
+/** 15.28: Wochen-Sitzung nur für die gebundene App-Sitzung mit der Gerätewahl genau „eigen“ – alles andere ist „normal“ */
+const istWochenWahl = (geraet, bindung) => bindung === true && geraet === 'eigen';
+
 /** 15.21 (Inhaber 17.11.2026): Mindestlänge der PIN – 4 Ziffern für alle Rollen (vorher Bauleiter/Büro/GF 6) */
 const PIN_MIN = 4;
 const PIN_MAX = 12;
@@ -120,14 +133,28 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 /**
  * Neue Sitzung. Mit `bindung` (App am Gerät, 15.5) gilt sie nur zusammen mit dem Bindungs-Cookie, das die App beim
- * Abmelden selbst löscht – auch ohne Netz. → Token (bzw. {token, bindung} mit bindung = true)
+ * Abmelden selbst löscht – auch ohne Netz. → Token (bzw. {token, bindung, bis} mit bindung = true)
+ * 15.28: `woche` (nur zusammen mit `bindung`) = Anmeldung am „Eigenen Handy“: gilt ohne Untätigkeitsgrenze bis zum Ende der
+ * Kalenderwoche (`bis`, Montag 00:00 Wiener Zeit). Rechte, Rolle und Bindung hängen nie davon ab.
  */
-function neueSitzung(db, benutzerId, jetzt, { bindung = false } = {}) {
+function neueSitzung(db, benutzerId, jetzt, { bindung = false, woche = false } = {}) {
   const token = crypto.randomBytes(32).toString('hex');
   const b = bindung ? crypto.randomBytes(32).toString('hex') : null;
   const t = jetzt.toISOString();
-  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet, bindung_hash) VALUES (?, ?, ?, ?, ?)', sha256(token), benutzerId, t, t, b ? sha256(b) : null);
-  return bindung ? { token, bindung: b } : token;
+  const bis = bindung && woche ? wochenEnde(jetzt).toISOString() : null;
+  db.lauf('INSERT INTO sitzung (token_hash, benutzer_id, erstellt, letzte_aktivitaet, bindung_hash, art, bis) VALUES (?, ?, ?, ?, ?, ?, ?)', sha256(token), benutzerId, t, t, b ? sha256(b) : null, bis ? 'woche' : 'normal', bis);
+  return bindung ? { token, bindung: b, bis } : token;
+}
+
+/**
+ * 15.28: Gerätewahl in „Mehr“ von „Eigenes Handy“ auf „Geteiltes Gerät“ – die Wochen-Sitzung gilt ab sofort nach den normalen
+ * Regeln (Untätigkeit je Rolle und Höchstdauer, gezählt ab jetzt; das Wochenende `bis` bleibt als Obergrenze). Der umgekehrte
+ * Weg verlängert nie: „Eigenes Handy“ gilt erst ab der nächsten Anmeldung mit PIN. → true, wenn sich etwas geändert hat
+ */
+function sitzungAufNormal(db, token, jetzt) {
+  if (!token || !/^[0-9a-f]{64}$/.test(token)) return false;
+  const t = jetzt.toISOString();
+  return db.lauf("UPDATE sitzung SET art = 'normal', erstellt = ?, letzte_aktivitaet = ? WHERE token_hash = ? AND art = 'woche'", t, t, sha256(token)).changes > 0;
 }
 
 function beendeSitzung(db, token) {
@@ -158,12 +185,17 @@ function istHttps(req) {
   return Boolean(req.secure);
 }
 
-function setzeCookie(req, res, token, bindung = null) {
-  const teile = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict'];
+/**
+ * @param {number|null} maxAgeS  15.28: Wochen-Sitzung – beide Cookies halten bis zum Wochenende (Sekunden ab jetzt), damit der
+ *   Browser sie nicht beim Schließen der App verwirft; sonst Sitzungs-Cookies wie bisher.
+ */
+function setzeCookie(req, res, token, bindung = null, maxAgeS = null) {
+  const dauer = Number.isFinite(maxAgeS) && maxAgeS > 0 ? [`Max-Age=${Math.floor(maxAgeS)}`] : [];
+  const teile = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', ...dauer];
   if (istHttps(req)) teile.push('Secure');
   const liste = [teile.join('; ')];
   // 15.5: Bindungs-Cookie ohne HttpOnly – die App löscht es beim Abmelden selbst (auch offline)
-  const zweit = [`${BINDUNG}=${bindung || ''}`, 'Path=/', 'SameSite=Strict', ...(bindung ? [] : ['Max-Age=0'])];
+  const zweit = [`${BINDUNG}=${bindung || ''}`, 'Path=/', 'SameSite=Strict', ...(bindung ? dauer : ['Max-Age=0'])];
   if (istHttps(req)) zweit.push('Secure');
   liste.push(zweit.join('; '));
   res.setHeader('Set-Cookie', liste);
@@ -185,19 +217,25 @@ function hashGleich(a, b) {
 
 /**
  * Ist die Sitzung abgelaufen (Konto inaktiv, Untätigkeit je Rolle, Höchstdauer)? `s` braucht aktiv, rolle, erstellt,
- * letzte_aktivitaet. Dieselbe Regel gilt beim Laden der Sitzung und vor jedem Push-Versand (G2-019).
+ * letzte_aktivitaet (15.28: dazu art, bis). Dieselbe Regel gilt beim Laden der Sitzung und vor jedem Push-Versand (G2-019).
+ * 15.28: art „woche“ gilt ohne Untätigkeitsgrenze und ohne Höchstdauer bis `bis` (Montag 00:00 Wiener Zeit); `bis` ist auch für
+ * eine danach auf „normal“ gestellte Sitzung die Obergrenze. Fehlt `bis` bei „woche“, ist die Sitzung abgelaufen.
  */
 function sitzungAbgelaufen(s, jetzt, konfig = sitzungsKonfig()) {
   const t = jetzt.getTime();
+  if (!s.aktiv) return true;
+  const bis = s.bis == null ? null : new Date(s.bis).getTime();
+  if (bis !== null && !(Number.isFinite(bis) && t < bis)) return true;
+  if (s.art === 'woche') return bis === null;
   const inaktivMs = inaktivMinuten(s.rolle, konfig) * 60000;
   const letzte = new Date(s.letzte_aktivitaet).getTime(), erstellt = new Date(s.erstellt).getTime();
-  return !s.aktiv || !Number.isFinite(letzte) || !Number.isFinite(erstellt) || t - letzte > inaktivMs || t - erstellt > konfig.maxH * 3600000;
+  return !Number.isFinite(letzte) || !Number.isFinite(erstellt) || t - letzte > inaktivMs || t - erstellt > konfig.maxH * 3600000;
 }
 
 /** G2-019: abgelaufene Sitzungen löschen (stündlich) – mit ihnen enden über den Trigger auch ihre Push-Abos → Anzahl */
 function abgelaufeneSitzungenLoeschen(db, jetzt, konfig = sitzungsKonfig()) {
   let n = 0;
-  for (const s of db.alle('SELECT s.token_hash, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id')) {
+  for (const s of db.alle('SELECT s.token_hash, s.erstellt, s.letzte_aktivitaet, s.art, s.bis, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id')) {
     if (sitzungAbgelaufen(s, jetzt, konfig)) n += db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash).changes;
   }
   return n;
@@ -205,11 +243,12 @@ function abgelaufeneSitzungenLoeschen(db, jetzt, konfig = sitzungsKonfig()) {
 
 /**
  * Lädt Benutzer zur Sitzung (oder null). Aktualisiert die letzte Aktivität.
+ * @param {object} [aus]  15.28: erhält {art, bis} der geladenen Sitzung (für GET /auth/ich)
  */
-function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = undefined) {
+function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = undefined, aus = null) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
   const h = sha256(token);
-  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, s.bindung_hash, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
+  const s = db.eins('SELECT s.token_hash, s.letzte_aktivitaet, s.erstellt AS sitzung_erstellt, s.bindung_hash, s.art AS sitzung_art, s.bis AS sitzung_bis, b.* FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', h);
   if (!s) return null;
   // 15.5 (F-029): gebundene App-Sitzung ohne passendes Bindungs-Cookie (z. B. nach dem Abmelden ohne Netz) → Sitzung endet
   if (s.bindung_hash && !(typeof bindung === 'string' && /^[0-9a-f]{64}$/.test(bindung) && hashGleich(sha256(bindung), s.bindung_hash))) {
@@ -217,14 +256,15 @@ function ladeSitzung(db, token, jetzt, konfig = sitzungsKonfig(), bindung = unde
     return null;
   }
   const t = jetzt.getTime();
-  if (sitzungAbgelaufen({ ...s, erstellt: s.sitzung_erstellt }, jetzt, konfig)) {
+  if (sitzungAbgelaufen({ ...s, erstellt: s.sitzung_erstellt, art: s.sitzung_art, bis: s.sitzung_bis }, jetzt, konfig)) {
     db.lauf('DELETE FROM sitzung WHERE token_hash = ?', h); // G2-019: der Trigger sitzung_ende_push löscht die Push-Abos dieser Sitzung
     return null;
   }
   if (t - new Date(s.letzte_aktivitaet).getTime() > 30 * 1000) {
     db.lauf('UPDATE sitzung SET letzte_aktivitaet = ? WHERE token_hash = ?', jetzt.toISOString(), h);
   }
-  const { token_hash, letzte_aktivitaet, sitzung_erstellt, bindung_hash, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
+  if (aus) { aus.art = s.sitzung_art === 'woche' ? 'woche' : 'normal'; aus.bis = s.sitzung_bis || null; }
+  const { token_hash, letzte_aktivitaet, sitzung_erstellt, bindung_hash, sitzung_art, sitzung_bis, pin_hash, ...benutzer } = s; // eslint-disable-line no-unused-vars
   return benutzer;
 }
 
@@ -235,9 +275,11 @@ function sitzungMiddleware(bt) {
     const token = cookies[COOKIE];
     // 15.5: Inhaber des Tokens (auch einer abgelaufenen/ungebundenen Sitzung) – nur für das Abmelden (Push-Abo des Geräts)
     req.tokenBenutzerId = req.path.toLowerCase() === '/auth/logout' && token && /^[0-9a-f]{64}$/.test(token) ? (bt.db.eins('SELECT benutzer_id FROM sitzung WHERE token_hash = ?', sha256(token)) || {}).benutzer_id ?? null : null;
-    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung, cookies[BINDUNG]);
+    const art = {};
+    const benutzer = ladeSitzung(bt.db, token, bt.uhr(), bt.sitzung, cookies[BINDUNG], art);
     req.token = token;
     req.ctx = benutzer ? kontext(bt.db, benutzer) : null;
+    req.sitzungArt = benutzer ? art : null; // 15.28: {art: 'woche'|'normal', bis} – nur Lebensdauer, nie Rechte
     // 15.5 (F-030): nachgesendete Einträge nennen ihren Ersteller – nie unter der Sitzung einer anderen Person annehmen
     const ersteller = req.headers[ERSTELLER_KOPF];
     if (ersteller !== undefined && req.ctx && String(ersteller).trim() !== String(req.ctx.benutzer.id)) {
@@ -458,6 +500,7 @@ class LoginBremse {
 module.exports = { kontoStufe, entsperrHinweis,
   COOKIE, BINDUNG, ERSTELLER_KOPF, ICH_KOPF, INAKTIV_MS, MAX_FEHLVERSUCHE, KONTO_MAX_FEHLVERSUCHE, ZF_MAX_FEHLVERSUCHE, IP_TABELLE_MAX, ipSchluessel, KONTO_SPERRSTUFEN_MS, SPERRE_MS, SPERRSTUFEN_MS, DUMMY_HASH, FELD_ROLLEN,
   sitzungsKonfig, inaktivMinuten, sperreMinuten, pinFehler, pinMinLaenge, PIN_MIN, sitzungAbgelaufen, abgelaufeneSitzungenLoeschen, sha256,
+  wochenEnde, istWochenWahl, sitzungAufNormal,
   hashPin, hashPinSync, pruefePin, neueSitzung, beendeSitzung, beendeAlleSitzungen, leseCookies,
   setzeCookie, loescheCookie, ladeSitzung, sitzungMiddleware, angemeldet, LoginBremse
 };

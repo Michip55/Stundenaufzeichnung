@@ -54,8 +54,11 @@ export function bindungLoeschen() {
 }
 
 // 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ – je Gerät, bleibt beim Abmelden erhalten. Die Wahl ändert nur die
-// Sperre nach Untätigkeit AM GERÄT (und das stille Wiedereinschalten von Push); der Server erfährt sie nicht und vertraut ihr
-// nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.
+// Sperre nach Untätigkeit AM GERÄT (und das stille Wiedereinschalten von Push); ~~der Server erfährt sie nicht und vertraut ihr
+// nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.~~
+// Ersetzt durch 15.28 (Inhaber 19.11.2026): die Anmeldung sendet die Wahl (`geraet`); mit „eigen“ gilt die Sitzung am Server bis
+// Sonntag 24:00 (Montag 00:00 Wiener Zeit) ohne Untätigkeitsgrenze – für jede Rolle. Rechte hängen nie davon ab; ein Wechsel auf
+// „geteilt“ in „Mehr“ kürzt die Sitzung sofort (POST /auth/geraet), „eigen“ gilt erst ab der nächsten Anmeldung mit PIN.
 // 15.21 (Inhaber 17.11.2026): Standard auf der Anmeldeseite ist „Eigenes Handy“; „Geteiltes Gerät“ wird für das Gerät gemerkt.
 export const GERAET_ART = 'bt_geraet_art';
 // 15.12 (G2-021): für wen „Eigenes Handy“ gilt (Benutzer-ID der Person, die sich damit angemeldet bzw. es gewählt hat)
@@ -148,10 +151,13 @@ export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArtFuer(ben
  * Minuten ohne Bedienung, nach denen die App am Gerät abmeldet (15.5/15.8). „geteilt“: `sperreMinuten` des Servers
  * (Mitarbeiter/Polier 30, Büro/Bauleiter/GF wie die Sitzung). „eigen“: die Sitzungsdauer des Servers (`sitzungMinuten`) –
  * keine zusätzliche Sperre am Gerät, aber nie länger, als der Server die Sitzung ohnehin hält. Fehlt sie (alter Stand), bleibt die Sperre.
+ * 15.28: „eigen“ mit Wochen-Sitzung (`sitzungArt: "woche"`) → 0 = keine Abmeldung nach Untätigkeit am Gerät; die Sitzung endet
+ * am Server am Montag 00:00 (dann 401 → Anmeldeseite).
  */
 export function sperreMinutenFuer(ich, art) {
   if (!ich) return 0;
   const geteilt = Number(ich.sperreMinuten) > 0 ? Number(ich.sperreMinuten) : 0;
+  if (art === 'eigen' && ich.sitzungArt === 'woche') return 0;
   if (art !== 'eigen' || !geteilt) return geteilt;
   const sitzung = Number(ich.sitzungMinuten) > 0 ? Number(ich.sitzungMinuten) : 0;
   return Math.max(geteilt, sitzung);
