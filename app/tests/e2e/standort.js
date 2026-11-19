@@ -266,6 +266,10 @@ async function laufe(browser, g) {
     await w.page.waitForSelector('.clock-card[data-status="pause"]');
     const p7 = letzte(4);
     pruef(p7.typ === 'pause_start' && p7.lat === null && Date.now() - t7 < 4000, `Langsam: Pause nicht sofort gebucht (${JSON.stringify(p7)}, ${Date.now() - t7} ms)`);
+    // 15.28: am „Eigenen Handy“ (Standard der Anmeldeseite) ist das eine Wochen-Sitzung – das wartende Abmelden beendet auch sie
+    const woche = () => s.db.alle("SELECT art FROM sitzung WHERE benutzer_id = 4").map((x) => x.art);
+    const wocheWeg = async () => { for (let i = 0; i < 30 && woche().length; i++) await w.page.waitForTimeout(100); return woche().length === 0; }; // Abmelden geht gerade hinaus
+    pruef(woche().join() === 'woche', `Vorbedingung: Roland hat keine Wochen-Sitzung (${JSON.stringify(woche())})`);
     await w.geh('#/mehr');
     await w.page.click('#abmelden');
     let warte = '';
@@ -276,6 +280,7 @@ async function laufe(browser, g) {
     const p7b = s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', p7.id);
     pruef(nahe(p7b), `Sofort abmelden: Standort ging verloren (${JSON.stringify(p7b)})`);
     pruef((await w.api('/auth/ich')).status === 401, 'Sofort abmelden: Sitzung danach noch gültig');
+    pruef(await wocheWeg(), `Sofort abmelden: Wochen-Sitzung bleibt am Server bestehen (${JSON.stringify(woche())})`);
     pruef(await gemerkt() === null, 'Sofort abmelden: Nachtrag bleibt am Gerät gemerkt');
     // App gleich nach dem Stempeln neu laden
     await w.anmelden(4);
@@ -316,6 +321,7 @@ async function laufe(browser, g) {
     await w.page.waitForSelector('.login-user, #login-suche', { timeout: 10000 });
     pruef(Date.now() - t8 < 2500, `„Nicht warten“: Abmelden dauerte ${Date.now() - t8} ms`);
     await w.page.waitForTimeout(5500);
+    pruef(await wocheWeg(), `„Nicht warten“: Wochen-Sitzung bleibt am Server bestehen (${JSON.stringify(woche())})`);
     const p8b = s.db.eins('SELECT id, typ, lat FROM buchung WHERE id = ?', p8.id);
     pruef(p8b.typ === 'pause_start' && p8b.lat === null && !w.anfragen.some((x) => /\/standort$/.test(x.url)), `„Nicht warten“: Standort trotzdem gesendet (${JSON.stringify({ p8b, a: w.anfragen.map((x) => x.url) })})`);
     pruef(await gemerkt() === null, '„Nicht warten“: Nachtrag bleibt am Gerät gemerkt');
