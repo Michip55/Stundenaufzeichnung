@@ -248,13 +248,16 @@ export default async function dashboard(el, ctx) {
   const oben = planInfo && planInfo.oben;
   const spalte = (html) => `<div class="ue-spalte">${html}</div>`;
   // Prüfbefund n8-s: bliebe eine Spalte leer (z. B. ohne Berichtsrechte und ohne Einteilung nach einer Änderung der Rechte),
-  // stehen die Abschnitte der anderen direkt im Raster nebeneinander – keine leere rechte Hälfte
-  const links = heuteHtml() + geldHtml(), rechts = freigabeHtml() + (planer && !oben ? planKarte() : '');
+  // stehen die Abschnitte der anderen direkt im Raster nebeneinander – keine leere rechte Hälfte. Prüfbefund n8-l: bleibt nur ein
+  // einziger Abschnitt (z. B. nur „Heute“), liegt er über beide Spalten.
+  const linksT = [heuteHtml(), geldHtml()].filter((x) => x.trim()), rechtsT = [freigabeHtml(), planer && !oben ? planKarte() : ''].filter((x) => x.trim());
+  const links = linksT.join(''), rechts = rechtsT.join('');
+  const teile = linksT.length + rechtsT.length;
   el.innerHTML = `
   <div class="page ue-page" id="ue">
     <div class="ue-voll">${kopf}</div>
     ${oben ? `<div class="ue-voll">${planKarte()}</div>` : ''}
-    ${links.trim() && rechts.trim() ? spalte(links) + spalte(rechts) : links + rechts}
+    ${links && rechts ? spalte(links) + spalte(rechts) : teile === 1 ? `<div class="ue-voll ue-allein">${links + rechts}</div>` : links + rechts}
   </div>`;
 
   /* ---------- Bedienung ---------- */

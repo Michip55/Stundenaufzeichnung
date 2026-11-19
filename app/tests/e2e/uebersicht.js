@@ -15,6 +15,7 @@
  *     Polier und Mitarbeiter ohne Ausnahme sehen sie gar nicht.
  *  7. Prüfbefunde n8-s: klassische Übersicht – zweite Kachelreihe direkt unter der ersten; Büro ohne Berichtsrechte und ohne
  *     Stammdaten (Rechte-Matrix) – „Heute“ und „Rechnungen“ ab 720 px nebeneinander, keine leere rechte Hälfte.
+ *     Prüfbefund n8-l: dazu ohne Kalkulation und Preise – der einzige Abschnitt „Heute“ liegt über die ganze Breite.
  */
 const { chromium } = require('playwright');
 const { starte, U, BS, START } = require('../api/hilfe');
@@ -223,6 +224,18 @@ async function laufe(browser, g) {
         else pruef(lage.heute.unten <= lage.geld.oben && Math.abs(lage.geld.links - lage.heute.links) < 2, `${wo}: am Handy nicht Heute – Rechnungen untereinander (${JSON.stringify(lage)})`);
       } else pruef(false, `${wo}: Abschnitte für die Lageprüfung fehlen (${JSON.stringify(lage)})`);
       pruef(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth) <= 1, `${wo}: horizontaler Überlauf`);
+    });
+
+    /* ---------------- Prüfbefund n8-l: dazu ohne Kalkulation und Preise – nur noch „Heute“, über beide Spalten ---------------- */
+    for (const recht of ['kalk_sehen', 'preise_sehen']) { const r = await gf.put('/rechte/matrix', { rolle: 'buero', recht, wert: false }); if (r.status >= 300) throw new Error(`Matrix ${recht}: ${r.status}`); }
+    await sitzung(U.buero, async ({ page, geh }) => {
+      const wo = `Übersicht Büro nur „Heute“/${g.name}`;
+      await geh('/dashboard');
+      pruef(await page.locator('#ue').count() === 1 && await page.locator('#ue-freigabe, #ue-plan, #bv-kacheln').count() === 0 && await page.locator('#ue-heute').count() === 1, `${wo}: Vorbedingung – Abschnitte ${JSON.stringify(await page.locator('#ue section, #ue [id]').evaluateAll((l) => l.map((e) => e.id)))}`);
+      const lage = await page.evaluate(() => { const h = document.getElementById('ue-heute').getBoundingClientRect(), ue = document.getElementById('ue'), p = ue.getBoundingClientRect(), st = getComputedStyle(ue); return { heute: { links: Math.round(h.left), rechts: Math.round(h.right) }, seite: { links: Math.round(p.left + parseFloat(st.paddingLeft)), rechts: Math.round(p.right - parseFloat(st.paddingRight)) } }; });
+      pruef(Math.abs(lage.heute.links - lage.seite.links) < 2 && Math.abs(lage.heute.rechts - lage.seite.rechts) < 2, `${wo}: einziger Abschnitt nicht über die ganze Breite – rechte Hälfte leer (${JSON.stringify(lage)})`);
+      pruef(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth) <= 1, `${wo}: horizontaler Überlauf`);
+      pruef(!/€|\bEUR\b/.test(await page.evaluate(() => document.getElementById('ue').innerText)), `${wo}: € sichtbar ohne Kalkulation und Preise`);
     });
   } finally { await s.stop(); }
   return { fehler, schritte };

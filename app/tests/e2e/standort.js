@@ -24,7 +24,9 @@
  *     ein Fenster-Fokus schickt das Abmelden nicht vor dem Standort hinaus; Seite beim Warten geschlossen → Sitzung (auch die
  *     Wochen-Sitzung) beendet, keine Daten der Person am Gerät, /api/auth/ich 401; App beim Warten abgestürzt → beim nächsten
  *     Öffnen fertig abgemeldet und aufgeräumt. Prüfbefund n8-s (9e): Buchung wartet in der Warteschlange (Server nicht erreichbar),
- *     sofort abgemeldet → nach der Ortung geht die Buchung samt Standort noch vor dem Abmelden hinaus.
+ *     sofort abgemeldet → nach der Ortung geht die Buchung samt Standort noch vor dem Abmelden hinaus. Prüfbefund n8-l (9f): zwei
+ *     Buchungen in der Warteschlange, die erste wird beim Abmelden gerade langsam nachgesendet, die zweite wartet auf die Ortung →
+ *     das Abmelden wartet auch auf den Folgelauf, beide kommen samt Standort vor dem Logout an.
  *  8. Zusammen mit „Pause beim Gehen“ (15.27), Fabian: Gehen → Dialog → 30 Min → eine Stempel-Anfrage mit pauseBeimGehen,
  *     danach der Standort an der Gehen-Buchung (nicht an den nachgetragenen Pausenbuchungen).
  */
@@ -490,6 +492,59 @@ async function laufe(browser, g) {
     pruef((await qG()).length === 0, `9e: Buchung bleibt in der Warteschlange (${JSON.stringify(await qG())})`);
     pruef(await warteBis(() => sitzungen() === 0, 3000), `9e: Sitzung danach noch am Server (${sitzungen()})`);
     await g9.zu('Wartende Buchung beim Abmelden');
+
+    // 9f) Prüfbefund n8-l: zwei Buchungen in der Warteschlange – die erste (Standort schon ermittelt) wird beim Abmelden gerade
+    // langsam nachgesendet, die zweite wartet noch auf die Ortung. Der laufende Lauf bricht bei der wartenden ab; das Abmelden
+    // wartet auch auf den Folgelauf mit der georteten zweiten Buchung – beide kommen (mit Standort) vor dem Logout an.
+    const h9 = await kontext({ langsamMs: 5000 });
+    await h9.anmelden(4);
+    const reiheH = [];
+    h9.page.on('request', (r) => { const u = r.url(); if (u.includes('/api/') && r.method() !== 'GET') reiheH.push(`${r.method()} ${u.replace(/^.*\/api/, '').replace(/\?.*$/, '')}`); });
+    await h9.geh('#/stempeln');
+    await h9.page.waitForSelector('.clock-card[data-status="arbeit"], .clock-card[data-status="pause"]');
+    const vorH = letzte(4);
+    let modusH = 'abbruch', ersteH = true;
+    await h9.page.route('**/api/zeit/stempeln', async (r) => {
+      if (r.request().method() !== 'POST') return r.continue();
+      if (modusH === 'abbruch') return r.abort('internetdisconnected');
+      if (ersteH) { ersteH = false; await new Promise((ok) => setTimeout(ok, 7000)); } // langsame Verbindung: die erste braucht 7 s
+      return r.continue();
+    });
+    const qH = () => h9.page.evaluate(() => JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'));
+    const pauseH = async (typ) => {
+      await h9.page.click(`[data-stempel="${typ}"]`);
+      if (typ === 'pause_start') { await h9.page.waitForSelector('dialog[open] #pause-wahl'); await h9.page.click('dialog[open] [data-pause-min="offen"]'); }
+    };
+    const typH1 = (await h9.page.locator('[data-stempel="pause_ende"]').count()) ? 'pause_ende' : 'pause_start';
+    const typH2 = typH1 === 'pause_ende' ? 'pause_start' : 'pause_ende';
+    await pauseH(typH1);
+    try { await h9.page.waitForFunction(() => { const q = JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'); return q.length === 1 && q[0].standort && q[0].standortWartet === undefined; }, null, { timeout: 9000 }); } catch (e) { /* unten geprüft */ }
+    await h9.page.waitForSelector(`[data-stempel="${typH2}"]`, { timeout: 5000 });
+    await pauseH(typH2);
+    try { await h9.page.waitForFunction(() => { const q = JSON.parse(localStorage.getItem('bt_stempel_queue') || '[]'); return q.length === 2 && typeof q[1].standortWartet === 'number'; }, null, { timeout: 4000 }); } catch (e) { /* unten geprüft */ }
+    const qH1 = await qH();
+    pruef(qH1.length === 2 && qH1[0].typ === typH1 && !!qH1[0].standort && qH1[0].standortWartet === undefined && qH1[1].typ === typH2 && typeof qH1[1].standortWartet === 'number',
+      `Vorbedingung 9f: nicht eine geortete und eine wartende Buchung in der Warteschlange (${JSON.stringify(qH1)})`);
+    modusH = 'langsam'; // Verbindung wieder da, aber langsam
+    reiheH.length = 0;
+    await h9.page.evaluate(() => window.dispatchEvent(new Event('online'))); // Nachsenden der ersten beginnt
+    await h9.geh('#/mehr');
+    await h9.page.click('#abmelden');
+    const dH = h9.page.locator('dialog[open] .btn.primary, dialog[open] .btn.danger');
+    try { await dH.first().waitFor({ timeout: 1500 }); await dH.first().click(); } catch (e) { /* keine Rückfrage */ }
+    let warteH = 0;
+    try { await h9.page.waitForSelector('#abmelden-standort', { timeout: 3000 }); warteH = 1; } catch (e) { /* unten geprüft */ }
+    pruef(warteH === 1, '9f: kein „Standort wird noch gesendet …“ beim Abmelden mit wartender Buchung');
+    await h9.page.waitForSelector('.login-user, #login-suche', { timeout: 30000 });
+    await h9.page.waitForTimeout(500);
+    const neuH = s.db.alle('SELECT id, typ, quelle, lat, lng, genauigkeit FROM buchung WHERE benutzer_id = 4 AND id > ? ORDER BY id', vorH.id);
+    pruef(neuH.length === 2 && neuH[0].typ === typH1 && neuH[1].typ === typH2 && neuH.every((x) => x.quelle === 'offline' && nahe(x)),
+      `9f: nicht beide Buchungen (mit Standort) vor dem Abmelden angekommen (${JSON.stringify({ neuH, reihe: reiheH })})`);
+    const iSt2H = reiheH.lastIndexOf('POST /zeit/stempeln'), iAbH = reiheH.indexOf('POST /auth/logout');
+    pruef(reiheH.filter((x) => x === 'POST /zeit/stempeln').length >= 2 && iAbH > iSt2H, `9f: Abmelden vor dem Folgelauf gesendet (${JSON.stringify(reiheH)})`);
+    pruef((await qH()).length === 0, `9f: Buchung bleibt in der Warteschlange (${JSON.stringify(await qH())})`);
+    pruef(await warteBis(() => sitzungen() === 0, 3000), `9f: Sitzung danach noch am Server (${sitzungen()})`);
+    await h9.zu('Zwei Buchungen in der Warteschlange beim Abmelden');
 
     /* ---- 8) Zusammen mit „Pause beim Gehen“ (15.27): Standort an der Gehen-Buchung, nicht an der nachgetragenen Pause ---- */
     s.uhr.plus(300); // Fabian ist seit 6) eingestempelt (ohne Pause) – 5 Std. später gehen, die Pause passt in die Schicht

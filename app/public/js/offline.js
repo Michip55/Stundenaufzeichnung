@@ -57,7 +57,15 @@ export function standortZurBuchung(nr, standort) {
     const { standortWartet, ...rest } = e; // eslint-disable-line no-unused-vars
     return standort ? { ...rest, standort } : rest;
   }));
-  if (gefunden && navigator.onLine !== false) lauf.then(() => nachsenden()); // nach einem gerade laufenden Nachsenden
+  if (gefunden && navigator.onLine !== false) {
+    // nach einem gerade laufenden Nachsenden (das bei dieser Buchung abbricht). Prüfbefund n8-l: der Folgelauf gehört sofort zu
+    // `lauf`, damit nachsendenFertig() – wartendes Abmelden, Versiegeln – auch auf ihn wartet und nicht nur auf den laufenden.
+    const folge = lauf.then(() => {
+      if (lauf === folge) lauf = Promise.resolve(); // nachsenden() gibt sonst ohne neuen Lauf `folge` selbst zurück (wartet ewig)
+      return nachsenden();
+    }).catch(() => {});
+    lauf = folge;
+  }
   return gefunden;
 }
 function ablehnen(e, err) {
