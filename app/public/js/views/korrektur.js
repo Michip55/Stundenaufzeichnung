@@ -18,10 +18,12 @@ export default async function korrektur(el, ctx) {
   const ichId = ctx.ich.benutzer.id;
   const gfSelbst = ctx.ich.benutzer.rolle === 'gf'; // rolle-ok: Vorbehalt der GF (15.29) wie Archiv aufheben, Server entscheidet
   const leute = gfSelbst ? alle : alle.filter((m) => m.id !== ichId);
-  // Vorauswahl ohne Angabe: eine andere Person (die eigenen Zeiten wählt die GF ausdrücklich)
+  // Vorauswahl ohne Angabe: eine andere Person (die eigenen Zeiten wählt die GF ausdrücklich);
+  // gibt es keine andere aktive Person, nimmt die GF ihre eigenen Zeiten (sonst stünde ihr Name gewählt da, ohne geladen zu sein)
   const aktive = leute.filter((m) => m.aktiv !== false && m.id !== ichId);
-  let benutzerId = Number(ctx.query.get('benutzerId')) || speicher.lies('bt_korr_ma') || (aktive[0] && aktive[0].id);
-  if (!leute.some((m) => m.id === benutzerId)) benutzerId = aktive[0] && aktive[0].id;
+  const vorwahl = aktive[0] ? aktive[0].id : gfSelbst ? ichId : undefined;
+  let benutzerId = Number(ctx.query.get('benutzerId')) || speicher.lies('bt_korr_ma') || vorwahl;
+  if (!leute.some((m) => m.id === benutzerId)) benutzerId = vorwahl;
   let bis = ctx.query.get('bis') || wienHeute();
   let von = ctx.query.get('von') || fmt.addTage(bis, -13);
   let liste = [], schichten = [];

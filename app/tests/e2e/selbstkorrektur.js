@@ -10,6 +10,7 @@
  *     „Eigene Zeiten – wird im Protokoll als Selbstkorrektur vermerkt.“; Grund bleibt Pflicht.
  *  2. Nach dem Speichern tragen Schicht und Buchungen das Kennzeichen „Selbstkorrektur GF“, ebenso Benutzer → Protokoll.
  *  3. GF für eine andere Person: kein Hinweis, kein Kennzeichen.
+ *     Ist die GF die einzige wählbare Person (ohne gemerkte Wahl), sind ihre eigenen Zeiten gewählt und geladen.
  *  4. Büro: der eigene Name steht nicht zur Wahl, die Adresse mit der eigenen ID zeigt eine andere Person, der Server lehnt ab (403).
  *     Das Büro sieht an den Zeiten der GF das Kennzeichen.
  */
@@ -147,6 +148,29 @@ async function laufe(browser, g) {
       pruef(await zeilen.count() === 4, `GF/${g.name}: Protokoll zeigt ${await zeilen.count()} statt 4 Selbstkorrekturen`);
       pruef(await page.locator('#protokoll li [data-selbstkorrektur]').count() === 4, `GF/${g.name}: Protokoll ohne Kennzeichen „Selbstkorrektur GF“`);
       await ueberlauf('GF Protokoll');
+
+      // 1b) GF als einzige wählbare Person (frische Einrichtung, alle anderen inaktiv) und keine gemerkte Wahl:
+      //     die eigenen Zeiten sind gewählt und geladen, die Dialoge zeigen Namen und Hinweis
+      await page.evaluate(() => localStorage.removeItem('bt_korr_ma'));
+      await page.route('**/api/mitarbeiter', async (route) => {
+        const antwort = await route.fetch();
+        const alle = await antwort.json();
+        await route.fulfill({ response: antwort, json: alle.filter((m) => m.id === U.gf) });
+      });
+      await geh('/korrektur?von=2026-11-01&bis=2026-11-12');
+      await listeGeladen();
+      pruef(await page.locator('#k-ma option').count() === 1, `GF allein/${g.name}: Auswahl hat ${await page.locator('#k-ma option').count()} statt 1 Eintrag`);
+      pruef(Number(await page.locator('#k-ma').inputValue()) === U.gf, `GF allein/${g.name}: eigene Zeiten nicht gewählt`);
+      pruef(!/Keine Mitarbeiter vorhanden/.test(await page.locator('#view').innerText()), `GF allein/${g.name}: „Keine Mitarbeiter vorhanden.“ obwohl die GF gewählt ist`);
+      pruef(await page.locator('#k-schichtliste li[data-schicht] [data-selbstkorrektur]').count() === 1, `GF allein/${g.name}: eigene Schicht nicht geladen`);
+      await page.locator('#k-schicht').click();
+      await page.waitForSelector('#sf', { timeout: 5000 });
+      const kopf = await dlg(page).innerText();
+      pruef(/Ganze Schicht nachtragen – \S/.test(kopf), `GF allein/${g.name}: Dialog ohne Namen`);
+      pruef(await hinweisIm(page), `GF allein/${g.name}: Dialog ohne Hinweis „${HINWEIS}“`);
+      await dlg(page).locator('[data-zu]').first().click();
+      await page.waitForTimeout(200);
+      await page.unroute('**/api/mitarbeiter');
     });
 
     // 3) GF korrigiert eine andere Person über die Oberfläche: kein Kennzeichen
