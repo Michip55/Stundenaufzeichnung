@@ -143,7 +143,7 @@ const TTL_MAX_S = 12 * 3600;
 function aboZustellbar(bt, abo) {
   const { db } = bt;
   if (!abo.sitzung_hash) return null;
-  const s = db.eins('SELECT s.token_hash, s.benutzer_id, s.erstellt, s.letzte_aktivitaet, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', abo.sitzung_hash);
+  const s = db.eins('SELECT s.token_hash, s.benutzer_id, s.erstellt, s.letzte_aktivitaet, s.art, s.bis, b.rolle, b.aktiv FROM sitzung s JOIN benutzer b ON b.id = s.benutzer_id WHERE s.token_hash = ?', abo.sitzung_hash);
   if (!s || s.benutzer_id !== abo.benutzer_id) return null;
   const k = bt.sitzung || auth.sitzungsKonfig();
   const jetzt = bt.uhr();
@@ -151,10 +151,13 @@ function aboZustellbar(bt, abo) {
     db.lauf('DELETE FROM sitzung WHERE token_hash = ?', s.token_hash);
     return null;
   }
-  if (Number(abo.geteilt) === 0) return { ttl: TTL_MAX_S };
+  // 15.28: Wochen-Sitzung (eigenes Handy) – die Haltedauer endet spätestens mit der Sitzung (Montag 00:00 Wiener Zeit)
+  const bisRest = s.bis ? new Date(s.bis).getTime() - jetzt.getTime() : null;
+  const ttlMax = bisRest !== null ? Math.max(1, Math.min(TTL_MAX_S, Math.floor(bisRest / 1000))) : TTL_MAX_S;
+  if (Number(abo.geteilt) === 0) return { ttl: ttlMax };
   const rest = auth.sperreMinuten(s.rolle, k) * 60000 - (jetzt.getTime() - new Date(s.letzte_aktivitaet).getTime());
   if (!(rest > 0)) return null;
-  return { ttl: Math.max(1, Math.min(TTL_MAX_S, Math.floor(rest / 1000))) };
+  return { ttl: Math.max(1, Math.min(ttlMax, Math.floor(rest / 1000))) };
 }
 
 /** 15.16 (H-S3): stündlich – Abos geteilter Geräte, deren Sitzung länger als die Sperre nach Untätigkeit unbenutzt ist, löschen → Anzahl */

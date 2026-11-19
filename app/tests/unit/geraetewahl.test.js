@@ -104,3 +104,35 @@ test('15.8 / 15.21: Auswahl in der Oberfläche – zwei Optionen, gewählte mark
   assert.doesNotMatch(anm, /bestätigen|wieder ein „Geteiltes Gerät“/);
   assert.match(U.geraetWahl('geteilt', { anmeldeseite: true }), /30 Minuten/);
 });
+
+test('15.28: Wochen-Sitzung am eigenen Handy – keine Abmeldung nach Untätigkeit am Gerät; geteilt unverändert', async () => {
+  const A = await modul('api.js');
+  for (const rolle of ['mitarbeiter', 'polier', 'bauleiter', 'buero', 'gf']) {
+    const feld = ['mitarbeiter', 'polier'].includes(rolle);
+    const ich = { benutzer: { rolle }, sperreMinuten: feld ? 30 : 60, sitzungMinuten: feld ? 720 : 60, sitzungArt: 'woche', sitzungBis: '2026-11-22T23:00:00.000Z' };
+    assert.equal(A.sperreMinutenFuer(ich, 'eigen'), 0, `${rolle}: eigenes Handy mit Woche → keine Sperre`);
+    assert.equal(A.sperreMinutenFuer(ich, 'geteilt'), feld ? 30 : 60, `${rolle}: geteiltes Gerät unverändert`);
+    for (const art of [undefined, null, '', 'EIGEN', 'x']) assert.equal(A.sperreMinutenFuer(ich, art), feld ? 30 : 60, `${rolle}/${art}`);
+    // normale Sitzung (z. B. als geteiltes Gerät angemeldet, danach in „Mehr“ eigen) → wie 15.8
+    assert.equal(A.sperreMinutenFuer({ ...ich, sitzungArt: 'normal' }, 'eigen'), feld ? 720 : 60, `${rolle}: normale Sitzung wie 15.8`);
+    assert.equal(A.sperreMinutenFuer({ ...ich, sitzungArt: undefined }, 'eigen'), feld ? 720 : 60, `${rolle}: alter Stand ohne sitzungArt wie 15.8`);
+  }
+});
+
+test('15.28: Texte – „Eigenes Handy“ sagt „bis Sonntag … am Montag einmal die PIN“, „Geteiltes Gerät“ unverändert', async () => {
+  const U = await modul('ui.js');
+  assert.match(U.GERAET_TEXT.eigen, /^Du bleibst bis Sonntag angemeldet\. Am Montag fragt die App einmal nach der PIN\./);
+  assert.equal(U.GERAET_TEXT.geteilt, 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.');
+  assert.match(U.geraetWahl('eigen', { anmeldeseite: true }), /Du bleibst bis Sonntag angemeldet\. Am Montag fragt die App einmal nach der PIN\./);
+  const mehr = U.geraetWahl('eigen', { klasse: 'im-menue', woche: true });
+  assert.match(mehr, /Du bleibst bis Sonntag angemeldet/);
+  assert.match(mehr, /data-woche="1"/);
+  assert.match(mehr, /Gilt für dich an diesem Gerät/);
+  const spaeter = U.geraetWahl('eigen', { klasse: 'im-menue', woche: false });
+  assert.match(spaeter, /data-woche="0"/);
+  assert.match(spaeter, /Gilt ab deiner nächsten Anmeldung mit PIN/);
+  assert.doesNotMatch(U.geraetWahl('eigen', { anmeldeseite: true }), /data-woche/);
+  // Namen der Optionen bleiben
+  assert.match(mehr, /<b>Eigenes Handy<\/b>/);
+  assert.match(mehr, /<b>Geteiltes Gerät<\/b>/);
+});

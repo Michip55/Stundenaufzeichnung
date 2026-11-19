@@ -165,7 +165,8 @@ test('15.12 G2-019/G2-032: Push nur, solange die Sitzung lebt, die das Abo angel
   });
 });
 
-test('15.12 G2-019: „Eigenes Handy“ – Abo lebt so lange wie die Sitzung (höchstens 24 h), nach neuer Anmeldung neu anlegbar', async (t) => {
+// ~~(höchstens 24 h)~~ – 15.28: die Anmeldung am „Eigenen Handy“ gilt bis Montag 00:00 Wiener Zeit; das Abo lebt genau so lange
+test('15.12 G2-019 / 15.28: „Eigenes Handy“ – Abo lebt so lange wie die Sitzung (bis Montag 00:00), nach neuer Anmeldung neu anlegbar', async (t) => {
   const s = await starte({ test: true, sitzung: BETRIEB });
   t.after(() => s.stop());
   const ep = 'https://handy.example.test/push/eigen-g2';
@@ -175,7 +176,10 @@ test('15.12 G2-019: „Eigenes Handy“ – Abo lebt so lange wie die Sitzung (h
   s.uhr.plus(10 * 60);
   const tag = meldung(s, U.polier, 'nach 10 h');
   assert.ok((await versand(s, ep)).some((p) => p.tag === tag), 'innerhalb der Sitzung zugestellt');
-  s.uhr.plus(12 * 60 + 1);
+  s.uhr.plus(12 * 60 + 1); // länger als die Untätigkeitsgrenze einer normalen Feld-Sitzung – die Woche gilt weiter
+  const tagW = meldung(s, U.polier, 'nach 22 h');
+  assert.ok((await versand(s, ep)).some((p) => p.tag === tagW), '15.28: Abo am eigenen Handy nach 22 h ohne Anfrage nicht mehr zugestellt');
+  s.uhr.setze('2026-11-15T23:00:00.000Z'); // Montag 16.11.2026, 00:00 Wiener Zeit – Ende der Woche
   meldung(s, U.polier, 'nach Ablauf');
   assert.deepEqual(await versand(s, ep), []);
   const b = await appLogin(s, U.polier, { pushEndpoint: ep });

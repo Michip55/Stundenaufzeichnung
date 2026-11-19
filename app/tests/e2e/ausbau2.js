@@ -227,7 +227,7 @@ async function stammdatenUndLebenslauf(h, z) {
     pruef(await page.locator('#bv-kacheln [data-kpi="schlussrechnungen"]').count() === 0 && !/Schlussrechnungen offen|Offene Posten/.test(await page.locator('#bv-kacheln').innerText()), 'A2-Leben/15.24: Übersicht spricht noch von „Schlussrechnungen offen“/„Offene Posten“ statt „Rechnungen“');
     const opZ = page.locator('#bv-kacheln [data-kpi="offene-posten"]');
     pruef(await opZ.count() === 1 && Number(await opZ.getAttribute('data-wert')) === (opS.anzahlOffen || 0) && /Rechnungen/.test(await opZ.innerText()), `A2-Leben/15.24: „Rechnungen“ in der Übersicht fehlt oder zählt anders als GET /offene-posten (${await opZ.count()})`);
-    pruef(await page.locator('#bv-kacheln a.ue-row[data-kpi="faelligkeiten"][href="#/faelligkeiten"]').count() === 1, 'A2-Leben/15.24: Zeile „Fälligkeiten“ fehlt in „Geld“');
+    pruef(await page.locator('#bv-kacheln a.ue-row[data-kpi="faelligkeiten"][href="#/faelligkeiten"]').count() === 1, 'A2-Leben/15.24: Zeile „Fälligkeiten“ fehlt in „Rechnungen“');
     pruef(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').count() === 1 && await page.locator('#bv-kacheln [data-kpi="gewaehrleistung"]').count() === 1, 'A2-Leben: Abnahme/Gewährleistung fehlen in der Übersicht');
     pruef(Number(await page.locator('#bv-kacheln [data-kpi="abnahme-ohne-rechnung"]').getAttribute('data-wert')) === kzS.abnahmeOhneSchlussrechnung, 'A2-Leben: Zahlen der Übersicht weichen vom Server ab');
   }
@@ -1860,6 +1860,8 @@ async function intern(h) {
   pruef((await status()).baustelleId === echte[0].id, 'Intern: Wechsel vom Büro auf eine echte Baustelle nicht gebucht');
   await h.toastWeg();
   await page.click('[data-stempel="gehen"]');
+  // 15.27: ohne gestempelte Pause fragt „Gehen“ nach der Pause – hier „Keine Pause“
+  await page.click('dialog[open] #pause-gehen [data-pg-keine]');
   await page.waitForFunction(async () => { const r = await fetch('/api/zeit/status'); return (await r.json()).status === 'aus'; });
   await geh('/woche');
   pruef(/Büro/.test(await page.locator('#view').innerText()), 'Intern: „Meine Woche“ nennt die Kostenstelle „Büro“ nicht');

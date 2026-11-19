@@ -25,7 +25,7 @@ export function bindeInstall(el, neuZeichnen) {
 }
 
 const THEMEN = [
-  { id: 'stempeln', recht: ['zeit_eigen'], icon: 'clock', titel: 'Stempeln', ziel: '/stempeln', schritte: ['Baustelle wählen (die App merkt sich die letzte).', 'Auf <b>Kommen</b> tippen – fertig. Pause und Gehen genauso.', 'Kein Netz? Einfach stempeln: Die Buchung wird gespeichert und später automatisch gesendet (oben steht dann „ausstehend“).'] },
+  { id: 'stempeln', recht: ['zeit_eigen'], icon: 'clock', titel: 'Stempeln', ziel: '/stempeln', schritte: ['Baustelle wählen (die App merkt sich die letzte).', 'Auf <b>Kommen</b> tippen – fertig. Pause und Gehen genauso.', 'Kein Netz? Einfach stempeln: Die Buchung wird gespeichert und später automatisch gesendet (oben steht dann „ausstehend“).', 'Pause vergessen? Beim <b>Gehen</b> fragt die App, wie lange die Pause war – Dauer antippen (Beginn ca. 12:00, änderbar) oder „Keine Pause“.'] },
   { id: 'kolonne', recht: ['kolonne'], icon: 'users', titel: 'Kolonne stempeln', ziel: '/kolonne', schritte: ['Baustelle und Art der Buchung wählen (Kommen, Pause, Gehen).', 'Die Leute der Partie anhaken, dann auf <b>buchen</b>.', 'Wer nicht gebucht werden konnte, steht mit Begründung in der Liste.'] },
   { id: 'bericht', recht: ['bericht_erstellen'], icon: 'clipboard', titel: 'Bautagesbericht schreiben', ziel: '/berichte', schritte: ['<b>Neuer Bericht</b> – Baustelle und Tag wählen. Das Personal kommt aus den Stempelungen.', 'Geräte, Material, Arbeitsleistung, Regie und Vorkommnisse eintragen. Es wird laufend gespeichert.', 'Am Ende unterschreiben: zuerst Sie, dann der Bauherr am Gerät. Danach ist der Inhalt gesperrt.'] },
   { id: 'freigabe', recht: ['bericht_freigeben'], icon: 'check', titel: 'Berichte prüfen und freigeben', ziel: '/berichte?status=unterschrieben', schritte: ['Unterschriebene Berichte stehen in der Übersicht unter „Berichte zur Freigabe“.', 'Bericht öffnen, prüfen, <b>Freigeben</b>. Erst dann zählt er in Nachkalkulation und Lohn.', 'Wer selbst für den Auftragnehmer unterschrieben hat, gibt nicht selbst frei (Vier-Augen-Prinzip).'] },
@@ -51,7 +51,7 @@ export default async function hilfe(el, ctx) {
         <li><b>PIN vergessen oder Konto gesperrt?</b> Das Büro setzt die PIN zurück bzw. entsperrt.</li>
         <li><b>PIN ändern:</b> unter „Mehr“ → „PIN ändern“. Die PIN kennt nur die Person selbst.</li>
         <li><b>Ohne Netz:</b> Stempeln und Schadensmeldungen werden am Gerät gespeichert und später gesendet. Alles andere braucht eine Verbindung.</li>
-        <li><b>Standort:</b> wird nur erfasst, wenn es unter „Mehr“ eingeschaltet ist – und nur im Moment des Stempelns.</li></ul></section>
+        <li id="hilfe-standort"><b>Standort beim Stempeln:</b> freiwillig – nur du selbst schaltest es unter „Mehr“ ein oder aus, und es bleibt für dich gespeichert (auch nach dem Abmelden, nie für andere am selben Gerät). Erfasst wird nur im Moment des Stempelns; unter der Uhr steht „Standort erfasst“, und das Büro sieht bei der Buchung, ob du bei der Baustelle warst. Schaltest du es aus, werden deine gespeicherten Standorte gelöscht.</li></ul></section>
     </div>`;
     bindeInstall(el, zeichne);
   }

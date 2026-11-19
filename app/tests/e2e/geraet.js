@@ -182,6 +182,22 @@ async function laufe(browser, g) {
     pruef(merker && merker.endpoint === EP1 && Object.keys(merker).sort().join() === 'endpoint,seit', `Abmelden am Server nicht (richtig) vorgemerkt: ${l.ls.bt_abmelden_offen}`);
     pruef((await abo()).abgemeldet === 1 && !(await abo()).aktiv, 'Push-Abo im Browser beim Abmelden nicht beendet');
     pruef(await page.locator('#view').count() === 0, 'App zeigt nach dem Abmelden noch Ansichten');
+    // Prüfbefund n8-s: die App später ohne Verbindung wieder öffnen (das Abmelden ist noch vorgemerkt) – keine Meldung
+    // „Ohne Verbindung abgemeldet …“ (es hat sich gerade niemand abgemeldet); das Nachholen bleibt vorgemerkt
+    await page.addInitScript(() => {
+      window.__toasts = [];
+      new MutationObserver((l) => { for (const m of l) for (const n of m.addedNodes) if (n.nodeType === 1 && n.closest && n.closest('#toast-root')) window.__toasts.push(n.textContent); }).observe(document, { childList: true, subtree: true });
+    });
+    await page.route('**/api/**', (r) => r.abort('internetdisconnected')); // Server nicht erreichbar (ohne Service Worker im Test)
+    await ctx.setOffline(false); // nur damit die Seite selbst lädt
+    await page.reload();
+    await page.waitForSelector('#login-card', { timeout: 15000 });
+    await sleep(1500);
+    const toastsStart = await page.evaluate(() => window.__toasts || []);
+    pruef(!toastsStart.some((t) => /Ohne Verbindung abgemeldet/.test(t)), `Start ohne Verbindung nach dem Abmelden ohne Netz: Meldung ${JSON.stringify(toastsStart)}`);
+    pruef(!!(await page.evaluate(() => localStorage.getItem('bt_abmelden_offen'))), 'Start ohne Verbindung: vorgemerktes Abmelden verloren');
+    await page.unroute('**/api/**');
+    await ctx.setOffline(true);
 
     /* ---- 3) wieder online: Abmelden wird zuerst nachgeholt ---- */
     await ctx.setOffline(false);

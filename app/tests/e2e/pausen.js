@@ -125,7 +125,7 @@ async function laufe(browser, g) {
       const summe = (await page.locator('.sum-grid').innerText()).replace(/\s+/g, ' ');
       await page.reload(); await page.waitForSelector('.clock-card[data-status="arbeit"]');
       const summe2 = (await page.locator('.sum-grid').innerText()).replace(/\s+/g, ' ');
-      pruef(/Pause (39|40|41) min/.test(summe2), `Stempeluhr „Heute“: „${summe2}“ (vorher „${summe}“)`);
+      pruef(/Pause (39|40|41) Min\./.test(summe2), `Stempeluhr „Heute“: „${summe2}“ (vorher „${summe}“)`);
       // c) offen: läuft weiter
       await page.click('[data-stempel="pause_start"]');
       await pauseDialog(page);
@@ -190,6 +190,8 @@ async function laufe(browser, g) {
       await page.click('dialog[open] [data-zu]');
       await gleich();
       await page.click('[data-stempel="gehen"]');
+      // 15.27: ohne gestempelte Pause fragt „Gehen“ nach der Pause – hier „Keine Pause“
+      await page.click('dialog[open] #pause-gehen [data-pg-keine]');
       await page.waitForSelector('.clock-card[data-status="aus"]');
     });
     s.db.setzeEinstellung('pausen', { auswahl: [30, 45, 60] });

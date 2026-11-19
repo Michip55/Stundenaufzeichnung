@@ -77,6 +77,9 @@ test('Rechte-Matrix: jede Route × jede Rolle (Prüfbericht 7)', { timeout: 30 *
     if (s.db.eins('SELECT COUNT(*) AS n FROM projektposition').n < 10) v.push('Testdaten ohne Projektpositionen – Kanarien-Prüfung wirkungslos');
     // 15.5/15.8: persönliche Geheimnisse (Sitzungs-Token, Geräteschlüssel, Push-Endpunkt) je Person – und der Scanner erkennt sie
     for (const art of ['Sitzungs-Token', 'Geräteschlüssel', 'Push-Endpunkt']) if (H.ZUSTAND.geheim.filter((g) => g.art === art).length < 5) v.push(`Testdaten: zu wenige ${art}-Kanarien`);
+    // 15.30: Standort-Kanarien (Koordinaten) bei mindestens fünf Personen, darunter ein anderer Mitarbeiter der Partie
+    if ((H.ZUSTAND.standort || []).length < 5 || !H.ZUSTAND.standort.some((g) => g.id === ANDERER_MA)) v.push('Testdaten: zu wenige Standort-Kanarien');
+    for (const g of H.ZUSTAND.standort || []) if (s.db.eins('SELECT lat FROM buchung WHERE id = ?', g.buchung).lat !== g.lat) v.push(`Standort-Kanarie Buchung ${g.buchung} nicht in der DB`);
     const fremd = H.ZUSTAND.geheim.find((g) => g.id === ANDERER_MA && g.art === 'Geräteschlüssel');
     if (!fremd || !(await H.scanne('gf', { status: 200, daten: { schluessel: fremd.wert }, headers: new Map() }, { route: 'SELBSTTEST', url: 'Geräteschlüssel' })).length) v.push('Scanner erkennt den Geräteschlüssel einer anderen Person nicht');
     const eigen = H.ZUSTAND.geheim.find((g) => g.id === ID.gf && g.art === 'Geräteschlüssel');

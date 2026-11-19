@@ -1132,8 +1132,13 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .ue-plan-knoepfe .btn.ghost { background: var(--bg); border-color: var(--bg); color: var(--text); } .ue-plan-knoepfe .btn.primary { color: #fff; }
 .ue-plan.kompakt .ue-plan-zeile { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; } .ue-plan.kompakt .ue-plan-zeile .ue-sub { grid-column: 1; } .ue-plan.kompakt .ue-plan-zeile > .ue-chev { grid-column: 2; grid-row: 1 / span 2; }
 .ue-plan.kompakt .ue-plan-kopf b { font-size: 15px; font-weight: 600; }
+/* Prüfbefund n8-g (Bild 12): zwei Spalten, die unabhängig wachsen; am Handy lösen sie sich auf (Reihenfolge per order) */
+.ue-spalte { display: contents; }
+/* Prüfbefund n8-s: nur in den Spalten der neuen Übersicht – die klassische Übersicht nutzt dieselbe ID #bv-kacheln */
+.ue-page > .ue-voll { order: 0; } .ue-spalte > #ue-heute { order: 1; } .ue-spalte > #ue-freigabe { order: 2; } .ue-spalte > #bv-kacheln { order: 3; } .ue-spalte > #ue-plan { order: 4; }
 @media (min-width: 720px) {
   .ue-page { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: start; align-content: start; }
+  .ue-spalte { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
   .ue-voll { grid-column: 1 / -1; }
   .ue-voll .ue-plan { max-width: 640px; }
 }
@@ -1152,6 +1157,14 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .pause-opt.offen { border-style: dashed; }
 .pause-bis { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-weight: 700; font-size: 15px; }
 .kol-dauer { margin-top: 4px; }
+/* 15.27 Pause beim Gehen: Beginn ca. + 30/45/60 Min + „Keine Pause“ (auch mit Handschuhen, ab 320 px) */
+.pause-gehen .pg-frage { margin: 0 0 10px; font-size: 17px; }
+.pause-gehen .pg-beginn { margin-bottom: 12px; }
+.pause-gehen .pg-beginn .input { height: 56px; font-size: 20px !important; font-weight: 700; max-width: 220px; }
+.pause-gehen .pause-wahl { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
+.pause-gehen .pause-opt small { font-size: 12px; text-align: center; }
+.pause-gehen .pg-fehler { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fdecea; color: #8a1c12; font-weight: 600; }
+.pause-gehen .pg-keine { width: 100%; min-height: 52px; margin-bottom: 8px; }
 /* 15.23: Arbeitszeitmodelle – Normalstunden je Wochentag */
 .az-tage { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
 .az-tage .input { text-align: right; padding-left: 6px; padding-right: 6px; }
@@ -1262,3 +1275,11 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .zf-schalter { flex: 0 0 auto; } .zf-schalter button { min-width: 92px; justify-content: center; }
 .zf-hinweis { flex: 1 1 200px; min-width: 0; }
 @media (max-width: 719px) { .zf-schalter { flex: 1 1 100%; } .zf-hinweis { flex-basis: 100%; } }
+/* 15.30: Standort beim Stempeln – Hinweis in „Mehr“, kleine Rückmeldung in der Stempeluhr, Lage in der Korrektur */
+.standort-hinweis { margin: 0 18px 14px; align-items: flex-start; } .standort-hinweis span { font-weight: 400; } .standort-hinweis b { font-weight: 700; }
+.cc-standort { display: flex; gap: 6px; align-items: center; justify-content: center; font-size: 12.5px; color: var(--muted); margin-top: -4px; } .cc-standort .ic { width: 14px; height: 14px; }
+.cc-standort[data-zustand="ok"] { color: var(--green); } .cc-standort[data-zustand="fehlt"], .cc-standort[data-zustand="verweigert"] { color: var(--amber); }
+.korr-ort { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 2px; } .korr-ort .ic { width: 13px; height: 13px; } .korr-ort[data-lage="bei"] { color: var(--green); } .korr-ort[data-lage="weg"] { color: var(--amber); }
+.korr-ort a { color: var(--blue); text-decoration: underline; }
+/* Prüfbefund n8-g (Bild 07/14): die Personen-Auswahl ist am PC breit genug für „Name (eigene Zeiten)“ */
+@media (min-width: 720px) { .toolbar .field.inline.k-person { flex: 0 1 320px; } }

@@ -1,8 +1,9 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, abmeldenSenden, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
+import { get, post, abmeldenVormerken, abmeldenSenden, abmeldenOffen, abmeldenWarten, abmeldenBeimSchliessen, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
+import { standortNachtragOffen, standortNachtraegeFertig, STANDORT_ABMELDEN_MS } from './standort-einwilligung.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
@@ -211,7 +212,22 @@ function geraetGewaehlt(art) {
   const erlaubnis = typeof Notification === 'undefined' ? 'default' : Notification.permission;
   if (neu === 'eigen' && pushNachAnmeldung(id, erlaubnis)) pushStillEinschalten({ geteilt: false }).catch(() => {});
   else pushGeraetArtMelden(neu !== 'eigen').catch(() => {});
+  if (neu !== 'eigen') sitzungAnGeraetAngleichen(); // 15.28: die Wochen-Sitzung endet als solche sofort
   return neu;
+}
+/**
+ * 15.28: Gilt am Server eine Wochen-Sitzung („Eigenes Handy“ bei der Anmeldung), ist das Gerät für diese Person aber kein
+ * „Eigenes Handy“ (mehr), stellt POST /auth/geraet die Sitzung sofort auf die normalen Regeln. Ohne Netz: beim nächsten Start der
+ * App erneut – am Gerät gilt die Sperre nach Untätigkeit des geteilten Geräts ohnehin schon.
+ */
+function sitzungAnGeraetAngleichen() {
+  if (!ich || ich.sitzungArt !== 'woche' || geraetArtFuer(ich.benutzer.id) === 'eigen') return;
+  const wer = ich;
+  post('/auth/geraet', { art: 'geteilt' }).then((r) => {
+    if (ich !== wer || !r) return;
+    ich.sitzungArt = r.sitzungArt === 'woche' ? 'woche' : 'normal'; ich.sitzungBis = r.sitzungBis || null;
+    speicher.setz('bt_ich', ich);
+  }).catch(() => { /* ohne Netz bzw. abgemeldet: siehe oben */ });
 }
 let navAktiv = '';
 function markiereNav(id) {
@@ -270,7 +286,7 @@ window.addEventListener('bt:sync', zeigeSync);
 
 /* ---------- Benachrichtigungen (Glocke) ---------- */
 async function holeMeldungen() {
-  if (!ich || gemerktPruefen()) return; // 15.16 (H-S2)
+  if (!ich || abmeldenLauf || gemerktPruefen()) return; // 15.16 (H-S2); Prüfbefund n8-g: nicht während des (wartenden) Abmeldens
   try { meldungen = await get('/benachrichtigungen'); setzOnline(true); zeigeGlocke(); } catch (e) { if (e.netz) setzOnline(false); }
   holeSchadenZahl();
 }
@@ -282,7 +298,7 @@ function zeigeBadge() {
   $$('.nav-badge[data-badge]').forEach((b) => { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.dataset.schNeu = schadenNeu; b.dataset.schWartet = schadenWartet; b.title = text; });
 }
 async function holeSchadenZahl() {
-  if (!ich) return;
+  if (!ich || abmeldenLauf) return;
   const id = ich.benutzer.id;
   let wartet = (await schadenUngesendet(id)).length;
   if (wartet) { await schadenNachsenden(id); wartet = (await schadenUngesendet(id)).length; }
@@ -341,6 +357,7 @@ function pfadJetzt() {
 }
 async function zeige() {
   if (ich && gemerktPruefen()) return; // 15.16 (H-S2): in einem anderen Tab ab- bzw. umgemeldet – dieser Tab ist schon gesperrt
+  if (ich && abmeldenLauf) return; // 15.30: Abmelden wartet noch auf einen Standort-Nachtrag – keine Ansicht der Person mehr
   const nr = ++lauf;
   if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
   $$('dialog[open]').forEach((d) => d.close());
@@ -408,14 +425,14 @@ window.addEventListener('hashchange', zeige);
 /* ---------- An-/Abmelden ---------- */
 // 15.5 (F-029/F-046): Aufräumen nach dem Abmelden (laufendes Nachsenden abwarten, versiegeln, löschen) – die nächste Anmeldung wartet darauf
 let geraetAufgeraeumt = Promise.resolve();
-function geraetAufraeumen({ amServer = false } = {}) {
+function geraetAufraeumen({ amServer = false, still = false } = {}) {
   geraetAufgeraeumt = geraetAufgeraeumt.then(async () => {
     const sub = await geraetPushAbo();
     // 15.16 (H-S1): das Abmelden am Server läuft im Hintergrund. Es ist schon vorgemerkt (bt_abmelden_offen) – jede weitere Anfrage
     // holt es zuerst nach –, und ohne Bindungs-Cookie gilt die Sitzung ohnehin nicht mehr. Die Anmeldeseite wartet nicht auf das Netz.
     if (amServer) {
       if (sub && sub.endpoint) abmeldenVormerken(sub.endpoint); // 15.5 (F-014): Push-Abo dieses Geräts am Server mitlöschen
-      abmeldenSenden().catch((e) => { if (e && e.netz) toast('Ohne Verbindung abgemeldet. Am Server wird das Abmelden bei der nächsten Verbindung nachgeholt.', 'warn'); });
+      abmeldenSenden().catch((e) => { if (e && e.netz && !still) toast('Ohne Verbindung abgemeldet. Am Server wird das Abmelden bei der nächsten Verbindung nachgeholt.', 'warn'); });
     }
     // 15.12 (G2-032): auch beim Sitzungsablauf (401) endet das Push-Abo im Browser – am Server ist es mit der Sitzung schon gelöscht
     await pushAbmelden(sub);
@@ -479,7 +496,15 @@ async function nachLogin() {
 async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
   await geraetAufgeraeumt;
   // Beim Start ohne gemerkte Anmeldung gleich zur Anmeldeseite (spart eine sichere 401-Antwort)
-  if (nurMitHinweis && !speicher.lies('bt_ich')) { ich = null; setzBenutzer(null); await versiegeln().catch(() => {}); return; }
+  if (nurMitHinweis && !speicher.lies('bt_ich')) {
+    ich = null; setzBenutzer(null);
+    // Prüfbefund n8-g: ein Abmelden war vorgemerkt, wurde aber nicht fertig (App beim Warten auf den Standort geschlossen oder
+    // abgestürzt) – jetzt fertig machen: Bindungs-Cookie weg, Abmelden am Server, versiegeln, Daten der Person vom Gerät
+    // Prüfbefund n8-s: still – bt_abmelden_offen steht auch nach jedem gewöhnlichen Abmelden ohne Verbindung, bis es am Server
+    // nachgeholt ist; beim Öffnen ohne Netz hat sich niemand gerade abgemeldet (keine Meldung „Ohne Verbindung abgemeldet …“)
+    if (abmeldenOffen()) { bindungLoeschen(); await geraetAufraeumen({ amServer: true, still: true }); } else await versiegeln().catch(() => {});
+    return;
+  }
   try {
     ich = await get('/auth/ich');
     ich.rechte = ich.rechte || [];
@@ -499,6 +524,7 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
     speicher.setz('bt_ich', ich);
     ichGemerkt = !!(speicher.lies('bt_ich') || {}).benutzer;
+    sitzungAnGeraetAngleichen(); // 15.28: Wochen-Sitzung an einem Gerät, das für diese Person kein „Eigenes Handy“ ist
     if (frisch) sitzungMelden('an', ich.benutzer.id); // 15.16 (H-S2): andere Tabs mit einer anderen Person sperren sich
     setzOnline(true);
     // 15.5 (F-046): eigene versiegelte Einträge öffnen (Schlüssel nur mit Anmeldung)
@@ -542,9 +568,47 @@ let abmeldenLauf = null;
 function abmelden(opt = {}) {
   if (abmeldenLauf) return abmeldenLauf;
   abmeldenVormerken(); // vor allem anderen: ab jetzt geht keine Anfrage mehr unter dieser Sitzung hinaus
-  abmeldenLauf = lokalAbmelden({ amServer: true }).finally(() => { abmeldenLauf = null; });
-  if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn');
+  const ab = () => { abmeldenWarten(false); const f = lokalAbmelden({ amServer: true }); if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn'); return f; };
+  abmeldenLauf = (standortNachtragOffen() ? standortAbwarten().then(ab) : ab()).finally(() => { abmeldenLauf = null; });
   return abmeldenLauf;
+}
+/**
+ * 15.30: Eben gestempelt, die Ortung läuft noch – der Standort wird danach unter dieser Sitzung angehängt (vorAbmelden).
+ * Die Ansicht der Person schließt sofort (wie 15.16 H-S1), bt_ich ist weg und das Abmelden vorgemerkt (ein Neuladen meldet
+ * ab); nur die Sitzung bleibt höchstens STANDORT_ABMELDEN_MS bestehen. „Nicht warten“ meldet sofort ab (ohne Standort).
+ */
+function standortAbwarten() {
+  if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
+  $$('dialog[open]').forEach((d) => d.close());
+  toastsWeg();
+  lauf++; clearInterval(pollTimer);
+  ichVergessen();
+  abmeldenWarten(true); // Prüfbefund n8-g: bis zum Abmelden geht nur noch der Nachtrag hinaus (api.js)
+  root.innerHTML = `<div class="state" role="status" id="abmelden-standort"><span class="spinner" aria-hidden="true"></span><p>Abmelden … Standort wird noch gesendet …</p><button type="button" class="btn ghost sm" id="abmelden-sofort">Nicht warten</button></div>`;
+  return new Promise((fertig0) => {
+    let offen = true;
+    // Prüfbefund n8-g: Seite wird geschlossen oder verborgen (App gewechselt, Tab zu) – nichts darf das überleben: Abmelden am
+    // Server sofort (keepalive), Bindungs-Cookie löschen (ohne es gilt die Sitzung nicht mehr, auch die Wochen-Sitzung nicht) und
+    // die Daten der Person vom Gerät nehmen. Nur bt_tresor bleibt, bis das Versiegeln nachgeholt ist (beim nächsten Öffnen).
+    const schliessen = () => {
+      if (!offen) return;
+      abmeldenBeimSchliessen(); bindungLoeschen(); speicher.raeumeBenutzer({ behalten: ['bt_tresor'] });
+      fertig();
+    };
+    const verborgen = () => { if (document.visibilityState === 'hidden') schliessen(); };
+    const fertig = () => {
+      if (!offen) return; offen = false;
+      window.removeEventListener('pagehide', schliessen); document.removeEventListener('visibilitychange', verborgen);
+      fertig0();
+    };
+    window.addEventListener('pagehide', schliessen); document.addEventListener('visibilitychange', verborgen);
+    // Prüfbefund n8-s: danach auch ein dadurch gestartetes Nachsenden (offline gestempelte Buchung mit ihrem Standort) abwarten –
+    // es geht noch unter dieser Sitzung hinaus (api.js); insgesamt höchstens STANDORT_ABMELDEN_MS
+    const frist = Date.now() + STANDORT_ABMELDEN_MS;
+    const nachgesendet = () => Promise.race([Promise.all([nachsendenFertig(), schadenNachsendenFertig(), fuhrenNachsendenFertig()]).catch(() => {}), new Promise((r) => setTimeout(r, Math.max(0, frist - Date.now())))]);
+    standortNachtraegeFertig().then(nachgesendet).then(fertig);
+    const b = $('#abmelden-sofort'); if (b) b.addEventListener('click', () => fertig());
+  });
 }
 function lokalAbmelden({ amServer = false } = {}) {
   sitzungWechsel(); // 15.12 (G2-018): auch beim Ablauf der Sitzung (401) und bei der Sperre nach Untätigkeit
@@ -569,6 +633,9 @@ function lokalAbmelden({ amServer = false } = {}) {
 // Die letzte Bedienung wird am Gerät gemerkt, damit auch ein Neustart der App nach langer Pause abmeldet.
 // 15.8: Auf einem Gerät, das als „Eigenes Handy“ gewählt ist, gilt stattdessen die Sitzungsdauer des Servers (ich.sitzungMinuten) –
 // keine zusätzliche Sperre am Gerät; Abmelden, Versiegeln und Benutzerwechsel bleiben wie in 15.5.
+// 15.28: mit Wochen-Sitzung (ich.sitzungArt "woche") meldet die App am eigenen Handy nie wegen Untätigkeit ab – die Sitzung endet
+// am Server am Montag 00:00 Wiener Zeit (401 → „Sitzung abgelaufen“, Anmeldeseite); ohne Netz merkt die App das erst bei der nächsten
+// Verbindung (Stempeln ohne Netz geht weiter, wie bisher nachgesendet unter der nächsten Anmeldung derselben Person).
 const AKTIV = 'bt_aktiv';
 let aktivMem = Date.now(), aktivGeschrieben = 0;
 const letzteBedienung = () => { const g = Number(speicher.lies(AKTIV, 0)) || 0; return g || aktivMem; };
@@ -582,7 +649,7 @@ function sperrePruefen() {
 }
 function bedient(e) {
   const blocken = () => { if (e && e.cancelable) { e.preventDefault(); e.stopPropagation(); } };
-  if (abmeldenLauf && e && e.target && e.target.closest && !e.target.closest('#login-card')) { blocken(); return; } // 15.16 (H-S1)
+  if (abmeldenLauf && e && e.target && e.target.closest && !e.target.closest('#login-card, #abmelden-standort')) { blocken(); return; } // 15.16 (H-S1)
   if (!ich) return;
   if (gemerktPruefen() || sperrePruefen()) { blocken(); return; } // 15.16 (H-S2): in einem anderen Tab ab-/umgemeldet
   aktivMem = Date.now();
@@ -595,13 +662,13 @@ window.addEventListener('pageshow', () => { gemerktPruefen(); }); // 15.16 (H-S2
 setInterval(sperrePruefen, 30000);
 // 15.8: Gerätewahl geändert (Mehr): die Untätigkeit zählt ab jetzt – ein Wechsel auf „geteilt“ meldet nicht sofort ab
 window.addEventListener('bt:geraet-art', () => { aktivMem = Date.now(); aktivGeschrieben = aktivMem; if (ich) speicher.setz(AKTIV, aktivMem); });
-window.addEventListener('bt:abgemeldet', () => { if (ich) { lokalAbmelden(); toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); } });
+window.addEventListener('bt:abgemeldet', () => { if (ich && !abmeldenLauf) { lokalAbmelden(); toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); } });
 // 15.5 (F-029): wieder online → ein vorgemerktes Abmelden sofort nachholen (api.js holt es vor jeder Anfrage nach)
 window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').catch(() => {}); });
 window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });
-window.addEventListener('focus', () => { if (ich && !gemerktPruefen()) { holeMeldungen(); nachsenden(); } });
+window.addEventListener('focus', () => { if (ich && !abmeldenLauf && !gemerktPruefen()) { holeMeldungen(); nachsenden(); } }); // Prüfbefund n8-g: nicht beim wartenden Abmelden
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* ohne SW läuft die App normal weiter */ }); });

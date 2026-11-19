@@ -14,6 +14,8 @@ const PA = require('../pausen');
 
 const MAX_RUECK_MS = 24 * 60 * 60 * 1000;
 const MAX_VOR_MS = 2 * 60 * 1000;
+// 15.30: Ein Standort lässt sich nur so lange an die eigene, gerade gestempelte Buchung anhängen
+const STANDORT_NACH_MS = 10 * 60 * 1000;
 const RE_ISO_TZ = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 const KOLONNEN_ROLLEN = ['mitarbeiter', 'polier'];
 
@@ -42,13 +44,15 @@ function zeitStatus(db, benutzerId, jetzt) {
     pauseBis: st.pauseBis, // 15.22: geplantes Ende der laufenden Pause (null = offen bzw. keine Pause)
     pauseDauerMin: st.pauseDauerMin,
     pausenAuswahl: PA.auswahl(db),
+    // 15.27: in der laufenden Schicht schon eine Pause gebucht? (sonst fragt die Stempeluhr beim „Gehen“ nach der Pause)
+    pauseInSchicht: Boolean(st.schichtBeginn && db.eins("SELECT 1 AS x FROM buchung WHERE benutzer_id = ? AND typ = 'pause_start' AND zeit >= ? LIMIT 1", benutzerId, st.schichtBeginn)),
     heute: {
       datum: heute,
       stunden: Math.round(heuteSch.reduce((a, s) => a + s.arbeitMin, 0) / 60 * 100) / 100,
       pauseMin: heuteSch.reduce((a, s) => a + s.pauseMin, 0),
       buchungen: buchungen.filter((b) => wienDatum(new Date(b.zeit)) === heute)
         .map((b) => ({ typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(new Date(b.zeit)), baustelleId: b.baustelleId, quelle: b.quelle,
-          ...(b.automatisch ? { automatisch: true } : {}), ...(b.typ === 'pause_start' && b.dauerMin ? { dauerMin: b.dauerMin } : {}) }))
+          ...(b.automatisch ? { automatisch: true } : {}), ...(b.nachgetragen ? { nachgetragen: true } : {}), ...(b.typ === 'pause_start' && b.dauerMin ? { dauerMin: b.dauerMin } : {}) }))
     },
     geplant: require('./planer').geplantHeute(db, benutzerId, heute), // 12.8: nur veröffentlichte Einsätze
     standardKostenstelleId: require('../kostenstellen').standardFuer(db, benutzerId), // 12.25: Büro/Bauleiter/GF → „Büro“
@@ -56,10 +60,23 @@ function zeitStatus(db, benutzerId, jetzt) {
   };
 }
 
+/** 15.30: Standort aus der Anfrage prüfen ({lat, lng, genauigkeit?}) – 400 bei ungültigen Werten */
+function standortAus(standort) {
+  const s = v.objekt(standort, 'standort');
+  return {
+    lat: v.zahl(s.lat, 'standort.lat', { min: -90, max: 90 }),
+    lng: v.zahl(s.lng, 'standort.lng', { min: -180, max: 180 }),
+    genauigkeit: v.zahl(s.genauigkeit, 'standort.genauigkeit', { min: 0, max: 100000, pflicht: false })
+  };
+}
+/** 15.30: Hat die Person „Standort beim Stempeln mitsenden“ selbst eingeschaltet? (sonst wird nie ein Standort gespeichert) */
+const standortEingewilligt = (db, benutzerId) => Boolean((db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', benutzerId) || {}).e);
+
 /**
  * Eine Stempelung buchen (eigene oder für die Kolonne). Wirft ApiFehler (400/409).
+ * `ergebnis` (optional) erhält `buchungId` der neuen Buchung (fehlt, wenn nichts gebucht wurde) und `standort` (gespeichert ja/nein).
  */
-function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort, dauerMin }) {
+function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, standort, dauerMin, pauseBeimGehen, hinweis, ergebnis }) {
   const { db } = bt;
   const jetzt = bt.uhr();
   const dauer = PA.pruefeDauer(dauerMin, typ); // 15.22: geplante Pausendauer (null = offen)
@@ -70,6 +87,8 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
     if (zeitpunkt.getTime() < jetzt.getTime() - MAX_RUECK_MS) throw ungueltig('Nachbuchungen sind höchstens 24 Stunden zurück möglich – bitte Korrektur beim Büro melden.');
     quelle = 'offline';
   }
+  // 15.27: „Gehen“ mit nachgetragener Pause (nur eigene Stempeluhr) – Form hier, Lage in der Schicht unten in der Transaktion
+  const angabe = pruefePauseBeimGehen(db, pauseBeimGehen, typ, quelle === 'offline');
   let bsId = null;
   if (typ === 'kommen' || typ === 'wechsel') {
     if (baustelleId === undefined || baustelleId === null) throw ungueltig('baustelleId fehlt (Baustelle wählen).');
@@ -80,12 +99,10 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
   }
   let geo = { lat: null, lng: null, genauigkeit: null };
   if (standort !== undefined && standort !== null) {
-    const s = v.objekt(standort, 'standort');
-    geo = {
-      lat: v.zahl(s.lat, 'standort.lat', { min: -90, max: 90 }),
-      lng: v.zahl(s.lng, 'standort.lng', { min: -180, max: 180 }),
-      genauigkeit: v.zahl(s.genauigkeit, 'standort.genauigkeit', { min: 0, max: 100000, pflicht: false })
-    };
+    geo = standortAus(standort);
+    // 15.30: nur mit der Einwilligung der Person selbst (Schalter in „Mehr“) – sonst wird der Standort verworfen, die
+    // Buchung aber angenommen (z. B. offline erfasst, inzwischen ausgeschaltet); nie für eine andere Person (Kolonne)
+    if (erfasstVon !== benutzerId || !standortEingewilligt(db, benutzerId)) geo = { lat: null, lng: null, genauigkeit: null };
   }
   return db.transaktion(() => {
     PA.pausenAbschliessen(db, jetzt, benutzerId); // 15.22: fällige automatische Pausenenden zuerst
@@ -121,16 +138,85 @@ function stempeln(bt, { benutzerId, typ, baustelleId, zeit, quelle, erfasstVon, 
       throw konflikt(p.grund.replace(/\.$/, '') + (akt.status !== 'aus' ? seit : '') + '.', { status: akt.status });
     }
     if (typ !== 'kommen' && typ !== 'wechsel') bsId = akt.baustelleId;
+    // 15.27: nachgetragene Pause zuerst prüfen und als gewöhnliche Pausenbuchungen (Beginn + Ende) vor dem „Gehen“ eintragen
+    const verworfen = angabe ? pauseEintragen(bt, { benutzerId, akt, angabe, gehen: zeitpunkt, quelle, erfasstVon, jetzt }) : null;
     // jede neue Buchung beendet eine noch ausstehende geplante Pause dieser Person (Merker löschen)
     db.lauf('UPDATE buchung SET pause_auto_bis = NULL WHERE benutzer_id = ? AND pause_auto_bis IS NOT NULL', benutzerId);
     const bis = dauer ? new Date(zeitpunkt.getTime() + dauer * 60000).toISOString() : null;
-    db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit, pause_plan_min, pause_auto_bis)
+    const neu = db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, lat, lng, genauigkeit, pause_plan_min, pause_auto_bis)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, benutzerId, typ, zeitpunkt.toISOString(), bsId, quelle, erfasstVon, jetzt.toISOString(), geo.lat, geo.lng, geo.genauigkeit, dauer, bis);
+    if (verworfen) {
+      // 15.27: Pausenangabe nicht übernommen, das „Gehen“ gilt – fürs Büro im Protokoll, für die Person in der Antwort
+      db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: erfasstVon, art: 'zeit', objekt: `buchung:${neu.id}`, alt: verworfen.alt, text: verworfen.text });
+      if (hinweis) hinweis.pauseVerworfen = verworfen.grund;
+    }
+    // 15.30: gemeldet wird die eben gebuchte Zeile (beim „Gehen“ mit nachgetragener Pause das Gehen, nicht die Pausenbuchungen)
+    if (ergebnis) { ergebnis.buchungId = neu.id; ergebnis.standort = geo.lat !== null; }
     // offline nachgesendet und schon vorbei: Ende sofort eintragen (genau Beginn + Dauer)
     if (bis) PA.pausenAbschliessen(db, jetzt, benutzerId);
     if (typ === 'gehen') azgNachGehen(bt, benutzerId, jetzt);
     return p.status;
   });
+}
+
+/**
+ * 15.27 (Inhaber 19.11.2026): Form der nachgetragenen Pause beim „Gehen“ – `{beginn: ISO mit Zone, dauerMin}`.
+ * Die Dauer muss eine der angebotenen sein (`pausenAuswahl`); beim Nachsenden ohne Netz genügt der Rahmen 5–240 Min
+ * (die Einstellung kann sich inzwischen geändert haben – wie 15.22). Gibt null zurück, wenn nichts nachgetragen wird.
+ */
+function pruefePauseBeimGehen(db, wert, typ, offline) {
+  if (wert === undefined || wert === null) return null;
+  if (typ !== 'gehen') throw ungueltig('pauseBeimGehen gibt es nur bei „gehen“.');
+  const o = v.objekt(wert, 'pauseBeimGehen');
+  const beginn = zeitMitZone(o.beginn, 'pauseBeimGehen.beginn');
+  const dauer = v.zahl(o.dauerMin, 'pauseBeimGehen.dauerMin', { min: PA.MIN_DAUER, max: PA.MAX_DAUER, ganz: true });
+  const auswahl = PA.auswahl(db);
+  if (!offline && !auswahl.includes(dauer)) throw ungueltig(`Diese Pausendauer steht nicht zur Auswahl (${auswahl.length ? auswahl.map((x) => `${x} Min`).join(', ') : 'keine'}).`);
+  return { beginn, dauer };
+}
+
+/**
+ * 15.27: Pause der laufenden Schicht nachtragen (in der Transaktion des „Gehen“, vor dessen Buchung).
+ * Die Pause liegt ganz zwischen „Kommen“ und „Gehen“ und überschneidet keine andere Buchung (z. B. Baustellenwechsel).
+ * Eingetragen als gewöhnliche „pause_start“ (mit Dauer) und „pause_ende“ mit `nachgetragen = 1` – alle Auswertungen lesen
+ * sie wie eine gestempelte Pause.
+ * Ist in der Schicht inzwischen schon eine Pause gebucht oder läuft eine (z. B. vom Polier über die Kolonne, während das
+ * Gerät einen alten Stand zeigte oder kein Netz hatte), ist die Frage gegenstandslos: die Angabe wird verworfen und das
+ * „Gehen“ trotzdem gebucht. Beim Nachsenden ohne Netz gilt das auch, wenn die Pause nicht (mehr) in die Schicht passt –
+ * das Arbeitsende darf nicht verloren gehen. Den Protokolleintrag dazu schreibt stempeln() am „Gehen“.
+ * @returns {{grund:string, text:string, alt:object}|null} verworfene Angabe, sonst null (eingetragen)
+ */
+function pauseEintragen(bt, { benutzerId, akt, angabe, gehen, quelle, erfasstVon, jetzt }) {
+  const { db } = bt;
+  const uhr = (d) => wienZeit(d instanceof Date ? d : new Date(d));
+  const von = angabe.beginn.getTime();
+  const bis = von + angabe.dauer * 60000;
+  const verwerfen = (grund) => ({ grund, text: `Pausenangabe beim Gehen verworfen (${angabe.dauer} Min ab ${uhr(new Date(von))}) – ${grund}`,
+    alt: { benutzerId, beginn: new Date(von).toISOString(), dauerMin: angabe.dauer, quelle } });
+  if (akt.status === 'pause') return verwerfen('in der Schicht läuft schon eine Pause');
+  if (akt.status !== 'arbeit' || !akt.schichtBeginn) throw konflikt('Nicht eingestempelt.');
+  const schicht = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, akt.schichtBeginn);
+  if (schicht.some((b) => b.typ === 'pause_start')) return verwerfen('in der Schicht ist schon eine Pause gebucht');
+  const start = new Date(akt.schichtBeginn).getTime();
+  // keine andere Buchung innerhalb der Pause (gleiche Zeit wie der Beginn ist in Ordnung – die Pause kommt danach)
+  const dazwischen = schicht.find((b) => { const t = new Date(b.zeit).getTime(); return t > von && t <= bis; });
+  const fehler = gehen.getTime() - start < angabe.dauer * 60000 ? `Seit dem Kommen um ${uhr(akt.schichtBeginn)} Uhr sind keine ${angabe.dauer} Min vergangen – diese Pause passt nicht in die Schicht.`
+    : von < start ? `Die Pause kann frühestens um ${uhr(akt.schichtBeginn)} Uhr beginnen (Kommen).`
+    : bis > gehen.getTime() ? `Die Pause muss bis ${uhr(gehen)} Uhr zu Ende sein – bitte einen früheren Beginn wählen.`
+    : dazwischen ? `Um ${uhr(dazwischen.zeit)} Uhr ist eine andere Buchung (${dazwischen.typ === 'wechsel' ? 'Baustelle gewechselt' : dazwischen.typ}) – die Pause darf sie nicht überschneiden.`
+    : null;
+  if (fehler && quelle === 'offline') return verwerfen(`passt nicht in die Schicht: ${fehler}`);
+  if (fehler) throw ungueltig(fehler);
+  // Baustelle zur Zeit der Pause = letzte „kommen“/„wechsel“ bis zum Beginn
+  const bsId = schicht.filter((b) => (b.typ === 'kommen' || b.typ === 'wechsel') && new Date(b.zeit).getTime() <= von).map((b) => b.baustelleId).pop() ?? akt.baustelleId;
+  const vonIso = new Date(von).toISOString(), bisIso = new Date(bis).toISOString();
+  const r = db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, pause_plan_min, nachgetragen)
+    VALUES (?, 'pause_start', ?, ?, ?, ?, ?, ?, 1)`, benutzerId, vonIso, bsId, quelle, erfasstVon, jetzt.toISOString(), angabe.dauer);
+  db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst, nachgetragen)
+    VALUES (?, 'pause_ende', ?, ?, ?, ?, ?, 1)`, benutzerId, bisIso, bsId, quelle, erfasstVon, jetzt.toISOString());
+  db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: erfasstVon, art: 'zeit', objekt: `buchung:${r.id}`, neu: { benutzerId, beginn: vonIso, ende: bisIso, dauerMin: angabe.dauer, quelle },
+    text: `Pause beim Gehen nachgetragen (${angabe.dauer} Min ab ${uhr(vonIso)})` });
+  return null;
 }
 
 /** Nach dem Ausstempeln: AZG-Warnungen als Benachrichtigung (an die Person und das Büro) */
@@ -179,10 +265,21 @@ function meldeStempelungTrotzAbwesenheit(bt, liste) {
   }
 }
 
+/** 15.29: zuletzt von der Person selbst korrigiert (nur die GF darf das) – Büro-Korrektur mit erfasst_von = Person */
+// rolle-ok: 'buero' ist hier die Buchungsquelle „Korrektur“, kein Rollenname und keine Zugriffsentscheidung
+const istSelbstkorrektur = (b) => b.quelle === 'buero' && b.erfasst_von != null && b.erfasst_von === b.benutzer_id && !b.automatisch;
+
+/**
+ * Buchung als JSON – nur für die Person selbst bzw. mit Recht stammdaten (Büro, Bauleiter = Büro, GF). 15.30: `standort`
+ * (Koordinaten beim Stempeln) steht deshalb nur hier; keine andere Antwort mit Buchungen (Kolonne, Übersicht, Monat,
+ * Exporte) enthält Koordinaten.
+ */
 function buchungJson(b) {
   const z = new Date(b.zeit);
   return { id: b.id, benutzerId: b.benutzer_id, typ: b.typ, zeit: b.zeit, uhrzeit: wienZeit(z), datum: wienDatum(z), baustelleId: b.baustelle_id, quelle: b.quelle, erfasstVon: b.erfasst_von,
-    automatisch: Boolean(b.automatisch), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null };
+    automatisch: Boolean(b.automatisch), nachgetragen: Boolean(b.nachgetragen), dauerMin: b.typ === 'pause_start' ? b.pause_plan_min ?? null : null, pauseBis: b.pause_auto_bis || null,
+    standort: b.lat != null && b.lng != null ? { lat: b.lat, lng: b.lng, genauigkeit: b.genauigkeit ?? null } : null,
+    ...(istSelbstkorrektur(b) ? { selbstkorrektur: true } : {}) };
 }
 
 module.exports = function zeitRouten(api, bt) {
@@ -196,14 +293,47 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/stempeln', brauche('zeit_eigen'), (req, res) => {
     const body = v.objekt(req.body);
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
-    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort, dauerMin: body.dauerMin });
+    const hinweis = {};
+    const ergebnis = {};
+    stempeln(bt, { benutzerId: req.ctx.benutzer.id, typ, baustelleId: body.baustelleId, zeit: body.zeit, quelle: 'app', erfasstVon: req.ctx.benutzer.id, standort: body.standort, dauerMin: body.dauerMin, pauseBeimGehen: body.pauseBeimGehen, hinweis, ergebnis });
     const antwort = zeitStatus(db, req.ctx.benutzer.id, bt.uhr());
+    // 15.27: Pausenangabe verworfen (schon eine Pause in der Schicht / offline nachgesendet und passt nicht) – das Gehen gilt
+    if (hinweis.pauseVerworfen) antwort.pauseVerworfen = hinweis.pauseVerworfen;
+    // 15.30: ID der neuen Buchung (für das Nachreichen des Standorts; beim Gehen mit Pause die Gehen-Buchung) und ob ein
+    // mitgesendeter Standort gespeichert wurde
+    antwort.buchungId = ergebnis.buchungId ?? null;
+    antwort.standortGespeichert = Boolean(ergebnis.standort);
     // Servicebuch (API.md 11.4): nach dem Ausstempeln eigene Fahrzeuge mit altem Zählerstand abfragen
     if (typ === 'gehen') {
       const { ladeStand } = require('../fuhrpark-daten');
       antwort.zaehlerAbfrage = require('../fuhrpark-erinnerung').zaehlerAbfrage(ladeStand(db, wienDatum(bt.uhr())), req.ctx.benutzer.id);
     }
     res.json(antwort);
+  });
+
+  /**
+   * 15.30: Standort zur eigenen, gerade gestempelten Buchung nachreichen. Die Stempelung wird sofort zum Zeitpunkt des
+   * Drückens gebucht; die Ortung (bis ~15 s) folgt hier. Nur: eigene Buchung, von der Person selbst in der App erfasst
+   * (`app`/`offline`), höchstens 10 Minuten alt, noch ohne Standort (nie überschreiben), Einwilligung eingeschaltet.
+   * Nicht an die beim „Gehen“ nachgetragenen Pausenbuchungen (15.27, 409) – beim Gehen mit Pause ist buchungId das Gehen.
+   * Fremde/unbekannte Buchung → 404 (verrät nichts), sonst 409 mit Grund; ungültige Koordinaten → 400.
+   */
+  api.post('/zeit/stempeln/:id/standort', brauche('zeit_eigen'), (req, res) => {
+    const id = v.pfadId(req.params.id, 'Buchungs-ID');
+    const ich = req.ctx.benutzer.id;
+    const b = db.eins('SELECT id, benutzer_id, erfasst_von, quelle, erfasst, lat, nachgetragen FROM buchung WHERE id = ?', id);
+    if (!b || b.benutzer_id !== ich || b.erfasst_von !== ich || !['app', 'offline'].includes(b.quelle)) throw nichtGefunden('Buchung nicht gefunden – ein Standort lässt sich nur an die eigene, gerade gestempelte Buchung anhängen.');
+    const geo = standortAus(v.objekt(req.body).standort);
+    if (!standortEingewilligt(db, ich)) throw konflikt('„Standort beim Stempeln mitsenden“ ist ausgeschaltet – es wird kein Standort gespeichert.');
+    // 15.27 + 15.30: die beim „Gehen“ nachgetragenen Pausenbuchungen wurden nicht an diesem Ort gestempelt – der Standort
+    // gehört zum „Gehen“ (dessen ID meldet POST /zeit/stempeln als buchungId)
+    if (b.nachgetragen) throw konflikt('Für eine beim Gehen nachgetragene Pause wird kein Standort gespeichert – er gehört zur Buchung „Gehen“.');
+    if (b.lat !== null) throw konflikt('Für diese Buchung ist schon ein Standort gespeichert – er wird nicht überschrieben.');
+    const alter = bt.uhr().getTime() - new Date(b.erfasst).getTime();
+    if (!(alter <= STANDORT_NACH_MS)) throw konflikt('Ein Standort lässt sich nur in den ersten 10 Minuten nach dem Stempeln anhängen.');
+    const r = db.lauf('UPDATE buchung SET lat = ?, lng = ?, genauigkeit = ? WHERE id = ? AND lat IS NULL', geo.lat, geo.lng, geo.genauigkeit, id);
+    if (!r.changes) throw konflikt('Für diese Buchung ist schon ein Standort gespeichert – er wird nicht überschrieben.');
+    res.json({ ok: true, buchungId: id, standort: geo });
   });
 
   /** Wer ist gerade eingestempelt (Dashboard „Heute“). Bauleiter/Polier: nur eigene Baustellen. */
@@ -358,9 +488,21 @@ module.exports = function zeitRouten(api, bt) {
     if (nachher > vorher) throw konflikt('Die Korrektur ergibt eine ungültige Stempelfolge (z. B. zweimal „kommen“ oder „gehen“ ohne „kommen“).');
   }
   const fehlerVorher = (benutzerId) => ungueltigeUebergaenge(db.alle('SELECT typ FROM buchung WHERE benutzer_id = ? ORDER BY zeit, id', benutzerId));
-  const nichtSelbst = (ctx, benutzerId) => {
-    if (benutzerId === ctx.benutzer.id) throw keinZugriff('Eigene Stempelzeiten korrigiert eine andere Person (Vier-Augen-Prinzip).');
+  /**
+   * Vier-Augen-Prinzip: eigene Stempelzeiten korrigiert eine andere Person. Ausnahme (API.md 15.29, Inhaber 19.11.2026):
+   * die Geschäftsführung darf ihre eigenen Zeiten selbst korrigieren – die Korrektur wird dann im Protokoll markiert.
+   * Vorbehalt der GF wie „Archiv aufheben“ und die Bericht-Selbstfreigabe (15.4): kein Recht der Matrix drückt „nur die GF
+   * persönlich“ aus („benutzer“ ist die Benutzerverwaltung), und über Matrix/Ausnahmen darf es niemand sonst bekommen.
+   * @returns {string} '' (fremde Zeiten) oder der Zusatz für den Protokolltext (Selbstkorrektur der GF)
+   */
+  const SELBSTKORREKTUR = ' (Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten)';
+  const selbstPruefen = (ctx, benutzerId) => {
+    if (benutzerId !== ctx.benutzer.id) return '';
+    if (ctx.benutzer.rolle !== 'gf') throw keinZugriff('Eigene Stempelzeiten korrigiert eine andere Person (Vier-Augen-Prinzip).'); // rolle-ok: Vorbehalt der GF (15.29) wie Archiv aufheben und Selbstfreigabe
+    return SELBSTKORREKTUR;
   };
+  /** Kennzeichen im Protokoll-„neu“ (zusätzlich zum Text), damit Listen die Selbstkorrektur ohne Textvergleich erkennen */
+  const mitKennzeichen = (neu, zusatz) => (zusatz ? { ...(neu || {}), selbstkorrektur: true } : neu);
   const grundAus = (body) => v.text(body.grund, 'grund', { max: 300, min: 3 });
   function korrekturZeit(wert, feld = 'zeit') {
     const z = zeitMitZone(wert, feld);
@@ -378,7 +520,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/buchungen', brauche('stammdaten'), (req, res) => {
     const body = v.objekt(req.body);
     const benutzerId = v.id(body.benutzerId, 'benutzerId');
-    nichtSelbst(req.ctx, benutzerId);
+    const zusatz = selbstPruefen(req.ctx, benutzerId);
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
     const typ = v.auswahl(body.typ, 'typ', TYPEN);
     const zeit = korrekturZeit(body.zeit);
@@ -390,7 +532,7 @@ module.exports = function zeitRouten(api, bt) {
       const r = db.lauf(`INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst) VALUES (?, ?, ?, ?, 'buero', ?, ?)`,
         benutzerId, typ, zeit.toISOString(), bsId, req.ctx.benutzer.id, jetzt);
       pruefeFolge(benutzerId, vorher);
-      db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${r.id}`, neu: { benutzerId, typ, zeit: zeit.toISOString(), baustelleId: bsId }, text: `Buchung nachgetragen: ${grund}` });
+      db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${r.id}`, neu: mitKennzeichen({ benutzerId, typ, zeit: zeit.toISOString(), baustelleId: bsId }, zusatz), text: `Buchung nachgetragen: ${grund}${zusatz}` });
       return r.id;
     });
     res.status(201).json(buchungJson(db.eins('SELECT * FROM buchung WHERE id = ?', id)));
@@ -400,7 +542,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
-    nichtSelbst(req.ctx, alt.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, alt.benutzer_id);
     const body = v.objekt(req.body);
     const grund = grundAus(body);
     const f = {};
@@ -410,6 +552,10 @@ module.exports = function zeitRouten(api, bt) {
       f.baustelle_id = korrekturBaustelle(body.baustelleId);
     }
     if (!Object.keys(f).length) throw ungueltig('Keine Änderungen angegeben (zeit, baustelleId).');
+    // 15.30 (Prüfbefund n8-g): der Standort gehört zum Moment der Stempelung – wird die Zeit geändert, ist die Buchung eine
+    // Korrektur ohne Ort; der Standort der ursprünglichen Stempelung wird entfernt (nicht an die neue Zeit gehängt)
+    const ortWeg = f.zeit !== undefined && f.zeit !== alt.zeit && (alt.lat != null || alt.lng != null);
+    if (ortWeg) { f.lat = null; f.lng = null; f.genauigkeit = null; }
     const jetzt = bt.uhr().toISOString();
     db.transaktion(() => {
       const vorher = fehlerVorher(alt.benutzer_id);
@@ -417,10 +563,10 @@ module.exports = function zeitRouten(api, bt) {
       // 15.22: Büro-Korrektur macht ein automatisches Pausenende zu einer gewöhnlichen Buchung; ein noch ausstehendes
       // geplantes Ende wandert mit dem korrigierten Pausenbeginn mit
       const bis = f.zeit && alt.pause_auto_bis && alt.pause_plan_min ? new Date(new Date(f.zeit).getTime() + alt.pause_plan_min * 60000).toISOString() : alt.pause_auto_bis;
-      db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ?, automatisch = 0, pause_auto_bis = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, bis, id);
+      db.lauf(`UPDATE buchung SET ${k.map((x) => `${x} = ?`).join(', ')}, quelle = 'buero', erfasst_von = ?, erfasst = ?, automatisch = 0, nachgetragen = 0, pause_auto_bis = ? WHERE id = ?`, ...k.map((x) => f[x]), req.ctx.benutzer.id, jetzt, bis, id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
-        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle }, neu: { zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id }, text: `Buchung korrigiert: ${grund}` });
+        alt: { zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, ...(ortWeg ? { standort: true } : {}) }, neu: mitKennzeichen({ zeit: f.zeit ?? alt.zeit, baustelleId: f.baustelle_id ?? alt.baustelle_id, ...(ortWeg ? { standort: null } : {}) }, zusatz), text: `Buchung korrigiert: ${grund}${ortWeg ? ' (Standort der ursprünglichen Stempelung entfernt)' : ''}${zusatz}` });
     });
     res.json(buchungJson(db.eins('SELECT * FROM buchung WHERE id = ?', id)));
   });
@@ -429,7 +575,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Buchungs-ID');
     const alt = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!alt) throw nichtGefunden('Buchung nicht gefunden.');
-    nichtSelbst(req.ctx, alt.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, alt.benutzer_id);
     const grund = grundAus(v.objekt(req.body || {}));
     const jetzt = bt.uhr().toISOString();
     db.transaktion(() => {
@@ -437,7 +583,7 @@ module.exports = function zeitRouten(api, bt) {
       db.lauf('DELETE FROM buchung WHERE id = ?', id);
       pruefeFolge(alt.benutzer_id, vorher);
       db.protokolliere({ zeit: jetzt, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `buchung:${id}`,
-        alt: { benutzerId: alt.benutzer_id, typ: alt.typ, zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, erfasstVon: alt.erfasst_von }, text: `Buchung gelöscht: ${grund}` });
+        alt: { benutzerId: alt.benutzer_id, typ: alt.typ, zeit: alt.zeit, baustelleId: alt.baustelle_id, quelle: alt.quelle, erfasstVon: alt.erfasst_von }, neu: mitKennzeichen(undefined, zusatz), text: `Buchung gelöscht: ${grund}${zusatz}` });
     });
     res.json({ ok: true });
   });
@@ -450,7 +596,8 @@ module.exports = function zeitRouten(api, bt) {
       beginn: new Date(sch.start).toISOString(), ende: sch.offen ? null : new Date(sch.ende).toISOString(),
       baustellen: [...new Set(sch.intervalle.map((i) => i.baustelleId).filter(Boolean))],
       arbeitMin: sch.arbeitMin, pauseMin: sch.pauseMin, offen: sch.offen, unplausibel: Boolean(sch.unplausibel),
-      buchungIds: sch.buchungen.map((b) => b.id)
+      buchungIds: sch.buchungen.map((b) => b.id),
+      ...(sch.buchungen.some((b) => istSelbstkorrektur({ ...b, benutzer_id: benutzerId })) ? { selbstkorrektur: true } : {})
     };
   }
 
@@ -463,7 +610,7 @@ module.exports = function zeitRouten(api, bt) {
     const bis = req.query.bis === undefined ? heute : v.datum(String(req.query.bis), 'bis');
     if (bis < von) throw ungueltig('bis liegt vor von.');
     if (plusTage(von, 93) < bis) throw ungueltig('Zeitraum höchstens 93 Tage.');
-    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, erfasst_von, automatisch FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit < ? ORDER BY zeit, id',
       benutzerId, wienZuDate(plusTage(von, -1)).toISOString(), wienZuDate(plusTage(bis, 2)).toISOString());
     const jetzt = bt.uhr();
     res.json(plausibilisieren(schichten(b, jetzt), jetzt).filter((x) => x.datum >= von && x.datum <= bis).map((x) => schichtJson(benutzerId, x)));
@@ -472,7 +619,7 @@ module.exports = function zeitRouten(api, bt) {
   api.post('/zeit/schichten', brauche('stammdaten'), (req, res) => {
     const body = v.objekt(req.body);
     const benutzerId = v.id(body.benutzerId, 'benutzerId');
-    nichtSelbst(req.ctx, benutzerId);
+    const zusatz = selbstPruefen(req.ctx, benutzerId);
     if (!db.eins('SELECT id FROM benutzer WHERE id = ?', benutzerId)) throw ungueltig('Mitarbeiter nicht gefunden.');
     const bsId = korrekturBaustelle(body.baustelleId);
     const datum = v.datum(body.datum, 'datum');
@@ -520,10 +667,10 @@ module.exports = function zeitRouten(api, bt) {
       ins('gehen', ende, null);
       pruefeFolge(benutzerId, vorher);
       db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
-        neu: { benutzerId, baustelleId: bsId, datum, von: vonHm, bis: bisHm, pauseMin }, text: `Schicht nachgetragen: ${grund}` });
+        neu: mitKennzeichen({ benutzerId, baustelleId: bsId, datum, von: vonHm, bis: bisHm, pauseMin }, zusatz), text: `Schicht nachgetragen: ${grund}${zusatz}` });
       return id;
     });
-    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit <= ? ORDER BY zeit, id', benutzerId, start.toISOString(), ende.toISOString());
+    const b = db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, erfasst_von, automatisch FROM buchung WHERE benutzer_id = ? AND zeit >= ? AND zeit <= ? ORDER BY zeit, id', benutzerId, start.toISOString(), ende.toISOString());
     const sch = schichten(b, jetzt).find((x) => x.buchungen[0].id === kommenId);
     res.status(201).json(schichtJson(benutzerId, sch));
   });
@@ -532,7 +679,7 @@ module.exports = function zeitRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Schicht-ID');
     const k = db.eins('SELECT * FROM buchung WHERE id = ?', id);
     if (!k || k.typ !== 'kommen') throw nichtGefunden('Schicht nicht gefunden (ID der „kommen“-Buchung angeben).');
-    nichtSelbst(req.ctx, k.benutzer_id);
+    const zusatz = selbstPruefen(req.ctx, k.benutzer_id);
     const grund = grundAus(v.objekt(req.body || {}));
     const folgende = db.alle('SELECT * FROM buchung WHERE benutzer_id = ? AND (zeit > ? OR (zeit = ? AND id > ?)) ORDER BY zeit, id', k.benutzer_id, k.zeit, k.zeit, k.id);
     const teil = [k];
@@ -547,7 +694,7 @@ module.exports = function zeitRouten(api, bt) {
       for (const b of teil) db.lauf('DELETE FROM buchung WHERE id = ?', b.id);
       pruefeFolge(k.benutzer_id, vorher);
       db.protokolliere({ zeit: t, benutzerId: req.ctx.benutzer.id, art: 'zeitkorrektur', objekt: `schicht:${id}`,
-        alt: teil.map((b) => ({ id: b.id, typ: b.typ, zeit: b.zeit, baustelleId: b.baustelle_id, quelle: b.quelle })), text: `Schicht gelöscht: ${grund}` });
+        alt: teil.map((b) => ({ id: b.id, typ: b.typ, zeit: b.zeit, baustelleId: b.baustelle_id, quelle: b.quelle })), neu: mitKennzeichen(undefined, zusatz), text: `Schicht gelöscht: ${grund}${zusatz}` });
     });
     res.json({ ok: true, geloescht: teil.length });
   });

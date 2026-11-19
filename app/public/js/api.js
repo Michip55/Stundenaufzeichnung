@@ -48,14 +48,34 @@ export function abmeldenVormerken(endpoint) {
   try { localStorage.setItem(ABMELDEN_OFFEN, JSON.stringify({ seit: new Date().toISOString(), ...(endpoint ? { endpoint } : {}) })); } catch (e) { /* gesperrt */ }
 }
 export const abmeldenOffen = () => !!merker();
+/**
+ * Prüfbefund n8-g (15.30): Während das Abmelden auf einen Standort-Nachtrag wartet (app.js standortAbwarten), geht keine andere
+ * Anfrage der Person hinaus – sonst holte sie das vorgemerkte Abmelden VOR dem Nachtrag nach (Fokus, Glocke …) und der
+ * Standort ginge verloren. Solche Anfragen enden als VeraltetFehler (die Ansicht der Person ist ohnehin schon geschlossen).
+ */
+let abmeldenWartet = false;
+export function abmeldenWarten(an) { abmeldenWartet = !!an; }
+/**
+ * Prüfbefund n8-g: die Seite wird geschlossen bzw. verborgen, während das Abmelden wartet – das Abmelden am Server sofort
+ * absetzen (keepalive: überlebt das Schließen), mit dem Sitzungs-Cookie, das noch gilt. Danach löscht app.js das Bindungs-Cookie.
+ */
+export function abmeldenBeimSchliessen() {
+  const m = merker();
+  try {
+    fetch('/api/auth/logout', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(m && m.endpoint ? { endpoint: m.endpoint } : {}) }).catch(() => {});
+  } catch (e) { /* ohne Netz: das Abmelden bleibt vorgemerkt und wird beim nächsten Öffnen nachgeholt */ }
+}
 /** Bindungs-Cookie der Sitzung löschen (geht ohne Netz) – danach gilt das HttpOnly-Sitzungs-Cookie am Server nicht mehr */
 export function bindungLoeschen() {
   try { document.cookie = `bt_bindung=; Path=/; Max-Age=0; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) { /* egal */ }
 }
 
 // 15.8: Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“ – je Gerät, bleibt beim Abmelden erhalten. Die Wahl ändert nur die
-// Sperre nach Untätigkeit AM GERÄT (und das stille Wiedereinschalten von Push); der Server erfährt sie nicht und vertraut ihr
-// nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.
+// Sperre nach Untätigkeit AM GERÄT (und das stille Wiedereinschalten von Push); ~~der Server erfährt sie nicht und vertraut ihr
+// nicht – seine Sitzungsgrenzen (Untätigkeit je Rolle, Höchstdauer, Bindung) gelten unverändert.~~
+// Ersetzt durch 15.28 (Inhaber 19.11.2026): die Anmeldung sendet die Wahl (`geraet`); mit „eigen“ gilt die Sitzung am Server bis
+// Sonntag 24:00 (Montag 00:00 Wiener Zeit) ohne Untätigkeitsgrenze – für jede Rolle. Rechte hängen nie davon ab; ein Wechsel auf
+// „geteilt“ in „Mehr“ kürzt die Sitzung sofort (POST /auth/geraet), „eigen“ gilt erst ab der nächsten Anmeldung mit PIN.
 // 15.21 (Inhaber 17.11.2026): Standard auf der Anmeldeseite ist „Eigenes Handy“; „Geteiltes Gerät“ wird für das Gerät gemerkt.
 export const GERAET_ART = 'bt_geraet_art';
 // 15.12 (G2-021): für wen „Eigenes Handy“ gilt (Benutzer-ID der Person, die sich damit angemeldet bzw. es gewählt hat)
@@ -148,10 +168,13 @@ export function pushNachAnmeldung(benutzerId, erlaubnis, art = geraetArtFuer(ben
  * Minuten ohne Bedienung, nach denen die App am Gerät abmeldet (15.5/15.8). „geteilt“: `sperreMinuten` des Servers
  * (Mitarbeiter/Polier 30, Büro/Bauleiter/GF wie die Sitzung). „eigen“: die Sitzungsdauer des Servers (`sitzungMinuten`) –
  * keine zusätzliche Sperre am Gerät, aber nie länger, als der Server die Sitzung ohnehin hält. Fehlt sie (alter Stand), bleibt die Sperre.
+ * 15.28: „eigen“ mit Wochen-Sitzung (`sitzungArt: "woche"`) → 0 = keine Abmeldung nach Untätigkeit am Gerät; die Sitzung endet
+ * am Server am Montag 00:00 (dann 401 → Anmeldeseite).
  */
 export function sperreMinutenFuer(ich, art) {
   if (!ich) return 0;
   const geteilt = Number(ich.sperreMinuten) > 0 ? Number(ich.sperreMinuten) : 0;
+  if (art === 'eigen' && ich.sitzungArt === 'woche') return 0;
   if (art !== 'eigen' || !geteilt) return geteilt;
   const sitzung = Number(ich.sitzungMinuten) > 0 ? Number(ich.sitzungMinuten) : 0;
   return Math.max(geteilt, sitzung);
@@ -177,15 +200,21 @@ async function abmeldenNachholen() {
 }
 
 /**
- * @param {{ersteller?: number}} opt  ersteller: nachgesendeter Eintrag dieser Person (15.5, F-030) – der Server nimmt ihn nur
- *   unter ihrer Sitzung an (sonst 409 ERSTELLER_ANDERS, der Eintrag bleibt dann am Gerät).
+ * @param {{ersteller?: number, vorAbmelden?: boolean}} opt  ersteller: nachgesendeter Eintrag dieser Person (15.5, F-030) – der
+ *   Server nimmt ihn nur unter ihrer Sitzung an (sonst 409 ERSTELLER_ANDERS, der Eintrag bleibt dann am Gerät).
+ *   vorAbmelden (15.30): Standort-Nachtrag der eben gestempelten Buchung – geht noch vor einem vorgemerkten Abmelden hinaus,
+ *   weil das Abmelden kurz auf ihn wartet (app.js). Bindung und Generation der Anmeldung gelten unverändert.
  */
 export async function api(methode, pfad, body, opt0 = {}) {
   const gebunden = opt0.ersteller == null; // 15.12 (G2-018): an die Generation gebunden (alles außer nachgesendeten Einträgen)
   const gen = generation;
   const signal = gebunden && abbruch ? abbruch.signal : undefined;
   const veraltet = () => gebunden && gen !== generation;
-  if (pfad !== '/auth/logout') await abmeldenNachholen();
+  if (abmeldenWartet && gebunden && !opt0.vorAbmelden && pfad !== '/auth/logout') throw new VeraltetFehler();
+  // Prüfbefund n8-s: nachgesendete Einträge der Person (ersteller, z. B. eine offline gestempelte Buchung, deren Ortung eben fertig
+  // wurde) gehen während des Wartens ebenfalls noch unter ihrer Sitzung hinaus – sonst holte ihr Nachsenden das Abmelden VOR dem
+  // Nachtrag nach. Der Server nimmt sie nur unter der Sitzung genau dieser Person an (X-BauTag-Ersteller); app.js wartet auf sie.
+  if (pfad !== '/auth/logout' && !opt0.vorAbmelden && !(abmeldenWartet && !gebunden)) await abmeldenNachholen();
   if (veraltet()) throw new VeraltetFehler();
   const opt = { method: methode, credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (signal) opt.signal = signal;

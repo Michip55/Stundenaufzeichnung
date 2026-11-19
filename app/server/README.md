@@ -60,7 +60,7 @@ Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mi
 | `BAUTAG_LOGIN_LISTE` | `1` | `0`: öffentliche Namensliste für die Anmeldung abschalten; Anmeldung dann mit Personalnummer + PIN |
 | `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier – Konzept-Vorschlag für das Polier-Tablet: `10` |
 | `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
-| `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
+| `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden). Seit API.md 15.28 gelten die drei Sitzungswerte für normale Sitzungen („Geteiltes Gerät“, API-Clients); eine Anmeldung der App mit „Eigenes Handy“ gilt für jede Rolle bis Montag 00:00 Wiener Zeit |
 | `BAUTAG_UPLOADS` | `uploads` neben der Datenbank | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
 | `NODE_ENV` | – | `production` (Schreibweise egal) = Echtbetrieb: Start nur mit gültigem `BAUTAG_SCHLUESSEL`, nie mit `BAUTAG_TEST=1` |
 | `BAUTAG_SCHLUESSEL` | – | **Pflicht im Echtbetrieb** (mind. 32 Zeichen, z. B. `openssl rand -hex 32`): verschlüsselt 2FA-Geheimnisse, VAPID-, SMTP- und KI-Schlüssel in der Datenbank (AES-256-GCM). Ohne ihn werden diese nur im Vorführ-/Testbetrieb (`BAUTAG_DEMO=1`/`BAUTAG_TEST=1`) im Klartext gespeichert, sonst gar nicht. Verlust: `node server/entsperren.js --2fa-alle` |
@@ -108,7 +108,7 @@ Push, E-Mail, SMS, Wetter, Diktat und Scan sind **nicht angebunden** (`/api/inte
 ### Produktentscheidungen (von der GF zu bestätigen)
 - **Sitzungsdauer:** Standard 12 h für Mitarbeiter/Polier (persönliche Geräte; ständiges Neu-Anmelden mit Handschuhen auf der Baustelle ist unpraktisch) und 60 min für Bauleiter/Büro/GF (dort liegen €-Daten), absolute Grenze 24 h. Das Konzept schlägt 10 bzw. 30 min vor – per Umgebungsvariable einstellbar.
 - **Kontosperre:** 20 falsche PINs in 24 h (über alle Geräte/IPs) sperren das Konto, bis Büro/GF entsperren (`POST /api/benutzer/:id/entsperren`), Büro/GF werden benachrichtigt. Abwägung: Ein Angreifer kann ein Konto so absichtlich sperren (Ärgernis), dafür ist verteiltes Durchprobieren einer 4-stelligen PIN nicht mehr möglich.
-- **Vier-Augen-Prinzip:** Eigene Urlaubs-/ZA-Anträge und eigene Stempelkorrekturen entscheidet bzw. macht immer eine andere Person (auch bei Büro/GF).
+- **Vier-Augen-Prinzip:** Eigene Urlaubs-/ZA-Anträge und eigene Stempelkorrekturen entscheidet bzw. macht immer eine andere Person (auch bei Büro/GF). **Ausnahme (API.md 15.29):** Die Geschäftsführung darf ihre eigenen Stempelzeiten selbst korrigieren; das Protokoll vermerkt es als „Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten“. Anträge und Urlaubskonto bleiben ohne Ausnahme.
 - **Stammdaten/Zuordnung:** Bauleiter- und Polier-Zuordnung der Baustellen pflegt nur das Büro bzw. die GF; Bauleiter können `stammdaten` nicht erhalten.
 - **Benutzerverwaltung:** Büro legt Mitarbeiter/Poliere/Bauleiter an, setzt PINs zurück und entsperrt; Büro- und GF-Konten sowie Rechte/Rollen-Matrix nur die GF.
 

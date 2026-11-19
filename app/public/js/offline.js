@@ -35,11 +35,38 @@ export function abgelehntErledigt(nr) { speicher.setz(KEY_ABGELEHNT, alleAbgeleh
 export const vorlaeufig = (err) => !!err && (err.netz || err.status >= 500 || err.status === 429 || err.status === 408);
 
 export function einreihen(buchung) {
-  if (benutzerId == null) return;
+  if (benutzerId == null) return null;
   const liste = alle();
-  liste.push({ ...buchung, benutzerId, zeit: buchung.zeit || new Date().toISOString(), nr: Date.now() + '-' + Math.random().toString(36).slice(2, 7) });
+  const nr = Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+  liste.push({ ...buchung, benutzerId, zeit: buchung.zeit || new Date().toISOString(), nr });
   speicher.setz(KEY, liste);
   melden();
+  return nr;
+}
+// 15.30: Eine Buchung mit `standortWartet` (Zeitpunkt) wartet kurz auf die Ortung, damit der Standort mitgesendet wird –
+// höchstens STANDORT_WARTEN_MS, danach geht sie auch ohne Standort (z. B. App inzwischen geschlossen).
+const STANDORT_WARTEN_MS = 40000;
+export const wartetAufStandort = (e) => !!e && typeof e.standortWartet === 'number' && Date.now() - e.standortWartet < STANDORT_WARTEN_MS;
+/** 15.30: Ergebnis der Ortung an die noch wartende Buchung `nr` hängen (standort = null: ohne Standort senden). true = gefunden */
+export function standortZurBuchung(nr, standort) {
+  if (benutzerId == null) return false;
+  let gefunden = false;
+  speicher.setz(KEY, alle().map((e) => {
+    if (e.nr !== nr || e.versiegelt || e.benutzerId !== benutzerId) return e;
+    gefunden = true;
+    const { standortWartet, ...rest } = e; // eslint-disable-line no-unused-vars
+    return standort ? { ...rest, standort } : rest;
+  }));
+  if (gefunden && navigator.onLine !== false) {
+    // nach einem gerade laufenden Nachsenden (das bei dieser Buchung abbricht). Prüfbefund n8-l: der Folgelauf gehört sofort zu
+    // `lauf`, damit nachsendenFertig() – wartendes Abmelden, Versiegeln – auch auf ihn wartet und nicht nur auf den laufenden.
+    const folge = lauf.then(() => {
+      if (lauf === folge) lauf = Promise.resolve(); // nachsenden() gibt sonst ohne neuen Lauf `folge` selbst zurück (wartet ewig)
+      return nachsenden();
+    }).catch(() => {});
+    lauf = folge;
+  }
+  return gefunden;
 }
 function ablehnen(e, err) {
   const liste = alleAbgelehnt();
@@ -61,17 +88,20 @@ async function nachsendenLauf() {
   if (!offen.length) return;
   const fuer = benutzerId;
   laeuft = true; melden();
-  let gesendet = 0, neuAbgelehnt = 0;
+  let gesendet = 0, neuAbgelehnt = 0, pauseVerworfen = 0;
   try {
     for (const e of offen) {
       // 15.5 (F-030): vor JEDEM Senden – ist noch die Person angemeldet, die die Buchung erfasst hat?
       if (benutzerId !== fuer || e.benutzerId !== benutzerId) break;
+      if (wartetAufStandort(e)) break; // 15.30: Ortung läuft noch – Reihenfolge wahren, gleich danach senden
       try {
         const body = { typ: e.typ, zeit: e.zeit, quelle: 'offline' };
         if (e.baustelleId != null) body.baustelleId = e.baustelleId;
         if (e.standort) body.standort = e.standort;
         if (e.dauerMin != null) body.dauerMin = e.dauerMin; // 15.22: geplante Pausendauer – der Server trägt das Ende ein
-        await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
+        if (e.pauseBeimGehen) body.pauseBeimGehen = e.pauseBeimGehen; // 15.27: „Gehen“ mit nachgetragener Pause – eine Buchung, Reihenfolge bleibt
+        const antwort = await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
+        if (e.pauseBeimGehen && antwort && antwort.pauseVerworfen) pauseVerworfen++; // 15.27: Gehen gilt, Pausenangabe nicht
         gesendet++;
         online = true;
       } catch (err) {
@@ -89,6 +119,7 @@ async function nachsendenLauf() {
     const sichtbar = benutzerId === fuer;
     if (sichtbar && neuAbgelehnt) toast(neuAbgelehnt === 1 ? 'Eine Offline-Buchung wurde nicht übernommen – siehe Stempeluhr.' : `${neuAbgelehnt} Offline-Buchungen wurden nicht übernommen – siehe Stempeluhr.`, 'warn');
     if (sichtbar && gesendet) toast(gesendet === 1 ? 'Offline-Buchung nachgesendet.' : `${gesendet} Offline-Buchungen nachgesendet.`);
+    if (sichtbar && pauseVerworfen) toast('„Gehen“ ist übernommen. Die Pausenangabe dazu nicht – in der Schicht war schon eine Pause gebucht oder sie passte nicht hinein. Das Büro sieht es im Protokoll.', 'warn');
     if (sichtbar && (gesendet || neuAbgelehnt)) window.dispatchEvent(new CustomEvent('bt:nachgesendet'));
   }
 }

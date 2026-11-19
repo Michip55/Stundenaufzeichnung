@@ -1,8 +1,8 @@
 'use strict';
 /**
- * API.md 15.8 – Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“: der Server vertraut der Wahl nicht.
- * Die Wahl wirkt nur am Gerät (Sperre nach Untätigkeit). Am Server bleibt jede Sitzung gleich lang – wer bei der Anmeldung
- * „eigen“ (oder sonst etwas) mitschickt, bekommt keine längere Sitzung, keine andere Sperrzeit und keine ungebundene Sitzung.
+ * API.md 15.8 – Gerätewahl „Eigenes Handy“ / „Geteiltes Gerät“: der Server vertraut der Wahl für Rechte nie.
+ * ~~Am Server bleibt jede Sitzung gleich lang~~ – ersetzt durch 15.28: „eigen“ (gebundene App-Sitzung) gilt bis Sonntag 24:00;
+ * wer „eigen“ (oder sonst etwas) mitschickt, bekommt keine andere Sperrzeit, keine anderen Rechte und keine ungebundene Sitzung.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,25 +31,31 @@ test('15.8: /auth/ich liefert beide Grenzen – Sperre (geteilt) und Sitzungsdau
   } finally { await s.stop(); }
 });
 
-test('15.8: „eigen“ bei der Anmeldung ändert am Server nichts – gleiche Sperrzeit, gleiche Untätigkeits- und Höchstdauer', async () => {
+test('15.8 / 15.28: „eigen“ bei der Anmeldung ändert nur die Lebensdauer (Woche) – gleiche Sperrzeit, gleiche Grenzen am geteilten Gerät', async () => {
   const s = await starte({ sitzung: {} });
   try {
+    // ~~„eigen“ ändert am Server nichts~~ – ersetzt durch 15.28: „eigen“ ergibt eine Wochen-Sitzung (Einzelheiten in pin-woche.test.js);
+    // Sperrzeit, Sitzungsdauer und Bindung bleiben, und Angaben wie sperreMinuten/sitzungMinuten im Body wirken weiter nicht
     const eigen = await appLogin(s, U.polier, { geraet: 'eigen', geraetArt: 'eigen', sperreMinuten: 0, sitzungMinuten: 99999 });
     const geteilt = await appLogin(s, U.mitarbeiter);
     const a = (await eigen.c.get('/auth/ich')).daten, b = (await geteilt.c.get('/auth/ich')).daten;
     assert.equal(a.sperreMinuten, b.sperreMinuten);
     assert.equal(a.sitzungMinuten, b.sitzungMinuten);
     assert.equal(a.sperreMinuten, 30);
+    assert.equal(a.sitzungArt, 'woche');
+    assert.equal(b.sitzungArt, 'normal');
     assert.equal(s.db.eins('SELECT COUNT(*) AS n FROM sitzung WHERE benutzer_id = ? AND bindung_hash IS NOT NULL', U.polier).n, 1);
-    // 12 h ohne Anfrage → die Sitzung endet am Server wie jede Feld-Sitzung (06:30 einstempeln, 16:30 ausstempeln geht: 10 h)
+    // geteilt (ohne „eigen“): 12 h ohne Anfrage → die Sitzung endet am Server wie jede Feld-Sitzung
     s.uhr.plus(10 * 60);
-    assert.equal((await eigen.c.get('/auth/ich')).status, 200, 'nach 10 h ohne Anfrage noch angemeldet (Feld 12 h)');
+    assert.equal((await geteilt.c.get('/auth/ich')).status, 200, 'nach 10 h ohne Anfrage noch angemeldet (Feld 12 h)');
+    assert.equal((await eigen.c.get('/auth/ich')).status, 200);
     s.uhr.plus(12 * 60 + 1);
-    assert.equal((await eigen.c.get('/auth/ich')).status, 401, 'Sitzung „eigen“ länger als 12 h ohne Anfrage gültig');
-    // Höchstdauer 24 h gilt auch mit regelmäßigen Anfragen
-    const e2 = await appLogin(s, U.polier, { geraet: 'eigen' });
+    assert.equal((await geteilt.c.get('/auth/ich')).status, 401, 'Sitzung „geteilt“ länger als 12 h ohne Anfrage gültig');
+    assert.equal((await eigen.c.get('/auth/ich')).status, 200, '15.28: Sitzung „eigen“ endet nach 12 h ohne Anfrage');
+    // Höchstdauer 24 h gilt am geteilten Gerät auch mit regelmäßigen Anfragen
+    const e2 = await appLogin(s, U.polier, { geraet: 'geteilt' });
     for (let h = 0; h < 23; h += 2) { s.uhr.plus(120); assert.equal((await e2.c.get('/auth/ich')).status, 200, `nach ${h + 2} h`); }
     s.uhr.plus(61);
-    assert.equal((await e2.c.get('/auth/ich')).status, 401, 'Sitzung „eigen“ länger als die Höchstdauer gültig');
+    assert.equal((await e2.c.get('/auth/ich')).status, 401, 'Sitzung „geteilt“ länger als die Höchstdauer gültig');
   } finally { await s.stop(); }
 });

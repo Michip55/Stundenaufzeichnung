@@ -168,7 +168,7 @@ async function laufe(browser, g) {
       await geh('#/stempeln');
       await page.waitForSelector('#heute-arbeitszeit');
       pruef((await text('#heute-arbeitszeit')) === '9 Std. 51 Min.', `Stempeluhr${w}: „Heute“ „${await text('#heute-arbeitszeit')}“ statt „9 Std. 51 Min.“`);
-      pruef(/Pause 0 min/.test(await text('.sum-grid')), `Stempeluhr${w}: Pause „${await text('.sum-grid')}“`);
+      pruef(/Pause 0 Min\./.test(await text('.sum-grid')), `Stempeluhr${w}: Pause „${await text('.sum-grid')}“`);
       if (breite || g.width <= 719) await layout('Stempeluhr' + w, '.sum-grid > div');
       // Der Mitarbeiter hat keinen Schalter und keine Monatsauswertung
       pruef(await page.locator('[data-zf]').count() === 0, `Stempeluhr${w}: Schalter Std:Min/Dezimal bei Mitarbeiter`);

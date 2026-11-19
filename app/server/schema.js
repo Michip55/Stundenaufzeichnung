@@ -1526,6 +1526,54 @@ CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
     sql: `
 ALTER TABLE rechnung ADD COLUMN skonto_zahlbetrag REAL;
 `
+  },
+  {
+    version: 52,
+    name: '15.28: PIN nur einmal pro Woche – Lebensdauer der Sitzung je Gerätewahl',
+    // art: 'woche' = Anmeldung am „Eigenen Handy“ (gebundene App-Sitzung) – gilt ohne Untätigkeitsgrenze bis `bis`
+    // (Montag 00:00 Wiener Zeit nach der Anmeldung). 'normal' = bisherige Regeln (Untätigkeit je Rolle, Höchstdauer).
+    // Wechselt die Person in „Mehr“ auf „Geteiltes Gerät“, wird die Sitzung 'normal'; `bis` bleibt dann als Obergrenze.
+    // Bestehende Sitzungen bleiben 'normal' (unverändert).
+    sql: `
+ALTER TABLE sitzung ADD COLUMN art TEXT NOT NULL DEFAULT 'normal' CHECK (art IN ('normal','woche'));
+ALTER TABLE sitzung ADD COLUMN bis TEXT;
+`
+  },
+  {
+    version: 53,
+    name: '15.27: Pause beim Gehen nachgetragen – Kennzeichen an der Buchung',
+    // nachgetragen = 1: „pause_start“/„pause_ende“, die beim „Gehen“ in der Stempeluhr nachgetragen wurden (Dauer und Beginn
+    // gewählt, keine Pause gestempelt). Nur ein Hinweis für Stempeluhr und Korrekturen – gerechnet wird wie mit jeder Pause.
+    // Eine Büro-Korrektur macht daraus eine gewöhnliche Büro-Buchung (0).
+    sql: `
+ALTER TABLE buchung ADD COLUMN nachgetragen INTEGER NOT NULL DEFAULT 0;
+`
+  },
+  {
+    version: 54,
+    name: '15.30: Standort beim Stempeln – Einwilligung je Person (freiwillig, nur selbst einschaltbar)',
+    // standort_einwilligung: Zeitpunkt, zu dem die Person „Standort beim Stempeln mitsenden“ selbst eingeschaltet hat
+    // (NULL = aus, Standard). Gilt je Person am Server, nicht je Gerät – auf einem geteilten Tablet erbt niemand die Wahl.
+    sql: `
+ALTER TABLE benutzer ADD COLUMN standort_einwilligung TEXT;
+`
+  },
+  {
+    version: 55,
+    name: '15.30 (Prüfbefund n8-g): Standorte ohne Einwilligung löschen',
+    // Bis 15.30 speicherte die App den Standort mit dem alten Geräteschalter ohne Einwilligung der Person (und ohne Hinweis, dass
+    // das Büro ihn sieht); seit 15.30 zeigt die Korrektur Standorte an. Gelöscht werden die Koordinaten jeder Buchung, für die
+    // die Person (noch) nicht eingewilligt hatte, als die Buchung erfasst wurde. Die Buchungen selbst bleiben unverändert.
+    // Prüfbefund n8-s: behalten nur bei der eigenen Stempelung (erfasst_von = Person, quelle app/offline) – PUT /zeit/buchungen/:id
+    // setzt erfasst auf den Zeitpunkt der Korrektur (quelle 'buero'), und bis 15.30 blieb der Standort dabei stehen; eine vor der
+    // Einwilligung gestempelte, danach korrigierte Buchung gälte sonst als „nach der Einwilligung erfasst“. Auch Zeilen mit nur
+    // `genauigkeit` werden geleert.
+    sql: `
+UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL
+ WHERE (lat IS NOT NULL OR lng IS NOT NULL OR genauigkeit IS NOT NULL)
+   AND NOT (erfasst_von IS NOT NULL AND erfasst_von = benutzer_id AND quelle IN ('app', 'offline') AND lat IS NOT NULL AND lng IS NOT NULL
+        AND EXISTS (SELECT 1 FROM benutzer b WHERE b.id = buchung.benutzer_id AND b.standort_einwilligung IS NOT NULL AND b.standort_einwilligung <= buchung.erfasst));
+`
   }
 ];
 

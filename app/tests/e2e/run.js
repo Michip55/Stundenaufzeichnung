@@ -1650,6 +1650,11 @@ async function laufe(browser, g) {
       console.log('    Gerätewahl (eigenes Handy / geteiltes Gerät) …');
       try { const gw = await require('./geraetewahl').laufe(browser, g); r.fehler.push(...gw.fehler); r.schritte += gw.schritte; } catch (e) { r.fehler.push('Abbruch Gerätewahl: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // PIN nur einmal pro Woche am eigenen Handy, geteiltes Gerät unverändert (tests/e2e/pin-woche.js, API.md 15.28)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PIN_WOCHE) {
+      console.log('    PIN einmal pro Woche (eigenes Handy bis Sonntag, Montag PIN, geteiltes Gerät unverändert) …');
+      try { const pw = await require('./pin-woche').laufe(browser, g); r.fehler.push(...pw.fehler); r.schritte += pw.schritte; } catch (e) { r.fehler.push('Abbruch PIN-Woche: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     // Nachkontrolle Sitzung/Gerät: sofortiges Abmelden bei langsamem Netz, zweiter Tab (tests/e2e/sitzung-n2.js, API.md 15.16)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
       console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
@@ -1689,6 +1694,21 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ZEITFORMAT) {
       console.log('    Zeitformat (Std:Min statt Dezimal, Schalter in der Monatsauswertung, Meine Woche, Stempeluhr, CSV bleibt dezimal) …');
       try { const zf = await require('./zeitformat').laufe(browser, g); r.fehler.push(...zf.fehler); r.schritte += zf.schritte; } catch (e) { r.fehler.push('Abbruch Zeitformat: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Begrüßung mit dem zweiten Namen, Pause beim Gehen nachtragen (tests/e2e/pause-gehen.js, API.md 15.27)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAUSE_GEHEN) {
+      console.log('    Pause beim Gehen (Begrüßung, Dialog 30/45/60/Keine Pause, Abbrechen, Vorschlag, gestempelte Pause, ohne Netz) …');
+      try { const pg = await require('./pause-gehen').laufe(browser, g); r.fehler.push(...pg.fehler); r.schritte += pg.schritte; } catch (e) { r.fehler.push('Abbruch Pause beim Gehen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Selbstkorrektur durch die GF: eigene Zeiten mit Hinweis und Kennzeichen, Büro weiter gesperrt (tests/e2e/selbstkorrektur.js, API.md 15.29)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SELBSTKORREKTUR) {
+      console.log('    Selbstkorrektur GF (eigene Zeiten, Hinweis im Dialog, Kennzeichen in Liste und Protokoll, Büro gesperrt) …');
+      try { const sk = await require('./selbstkorrektur').laufe(browser, g); r.fehler.push(...sk.fehler); r.schritte += sk.schritte; } catch (e) { r.fehler.push('Abbruch Selbstkorrektur: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Standort beim Stempeln: je Person, freiwillig, Nachreichen, Anzeige in der Korrektur (tests/e2e/standort.js, API.md 15.30)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_STANDORT) {
+      console.log('    Standort beim Stempeln (Schalter je Person, „Standort erfasst“, Korrektur „bei der Baustelle“, ohne Erlaubnis) …');
+      try { const so = await require('./standort').laufe(browser, g); r.fehler.push(...so.fehler); r.schritte += so.schritte; } catch (e) { r.fehler.push('Abbruch Standort: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

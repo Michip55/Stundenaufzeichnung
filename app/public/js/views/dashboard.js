@@ -1,5 +1,7 @@
 // Übersicht (API.md 15.20, Inhaber 17.11.2026): ruhig, oben nur, was jetzt jemanden braucht.
-// Reihenfolge: Datum · „N Punkte brauchen Sie“ – Einteilung für morgen (nur Planer) – Heute – Zur Freigabe – Geld.
+// Reihenfolge: Datum · „N Punkte brauchen Sie“ – Einteilung für morgen (nur Planer) – Heute – Zur Freigabe – Rechnungen.
+// Ab 720 px zwei Spalten, die unabhängig voneinander wachsen (links Heute + Rechnungen, rechts Zur Freigabe + Einteilung) – keine
+// Lücke unter „Heute“, wenn „Zur Freigabe“ länger ist (Prüfbefund n8-g). Am Handy eine Spalte in der obigen Reihenfolge (CSS order).
 // Farbe nur für Handlungsbedarf (rot: Freigaben, Überfälliges; gelb: Warnungen). Zeilen sind ganze, tippbare Flächen.
 // Die bisherige Übersicht liegt unverändert in dashboard-klassisch.js – umschaltbar unter „Mehr“ (je Gerät, bis zum Abmelden).
 import { get, post } from '../api.js';
@@ -232,7 +234,7 @@ export default async function dashboard(el, ctx) {
     // Alles, was passt, in EINER ruhigen Zeile
     const gutText = gut.length ? gut.reduce((a, x, i) => a + (i === 0 ? '' : i === gut.length - 1 ? ' und ' : ', ') + x, '') : '';
     const okZeile = offenText || gutText ? `<div class="ue-ok-zeile" id="ue-geld-ok">${ic('check')}<span>${offenText}${offenText && gutText ? ' · ' : ''}${gutText} – <b>in Ordnung</b></span></div>` : '';
-    return abschnitt('bv-kacheln', op || kalk ? 'Geld' : 'Bauvorhaben', zeilen.join('') + okZeile);
+    return abschnitt('bv-kacheln', op || kalk ? 'Rechnungen' : 'Bauvorhaben', zeilen.join('') + okZeile);
   }
 
   /* ---------- Kopfzeile: Datum, Uhrzeit, wie viel wartet ---------- */
@@ -244,14 +246,18 @@ export default async function dashboard(el, ctx) {
     : `<p class="ue-kopf" id="ue-kopf" data-punkte="0">${esc(datumText)}</p><div class="ue-erledigt" id="ue-erledigt" role="status">${ic('check')}<span>Alles erledigt – nichts wartet auf Sie.</span></div>`;
 
   const oben = planInfo && planInfo.oben;
+  const spalte = (html) => `<div class="ue-spalte">${html}</div>`;
+  // Prüfbefund n8-s: bliebe eine Spalte leer (z. B. ohne Berichtsrechte und ohne Einteilung nach einer Änderung der Rechte),
+  // stehen die Abschnitte der anderen direkt im Raster nebeneinander – keine leere rechte Hälfte. Prüfbefund n8-l: bleibt nur ein
+  // einziger Abschnitt (z. B. nur „Heute“), liegt er über beide Spalten.
+  const linksT = [heuteHtml(), geldHtml()].filter((x) => x.trim()), rechtsT = [freigabeHtml(), planer && !oben ? planKarte() : ''].filter((x) => x.trim());
+  const links = linksT.join(''), rechts = rechtsT.join('');
+  const teile = linksT.length + rechtsT.length;
   el.innerHTML = `
   <div class="page ue-page" id="ue">
     <div class="ue-voll">${kopf}</div>
     ${oben ? `<div class="ue-voll">${planKarte()}</div>` : ''}
-    ${heuteHtml()}
-    ${freigabeHtml()}
-    ${geldHtml()}
-    ${planer && !oben ? planKarte() : ''}
+    ${links && rechts ? spalte(links) + spalte(rechts) : teile === 1 ? `<div class="ue-voll ue-allein">${links + rechts}</div>` : links + rechts}
   </div>`;
 
   /* ---------- Bedienung ---------- */

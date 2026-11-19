@@ -1,6 +1,6 @@
 'use strict';
 const v = require('../validierung');
-const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
+const { nichtAngemeldet, ungueltig, nichtGefunden, keinZugriff } = require('../fehler');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const auth = require('../auth');
 const { eigeneBaustellenIds, ladeRechteFuer } = require('../rechte');
@@ -125,12 +125,17 @@ module.exports = function authRouten(api, bt) {
    * Sitzung anlegen (nach PIN bzw. PIN + zweitem Faktor). 15.5: Eine mitgeschickte alte Sitzung endet immer (Rotation).
    * `bindung: true` (App am Gerät): die Sitzung gilt nur mit dem Bindungs-Cookie, das die App beim Abmelden löscht.
    * `pushEndpoint`: Push-Abo dieses Geräts – gehört es einer anderen Person, wird es gelöscht (F-014).
+   * 15.28: `geraet: "eigen"` (Gerätewahl „Eigenes Handy“, nur zusammen mit `bindung: true`) → Wochen-Sitzung bis Montag 00:00
+   * Wiener Zeit, für jede Rolle; jeder andere Wert → normale Sitzung. Die Wahl bestimmt nur die Lebensdauer, nie Rechte oder Rolle.
+   * Mit Zwei-Faktor-Anmeldung kommt die Wahl mit dem zweiten Schritt (`POST /auth/login/2fa`).
    */
   function anmelden(req, res, b) {
     if (req.token) auth.beendeSitzung(db, req.token);
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const s = auth.neueSitzung(db, b.id, bt.uhr(), { bindung: body.bindung === true });
-    auth.setzeCookie(req, res, typeof s === 'string' ? s : s.token, typeof s === 'string' ? null : s.bindung);
+    const jetzt = bt.uhr();
+    const s = auth.neueSitzung(db, b.id, jetzt, { bindung: body.bindung === true, woche: auth.istWochenWahl(body.geraet, body.bindung) });
+    const bis = typeof s === 'string' ? null : s.bis;
+    auth.setzeCookie(req, res, typeof s === 'string' ? s : s.token, typeof s === 'string' ? null : s.bindung, bis ? (new Date(bis).getTime() - jetzt.getTime()) / 1000 : null);
     if (typeof body.pushEndpoint === 'string' && body.pushEndpoint.length <= 1000) {
       const weg = db.lauf('DELETE FROM push_abo WHERE endpoint = ? AND benutzer_id <> ?', body.pushEndpoint, b.id).changes;
       if (weg) db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: b.id, art: 'sicherheit', objekt: `benutzer:${b.id}`, text: `${b.name} hat sich an einem Gerät angemeldet, das Push-Meldungen einer anderen Person erhielt – Abo der anderen Person gelöscht` });
@@ -178,14 +183,39 @@ module.exports = function authRouten(api, bt) {
     if (!req.ctx) throw nichtAngemeldet();
     const b = req.ctx.benutzer;
     res.json({
-      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null },
+      // 15.30: Standort beim Stempeln – Zeitpunkt der eigenen Einwilligung (null = aus); gilt je Person, nicht je Gerät
+      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null, standortEinwilligung: b.standort_einwilligung || null },
       rechte: [...req.ctx.rechte],
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,
       sitzungMinuten: auth.inaktivMinuten(b.rolle, bt.sitzung),
       sperreMinuten: auth.sperreMinuten(b.rolle, bt.sitzung), // 15.5: Abmelden am Gerät nach Untätigkeit
+      ...sitzungAngaben(req),
       zweiFaktor: require('./zweifaktor').stand(db, b)
     });
+  });
+
+  /** 15.28: Lebensdauer der Sitzung – `sitzungArt` "woche" (bis `sitzungBis`, Montag 00:00 Wiener Zeit) oder "normal" */
+  function sitzungAngaben(req) {
+    const a = req.sitzungArt || {};
+    return { sitzungArt: a.art === 'woche' ? 'woche' : 'normal', sitzungBis: a.art === 'woche' ? a.bis : null };
+  }
+
+  /**
+   * 15.28: Gerätewahl der angemeldeten Person in „Mehr“ → `{art: "eigen"|"geteilt"}`. „geteilt“ stellt eine Wochen-Sitzung sofort
+   * auf die normalen Regeln (Untätigkeit je Rolle und Höchstdauer ab jetzt, höchstens bis zum Wochenende); „eigen“ ändert an der
+   * laufenden Sitzung nichts – die Woche gilt erst ab der nächsten Anmeldung mit PIN (sonst könnte jemand an einem geteilten
+   * Gerät die Sitzung einer anderen Person ohne PIN auf eine Woche verlängern). → {sitzungArt, sitzungBis}
+   */
+  api.post('/auth/geraet', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const art = v.objekt(req.body).art;
+    if (art !== 'eigen' && art !== 'geteilt') throw ungueltig('art muss "eigen" oder "geteilt" sein.');
+    if (art === 'geteilt' && auth.sitzungAufNormal(db, req.token, bt.uhr())) {
+      req.sitzungArt = { art: 'normal', bis: null };
+      db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'sicherheit', objekt: `benutzer:${req.ctx.benutzer.id}`, text: `${req.ctx.benutzer.name}: Gerät auf „Geteiltes Gerät“ gestellt – Anmeldung gilt nicht mehr bis Sonntag` });
+    }
+    res.json(sitzungAngaben(req));
   });
 
   /** Eigene dienstliche Telefonnummer (12.8d) */
@@ -195,6 +225,35 @@ module.exports = function authRouten(api, bt) {
     db.lauf('UPDATE benutzer SET telefon = ? WHERE id = ?', t, req.ctx.benutzer.id);
     db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${req.ctx.benutzer.id}`, neu: { telefon: t }, text: 'Eigene Telefonnummer geändert' });
     res.json({ telefon: t });
+  });
+
+  /**
+   * 15.30: „Standort beim Stempeln mitsenden“ – freiwillig, schaltet jede Person NUR für sich selbst ein oder aus (der
+   * Schalter ist die Einwilligung der Person). `benutzerId` ist nur zur Klarheit erlaubt und muss die eigene sein – niemand,
+   * auch nicht Büro oder Geschäftsführung, schaltet es für eine andere Person ein (403). Jede Änderung wird protokolliert.
+   */
+  api.put('/auth/standort', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const body = v.objekt(req.body);
+    const ich = req.ctx.benutzer;
+    if (body.benutzerId !== undefined && body.benutzerId !== null && body.benutzerId !== ich.id) {
+      throw keinZugriff('Den Standort beim Stempeln schaltet jede Person nur für sich selbst ein oder aus.');
+    }
+    const an = v.bool(body.an, 'an');
+    const alt = (db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', ich.id) || {}).e || null;
+    const neu = an ? alt || bt.uhr().toISOString() : null;
+    let geloescht = 0;
+    if (neu !== alt) {
+      db.transaktion(() => {
+        db.lauf('UPDATE benutzer SET standort_einwilligung = ? WHERE id = ?', neu, ich.id);
+        // Prüfbefund n8-g: der Widerruf löscht die gespeicherten Standorte der Person (sie beruhten allein auf der Einwilligung);
+        // das Büro sieht danach keine früheren Standorte mehr. Die Buchungen selbst bleiben unverändert.
+        if (!an) geloescht = db.lauf('UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL WHERE benutzer_id = ? AND (lat IS NOT NULL OR lng IS NOT NULL)', ich.id).changes;
+        db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ich.id, art: 'benutzer', objekt: `benutzer:${ich.id}`, alt: { standortEinwilligung: alt }, neu: { standortEinwilligung: neu, ...(an ? {} : { standorteGeloescht: geloescht }) },
+          text: an ? `${ich.name} hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet (Einwilligung)` : `${ich.name} hat „Standort beim Stempeln mitsenden“ ausgeschaltet (Einwilligung widerrufen, ${geloescht === 1 ? '1 gespeicherter Standort' : `${geloescht} gespeicherte Standorte`} gelöscht)` });
+      });
+    }
+    res.json({ standortEinwilligung: neu, ...(an ? {} : { standorteGeloescht: geloescht }) });
   });
 
   /** Eigene PIN ändern (auch bei erzwungener Änderung) */
