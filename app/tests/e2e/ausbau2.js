@@ -1860,6 +1860,8 @@ async function intern(h) {
   pruef((await status()).baustelleId === echte[0].id, 'Intern: Wechsel vom Büro auf eine echte Baustelle nicht gebucht');
   await h.toastWeg();
   await page.click('[data-stempel="gehen"]');
+  // 15.27: ohne gestempelte Pause fragt „Gehen“ nach der Pause – hier „Keine Pause“
+  await page.click('dialog[open] #pause-gehen [data-pg-keine]');
   await page.waitForFunction(async () => { const r = await fetch('/api/zeit/status'); return (await r.json()).status === 'aus'; });
   await geh('/woche');
   pruef(/Büro/.test(await page.locator('#view').innerText()), 'Intern: „Meine Woche“ nennt die Kostenstelle „Büro“ nicht');

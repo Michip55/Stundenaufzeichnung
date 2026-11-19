@@ -130,7 +130,7 @@ function aktuellerStatus(db, benutzerId) {
 function buchungenSeit(db, benutzerId, vonIso) {
   const k = db.eins("SELECT zeit FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY zeit DESC, id DESC LIMIT 1", benutzerId);
   const von = k && k.zeit < vonIso ? k.zeit : vonIso;
-  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, automatisch, pause_plan_min AS dauerMin FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
+  return db.alle('SELECT id, typ, zeit, baustelle_id AS baustelleId, quelle, automatisch, nachgetragen, pause_plan_min AS dauerMin FROM buchung WHERE benutzer_id = ? AND zeit >= ? ORDER BY zeit, id', benutzerId, von);
 }
 
 /** Zeitfenster rund um einen Tag (Vortag 00:00 bis übermorgen 00:00 Wiener Zeit) */

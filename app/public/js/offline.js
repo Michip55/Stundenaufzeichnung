@@ -71,6 +71,7 @@ async function nachsendenLauf() {
         if (e.baustelleId != null) body.baustelleId = e.baustelleId;
         if (e.standort) body.standort = e.standort;
         if (e.dauerMin != null) body.dauerMin = e.dauerMin; // 15.22: geplante Pausendauer – der Server trägt das Ende ein
+        if (e.pauseBeimGehen) body.pauseBeimGehen = e.pauseBeimGehen; // 15.27: „Gehen“ mit nachgetragener Pause – eine Buchung, Reihenfolge bleibt
         await post('/zeit/stempeln', body, { ersteller: e.benutzerId });
         gesendet++;
         online = true;

@@ -682,6 +682,9 @@ async function buero(h, z) {
   if (await page.locator('.clock-card[data-status="aus"]').count() === 1) { await page.click('[data-stempel="kommen"]'); await page.waitForSelector('.clock-card[data-status="arbeit"]'); }
   await h.toastWeg();
   await page.click('[data-stempel="gehen"]');
+  // 15.27: ohne gestempelte Pause fragt „Gehen“ zuerst nach der Pause – hier „Keine Pause“
+  await page.waitForSelector('dialog[open] #pause-gehen [data-pg-keine], #zaehler-dlg .zs-wert', { timeout: 10000 });
+  if (await page.locator('dialog[open] #pause-gehen').count()) await page.click('dialog[open] #pause-gehen [data-pg-keine]');
   await page.waitForSelector('#zaehler-dlg .zs-wert', { timeout: 10000 });
   pruef(/Kilometerstand eintragen\?/.test(await page.locator('#zaehler-dlg h2').innerText()) && /Überspringen/.test(await page.locator('#zaehler-dlg .dlg-foot').innerText()), 'Zählerabfrage: Dialog „Kilometerstand eintragen?“ mit „Überspringen“ erwartet');
   pruef((await page.locator('#zaehler-dlg .mm-geraet').innerText()).includes(fz.bezeichnung), 'Zählerabfrage: Fahrzeug wird nicht genannt');

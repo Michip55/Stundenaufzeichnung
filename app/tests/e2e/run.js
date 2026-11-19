@@ -1690,6 +1690,11 @@ async function laufe(browser, g) {
       console.log('    Zeitformat (Std:Min statt Dezimal, Schalter in der Monatsauswertung, Meine Woche, Stempeluhr, CSV bleibt dezimal) …');
       try { const zf = await require('./zeitformat').laufe(browser, g); r.fehler.push(...zf.fehler); r.schritte += zf.schritte; } catch (e) { r.fehler.push('Abbruch Zeitformat: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Begrüßung mit dem zweiten Namen, Pause beim Gehen nachtragen (tests/e2e/pause-gehen.js, API.md 15.27)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAUSE_GEHEN) {
+      console.log('    Pause beim Gehen (Begrüßung, Dialog 30/45/60/Keine Pause, Abbrechen, Vorschlag, gestempelte Pause, ohne Netz) …');
+      try { const pg = await require('./pause-gehen').laufe(browser, g); r.fehler.push(...pg.fehler); r.schritte += pg.schritte; } catch (e) { r.fehler.push('Abbruch Pause beim Gehen: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

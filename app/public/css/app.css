@@ -1152,6 +1152,14 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .pause-opt.offen { border-style: dashed; }
 .pause-bis { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-weight: 700; font-size: 15px; }
 .kol-dauer { margin-top: 4px; }
+/* 15.27 Pause beim Gehen: Beginn ca. + 30/45/60 Min + „Keine Pause“ (auch mit Handschuhen, ab 320 px) */
+.pause-gehen .pg-frage { margin: 0 0 10px; font-size: 17px; }
+.pause-gehen .pg-beginn { margin-bottom: 12px; }
+.pause-gehen .pg-beginn .input { height: 56px; font-size: 20px !important; font-weight: 700; max-width: 220px; }
+.pause-gehen .pause-wahl { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
+.pause-gehen .pause-opt small { font-size: 12px; text-align: center; }
+.pause-gehen .pg-fehler { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #fdecea; color: #8a1c12; font-weight: 600; }
+.pause-gehen .pg-keine { width: 100%; min-height: 52px; margin-bottom: 8px; }
 /* 15.23: Arbeitszeitmodelle – Normalstunden je Wochentag */
 .az-tage { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
 .az-tage .input { text-align: right; padding-left: 6px; padding-right: 6px; }

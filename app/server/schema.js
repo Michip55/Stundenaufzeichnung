@@ -1526,6 +1526,16 @@ CREATE INDEX rechnung_differenz_z ON rechnung_differenz(zahlung_id);
     sql: `
 ALTER TABLE rechnung ADD COLUMN skonto_zahlbetrag REAL;
 `
+  },
+  {
+    version: 53,
+    name: '15.27: Pause beim Gehen nachgetragen – Kennzeichen an der Buchung',
+    // nachgetragen = 1: „pause_start“/„pause_ende“, die beim „Gehen“ in der Stempeluhr nachgetragen wurden (Dauer und Beginn
+    // gewählt, keine Pause gestempelt). Nur ein Hinweis für Stempeluhr und Korrekturen – gerechnet wird wie mit jeder Pause.
+    // Eine Büro-Korrektur macht daraus eine gewöhnliche Büro-Buchung (0).
+    sql: `
+ALTER TABLE buchung ADD COLUMN nachgetragen INTEGER NOT NULL DEFAULT 0;
+`
   }
 ];
 

@@ -190,6 +190,8 @@ async function laufe(browser, g) {
       await page.click('dialog[open] [data-zu]');
       await gleich();
       await page.click('[data-stempel="gehen"]');
+      // 15.27: ohne gestempelte Pause fragt „Gehen“ nach der Pause – hier „Keine Pause“
+      await page.click('dialog[open] #pause-gehen [data-pg-keine]');
       await page.waitForSelector('.clock-card[data-status="aus"]');
     });
     s.db.setzeEinstellung('pausen', { auswahl: [30, 45, 60] });
