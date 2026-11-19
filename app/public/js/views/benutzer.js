@@ -65,7 +65,7 @@ export default async function benutzer(el, ctx) {
   }
   function protokollHtml() {
     const p = r.protokoll || [];
-    return `<section class="card">${p.length ? `<ul class="plain rows log" id="protokoll">${p.map((x) => `<li><span class="log-ic">${ic('shield')}</span><span class="grow"><b>${esc(x.text || [x.art, x.objekt].filter(Boolean).join(' · '))}</b><small>${esc(fmt.zeitpunkt(x.zeit))}${x.name || x.benutzerId ? ' · ' + esc(x.name || name(x.benutzerId)) : ''}</small></span></li>`).join('')}</ul>` : leer('Noch keine Einträge.', 'shield')}
+    return `<section class="card">${p.length ? `<ul class="plain rows log" id="protokoll">${p.map((x) => `<li><span class="log-ic">${ic('shield')}</span><span class="grow"><b>${esc(x.text || [x.art, x.objekt].filter(Boolean).join(' · '))}</b><small>${esc(fmt.zeitpunkt(x.zeit))}${x.name || x.benutzerId ? ' · ' + esc(x.name || name(x.benutzerId)) : ''}</small></span>${x.selbstkorrektur ? '<span class="chip xs st-amber" data-selbstkorrektur>Selbstkorrektur GF</span>' : ''}</li>`).join('')}</ul>` : leer('Noch keine Einträge.', 'shield')}
       <p class="card-note">Das Protokoll ist unveränderbar – Einträge können weder geändert noch gelöscht werden.</p></section>`;
   }
   function zeichne() {

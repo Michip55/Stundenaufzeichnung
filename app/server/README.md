@@ -108,7 +108,7 @@ Push, E-Mail, SMS, Wetter, Diktat und Scan sind **nicht angebunden** (`/api/inte
 ### Produktentscheidungen (von der GF zu bestätigen)
 - **Sitzungsdauer:** Standard 12 h für Mitarbeiter/Polier (persönliche Geräte; ständiges Neu-Anmelden mit Handschuhen auf der Baustelle ist unpraktisch) und 60 min für Bauleiter/Büro/GF (dort liegen €-Daten), absolute Grenze 24 h. Das Konzept schlägt 10 bzw. 30 min vor – per Umgebungsvariable einstellbar.
 - **Kontosperre:** 20 falsche PINs in 24 h (über alle Geräte/IPs) sperren das Konto, bis Büro/GF entsperren (`POST /api/benutzer/:id/entsperren`), Büro/GF werden benachrichtigt. Abwägung: Ein Angreifer kann ein Konto so absichtlich sperren (Ärgernis), dafür ist verteiltes Durchprobieren einer 4-stelligen PIN nicht mehr möglich.
-- **Vier-Augen-Prinzip:** Eigene Urlaubs-/ZA-Anträge und eigene Stempelkorrekturen entscheidet bzw. macht immer eine andere Person (auch bei Büro/GF).
+- **Vier-Augen-Prinzip:** Eigene Urlaubs-/ZA-Anträge und eigene Stempelkorrekturen entscheidet bzw. macht immer eine andere Person (auch bei Büro/GF). **Ausnahme (API.md 15.29):** Die Geschäftsführung darf ihre eigenen Stempelzeiten selbst korrigieren; das Protokoll vermerkt es als „Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten“. Anträge und Urlaubskonto bleiben ohne Ausnahme.
 - **Stammdaten/Zuordnung:** Bauleiter- und Polier-Zuordnung der Baustellen pflegt nur das Büro bzw. die GF; Bauleiter können `stammdaten` nicht erhalten.
 - **Benutzerverwaltung:** Büro legt Mitarbeiter/Poliere/Bauleiter an, setzt PINs zurück und entsperrt; Büro- und GF-Konten sowie Rechte/Rollen-Matrix nur die GF.
 

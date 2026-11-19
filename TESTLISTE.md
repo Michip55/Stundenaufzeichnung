@@ -106,6 +106,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 ## 5. Geschäftsführung (Michael Pichler)
 
 - [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro- und Bauleiter-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App) – sie ist freiwillig und lässt sich unter Mehr → Zwei-Faktor-Anmeldung mit PIN und Code wieder ausschalten, solange sie nicht für alle vorgeschrieben ist.
+- [ ] **Eigene Zeiten selbst korrigieren:** Monat → „Zeiten korrigieren“ → bei „Mitarbeiter“ den eigenen Namen „(eigene Zeiten)“ wählen → z. B. „Ganze Schicht nachtragen“: im Fenster steht gelb „Eigene Zeiten – wird im Protokoll als Selbstkorrektur vermerkt.“, ein Grund ist Pflicht. Danach tragen Schicht und Buchungen das Kennzeichen „Selbstkorrektur GF“, ebenso der Eintrag unter Benutzer → Protokoll („… (Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten)“). Gegenprobe als Büro (Martina Koller): der eigene Name steht dort nicht zur Wahl – die eigenen Zeiten korrigiert weiter eine andere Person.
 - [ ] Hinweis: Das Geschäftsführungs-Konto kann niemand über die App entsperren oder zurücksetzen – nur direkt am Server (`node server/entsperren.js`). Empfehlung: zwei GF-Konten.
 
 ## Bekannte Punkte, die erst im Echtbetrieb gehen

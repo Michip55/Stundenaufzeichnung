@@ -1,6 +1,7 @@
 // Zeitkorrektur durch Büro/GF (Prüfbericht 1 B-05, Prüfbericht 2 C-04/C-15):
 // ganze Schichten nachtragen oder löschen, einzelne Buchungen nachtragen, ändern, löschen – immer mit Grund.
 // Alle Zeiten sind österreichische Ortszeit, unabhängig von der Zeitzone des Geräts.
+// API.md 15.29: die Geschäftsführung darf ihre eigenen Zeiten selbst korrigieren (im Protokoll als Selbstkorrektur vermerkt).
 import { get, post, put, api } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, toast, speicher, $ } from '../ui.js';
 import { wienIso, wienLokal, wienHeute, stundenAus } from '../zahl.js';
@@ -13,9 +14,12 @@ const uhr = (x) => (!x ? '–' : /^\d{1,2}:\d{2}/.test(x) ? x.slice(0, 5) : loka
 
 export default async function korrektur(el, ctx) {
   const [alle, baustellen] = await Promise.all([get('/mitarbeiter'), get('/baustellen')]);
-  // Vier-Augen-Prinzip: die eigenen Zeiten korrigiert niemand selbst
-  const leute = alle.filter((m) => m.id !== ctx.ich.benutzer.id);
-  const aktive = leute.filter((m) => m.aktiv !== false);
+  // Vier-Augen-Prinzip: die eigenen Zeiten korrigiert eine andere Person – außer die GF (15.29, der Server prüft dasselbe)
+  const ichId = ctx.ich.benutzer.id;
+  const gfSelbst = ctx.ich.benutzer.rolle === 'gf'; // rolle-ok: Vorbehalt der GF (15.29) wie Archiv aufheben, Server entscheidet
+  const leute = gfSelbst ? alle : alle.filter((m) => m.id !== ichId);
+  // Vorauswahl ohne Angabe: eine andere Person (die eigenen Zeiten wählt die GF ausdrücklich)
+  const aktive = leute.filter((m) => m.aktiv !== false && m.id !== ichId);
   let benutzerId = Number(ctx.query.get('benutzerId')) || speicher.lies('bt_korr_ma') || (aktive[0] && aktive[0].id);
   if (!leute.some((m) => m.id === benutzerId)) benutzerId = aktive[0] && aktive[0].id;
   let bis = ctx.query.get('bis') || wienHeute();
@@ -23,13 +27,16 @@ export default async function korrektur(el, ctx) {
   let liste = [], schichten = [];
   const bsName = (id) => { const b = baustellen.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
   const person = () => (leute.find((m) => m.id === benutzerId) || {}).name || '';
+  const selbst = () => benutzerId === ichId;
+  const SELBST_CHIP = '<span class="chip xs st-amber" data-selbstkorrektur>Selbstkorrektur GF</span>';
+  const selbstHinweis = () => (selbst() ? `<div id="k-selbst-hinweis">${banner('warn', 'Eigene Zeiten – wird im Protokoll als Selbstkorrektur vermerkt.', 'shield')}</div>` : '');
   const bsWahl = (gewaehlt, leerText) => `<select class="input lg" name="baustelleId" ${leerText ? '' : 'required'}>${leerText ? `<option value="">${leerText}</option>` : ''}${baustellen.filter((b) => b.status !== 'abgeschlossen' || b.id === gewaehlt).map((b) => `<option value="${b.id}" ${gewaehlt === b.id ? 'selected' : ''}>${esc(bsName(b.id))}</option>`).join('')}</select>`;
 
   el.innerHTML = `
   <div class="page">
-    ${banner('info', 'Korrekturen ändern die Lohnstunden. Jede Änderung braucht einen <b>Grund</b> und wird unveränderbar protokolliert. Die eigenen Zeiten korrigiert immer eine andere Person.', 'shield')}
+    ${banner('info', `Korrekturen ändern die Lohnstunden. Jede Änderung braucht einen <b>Grund</b> und wird unveränderbar protokolliert. ${gfSelbst ? 'Ihre eigenen Zeiten können Sie als Geschäftsführung selbst korrigieren – das wird im Protokoll als Selbstkorrektur vermerkt.' : 'Die eigenen Zeiten korrigiert immer eine andere Person.'}`, 'shield')}
     <div class="toolbar">
-      <label class="field inline"><span class="vh">Mitarbeiter</span><select class="input" id="k-ma">${leute.map((m) => `<option value="${m.id}" ${m.id === benutzerId ? 'selected' : ''}>${esc(m.name)}${m.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select></label>
+      <label class="field inline"><span class="vh">Mitarbeiter</span><select class="input" id="k-ma">${leute.map((m) => `<option value="${m.id}" ${m.id === benutzerId ? 'selected' : ''}>${esc(m.name)}${m.id === ichId ? ' (eigene Zeiten)' : ''}${m.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select></label>
       <label class="field inline"><span class="vh">von</span><input class="input" type="date" id="k-von" value="${von}"></label>
       <label class="field inline"><span class="vh">bis</span><input class="input" type="date" id="k-bis" value="${bis}"></label>
       <span class="grow"></span>
@@ -49,7 +56,7 @@ export default async function korrektur(el, ctx) {
     sbox.innerHTML = schichten.length ? `<ul class="plain rows korr" id="k-schichtliste">${schichten.map((x) => `<li data-schicht="${x.id}">
         <span class="korr-datum"><b>${esc(fmt.datumKurz(x.datum))}</b></span>
         <span class="grow"><b>${esc(uhr(x.beginn))} – ${x.offen ? '<em class="pend">offen</em>' : esc(uhr(x.ende))} Uhr${x.arbeitMin != null && !x.offen ? ` · ${esc(fmt.stdLang(x.arbeitMin / 60))}` : ''}</b><small>${esc((x.baustellen || []).map(bsName).join(', '))}${x.pauseMin ? ` · Pause ${x.pauseMin} min` : ''}</small></span>
-        ${x.unplausibel ? '<span class="chip xs st-red">unplausibel – zählt 0 Std.</span>' : x.offen ? '<span class="chip xs st-amber">läuft</span>' : ''}
+        ${x.selbstkorrektur ? SELBST_CHIP : ''}${x.unplausibel ? '<span class="chip xs st-red">unplausibel – zählt 0 Std.</span>' : x.offen ? '<span class="chip xs st-amber">läuft</span>' : ''}
         <button type="button" class="btn ghost sm" data-schicht-weg="${x.id}">${ic('trash')}Ganze Schicht löschen</button></li>`).join('')}</ul>` : leer('Keine Schichten in diesem Zeitraum.', 'clock');
     liste.sort((a, b) => (a.zeit < b.zeit ? 1 : -1));
     let tag = '';
@@ -57,8 +64,8 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
-        <button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.quelle && x.quelle !== 'app' && !x.selbstkorrektur ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+        ${x.selbstkorrektur ? SELBST_CHIP : ''}<button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }
   const grundFeld = '<label class="field"><span class="field-label">Grund (Pflicht)</span><input class="input lg" name="grund" required minlength="3" maxlength="300" placeholder="z. B. Stempeln vergessen, laut Polier"></label>';
@@ -78,7 +85,7 @@ export default async function korrektur(el, ctx) {
           <div class="field"><span class="field-label">Ergibt</span><output class="sf-std" id="sf-std" aria-live="polite"></output></div>
         </div>
         <p class="muted sm">Österreichische Ortszeit. Liegt „bis“ vor „von“, endet die Schicht am nächsten Tag.</p>
-        ${grundFeld}
+        ${selbstHinweis()}${grundFeld}
         <p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="sf">Schicht nachtragen</button>',
     });
@@ -109,7 +116,7 @@ export default async function korrektur(el, ctx) {
   function schichtLoeschen(x) {
     const d = dialog({
       titel: 'Ganze Schicht löschen',
-      inhalt: `<form id="slf" class="stack-s"><p><b>${esc(person())}</b>, ${esc(fmt.datumLang(x.datum))}, ${esc(uhr(x.beginn))} – ${x.offen ? 'offen' : esc(uhr(x.ende))} Uhr: alle Buchungen dieser Schicht (${(x.buchungIds || []).length || 'Kommen bis Gehen'}) werden gelöscht.</p>${grundFeld}<p class="form-err" role="alert" hidden></p></form>`,
+      inhalt: `<form id="slf" class="stack-s"><p><b>${esc(person())}</b>, ${esc(fmt.datumLang(x.datum))}, ${esc(uhr(x.beginn))} – ${x.offen ? 'offen' : esc(uhr(x.ende))} Uhr: alle Buchungen dieser Schicht (${(x.buchungIds || []).length || 'Kommen bis Gehen'}) werden gelöscht.</p>${selbstHinweis()}${grundFeld}<p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn danger" type="submit" form="slf">Schicht löschen</button>',
     });
     $('#slf', d.el).addEventListener('submit', async (e) => {
@@ -128,7 +135,7 @@ export default async function korrektur(el, ctx) {
         ${neu ? `<label class="field"><span class="field-label">Art</span><select class="input lg" name="typ">${Object.entries(TYP).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span class="field-label">Zeitpunkt (österreichische Ortszeit)</span><input class="input lg" type="datetime-local" name="zeit" required value="${lokal(x ? x.zeit : new Date().toISOString())}" max="${lokal(new Date().toISOString())}"></label>
         <label class="field"><span class="field-label">Baustelle</span>${bsWahl(x && x.baustelleId, '– unverändert / keine –')}</label>`}
-        ${grundFeld}
+        ${selbstHinweis()}${grundFeld}
         <p class="form-err" role="alert" hidden></p></form>`,
       fuss: `<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn ${loeschen ? 'danger' : 'primary'}" type="submit" form="kf">${loeschen ? 'Löschen' : 'Speichern'}</button>`,
     });
