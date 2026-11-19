@@ -253,13 +253,16 @@ small { font-size: 12.5px; }
 .kpi > small { color: var(--muted); font-weight: 600; font-size: 12.5px; } .kpi > b { font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1; white-space: nowrap; } .kpi b i { font-style: normal; font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
 .kpi em { font-style: normal; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .kpi .meter { width: 100%; margin: 3px 0; } .kpi.link:hover { border-color: #c5cad1; }
 .kpi.sm { padding: 12px 14px; } .kpi.sm > b { font-size: 21px; }
-.week-list .wd { display: grid; grid-template-columns: 46px 1fr auto; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line-2); align-items: center; }
+.week-list .wd { display: grid; grid-template-columns: 46px minmax(0, 1fr) minmax(7.4em, auto); gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line-2); align-items: center; }
 .week-list .wd:last-child { border: 0; } .wd-day { text-align: center; } .wd-day b { display: block; font-size: 16px; } .wd-day small { color: var(--muted); }
 .wd.today { background: #f3fbf5; } .wd.today .wd-day b { color: var(--green); } .wd.off { color: var(--faint); } .wd.off .wd-day b { color: var(--faint); font-weight: 600; }
-.wd-mid { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .wd.code .wd-mid, .wd.off .wd-mid { flex-direction: row; align-items: center; gap: 8px; }
+.wd-mid { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .wd.code .wd-mid, .wd.off .wd-mid { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wd-mid .chip { max-width: 100%; height: auto; min-height: 20px; padding-block: 2px; line-height: 1.3; white-space: normal; border-radius: 10px; } /* 15.32: „Ausstempeln fehlt …“ bricht um statt aus der Karte zu ragen */
 .wd-line { font-weight: 600; font-size: 14.5px; } .wd-line small { font-weight: 400; color: var(--muted); } .wd-site { font-size: 12.5px; color: var(--muted); }
-.wd-bar { position: relative; height: 6px; border-radius: 4px; background: #eceef1; overflow: hidden; margin-top: 2px; } .wd-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--graphite-3); border-radius: 4px; } .wd-bar u { position: absolute; top: 0; bottom: 0; background: var(--amber-strong); }
-.wd-std { text-align: right; } .wd-std b { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; display: block; line-height: 1.1; } .wd-std small { color: var(--muted); font-size: 11.5px; }
+.wd-bar { position: relative; width: 100%; max-width: 260px; height: 6px; border-radius: 4px; background: #eceef1; overflow: hidden; margin-top: 2px; } .wd-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--graphite-3); border-radius: 4px; } .wd-bar u { position: absolute; top: 0; bottom: 0; background: var(--amber-strong); }
+/* 15.32: Tagessumme in einer Zeile („9 Std. 51 Min.“), Zahlen fett, Einheiten klein wie in den Kacheln */
+.wd-std { text-align: right; white-space: nowrap; font-size: 17px; font-weight: 800; line-height: 1.25; letter-spacing: -.01em; font-variant-numeric: tabular-nums; } .wd-std i { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+@media (max-width: 380px) { .week-list .wd { grid-template-columns: 40px minmax(0, 1fr) minmax(6.6em, auto); gap: 10px; padding: 12px 12px; } .wd-std { font-size: 15.5px; } .wd-std i { font-size: 11.5px; } }
 .live { font-style: normal; color: var(--green); font-weight: 700; }
 .two-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .two-stats small { display: block; color: var(--muted); } .two-stats b { font-size: 19px; }
 .profile { display: flex; align-items: center; gap: 16px; } .profile .avatar { background: var(--red); } .profile h2 { font-size: 21px; font-weight: 800; letter-spacing: -.02em; } .profile p { color: var(--muted); }

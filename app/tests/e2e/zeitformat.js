@@ -7,8 +7,8 @@
  *  1. Büro, Monatsauswertung: Schalter „Std:Min | Dezimal“, Vorgabe Std:Min – Tageszelle „9:51“, Summen und Kacheln
  *     als Std:Min (gleich der API); „Dezimal“ zeigt „9,85“ wie bisher und bleibt nach dem Neuladen; Pfeiltaste zurück.
  *     Die CSV für die Lohnverrechnung bleibt dezimal („9,85“). Handy: auch bei 320 px kein Überlauf, nichts abgeschnitten.
- *  2. Mitarbeiter: „Meine Woche“ in Langform („25 Std. 51 Min.“, Tag „9 Std.“ / „51 Min.“), Stempeluhr „Heute“
- *     „9 Std. 51 Min.“.
+ *  2. Mitarbeiter: „Meine Woche“ in Langform („25 Std. 51 Min.“, Tag „9 Std. 51 Min.“ in EINER Zeile, leerer Tag „–“,
+ *     15.32; alle Balken gleich lang skaliert, höchstens 260 px), Stempeluhr „Heute“ „9 Std. 51 Min.“.
  *  3. Summen = Summe der sichtbaren Einzelwerte: 5 × „7:40“ ergibt „38:20“ (nicht „38:21“ aus 5 × 7,67) in Meine Woche,
  *     Monatsauswertung (Summe, Normal + Üst. + Mehr, Kachel) und Bautagesbericht (3 × 7:40 = „23:00“); Dezimal bleibt die
  *     Summe der API. Arbeitszeitmodell-Dialog meldet dezimal wie die Eingabe; Hinweis der Nachkalkulation in Langform.
@@ -161,7 +161,16 @@ async function laufe(browser, g) {
       pruef((await text('#woche-ue')) === '1 Std. 51 Min.', `Woche${w}: Überstunden „${await text('#woche-ue')}“ statt „1 Std. 51 Min.“`);
       pruef((await text(`[data-tag-std="${TAG}"]`)) === '9 Std. 51 Min.', `Woche${w}: Donnerstag „${await text(`[data-tag-std="${TAG}"]`)}“ statt „9 Std. 51 Min.“`);
       pruef((await text('[data-tag-std="2026-11-10"]')) === '8 Std.', `Woche${w}: Dienstag „${await text('[data-tag-std="2026-11-10"]')}“ statt „8 Std.“`);
-      pruef((await text('[data-tag-std="2026-11-13"]')) === '– Std.', `Woche${w}: leerer Tag „${await text('[data-tag-std="2026-11-13"]')}“`);
+      pruef((await text('[data-tag-std="2026-11-13"]')) === '–', `Woche${w}: leerer Tag „${await text('[data-tag-std="2026-11-13"]')}“`);
+      // 15.32: Tagessumme in einer Zeile (Höhe ≈ eine Zeilenhöhe, nichts abgeschnitten), Balken gleich skaliert und kurz
+      const zeilen = await page.evaluate(() => [...document.querySelectorAll('.wd-std')].map((e) => {
+        const r = e.getBoundingClientRect(), lh = parseFloat(getComputedStyle(e).lineHeight) || 20;
+        return { t: e.textContent.replace(/\s+/g, ' ').trim(), h: r.height, lh, eng: e.scrollWidth > e.clientWidth + 1 };
+      }));
+      const mehrzeilig = zeilen.filter((z) => z.h > z.lh * 1.5 || z.eng);
+      pruef(zeilen.length === 7 && mehrzeilig.length === 0, `Woche${w}: Tagessumme nicht einzeilig: ${JSON.stringify(mehrzeilig.slice(0, 3))}`);
+      const balken = await page.evaluate(() => [...document.querySelectorAll('.wd-bar')].map((e) => Math.round(e.getBoundingClientRect().width)));
+      pruef(balken.length >= 2 && balken.every((b) => b === balken[0] && b <= 260 && b >= 60), `Woche${w}: Balkenbreiten ${JSON.stringify(balken)} (gleich lang, 60–260 px erwartet)`);
       pruef(/Soll laut Arbeitszeitmodell: 39 Std\./.test(await text('#woche-soll')), `Woche${w}: Soll „${await text('#woche-soll')}“`);
       pruef(!/\d,\d/.test(await text('.week-list')) && !/\d,\d/.test(await text('.kpi-row')), `Woche${w}: noch Dezimalzahlen sichtbar`);
       if (breite || g.width <= 719) await layout('Woche' + w, '.kpi, .wd, .wd-std');

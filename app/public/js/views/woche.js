@@ -1,5 +1,6 @@
 // Meine Woche: Stunden je Tag, Summe, Überstunden, eigenes Wochen-Soll (15.23, ohne Modellname), Abwesenheits-Antrag (Urlaub / Zeitausgleich).
 // 15.25: Stunden in Langform („9 Std. 51 Min.“) statt Dezimalzahl.
+// 15.32: Tagessumme in einer Zeile, Balken kürzer (gleich breite Zeitspalte in allen Zeilen, Balken höchstens 260 px).
 import { get } from '../api.js';
 import { ic, esc, fmt, laden, fehlerBox, $ } from '../ui.js';
 import { stundenSumme } from '../zahl.js';
@@ -7,13 +8,9 @@ import { stundenSumme } from '../zahl.js';
 const CODES = { K: 'Krank', U: 'Urlaub', SW: 'Schlechtwetter', ZA: 'Zeitausgleich', F: 'Feiertag', BU: 'Betriebsurlaub', abwesend: 'abwesend' };
 export const codeBadge = (c) => (c ? `<span class="code-badge c-${esc(c)}" title="${esc(CODES[c] || c)}">${c === 'abwesend' ? 'abw.' : esc(c)}</span>` : '');
 
-// Tagessumme rechts in der Zeile, zweizeilig: „9 Std.“ / „51 Min.“ (kein Wert: „–“)
-const tagStd = (h) => {
-  const t = typeof h === 'number' && h ? fmt.stdLang(h) : '';
-  if (!t) return '<b>–</b><small>Std.</small>';
-  const m = /^(−?\d+ Std\.)?\s*(\d+ Min\.)?$/.exec(t) || [];
-  return m[1] ? `<b>${esc(m[1])}</b>${m[2] ? `<small>${esc(m[2])}</small>` : ''}` : `<b>${esc(t)}</b>`;
-};
+// Tagessumme rechts in der Zeile, einzeilig (15.32): „9 Std. 51 Min.“, „10 Std.“, „45 Min.“ – Einheiten klein in <i>
+// wie in den Kacheln (stdLangHtml); kein Wert: „–“
+const tagStd = (h) => (typeof h === 'number' && h ? fmt.stdLangHtml(h) : '–');
 
 export default async function woche(el, ctx) {
   let datum = ctx.query.get('datum') || fmt.iso();
