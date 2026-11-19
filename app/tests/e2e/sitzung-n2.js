@@ -7,7 +7,8 @@
  *  1. H-S1: Abmelden bei langsamem Netz (POST /auth/logout 6 s unterwegs) – sofort ist nichts der Person mehr zu sehen oder zu
  *     bedienen (kein Rahmen, keine Beträge, keine Rechnungsnummer), das Bindungs-Cookie ist weg, und keine weitere Anfrage geht
  *     hinaus, bevor das Abmelden am Server angekommen ist (auch kein Klick auf einen Menüpunkt).
- *  2. H-S1: dasselbe bei der Sperre nach Untätigkeit (die nächste Person tippt auf den Bildschirm und dann ins Menü).
+ *  2. H-S1: dasselbe bei der Sperre nach Untätigkeit (die nächste Person tippt auf den Bildschirm und dann ins Menü) – am
+ *     „Geteilten Gerät“ (15.28: am eigenen Handy bleibt die Anmeldung bis Sonntag, dort gibt es keine Sperre nach Untätigkeit).
  *  3. H-S2: zweiter Tab am geteilten PC – Abmelden in Tab 1 sperrt Tab 2 binnen 1 s; meldet sich danach eine andere Person in
  *     Tab 1 an, zeigt Tab 2 nichts der vorigen Person. Auch ohne BroadcastChannel (nur storage-Ereignis) und bei derselben Person.
  *  4. H-S2: Anmeldung einer anderen Person ohne jedes Ereignis (Cookie ersetzt): die nächste Anfrage des alten Rahmens wird vom
@@ -133,7 +134,9 @@ async function laufe(browser, g) {
       pruef(await page.locator('#login-card .login-user').count() > 0, 'H-S1: Anmeldeseite erscheint nach dem Abmelden nicht');
       await page.unroute('**/api/auth/logout');
 
-      /* ---- 2) H-S1: Sperre nach Untätigkeit bei langsamem Netz ---- */
+      /* ---- 2) H-S1: Sperre nach Untätigkeit bei langsamem Netz (geteiltes Gerät, 15.28) ---- */
+      await page.waitForSelector('#login-card .login-user');
+      await page.click('#geraet-wahl label:has(input[value="geteilt"])');
       await t.anmelden(U.buero, { laden: false });
       await t.geh('/offene-posten');
       await page.waitForSelector(`#view :text("${AR}")`).catch(() => {});

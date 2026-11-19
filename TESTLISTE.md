@@ -6,7 +6,7 @@ So probieren Sie die Testversion aus. Alle Namen, Baustellen und Zahlen sind **e
 
 1. Einmalig Node.js „LTS“ von https://nodejs.org installieren (immer „Weiter“).
 2. Im Ordner **`BauTag-starten-Windows.bat`** doppelklicken (Mac: `BauTag-starten-Mac.command`). Der Browser öffnet sich mit http://localhost:3000.
-3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm ist **„Eigenes Handy“** vorgewählt (bleibt angemeldet, gilt sofort nach der Anmeldung); nur für ein Tablet, das mehrere benutzen, **„Geteiltes Gerät“** wählen (Abmeldung nach 30 Minuten ohne Bedienung; bleibt für dieses Gerät eingestellt, änderbar auch unter „Mehr“).
+3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm ist **„Eigenes Handy“** vorgewählt (bleibt bis Sonntag angemeldet, am Montag einmal die PIN; gilt sofort nach der Anmeldung); nur für ein Tablet, das mehrere benutzen, **„Geteiltes Gerät“** wählen (Abmeldung nach 30 Minuten ohne Bedienung; bleibt für dieses Gerät eingestellt, änderbar auch unter „Mehr“).
 4. **Handy im selben WLAN:** Das Startfenster zeigt zusätzlich eine Adresse wie `192.168.0.23:3000` – diese am Handy mit `http://` davor öffnen. Fragt Windows nach der Firewall, „Zugriff zulassen“ (privates Netzwerk) wählen. Installieren am Startbildschirm, Push-Nachrichten und Offline-Betrieb gehen erst mit dem Server mit HTTPS.
 5. Zum Neuanfang: BauTag-Fenster schließen, **`BauTag-Testdaten-zuruecksetzen-Windows.bat`** doppelklicken, `JA` eingeben.
 
@@ -96,6 +96,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Urlaub beantragen von–bis** → Vorschau zeigt Arbeitstage (ohne Wochenende/Feiertage) und Resturlaub. Ein Antrag, eine Nachricht ans Büro.
 - [ ] **Schaden melden** mit Foto.
 - [ ] **PIN ändern** (Mehr → PIN ändern): 4 Ziffern reichen für alle Rollen (z. B. 4826; nicht 1234 oder 7777).
+- [ ] **PIN nur einmal pro Woche** (auch als Büro, Bauleiter und GF prüfen): mit „Eigenes Handy“ anmelden – unter der Auswahl steht „Du bleibst bis Sonntag angemeldet. Am Montag fragt die App einmal nach der PIN.“ Handy einen Tag liegen lassen bzw. App schließen und wieder öffnen → ohne PIN weiter angemeldet. Am Montag früh fragt die App einmal nach der PIN. Mit „Geteiltes Gerät“ angemeldet: wie bisher nach 30 Minuten (Büro 60 Minuten) ohne Bedienung abgemeldet. In „Mehr“ auf „Geteiltes Gerät“ umstellen gilt sofort; zurück auf „Eigenes Handy“ gilt ab der nächsten Anmeldung mit PIN.
 - [ ] **Geteiltes Tablet** (am Anmeldebildschirm „Geteiltes Gerät“ wählen): als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
 - [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter, Lohngruppe.
 

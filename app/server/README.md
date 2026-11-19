@@ -60,7 +60,7 @@ Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mi
 | `BAUTAG_LOGIN_LISTE` | `1` | `0`: öffentliche Namensliste für die Anmeldung abschalten; Anmeldung dann mit Personalnummer + PIN |
 | `BAUTAG_SITZUNG_FELD_MIN` | `720` | Sitzungsablauf nach Inaktivität (Minuten) für Mitarbeiter/Polier – Konzept-Vorschlag für das Polier-Tablet: `10` |
 | `BAUTAG_SITZUNG_BUERO_MIN` | `60` | Sitzungsablauf nach Inaktivität (Minuten) für Bauleiter/Büro/GF – Konzept-Vorschlag: `30` |
-| `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden) |
+| `BAUTAG_SITZUNG_MAX_H` | `24` | absolute Höchstdauer einer Sitzung (Stunden). Seit API.md 15.28 gelten die drei Sitzungswerte für normale Sitzungen („Geteiltes Gerät“, API-Clients); eine Anmeldung der App mit „Eigenes Handy“ gilt für jede Rolle bis Montag 00:00 Wiener Zeit |
 | `BAUTAG_UPLOADS` | `uploads` neben der Datenbank | nicht öffentlicher Ordner für Fotos der Schadensmeldungen (Servicebuch, API.md 11.9); nie statisch ausgeliefert |
 | `NODE_ENV` | – | `production` (Schreibweise egal) = Echtbetrieb: Start nur mit gültigem `BAUTAG_SCHLUESSEL`, nie mit `BAUTAG_TEST=1` |
 | `BAUTAG_SCHLUESSEL` | – | **Pflicht im Echtbetrieb** (mind. 32 Zeichen, z. B. `openssl rand -hex 32`): verschlüsselt 2FA-Geheimnisse, VAPID-, SMTP- und KI-Schlüssel in der Datenbank (AES-256-GCM). Ohne ihn werden diese nur im Vorführ-/Testbetrieb (`BAUTAG_DEMO=1`/`BAUTAG_TEST=1`) im Klartext gespeichert, sonst gar nicht. Verlust: `node server/entsperren.js --2fa-alle` |

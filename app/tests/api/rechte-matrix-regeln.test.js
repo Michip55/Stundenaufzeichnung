@@ -44,9 +44,33 @@ test('Polier/Mitarbeiter: Erwartungen gegenüber e6e3de3 unverändert (nichts ge
     if (probe(neu) !== probe(alt.eintrag)) v.push(`${k}: Probe geändert`);
   }
   assert.deepEqual(v, []);
-  // neue Routen seit e6e3de3: Mitarbeiter nie erlaubt, Polier höchstens eigene Daten
-  const neu = Object.keys(M.routen).filter((k) => !ALT.routen[k]);
+  // neue Routen seit e6e3de3: Mitarbeiter nie erlaubt, Polier höchstens eigene Daten – außer ausdrücklich beschlossenen Routen
+  // OHNE Daten, die nur die eigene Sitzung betreffen (FUER_ALLE; ihre Antwort prüft der Test unten)
+  const neu = Object.keys(M.routen).filter((k) => !ALT.routen[k] && !FUER_ALLE[k]);
   for (const k of neu) assert.ok(['N', 'E'].includes(spalten(M.routen[k].r).mitarbeiter), `${k}: Mitarbeiter ${M.routen[k].r}`);
+  for (const [k, grund] of Object.entries(FUER_ALLE)) assert.ok(M.routen[k] && M.routen[k].grund.includes(grund.split(':')[0]), `${k}: Eintrag/Begründung fehlt`);
+});
+
+/**
+ * Neue Routen für alle Rollen (Inhaberentscheidung), die keine Daten liefern und nur die EIGENE Sitzung betreffen.
+ * POST /api/auth/geraet (15.28): Gerätewahl „Geteiltes Gerät“ kürzt die eigene Sitzung; „eigen“ ändert nichts.
+ */
+const FUER_ALLE = {
+  'POST /api/auth/geraet': '15.28: Inhaber 19.11.2026 – PIN einmal pro Woche für alle Rollen; Antwort nur {sitzungArt, sitzungBis}'
+};
+test('15.28: Routen für alle Rollen ohne Daten – Antwort nur die Lebensdauer der eigenen Sitzung', async () => {
+  const { starte, U } = require('./hilfe');
+  const s = await starte();
+  try {
+    for (const id of Object.values(U)) {
+      const c = await s.login(id);
+      for (const art of ['eigen', 'geteilt']) {
+        const r = await c.post('/auth/geraet', { art });
+        assert.equal(r.status, 200, `${id}/${art}`);
+        assert.deepEqual(Object.keys(r.daten).sort(), ['sitzungArt', 'sitzungBis'], `${id}/${art}: ${JSON.stringify(r.daten)}`);
+      }
+    }
+  } finally { await s.stop(); }
 });
 
 /**

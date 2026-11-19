@@ -195,24 +195,28 @@ export const speicher = {
   },
 };
 // 15.8: Gerätewahl (Anmeldeseite und „Mehr“) – zwei Optionen als Radiogruppe, mit kurzer Erklärung zur gewählten
+// 15.28 (Inhaber 19.11.2026): „Eigenes Handy“ – angemeldet bis Sonntag 24:00, am Montag einmal die PIN (alle Rollen)
 export const GERAET_TEXT = {
-  eigen: 'Angemeldet bleiben bis zum Abmelden – längstens so lange, wie der Server die Sitzung hält. Benutzen mehrere Personen dieses Gerät, „Geteiltes Gerät“ wählen.',
+  eigen: 'Du bleibst bis Sonntag angemeldet. Am Montag fragt die App einmal nach der PIN. Benutzen mehrere Personen dieses Gerät, „Geteiltes Gerät“ wählen.',
   geteilt: 'Mitarbeiter und Polier werden nach 30 Minuten ohne Bedienung automatisch abgemeldet, damit niemand unter fremdem Namen weiterarbeitet.'
 };
+// 15.28: in „Mehr“ gewählt, während die Anmeldung noch nicht bis Sonntag gilt (z. B. als „Geteiltes Gerät“ angemeldet)
+export const GERAET_NAECHSTE_TEXT = 'Gilt ab deiner nächsten Anmeldung mit PIN.';
 // 15.21: „Eigenes Handy“ ist der Standard und gilt ab der Anmeldung für die Person, die sich anmeldet (ohne Bestätigung);
 // „Geteiltes Gerät“ bleibt für das Gerät eingestellt, bis jemand „Eigenes Handy“ wählt
 export const GERAET_ANMELDUNG_TEXT = 'Gilt ab der Anmeldung für die Person, die sich jetzt anmeldet.';
-export const geraetInfo = (art, { anmeldeseite = false } = {}) => art === 'eigen'
-  ? `${GERAET_TEXT.eigen}${anmeldeseite ? ` ${GERAET_ANMELDUNG_TEXT}` : ' Gilt für Sie an diesem Gerät.'}`
+/** @param {boolean} woche  15.28 („Mehr“): die laufende Anmeldung gilt schon bis Sonntag – sonst erst ab der nächsten Anmeldung */
+export const geraetInfo = (art, { anmeldeseite = false, woche = true } = {}) => art === 'eigen'
+  ? `${GERAET_TEXT.eigen}${anmeldeseite ? ` ${GERAET_ANMELDUNG_TEXT}` : woche ? ' Gilt für dich an diesem Gerät.' : ` ${GERAET_NAECHSTE_TEXT}`}`
   : `${GERAET_TEXT.geteilt} Bleibt für dieses Gerät eingestellt.`;
-export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '', anmeldeseite = false } = {}) => `
-  <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}"${anmeldeseite ? ' data-anmeldeseite="1"' : ''}>
+export const geraetWahl = (art, { titel = 'Dieses Gerät ist …', klasse = '', anmeldeseite = false, woche = true } = {}) => `
+  <fieldset class="geraet-wahl ${klasse}" id="geraet-wahl" data-art="${art === 'eigen' ? 'eigen' : 'geteilt'}"${anmeldeseite ? ' data-anmeldeseite="1"' : ` data-woche="${woche ? '1' : '0'}"`}>
     <legend>${esc(titel)}</legend>
     <div class="geraet-opt">
       <label><input type="radio" class="vh" name="geraet-art" value="eigen" ${art === 'eigen' ? 'checked' : ''}><span>${ic('user')}<b>Eigenes Handy</b><small>nur ich benutze es</small></span></label>
       <label><input type="radio" class="vh" name="geraet-art" value="geteilt" ${art === 'eigen' ? '' : 'checked'}><span>${ic('users')}<b>Geteiltes Gerät</b><small>z. B. Tablet im Bauhof</small></span></label>
     </div>
-    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt', { anmeldeseite }))}</p>
+    <p class="geraet-info" id="geraet-info" aria-live="polite">${esc(geraetInfo(art === 'eigen' ? 'eigen' : 'geteilt', { anmeldeseite, woche }))}</p>
   </fieldset>`;
 /** Radiogruppe der Gerätewahl in `wurzel` binden; `beiWahl(art)` wird bei jeder Änderung aufgerufen */
 export function bindeGeraetWahl(wurzel, beiWahl) {
@@ -220,7 +224,9 @@ export function bindeGeraetWahl(wurzel, beiWahl) {
     const r = e.target.closest && e.target.closest('input[name="geraet-art"]');
     if (!r) return;
     const box = r.closest('.geraet-wahl'); const art = r.value === 'eigen' ? 'eigen' : 'geteilt';
-    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art, { anmeldeseite: box.dataset.anmeldeseite === '1' }); }
+    // 15.28: ein Wechsel auf „Geteiltes Gerät“ beendet die Anmeldung bis Sonntag – „Eigenes Handy“ gilt danach erst wieder ab der nächsten Anmeldung
+    if (box && art === 'geteilt' && box.dataset.woche) box.dataset.woche = '0';
+    if (box) { box.dataset.art = art; const info = box.querySelector('.geraet-info'); if (info) info.textContent = geraetInfo(art, { anmeldeseite: box.dataset.anmeldeseite === '1', woche: box.dataset.woche !== '0' }); }
     beiWahl(art);
   });
 }

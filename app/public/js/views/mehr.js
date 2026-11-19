@@ -1,6 +1,6 @@
 // Mehr: Konto, alle Bereiche, Einstellungen, Zusatzdienste (ehrlich: noch nicht angebunden), Abmelden.
 import { get, put, geraetArtFuer, setzGeraetArt, sperreMinutenFuer } from '../api.js';
-import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, integZustand, geraetWahl, bindeGeraetWahl, $ } from '../ui.js';
+import { ic, esc, avatar, rolleText, speicher, toast, bestaetigen, integAktiv, integZustand, geraetWahl, bindeGeraetWahl, GERAET_NAECHSTE_TEXT, $ } from '../ui.js';
 import { syncStatus, nachsenden } from '../offline.js';
 import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
@@ -37,7 +37,7 @@ export default async function mehr(el, ctx) {
     </nav>
     <section class="card" aria-labelledby="einst-h">
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
-      ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue' })}
+      ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue', woche: ctx.ich.sitzungArt === 'woche' && geraetArtFuer(u.id) === 'eigen' })}
       <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
         <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
       ${ctx.navErlaubt().some((n) => n.id === 'dashboard') ? `<label class="switch-row" id="klassisch-zeile"><span><b>Klassische Übersicht verwenden</b><small>Die bisherige Übersicht mit Kacheln statt der neuen, ruhigen Ansicht. Gilt auf diesem Gerät bis zum Abmelden.</small></span>
@@ -64,11 +64,13 @@ export default async function mehr(el, ctx) {
     if (e.target.checked) speicher.setz(KLASSISCH, true); else speicher.weg(KLASSISCH);
     toast(e.target.checked ? 'Die klassische Übersicht wird verwendet.' : 'Die neue Übersicht wird verwendet.');
   });
-  // 15.8: Gerätewahl – gilt sofort für die Sperre nach Untätigkeit an diesem Gerät (nicht für die Sitzung am Server)
+  // 15.8: Gerätewahl – gilt sofort für die Sperre nach Untätigkeit an diesem Gerät. 15.28: „Geteiltes Gerät“ kürzt auch die Sitzung
+  // am Server sofort (app.js, POST /auth/geraet); „Eigenes Handy“ gilt bis Sonntag erst ab der nächsten Anmeldung mit PIN
   bindeGeraetWahl($('#geraet-wahl', el), (art) => {
     if (ctx.geraetGewaehlt) ctx.geraetGewaehlt(art); else setzGeraetArt(art, u.id); // 15.12 (G2-021) / 15.21: „eigen“ gilt für diese Person, „geteilt“ für das Gerät (15.16: samt Push-Abo)
     const min = sperreMinutenFuer(ctx.ich, art);
-    toast(art === 'eigen' ? `Eigenes Handy: angemeldet bis zum Abmelden (längstens ${min >= 120 ? Math.round(min / 60) + ' Std.' : min + ' Min.'} ohne Bedienung, wie am Server).` : `Geteiltes Gerät: Abmeldung nach ${min} Minuten ohne Bedienung.`);
+    const woche = $('#geraet-wahl', el).dataset.woche !== '0';
+    toast(art === 'eigen' ? (woche ? 'Eigenes Handy: Du bleibst bis Sonntag angemeldet.' : `Eigenes Handy: ${GERAET_NAECHSTE_TEXT} Dann bleibst du bis Sonntag angemeldet.`) : `Geteiltes Gerät: Abmeldung nach ${min} Minuten ohne Bedienung.`);
   });
   $('#mehr-schaden', el).addEventListener('click', () => schadenMelden(ctx));
   $('#telefon-form', el).addEventListener('submit', async (e) => {

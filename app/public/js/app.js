@@ -211,7 +211,22 @@ function geraetGewaehlt(art) {
   const erlaubnis = typeof Notification === 'undefined' ? 'default' : Notification.permission;
   if (neu === 'eigen' && pushNachAnmeldung(id, erlaubnis)) pushStillEinschalten({ geteilt: false }).catch(() => {});
   else pushGeraetArtMelden(neu !== 'eigen').catch(() => {});
+  if (neu !== 'eigen') sitzungAnGeraetAngleichen(); // 15.28: die Wochen-Sitzung endet als solche sofort
   return neu;
+}
+/**
+ * 15.28: Gilt am Server eine Wochen-Sitzung („Eigenes Handy“ bei der Anmeldung), ist das Gerät für diese Person aber kein
+ * „Eigenes Handy“ (mehr), stellt POST /auth/geraet die Sitzung sofort auf die normalen Regeln. Ohne Netz: beim nächsten Start der
+ * App erneut – am Gerät gilt die Sperre nach Untätigkeit des geteilten Geräts ohnehin schon.
+ */
+function sitzungAnGeraetAngleichen() {
+  if (!ich || ich.sitzungArt !== 'woche' || geraetArtFuer(ich.benutzer.id) === 'eigen') return;
+  const wer = ich;
+  post('/auth/geraet', { art: 'geteilt' }).then((r) => {
+    if (ich !== wer || !r) return;
+    ich.sitzungArt = r.sitzungArt === 'woche' ? 'woche' : 'normal'; ich.sitzungBis = r.sitzungBis || null;
+    speicher.setz('bt_ich', ich);
+  }).catch(() => { /* ohne Netz bzw. abgemeldet: siehe oben */ });
 }
 let navAktiv = '';
 function markiereNav(id) {
@@ -499,6 +514,7 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
     speicher.setz('bt_ich', ich);
     ichGemerkt = !!(speicher.lies('bt_ich') || {}).benutzer;
+    sitzungAnGeraetAngleichen(); // 15.28: Wochen-Sitzung an einem Gerät, das für diese Person kein „Eigenes Handy“ ist
     if (frisch) sitzungMelden('an', ich.benutzer.id); // 15.16 (H-S2): andere Tabs mit einer anderen Person sperren sich
     setzOnline(true);
     // 15.5 (F-046): eigene versiegelte Einträge öffnen (Schlüssel nur mit Anmeldung)
@@ -569,6 +585,9 @@ function lokalAbmelden({ amServer = false } = {}) {
 // Die letzte Bedienung wird am Gerät gemerkt, damit auch ein Neustart der App nach langer Pause abmeldet.
 // 15.8: Auf einem Gerät, das als „Eigenes Handy“ gewählt ist, gilt stattdessen die Sitzungsdauer des Servers (ich.sitzungMinuten) –
 // keine zusätzliche Sperre am Gerät; Abmelden, Versiegeln und Benutzerwechsel bleiben wie in 15.5.
+// 15.28: mit Wochen-Sitzung (ich.sitzungArt "woche") meldet die App am eigenen Handy nie wegen Untätigkeit ab – die Sitzung endet
+// am Server am Montag 00:00 Wiener Zeit (401 → „Sitzung abgelaufen“, Anmeldeseite); ohne Netz merkt die App das erst bei der nächsten
+// Verbindung (Stempeln ohne Netz geht weiter, wie bisher nachgesendet unter der nächsten Anmeldung derselben Person).
 const AKTIV = 'bt_aktiv';
 let aktivMem = Date.now(), aktivGeschrieben = 0;
 const letzteBedienung = () => { const g = Number(speicher.lies(AKTIV, 0)) || 0; return g || aktivMem; };

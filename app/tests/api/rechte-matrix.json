@@ -32,6 +32,7 @@
     "GET /api/auth/ich": { "r": "J J J J J", "grund": "4 Auth (Lohngruppe nur mit stammdaten/lohn/benutzer, 15.7 F-059)" },
     "GET /api/auth/geraet-schluessel": { "r": "E E E E E", "query": "?benutzerId={ichOderAnderer}", "grund": "15.5 nur der eigene Geräteschlüssel (auch GF nie fremd)" },
     "PUT /api/auth/telefon": { "r": "J J J J J", "body": { "telefon": "+43 660 1234567" }, "grund": "12.8d eigene Nummer" },
+    "POST /api/auth/geraet": { "r": "J J J J J", "body": { "art": "geteilt" }, "grund": "15.28 eigene Sitzung: Gerätewahl kürzt nur die Lebensdauer (nie Rechte)" },
     "POST /api/auth/pin": { "r": "J J J J J", "body": { "alt": "1234", "neu": "583920" }, "grund": "7 eigene PIN" },
     "GET /api/fern/:token": { "r": "O O O O O", "pfad": "/api/fern/{token}", "grund": "12.9 öffentlich mit Token (AG-Fassung ohne €)" },
     "GET /api/fern/:token/pdf": { "r": "O O O O O", "pfad": "/api/fern/{token}/pdf", "grund": "12.9" },

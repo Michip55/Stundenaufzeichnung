@@ -6,7 +6,9 @@
  *
  *  1. Neues Gerät: Auswahl auf der Anmeldeseite sichtbar, Standard „Eigenes Handy“ (15.21), nichts gespeichert, keine Bestätigung.
  *  2. Anmeldung mit dem Standard: „eigen“ gilt sofort für genau diese Person (ohne Hinweis/Bestätigung) – nach 31 min und
- *     nach 10 h ohne Bedienung weiter angemeldet, auch nach einem Neustart der App; nach mehr als 12 h (Server) abgemeldet.
+ *     nach 10 h ohne Bedienung weiter angemeldet, auch nach einem Neustart der App; ~~nach mehr als 12 h (Server) abgemeldet~~
+ *     15.28: auch nach mehr als 12 h angemeldet (Wochen-Sitzung); endet die Woche am Server, erscheint die Anmeldeseite.
+ *     Ausführlich (Uhrsprünge bis Montag, Büro, Texte): tests/e2e/pin-woche.js.
  *  3. Die Wahl übersteht Abmelden und Neuladen; „Geteiltes Gerät“ in „Mehr“ gilt sofort und für das Gerät – die Anmeldeseite
  *     zeigt es danach, auch die nächste Person ist auf „geteilt“ (30-min-Sperre).
  *  4. „Eigenes Handy“ auf der Anmeldeseite gewählt: gilt nach der Anmeldung sofort (keine Bestätigung).
@@ -133,6 +135,7 @@ async function laufe(browser, g) {
     await anmelden(U.polier, { laden: false });
     const ich = await page.evaluate(async () => (await fetch('/api/auth/ich')).json());
     pruef(ich.sperreMinuten === 30 && ich.sitzungMinuten === 720, `Vorbedingung: Sperre/Sitzung ${ich.sperreMinuten}/${ich.sitzungMinuten} statt 30/720`);
+    pruef(ich.sitzungArt === 'woche' && /^\d{4}-\d{2}-\d{2}T/.test(ich.sitzungBis || ''), `15.28: Anmeldung mit „Eigenes Handy“ ergibt keine Wochen-Sitzung (${ich.sitzungArt}/${ich.sitzungBis})`);
     pruef(await ls('bt_geraet_art') === 'eigen' && await ls('bt_geraet_art_benutzer') === String(U.polier), `15.21: Standard „Eigenes Handy“ gilt nach der Anmeldung nicht sofort für den Polier (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
     pruef(await page.locator('#geraet-hinweis').count() === 0, '15.21: nach der Anmeldung erscheint noch ein Hinweis zur Gerätewahl');
     pruef(gebunden(U.polier) === 1, 'eigenes Handy: Anmeldung ohne gebundene Sitzung');
@@ -147,9 +150,17 @@ async function laufe(browser, g) {
     await untaetig(45, { neustart: true });
     pruef(await angemeldet(), 'eigenes Handy: Neustart der App nach 45 min ohne Bedienung meldet ab');
     pruef(gebunden(U.polier) === 1, 'eigenes Handy: Sitzung am Server während der Untätigkeit beendet');
-    await untaetig(12 * 60 + 1); // länger als die Sitzung am Server (Feld 12 h)
-    pruef(await abgemeldet(), 'eigenes Handy: nach mehr als der Sitzungsdauer des Servers weiter angemeldet');
-    pruef(gebunden(U.polier) === 0, 'eigenes Handy: Abmelden nach Sitzungsdauer beendet die Sitzung am Server nicht');
+    await untaetig(12 * 60 + 1); // länger als die Untätigkeitsgrenze einer normalen Feld-Sitzung (12 h)
+    pruef(await angemeldet(), '15.28: eigenes Handy nach mehr als 12 h ohne Bedienung abgemeldet (gilt bis Sonntag)');
+    // Ende der Woche am Server (hier vorgezogen; echte Uhrsprünge in pin-woche.js) → die nächste Anfrage zeigt die Anmeldeseite
+    db.lauf('UPDATE sitzung SET bis = ? WHERE benutzer_id = ?', new Date(jetzt() - 1000).toISOString(), U.polier);
+    await page.goto(`${s.basis}/?wochenende=1#/stempeln`); // Neustart der App (neue Adresse, damit wirklich neu geladen wird)
+    await page.waitForSelector('#view, #login-card');
+    await bereit();
+    pruef(await abgemeldet(), '15.28: eigenes Handy nach dem Ende der Woche weiter angemeldet');
+    pruef(gebunden(U.polier) === 0, 'eigenes Handy: Ende der Woche beendet die Sitzung am Server nicht');
+    // stündliches Aufräumen am Server (G2-019): die ebenfalls abgelaufene API-Sitzung der Vorbereitung endet samt ihrem Push-Abo
+    require('../../server/auth').abgelaufeneSitzungenLoeschen(db, s.uhr(), s.app.bt.sitzung);
 
     /* ---- 3) Wahl übersteht Abmelden und Neuladen; „Geteiltes Gerät“ in „Mehr“ gilt für das Gerät (auch die nächste Person) ---- */
     pruef(await ls('bt_geraet_art') === 'eigen', 'Gerätewahl nach dem Abmelden (Sitzungsablauf) verloren');
@@ -165,6 +176,9 @@ async function laufe(browser, g) {
     await waehle('geteilt');
     pruef(await ls('bt_geraet_art') === 'geteilt' && await ls('bt_geraet_art_benutzer') === null, `Wechsel auf „geteilt“ in „Mehr“ nicht für das Gerät gespeichert (${await ls('bt_geraet_art')}/${await ls('bt_geraet_art_benutzer')})`);
     pruef(await angemeldet(), 'Wechsel auf „geteilt“ meldet sofort ab');
+    const artAmServer = () => (db.eins('SELECT art FROM sitzung WHERE benutzer_id = ? AND bindung_hash IS NOT NULL', U.polier) || {}).art;
+    for (let i = 0; i < 50 && artAmServer() !== 'normal'; i++) await sleep(100);
+    pruef(artAmServer() === 'normal', `15.28: Wechsel auf „geteilt“ in „Mehr“ kürzt die Sitzung am Server nicht (${artAmServer()})`);
     await untaetig(31);
     pruef(await abgemeldet(), 'nach Wechsel auf „geteilt“ in „Mehr“ gilt die 30-min-Sperre nicht');
     await zurAnmeldung();

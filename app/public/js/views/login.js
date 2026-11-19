@@ -4,10 +4,11 @@ import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, geraetWahl, bin
 import { geraetPushAbo } from './push.js';
 
 // 15.5: Anmeldung der App am Gerät – Sitzung mit Bindungs-Cookie (F-029); das Push-Abo dieses Geräts nennen,
-// damit der Server es einer anderen Person entzieht (F-014)
+// damit der Server es einer anderen Person entzieht (F-014).
+// 15.28: dazu die Gerätewahl der Anmeldeseite – „eigen“ ergibt eine Sitzung bis Sonntag 24:00 (nur Lebensdauer, nie Rechte)
 async function geraetAngaben() {
   const sub = await geraetPushAbo();
-  return { bindung: true, ...(sub && sub.endpoint ? { pushEndpoint: sub.endpoint } : {}) };
+  return { bindung: true, geraet: geraetArt() === 'eigen' ? 'eigen' : 'geteilt', ...(sub && sub.endpoint ? { pushEndpoint: sub.endpoint } : {}) };
 }
 
 const PIN_MAX = 12;
