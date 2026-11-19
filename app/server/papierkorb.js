@@ -65,19 +65,42 @@ function folgen(bt, b, benutzerId, anlass) {
 }
 
 /**
- * Gelöschten Bericht wiederherstellen (Rechte geprüft). 409, wenn es inzwischen einen neuen Bericht für denselben Tag gibt
- * oder die Frist abgelaufen ist.
+ * Was dem Wiederherstellen im Weg steht (oder null):
+ * - neuer Bericht derselben Baustelle am selben Tag
+ * - Prüfung 19.11.2026: Personen, die inzwischen zur selben Zeit in einem anderen aktiven Bericht stehen (sonst zwei aktive
+ *   Berichte mit überlappenden Zeiten – Stunden doppelt in Monat/Lohn/BUAK/Nachkalkulation; PUT lehnt das mit 400 ab).
+ *   Ohne stammdaten/lohn bleibt der Text neutral (15.11 G2-016: keine fremden Baustellen/Zeiten).
+ * @returns {null|{art:'neuer_bericht'|'ueberschneidung', text:string, neuerBerichtId?:number, ueberschneidungen?:object[]}}
+ */
+function hindernis(db, ctx, z) {
+  const anderer = aktiverBericht(db, z.baustelle_id, z.datum, z.id);
+  if (anderer) {
+    return { art: 'neuer_bericht', neuerBerichtId: anderer.id,
+      text: `Für ${z.kst} am ${tagText(z.datum)} gibt es inzwischen einen neuen Bericht. Wiederherstellen geht erst, wenn dieser neue Bericht gelöscht ist – oder die Angaben bitte von Hand in den neuen Bericht übernehmen.` };
+  }
+  const ue = require('./routes/berichte').berichtUeberschneidungen(db, z.id);
+  if (!ue.length) return null;
+  if (!require('./datenschutz').berichtSiehtAbwesenheiten(ctx)) {
+    return { art: 'ueberschneidung', text: 'Mindestens eine Person aus diesem Bericht steht inzwischen zur selben Zeit in einem anderen Bautagesbericht. Bitte im Büro klären lassen – danach kann der Bericht wiederhergestellt werden.' };
+  }
+  const t = ue.map((x) => { const o = x.andere[0]; return `${x.name} steht am ${tagText(o.datum)} inzwischen im Bericht von ${o.kst} (${o.von1}–${o.bis})`; });
+  return { art: 'ueberschneidung',
+    text: `${t.slice(0, 2).join('; ')}${t.length > 2 ? ` und ${t.length - 2} weitere` : ''} – die Zeiten überschneiden sich. Zuerst dort klären, dann wiederherstellen.`,
+    ueberschneidungen: ue.map((x) => ({ benutzerId: x.benutzerId, name: x.name, berichte: x.andere.map((o) => ({ id: o.id, kst: o.kst, datum: o.datum })) })) };
+}
+
+/**
+ * Gelöschten Bericht wiederherstellen (Rechte geprüft). 409, wenn es inzwischen einen neuen Bericht für denselben Tag gibt,
+ * sich Personalzeiten mit einem anderen aktiven Bericht überschneiden oder die Frist abgelaufen ist.
  */
 function wiederherstellen(bt, ctx, z) {
   const { db } = bt;
   const { konflikt } = require('./fehler');
   const zeit = bt.uhr().toISOString();
   if (endgueltigAm(z.geloescht_zeit) <= zeit) throw konflikt('Die 30 Tage im Papierkorb sind abgelaufen – der Bericht wird endgültig gelöscht und kann nicht mehr wiederhergestellt werden.');
-  const anderer = aktiverBericht(db, z.baustelle_id, z.datum, z.id);
-  if (anderer) {
-    throw konflikt(`Für ${z.kst} am ${tagText(z.datum)} gibt es inzwischen einen neuen Bericht. Wiederherstellen geht erst, wenn dieser neue Bericht gelöscht ist – oder die Angaben bitte von Hand in den neuen Bericht übernehmen.`, { id: anderer.id });
-  }
   db.transaktion(() => {
+    const h = hindernis(db, ctx, z); // in der Transaktion: geprüft wird der Stand, der wiederhergestellt wird
+    if (h) throw konflikt(h.text, { hindernis: h.art, ...(h.neuerBerichtId ? { id: h.neuerBerichtId } : {}), ...(h.ueberschneidungen ? { ueberschneidungen: h.ueberschneidungen } : {}) });
     const n = db.lauf('UPDATE bericht SET geloescht_zeit = NULL, geloescht_von = NULL, geloescht_grund = NULL, geloescht_fuhren = NULL, version = version + 1 WHERE id = ? AND geloescht_zeit IS NOT NULL', z.id).changes;
     require('./berichtsicht').nachfuehren(db, z.id, null); // 15.15 (H-G4)
     if (!n) throw konflikt('Der Bericht ist nicht mehr im Papierkorb.');
@@ -108,16 +131,17 @@ function geloeschte(db, { id = null } = {}) {
 }
 
 /** Eintrag der Papierkorb-Liste (ohne €, ohne Personal) */
-function eintragJson(db, z) {
-  const anderer = aktiverBericht(db, z.baustelle_id, z.datum, z.id);
+function eintragJson(db, ctx, z) {
+  const h = hindernis(db, ctx, z);
   return {
     id: z.id, baustelleId: z.baustelle_id, kst: z.kst, baustelle: z.kurz || z.name, datum: z.datum, status: z.status, version: z.version,
     unterschriften: z.unterschriften,
     geloescht: { zeit: z.geloescht_zeit, von: z.geloescht_von ? { id: z.geloescht_von, name: z.geloescht_von_name || '?' } : null, grund: z.geloescht_grund },
     endgueltigAm: endgueltigAm(z.geloescht_zeit),
     endgueltigDatum: require('./datum').wienDatum(new Date(endgueltigAm(z.geloescht_zeit))),
-    wiederherstellbar: !anderer,
-    ...(anderer ? { neuerBerichtId: anderer.id } : {})
+    wiederherstellbar: !h,
+    ...(h ? { hindernis: { art: h.art, text: h.text } } : {}),
+    ...(h && h.neuerBerichtId ? { neuerBerichtId: h.neuerBerichtId } : {})
   };
 }
 

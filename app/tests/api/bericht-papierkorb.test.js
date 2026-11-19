@@ -237,6 +237,85 @@ test('15.34 Bericht löschen mit Papierkorb', async (t) => {
     assert.ok((neu.fuhrenVorschlag || []).some((f) => f.fuhreId === fuhre), 'Fuhre im neuen Bericht vorgeschlagen');
   });
 
+  await t.test('Prüfung 19.11.2026: Wiederherstellen verweigert (409), wenn Personalzeiten inzwischen in einem anderen aktiven Bericht stehen', async () => {
+    const datum = '2026-10-13';
+    s.db.lauf('DELETE FROM bericht WHERE datum = ?', datum);
+    const pers = [{ gast: true, benutzerId: 3, von1: '07:00', bis1: '12:00', von2: '12:30', bis2: '16:00' }];
+    const a = (await c.buero.post('/berichte', { baustelleId: BS.pitten, datum })).daten;
+    assert.equal((await c.buero.put(`/berichte/${a.id}`, { version: a.version, personal: pers })).status, 200);
+    const b = (await c.buero.post('/berichte', { baustelleId: BS.kogler, datum })).daten;
+    const vorher = await c.buero.put(`/berichte/${b.id}`, { version: b.version, personal: pers });
+    assert.equal(vorher.status, 400, 'Überschneidung wird beim Speichern abgelehnt');
+    assert.equal((await loesche(c.buero, a.id)).status, 200);
+    assert.equal((await c.buero.put(`/berichte/${b.id}`, { version: await version(c.buero, b.id), personal: pers })).status, 200, 'nach dem Löschen ist die Zeit frei');
+    const kstB = s.db.eins('SELECT kst FROM baustelle WHERE id = ?', BS.kogler).kst;
+    // Papierkorb kennzeichnet den Eintrag
+    const e = (await c.buero.get('/berichte/papierkorb')).daten.berichte.find((x) => x.id === a.id);
+    assert.equal(e.wiederherstellbar, false);
+    assert.equal(e.hindernis.art, 'ueberschneidung');
+    assert.ok(e.hindernis.text.includes('Daniel Schwarz') && e.hindernis.text.includes(kstB), e.hindernis.text);
+    assert.equal(e.neuerBerichtId, undefined);
+    const r = await c.buero.post(`/berichte/${a.id}/wiederherstellen`, {});
+    assert.equal(r.status, 409);
+    assert.match(r.daten.fehler, /Daniel Schwarz steht am 13\.10\.2026 inzwischen im Bericht von/);
+    assert.equal(r.daten.hindernis, 'ueberschneidung');
+    assert.equal(r.daten.ueberschneidungen[0].berichte[0].id, b.id);
+    assert.ok(s.db.eins('SELECT geloescht_zeit FROM bericht WHERE id = ?', a.id).geloescht_zeit, 'bleibt im Papierkorb');
+    // Polier mit Ausnahme (ohne stammdaten/lohn): neutraler Text ohne fremde Baustelle/Zeiten (15.11 G2-016)
+    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.polier, recht: 'bericht_loeschen', wert: true })).status, 200);
+    try {
+      const ep = (await c.pol.get('/berichte/papierkorb')).daten.berichte.find((x) => x.id === a.id);
+      assert.equal(ep.wiederherstellbar, false);
+      assert.equal(ep.hindernis.art, 'ueberschneidung');
+      const rp = await c.pol.post(`/berichte/${a.id}/wiederherstellen`, {});
+      assert.equal(rp.status, 409);
+      for (const t2 of [ep.hindernis.text, rp.daten.fehler]) {
+        assert.match(t2, /Büro/);
+        assert.ok(!t2.includes(kstB) && !t2.includes('07:00') && !t2.includes('Daniel'), t2);
+      }
+      assert.equal(rp.daten.ueberschneidungen, undefined);
+    } finally {
+      await c.gf.put('/rechte/ausnahme', { benutzerId: U.polier, recht: 'bericht_loeschen', wert: false });
+    }
+    // Klärung im anderen Bericht (Person dort entfernt) → Wiederherstellen geht
+    assert.equal((await c.buero.put(`/berichte/${b.id}`, { version: await version(c.buero, b.id), personal: [] })).status, 200);
+    assert.equal((await c.buero.get('/berichte/papierkorb')).daten.berichte.find((x) => x.id === a.id).wiederherstellbar, true);
+    assert.equal((await c.buero.post(`/berichte/${a.id}/wiederherstellen`, {})).status, 200);
+    const aktiv = s.db.alle('SELECT r.id FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id WHERE bp.benutzer_id = 3 AND r.datum = ? AND r.geloescht_zeit IS NULL', datum);
+    assert.deepEqual(aktiv.map((x) => x.id), [a.id], 'die Person steht nur in einem aktiven Bericht');
+  });
+
+  await t.test('Prüfung 19.11.2026: bericht_loeschen wirkt nur mit erstellen oder freigeben (kein Lese-Umweg für Mitarbeiter)', async () => {
+    const id = await berichtMitStatus(s, c, 'entwurf', '2026-10-12');
+    const m = (await c.gf.get('/rechte')).daten.rechte.find((x) => x.schluessel === 'bericht_loeschen');
+    assert.match(m.hinweis, /nur zusammen mit/);
+    for (const art of ['matrix', 'ausnahme']) {
+      const setze = (wert) => (art === 'matrix' ? c.gf.put('/rechte/matrix', { rolle: 'mitarbeiter', recht: 'bericht_loeschen', wert }) : c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert }));
+      assert.equal((await setze(true)).status, 200, art);
+      try {
+        assert.ok(!(await c.mitarbeiter.get('/auth/ich')).daten.rechte.includes('bericht_loeschen'), `${art}: nicht wirksam ohne Berichtsrecht`);
+        assert.equal((await c.mitarbeiter.get('/berichte/papierkorb')).status, 403, art);
+        assert.equal((await c.mitarbeiter.post(`/berichte/${id}/loeschen`, { grund: GRUND, version: await version(c.gf, id) })).status, 403, art);
+        assert.equal((await c.gf.post(`/berichte/${id}/loeschen`, { grund: GRUND, version: await version(c.gf, id) })).status, 200);
+        const w = await c.mitarbeiter.post(`/berichte/${id}/wiederherstellen`, {});
+        assert.equal(w.status, 403, art);
+        assert.equal(w.daten.personal, undefined, 'kein Berichtsinhalt');
+        assert.ok(s.db.eins('SELECT geloescht_zeit FROM bericht WHERE id = ?', id).geloescht_zeit, 'bleibt gelöscht');
+        assert.equal((await c.gf.post(`/berichte/${id}/wiederherstellen`, {})).status, 200);
+      } finally { await setze(false); }
+    }
+    // mit zusätzlichem Berichtsrecht (Ausnahme bericht_erstellen) wirkt es – wie beim Polier
+    await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_erstellen', wert: true });
+    await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: true });
+    try {
+      assert.ok((await c.mitarbeiter.get('/auth/ich')).daten.rechte.includes('bericht_loeschen'));
+      assert.equal((await c.mitarbeiter.get('/berichte/papierkorb')).status, 200);
+    } finally {
+      await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: false });
+      await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_erstellen', wert: false });
+    }
+  });
+
   await t.test('nach 30 Tagen endgültig gelöscht – samt Fotodateien, Unterschriften, Zeilen und Links; vorher nicht', async () => {
     const id = await berichtMitStatus(s, c, 'entwurf', '2026-10-16');
     const foto = await c.pol.post(`/berichte/${id}/fotos`, { bildBase64: testJpeg().toString('base64'), dateiname: 'f.jpg' });

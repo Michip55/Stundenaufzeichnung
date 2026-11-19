@@ -36,6 +36,15 @@ test('Bauleiter wie Büro (13.11.2026): Preise, Lohn, Stammdaten vergebbar; nur 
   assert.deepEqual(R.GESPERRT.bauleiter, R.GESPERRT.buero);
 });
 
+test('15.34 (Prüfung 19.11.2026): bericht_loeschen wirkt nur mit bericht_erstellen oder bericht_freigeben', () => {
+  assert.equal(R.effektiveRechte('mitarbeiter', { zeit_eigen: true, bericht_loeschen: true }, []).has('bericht_loeschen'), false, 'Matrix');
+  assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['bericht_loeschen']).has('bericht_loeschen'), false, 'Ausnahme');
+  assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['bericht_loeschen', 'bericht_erstellen']).has('bericht_loeschen'), true);
+  assert.equal(R.effektiveRechte('polier', R.STANDARD_MATRIX.polier, ['bericht_loeschen']).has('bericht_loeschen'), true, 'Polier hat erstellen');
+  assert.equal(R.effektiveRechte('buero', { bericht_loeschen: true, bericht_freigeben: true }, []).has('bericht_loeschen'), true, 'freigeben genügt');
+  assert.equal(R.effektiveRechte('buero', { bericht_loeschen: true }, []).has('bericht_loeschen'), false);
+});
+
 test('GF behält immer das Recht benutzer', () => {
   assert.equal(R.effektiveRechte('gf', {}, []).has('benutzer'), true);
   assert.equal(R.istImmer('gf', 'benutzer'), true);

@@ -497,6 +497,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 
 /* Rechte */
 .rights th small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; font-family: ui-monospace, monospace; } .rights td { padding: 4px 8px; } .rights thead th.c { min-width: 96px; }
+.rights th small.recht-hinweis { font-family: inherit; font-size: 11.5px; color: var(--muted); white-space: normal; max-width: 460px; line-height: 1.3; margin-top: 2px; } /* 15.34 Prüfung: Voraussetzung eines Rechts */
 .lock-cell { display: inline-grid; place-items: center; width: 46px; height: 28px; border-radius: 99px; background: repeating-linear-gradient(135deg, #eceef1 0 6px, #e2e5e9 6px 12px); color: #5a636e; } .lock-cell .ic { width: 15px; height: 15px; } td.locked { background: #fafbfc; }
 .log-ic { width: 34px; height: 34px; border-radius: 10px; background: #eceef1; color: var(--muted); display: grid; place-items: center; flex: none; } .log-ic .ic { width: 17px; height: 17px; } .log b { white-space: normal !important; }
 
@@ -518,7 +519,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
   .bud-rows a { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; } .bud-rows .bud-bar { grid-column: 1 / -1; order: 3; } .bud-rows .bud-pct { display: none; }
   .tabs { align-self: stretch; } .tabs button { flex: 1; justify-content: center; padding: 0 8px; } .tabs .count { display: none; }
   .tbl th, .tbl td { padding: 9px 10px; } .price-in input { width: 68px; } .price-tbl td.muted.nw { display: none; } .price-tbl thead th:first-child:not(:nth-last-child(-n+3)) { display: none; }
-  .rights th small { display: none; } .rights thead th.c { min-width: 70px; font-size: 10.5px; white-space: normal; }
+  .rights th small { display: none; } .rights th small.recht-hinweis { display: block; max-width: 180px; } .rights thead th.c { min-width: 70px; font-size: 10.5px; white-space: normal; }
   .thr { gap: 6px; }
 
   /* Bautagesbericht als Assistent */

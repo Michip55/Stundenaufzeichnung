@@ -188,6 +188,34 @@ const iv = (a, b) => Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
 const hmZ = (t) => wienZeit(new Date(t));
 
 /**
+ * Zeilen derselben Person in ANDEREN nicht gelöschten Berichten (Berichtstag ±1), die sich mit `zeilenIv` überschneiden (C-01, D-03).
+ * Gemeinsam für pruefePersonal und das Wiederherstellen aus dem Papierkorb (15.34, Prüfung 19.11.2026).
+ */
+function ueberschneidendeZeilen(db, benutzerId, datum, zeilenIv, berichtId) {
+  if (!zeilenIv.length) return [];
+  return db.alle(`SELECT bp.von1, bp.bis1, bp.von2, bp.bis2, r.id, r.datum, b.kst FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
+      JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ? AND r.geloescht_zeit IS NULL ORDER BY r.datum, r.id`,
+  benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)
+    .filter((o) => { const oIv = bloeckeAlsZeitpunkte(o.datum, o); return zeilenIv.some((r) => oIv.some((x) => iv(r, x) > 0)); }); // D-03: echte Zeitpunkte je Berichtstag
+}
+
+/**
+ * 15.34 (Prüfung 19.11.2026): Personalzeilen eines (gelöschten) Berichts, die sich inzwischen mit Zeilen anderer aktiver Berichte
+ * überschneiden – Wiederherstellen würde sonst den Zustand erzeugen, den PUT /berichte/:id mit 400 ablehnt (Stunden doppelt).
+ * @returns {{benutzerId:number, name:string, andere:{id:number, datum:string, kst:string, von1:string, bis:string}[]}[]}
+ */
+function berichtUeberschneidungen(db, berichtId) {
+  const r = db.eins('SELECT id, datum FROM bericht WHERE id = ?', berichtId);
+  if (!r) return [];
+  const out = [];
+  for (const p of db.alle('SELECT bp.benutzer_id, bp.von1, bp.bis1, bp.von2, bp.bis2, u.name FROM bericht_personal bp LEFT JOIN benutzer u ON u.id = bp.benutzer_id WHERE bp.bericht_id = ? ORDER BY bp.id', berichtId)) {
+    const andere = ueberschneidendeZeilen(db, p.benutzer_id, r.datum, bloeckeAlsZeitpunkte(r.datum, p), r.id);
+    if (andere.length) out.push({ benutzerId: p.benutzer_id, name: p.name || '?', andere: andere.map((o) => ({ id: o.id, datum: o.datum, kst: o.kst, von1: o.von1, bis: o.bis2 || o.bis1 })) });
+  }
+  return out;
+}
+
+/**
  * Personalzeilen prüfen (C-01, C-02, C-10).
  * - nur Rollen mitarbeiter/polier; Partie der Baustelle, auf ihr gestempelt oder ausdrücklich gast:true
  * - Stunden rechnet immer der Server (echte Zeitpunkte Europe/Vienna); mitgesendete Stunden zählen nicht
@@ -271,12 +299,8 @@ function pruefePersonal(db, liste, kontext) {
           }
         }
       }
-      for (const o of db.alle(`SELECT bp.von1, bp.bis1, bp.von2, bp.bis2, r.id, r.datum, b.kst FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-          JOIN baustelle b ON b.id = r.baustelle_id WHERE bp.benutzer_id = ? AND r.datum BETWEEN ? AND ? AND r.id <> ? AND r.geloescht_zeit IS NULL`, benutzerId, plusTage(datum, -1), plusTage(datum, 1), berichtId || -1)) {
-        const oIv = bloeckeAlsZeitpunkte(o.datum, o); // D-03: echte Zeitpunkte des jeweiligen Berichtstags
-        if (zeilenIv.some((r) => oIv.some((x) => iv(r, x) > 0))) {
-          ueberschneidung(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
-        }
+      for (const o of ueberschneidendeZeilen(db, benutzerId, datum, zeilenIv, berichtId)) {
+        ueberschneidung(`${f}: ${person.name} steht zur selben Zeit bereits im Bericht von Baustelle ${o.kst} vom ${o.datum.split('-').reverse().join('.')} (${o.von1}–${o.bis2 || o.bis1}).`);
       }
     }
     return { benutzerId, ...z, pauseMin, stunden: r2(stunden), code, segStunden, gast: gast && !partie && !gestempeltHier, name: person.name };
@@ -548,7 +572,7 @@ module.exports = function berichtRouten(api, bt) {
     const jetztIso = jetzt();
     const berichte = P.geloeschte(db)
       .filter((z) => baustelleImBereich(req.ctx.benutzer, bsZeile(z)) && P.endgueltigAm(z.geloescht_zeit) > jetztIso)
-      .map((z) => P.eintragJson(db, z));
+      .map((z) => P.eintragJson(db, req.ctx, z));
     res.json({ fristTage: P.FRIST_TAGE, berichte });
   });
 
@@ -856,5 +880,6 @@ module.exports.berichtGeaendert = berichtGeaendert;
 module.exports.pruefeLesen = pruefeLesen;
 module.exports.pruefeSchreiben = pruefeSchreiben;
 module.exports.pruefeGrundrecht = pruefeGrundrecht;
+module.exports.berichtUeberschneidungen = berichtUeberschneidungen;
 module.exports.GESPERRT_TEXT = GESPERRT_TEXT;
 module.exports.pruefePng = pruefePng;

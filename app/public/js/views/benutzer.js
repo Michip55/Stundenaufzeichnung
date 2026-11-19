@@ -42,7 +42,7 @@ export default async function benutzer(el, ctx) {
     return `
       ${banner('info', '<b>Gesperrte Felder</b> (Schloss) können für diese Rolle nie vergeben werden – auch nicht als Ausnahme. So bleiben Preise und Lohndaten vor Polier und Mitarbeitern verborgen.', 'lock')}
       <section class="card"><div class="tbl-wrap"><table class="tbl rights" id="matrix"><thead><tr><th>Recht</th>${ro.map((x) => `<th class="c">${esc(x.name)}</th>`).join('')}</tr></thead>
-        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
+        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}${re.hinweis ? `<small class="recht-hinweis" data-recht-hinweis>${esc(re.hinweis)}</small>` : ''}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
           const an = !!((r.matrix || {})[x.schluessel] || {})[re.schluessel];
           if (gesperrt(x.schluessel, re.schluessel)) return `<td class="c locked" data-rolle="${x.schluessel}" data-recht="${re.schluessel}" data-gesperrt><span class="lock-cell" role="img" aria-label="Gesperrt: für ${esc(x.name)} nicht vergebbar" title="Gesperrt – für ${esc(x.name)} nicht vergebbar">${ic('lock')}</span></td>`;
           const f = fest(x.schluessel, re.schluessel);

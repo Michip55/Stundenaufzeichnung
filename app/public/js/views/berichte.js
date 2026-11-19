@@ -89,7 +89,8 @@ export async function papierkorb(el, ctx) {
           <span class="pk-info">Gelöscht am ${esc(fmt.zeitpunkt(b.geloescht.zeit))}${b.geloescht.von ? ` von ${esc(b.geloescht.von.name)}` : ''}</span>
           <span class="pk-grund">„${esc(b.geloescht.grund || '')}“</span>
           <span class="pk-frist" data-pk-frist>Endgültig weg am <b>${esc(fmt.datum(b.endgueltigDatum))}</b></span>
-          ${b.wiederherstellbar ? '' : `<span class="pk-hinweis" data-pk-konflikt>Für diesen Tag gibt es einen neuen Bericht – Wiederherstellen erst, wenn er gelöscht ist. <a href="#/bericht/${b.neuerBerichtId}">Neuen Bericht öffnen</a></span>`}
+          ${b.wiederherstellbar ? '' : b.neuerBerichtId ? `<span class="pk-hinweis" data-pk-konflikt="neuer_bericht">Für diesen Tag gibt es einen neuen Bericht – Wiederherstellen erst, wenn er gelöscht ist. <a href="#/bericht/${b.neuerBerichtId}">Neuen Bericht öffnen</a></span>`
+    : `<span class="pk-hinweis" data-pk-konflikt="${esc((b.hindernis || {}).art || '')}">${esc((b.hindernis || {}).text || 'Wiederherstellen ist derzeit nicht möglich.')}</span>`}
         </span>
         <span class="pk-akt">${statusChip(b.status)}<button type="button" class="btn ghost sm" data-wieder="${b.id}" ${b.wiederherstellbar ? '' : 'disabled'}>${ic('undo')}Wiederherstellen</button></span>
       </li>`).join('')}</ul>` : leer('Der Papierkorb ist leer.', 'trash');

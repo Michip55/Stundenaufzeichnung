@@ -67,6 +67,8 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] Ein Link „Unterschrift per Link“, der vor dem Löschen verschickt wurde, sagt jetzt „nicht mehr gültig“ – auch nach dem Wiederherstellen.
 - [ ] Bautagesberichte → **„Papierkorb“**: der Bericht steht dort mit Grund, „Gelöscht am … von …“ und „Endgültig weg am …“. **Wiederherstellen** → er ist wieder in der Liste, mit allen Zeilen, Fotos und Unterschriften, im alten Status.
 - [ ] Bericht löschen, dann für **denselben Tag einen neuen Bericht** anlegen (geht) → im Papierkorb ist „Wiederherstellen“ gesperrt mit dem Hinweis „Für diesen Tag gibt es einen neuen Bericht …“ und Link zum neuen Bericht.
+- [ ] Bericht A (Baustelle 1) mit einer Person 07:00–16:00 löschen, dann dieselbe Person am selben Tag zur selben Zeit in einen Bericht einer **anderen Baustelle** eintragen (geht jetzt) → im Papierkorb ist bei A „Wiederherstellen“ gesperrt mit „… steht am TT.MM. inzwischen im Bericht von 26-… – die Zeiten überschneiden sich“. Person im anderen Bericht entfernen → A lässt sich wiederherstellen.
+- [ ] Als GF in der Rechte-Matrix beim **Mitarbeiter** „Bautagesberichte löschen“ einschalten → der Mitarbeiter sieht trotzdem keinen „Papierkorb“ und keine Berichte (Hinweis in der Matrix: „wirkt nur zusammen mit „Bautagesbericht erstellen“ oder „freigeben““); wieder ausschalten.
 - [ ] Als GF unter Rechte-Einstellungen beim **Bauleiter** „Bautagesberichte löschen“ wegnehmen → Stefan Aigner sieht weder „Bericht löschen“ noch „Papierkorb“; wieder einschalten. (Das Recht steht in der Rechte-Matrix wie alle anderen.)
 - [ ] Benutzer & Rechte → Protokoll: Löschen und Wiederherstellen stehen dort mit Begründung.
 

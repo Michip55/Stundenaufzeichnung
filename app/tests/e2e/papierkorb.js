@@ -6,11 +6,13 @@
  * (abschaltbar mit E2E_OHNE_PAPIERKORB=1).
  *
  *  1. Polier und Mitarbeiter (ohne Recht bericht_loeschen): kein „Bericht löschen“, kein „Papierkorb“, die Adresse
- *     #/berichte/papierkorb zeigt „Seite nicht verfügbar“.
+ *     #/berichte/papierkorb zeigt „Seite nicht verfügbar“ – beim Mitarbeiter auch mit bericht_loeschen in der Matrix.
  *  2. Büro: unterschriebener Bericht → „Bericht löschen“ → Dialog mit Baustelle, Datum, Status und Warnung „bereits
  *     unterschrieben“; „Bericht löschen“ erst ab 5 Zeichen Begründung; danach Liste ohne den Bericht, Hinweis mit Frist.
  *  3. Papierkorb (aus der Liste erreichbar): Eintrag mit Grund, „gelöscht von“, „Endgültig weg am …“; Wiederherstellen →
  *     Bericht wieder in der Liste. Gibt es inzwischen einen neuen Bericht für den Tag: Knopf gesperrt, Hinweis mit Verweis.
+ *     Steht eine Person inzwischen zur selben Zeit in einem anderen Bericht (Prüfung 19.11.2026): ebenso gesperrt, Hinweis
+ *     mit Name, Tag und Kostenstelle.
  *  4. Bauleiter (= Büro) sieht dieselben Knöpfe; Freigegebener Bericht: Warnung „freigegeben“ im Dialog.
  * Ohne horizontalen Überlauf (Seite und Dialog), ohne Konsolenfehler.
  */
@@ -74,7 +76,9 @@ async function laufe(browser, g) {
     }
     const dlg = (page) => page.locator('dialog.dlg[open]').last();
 
-    // 1) Polier und Mitarbeiter: nichts zu sehen, Papierkorb gesperrt
+    // 1) Polier und Mitarbeiter: nichts zu sehen, Papierkorb gesperrt – beim Mitarbeiter auch dann, wenn die Matrix ihm
+    //    bericht_loeschen gibt (Prüfung 19.11.2026: wirkt nur mit erstellen oder freigeben)
+    db.lauf("INSERT OR REPLACE INTO rolle_recht (rolle, recht, wert) VALUES ('mitarbeiter', 'bericht_loeschen', 1)");
     for (const [id, wer] of [[U.polier, 'Polier'], [U.mitarbeiter, 'Mitarbeiter']]) {
       await sitzung(id, wer, async ({ page, geh, api }) => {
         if (id === U.polier) {
@@ -89,6 +93,7 @@ async function laufe(browser, g) {
         pruef((await api('GET', '/berichte/papierkorb')).status === 403, `${wer}: GET /berichte/papierkorb nicht 403`);
       }, /status of 403/);
     }
+    db.lauf("DELETE FROM rolle_recht WHERE rolle = 'mitarbeiter' AND recht = 'bericht_loeschen'");
 
     // 2) + 3) Büro: löschen, Papierkorb, wiederherstellen, Konflikt mit neuem Bericht
     await sitzung(U.buero, 'Büro', async ({ page, geh, api, ueberlauf }) => {
@@ -154,6 +159,27 @@ async function laufe(browser, g) {
       const v2 = (await api('GET', `/berichte/${neu.json.id}`)).json.version;
       await api('POST', `/berichte/${neu.json.id}/loeschen`, { grund: 'Test aufräumen', version: v2 });
       pruef((await api('POST', `/berichte/${unterschrieben.id}/wiederherstellen`, {})).status === 200, 'Wiederherstellen nach Löschen des neuen Berichts');
+
+      // Prüfung 19.11.2026: Person steht inzwischen zur selben Zeit in einem anderen Bericht → gesperrt mit Hinweis
+      const tag = '2026-10-13';
+      db.lauf('DELETE FROM bericht WHERE datum = ?', tag);
+      const pers = [{ gast: true, benutzerId: 3, von1: '07:00', bis1: '12:00', von2: '12:30', bis2: '16:00' }];
+      const a = (await api('POST', '/berichte', { baustelleId: 1, datum: tag })).json;
+      pruef((await api('PUT', `/berichte/${a.id}`, { version: a.version, personal: pers })).status === 200, 'Bericht A mit Personal');
+      pruef((await api('POST', `/berichte/${a.id}/loeschen`, { grund: 'Falscher Tag erwischt', version: a.version + 1 })).status === 200, 'Bericht A löschen');
+      const b = (await api('POST', '/berichte', { baustelleId: 2, datum: tag })).json;
+      pruef((await api('PUT', `/berichte/${b.id}`, { version: b.version, personal: pers })).status === 200, 'Bericht B mit derselben Person');
+      await geh('/berichte'); // gleiche Adresse lädt nicht neu
+      await geh('/berichte/papierkorb');
+      await page.waitForSelector(`[data-pk="${a.id}"]`, { timeout: 8000 }).catch(() => {});
+      const z3 = page.locator(`[data-pk="${a.id}"]`);
+      pruef(await z3.locator('[data-wieder]').isDisabled().catch(() => false), 'Wiederherstellen trotz Überschneidung möglich');
+      const h3 = await z3.locator('[data-pk-konflikt="ueberschneidung"]').innerText().catch(() => '');
+      pruef(/Daniel Schwarz steht am 13\.10\.2026 inzwischen im Bericht von 26-038/.test(h3), `Hinweis „Zeiten überschneiden sich“ fehlt: „${h3}“`);
+      await ueberlauf('Papierkorb mit Überschneidung');
+      // aufräumen
+      await api('PUT', `/berichte/${b.id}`, { version: b.version + 1, personal: [] });
+      pruef((await api('POST', `/berichte/${a.id}/wiederherstellen`, {})).status === 200, 'Wiederherstellen nach Klärung');
     });
 
     // 4) Bauleiter = Büro: Knopf sichtbar, freigegebener Bericht mit Warnung „freigegeben“
