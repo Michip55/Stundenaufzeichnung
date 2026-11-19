@@ -465,7 +465,10 @@ async function scanne(rolle, r0, k) {
           const p2 = x.benutzerId !== undefined ? x.benutzerId : person;
           const eigeneRoute = p2 === undefined && EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad);
           if (x.code === 'K' && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Krankenstand (Code K) einer anderen Person (${p2}) bei ${pfad}`);
-          if (x.pnr != null && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${p2}) bei ${pfad}`);
+          // 15.33: ein Personen-Datensatz mit Personalnummer trägt seine Benutzer-ID als `id` ({id, name, pnr} in /auth/ich und im
+          // gemerkten bt_ich) – die eigene Personalnummer ist dann erkennbar die eigene, jede andere bleibt ein Befund
+          const pnrVon = x.benutzerId !== undefined ? x.benutzerId : Number.isInteger(x.id) && 'name' in x ? x.id : p2;
+          if (x.pnr != null && pnrVon !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${pnrVon}) bei ${pfad}`);
           // Mitarbeiter: Zeiten, Abwesenheiten und Urlaub nur von sich selbst (API.md 7 B-07, 12.19)
           if (rolle === 'mitarbeiter' && !k.mitAusnahmen && x.benutzerId !== undefined && x.benutzerId !== eigeneId && /(GET|POST) \/api\/(abwesenheiten|urlaub|zeit)\b/.test(k.route)) v.push(`${wo}: Daten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
           // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht (auch nicht „abwesend“)
