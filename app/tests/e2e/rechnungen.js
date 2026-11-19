@@ -11,7 +11,7 @@
  *     2b. „Zahlbetrag mit Skonto“ (15.26): Betrag nach Skonto laut Papier, Summenzeilen, Kontrolle Skonto %, Umrechnen beim
  *     Wechsel der Art, zu hoch → kein Speichern, Abweichung → Hinweis, Bearbeiten hin und zurück, Detail; 320 px ohne Überlauf.
  *  3. Büro: Seite „Rechnungen“ – Filter Baustelle, Status, Art, Zeitraum (gleich der Schnittstelle).
- *  4. Büro: Fälligkeiten (über die Übersicht „Geld“) – Gruppen, „mit Skonto … bis“ / „ohne Skonto … bis“, Rücklass-Zeilen,
+ *  4. Büro: Fälligkeiten (über die Übersicht „Rechnungen“) – Gruppen, „mit Skonto … bis“ / „ohne Skonto … bis“, Rücklass-Zeilen,
  *     Summen gleich GET /faelligkeiten; ruhig (keine Unterstreichung, kein Blau), kein seitlicher Überlauf.
  *  5. Polier und Mitarbeiter: Rechnungen/Fälligkeiten gesperrt, kein €, Schnittstellen 403.
  */
@@ -272,7 +272,7 @@ async function laufe(browser, g, opt = {}) {
       await ueberlauf('Rechnungen');
       await shot(page, '5-rechnungen-seite');
 
-      // 4) Fälligkeiten über die Übersicht „Geld“
+      // 4) Fälligkeiten über die Übersicht „Rechnungen“
       await geh('#/dashboard');
       await page.waitForSelector('#bv-kacheln a[data-kpi="faelligkeiten"]');
       await page.click('#bv-kacheln a[data-kpi="faelligkeiten"]');
