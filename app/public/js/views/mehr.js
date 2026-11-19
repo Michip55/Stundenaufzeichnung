@@ -6,6 +6,11 @@ import { installKarte, bindeInstall } from './hilfe.js';
 import { schadenMelden } from './schaeden.js';
 import { fuhrenWartend } from './fuhren.js';
 import { KLASSISCH, klassischAn } from './dashboard.js';
+import { ortHolen, ortErlaubnis } from '../standort.js';
+import { standortEingeschaltet, standortSetzen, standortAltUebernehmen } from '../standort-einwilligung.js';
+
+// 15.30: Hinweis, wenn das Gerät den Standort nicht freigibt (der Schalter bleibt an – erlaubt man es später, wirkt er)
+export const STANDORT_HILFE = 'Das Gerät erlaubt BauTag gerade keinen Zugriff auf den Standort. So erlauben: <b>iPhone:</b> Einstellungen → Datenschutz &amp; Sicherheit → Ortungsdienste → „Safari-Websites“ (bzw. die installierte BauTag-App) → „Beim Verwenden der App“. <b>Android:</b> in Chrome beim Schloss neben der Adresse → Berechtigungen → Standort → Zulassen. Bis dahin wird kein Standort mitgesendet.';
 
 const INTEG_ICON = { diktat: 'mic', lieferschein: 'scan', papier: 'camera', sms: 'sms', push: 'bell', email: 'mail', wetter: 'cloud', fernunterschrift: 'sign', ki: 'spark', scan_lieferschein: 'scan', scan_papier: 'camera' };
 // Wohin „Einrichten“ führt – je nach Dienst und Recht
@@ -26,7 +31,8 @@ export default async function mehr(el, ctx) {
   const u = ctx.ich.benutzer;
   const [integ, gesund] = await Promise.all([ctx.integrationen(), get('/gesundheit').catch(() => null)]);
   const s = syncStatus();
-  const standort = speicher.lies('bt_standort', false);
+  await standortAltUebernehmen(ctx); // 15.30: alte Wahl nur am Gerät einmal an den Server übernehmen
+  const standort = standortEingeschaltet(ctx);
   el.innerHTML = `
   <div class="page narrow wide-md">
     <section class="card pad profile">${avatar(u.name, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(rolleText(u.rolle))}${u.lohngruppe ? ' · ' + esc(u.lohngruppe) : ''}</p></div></section>
@@ -38,8 +44,9 @@ export default async function mehr(el, ctx) {
     <section class="card" aria-labelledby="einst-h">
       <div class="card-h pad-h"><h3 id="einst-h">Einstellungen</h3></div>
       ${geraetWahl(geraetArtFuer(u.id), { klasse: 'im-menue', woche: ctx.ich.sitzungArt === 'woche' && geraetArtFuer(u.id) === 'eigen' })}
-      <label class="switch-row"><span><b>Standort beim Stempeln mitsenden</b><small>Nur im Moment des Stempelns, keine laufende Ortung. Das Gerät fragt beim ersten Mal um Erlaubnis.</small></span>
-        <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
+      <label class="switch-row" id="standort-zeile"><span><b>Standort beim Stempeln mitsenden</b><small>Freiwillig, nur du selbst schaltest es ein – gilt für dich auf jedem Gerät, bis du es ausschaltest. Nur im Moment des Stempelns, keine laufende Ortung. Das Büro sieht bei deinen Buchungen, ob du bei der Baustelle warst.</small></span>
+        <input type="checkbox" class="vh" id="opt-standort" ${standort ? 'checked' : ''} ${navigator.geolocation || standort ? '' : 'disabled'}><span class="switch" aria-hidden="true"></span></label>
+      <div class="banner warn standort-hinweis" id="standort-hinweis" role="alert" hidden>${ic('alert')}<span></span></div>
       ${ctx.navErlaubt().some((n) => n.id === 'dashboard') ? `<label class="switch-row" id="klassisch-zeile"><span><b>Klassische Übersicht verwenden</b><small>Die bisherige Übersicht mit Kacheln statt der neuen, ruhigen Ansicht. Gilt auf diesem Gerät bis zum Abmelden.</small></span>
         <input type="checkbox" class="vh" id="opt-klassisch" ${klassischAn() ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>` : ''}
       <a class="switch-row link" href="#/push" id="push-link"><span><b>Push-Benachrichtigungen</b><small>Auf diesem Gerät einschalten, Kategorien wählen, Test senden.</small></span>${ic('right')}</a>
@@ -54,9 +61,29 @@ export default async function mehr(el, ctx) {
     <button type="button" class="btn ghost lg block" id="abmelden">${ic('logout')}Abmelden</button>
     <p class="fineprint">BauTag${gesund && gesund.version ? ' · Version ' + esc(gesund.version) : ''}</p>
   </div>`;
-  $('#opt-standort', el).addEventListener('change', (e) => {
-    speicher.setz('bt_standort', e.target.checked);
-    toast(e.target.checked ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Standort wird nicht mehr erfasst.');
+  // 15.30: je Person am Server; beim Einschalten sofort einmal orten, damit das Gerät HIER um Erlaubnis fragt (nicht beim Stempeln)
+  const hinweis = $('#standort-hinweis', el);
+  const zeigeHinweis = (html) => { hinweis.hidden = !html; $('span', hinweis).innerHTML = html || ''; };
+  if (standort && navigator.geolocation) ortErlaubnis().then((st) => { if (st === 'denied' && ctx.aktuell()) zeigeHinweis(STANDORT_HILFE); });
+  else if (standort) zeigeHinweis('Dieser Browser kann keinen Standort bestimmen – hier wird beim Stempeln nichts mitgesendet.');
+  $('#opt-standort', el).addEventListener('change', async (e) => {
+    const sw = e.target;
+    const an = sw.checked;
+    const ortP = an ? ortHolen({ timeout: 15000, maximumAge: 60000, reserveMs: 60000 }) : null; // gleich im Klick: Erlaubnis-Frage des Geräts
+    sw.disabled = true;
+    try {
+      await standortSetzen(ctx, an);
+    } catch (x) {
+      sw.checked = !an; sw.disabled = false;
+      toast(x.netz ? 'Keine Verbindung – die Einstellung ist nicht gespeichert. Bitte später noch einmal.' : x.message, 'warn');
+      return;
+    }
+    sw.disabled = false;
+    if (!an) { zeigeHinweis(''); toast('Standort wird nicht mehr erfasst.'); return; }
+    const r = await ortP;
+    if (!ctx.aktuell() || !sw.checked) return;
+    toast(r.standort ? 'Standort wird ab jetzt beim Stempeln mitgesendet.' : 'Eingeschaltet – der Standort ist am Gerät aber gerade nicht verfügbar (siehe Hinweis).', r.standort ? undefined : 'warn');
+    zeigeHinweis(r.standort ? '' : r.fehler === 'verweigert' ? STANDORT_HILFE : r.fehler === 'fehlt' ? 'Dieser Browser kann keinen Standort bestimmen – hier wird beim Stempeln nichts mitgesendet.' : 'Der Standort ließ sich gerade nicht bestimmen (kein Empfang?). Beim Stempeln wird es erneut versucht.');
   });
   // 15.20: alte Übersicht vorübergehend wiederherstellbar (je Gerät; beim Abmelden wie alle bt_-Einstellungen gelöscht)
   const kl = $('#opt-klassisch', el);

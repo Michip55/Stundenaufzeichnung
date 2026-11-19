@@ -4,7 +4,7 @@
 const VERSION = 'bautag-huelle-v49';
 const HUELLE = [
   '/', '/index.html', '/manifest.webmanifest', '/css/app.css',
-  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/offline.js', '/js/pausen.js', '/js/pause-gehen.js', '/js/schaden-offline.js', '/js/tresor.js',
+  '/js/app.js', '/js/api.js', '/js/ui.js', '/js/zahl.js', '/js/standort.js', '/js/standort-einwilligung.js', '/js/offline.js', '/js/pausen.js', '/js/pause-gehen.js', '/js/schaden-offline.js', '/js/tresor.js',
   '/js/views/login.js', '/js/views/stempeln.js', '/js/views/kolonne.js', '/js/views/woche.js', '/js/views/berichte.js',
   '/js/views/dashboard.js', '/js/views/dashboard-klassisch.js', '/js/views/baustellen.js', '/js/views/preise.js', '/js/views/kalkulation.js',
   '/js/views/monat.js', '/js/views/benutzer.js', '/js/views/mehr.js', '/js/views/pin.js', '/js/views/abwesenheiten.js', '/js/views/korrektur.js', '/js/views/positionen.js', '/js/views/katalog.js', '/js/views/arbeitszeitmodelle.js',

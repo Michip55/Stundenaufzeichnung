@@ -183,15 +183,17 @@ async function abmeldenNachholen() {
 }
 
 /**
- * @param {{ersteller?: number}} opt  ersteller: nachgesendeter Eintrag dieser Person (15.5, F-030) – der Server nimmt ihn nur
- *   unter ihrer Sitzung an (sonst 409 ERSTELLER_ANDERS, der Eintrag bleibt dann am Gerät).
+ * @param {{ersteller?: number, vorAbmelden?: boolean}} opt  ersteller: nachgesendeter Eintrag dieser Person (15.5, F-030) – der
+ *   Server nimmt ihn nur unter ihrer Sitzung an (sonst 409 ERSTELLER_ANDERS, der Eintrag bleibt dann am Gerät).
+ *   vorAbmelden (15.30): Standort-Nachtrag der eben gestempelten Buchung – geht noch vor einem vorgemerkten Abmelden hinaus,
+ *   weil das Abmelden kurz auf ihn wartet (app.js). Bindung und Generation der Anmeldung gelten unverändert.
  */
 export async function api(methode, pfad, body, opt0 = {}) {
   const gebunden = opt0.ersteller == null; // 15.12 (G2-018): an die Generation gebunden (alles außer nachgesendeten Einträgen)
   const gen = generation;
   const signal = gebunden && abbruch ? abbruch.signal : undefined;
   const veraltet = () => gebunden && gen !== generation;
-  if (pfad !== '/auth/logout') await abmeldenNachholen();
+  if (pfad !== '/auth/logout' && !opt0.vorAbmelden) await abmeldenNachholen();
   if (veraltet()) throw new VeraltetFehler();
   const opt = { method: methode, credentials: 'same-origin', headers: { Accept: 'application/json' } };
   if (signal) opt.signal = signal;

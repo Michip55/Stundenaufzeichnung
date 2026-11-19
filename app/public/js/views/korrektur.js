@@ -5,6 +5,7 @@
 import { get, post, put, api } from '../api.js';
 import { ic, esc, fmt, parseZahl, laden, leer, banner, dialog, toast, speicher, $ } from '../ui.js';
 import { wienIso, wienLokal, wienHeute, stundenAus } from '../zahl.js';
+import { standortLage, kartenLink, genauText } from '../standort.js';
 
 const TYP = { kommen: 'Kommen', gehen: 'Gehen', pause_start: 'Pause Beginn', pause_ende: 'Pause Ende', wechsel: 'Baustellenwechsel' };
 const QUELLE = { app: 'App', offline: 'offline nachgebucht', kolonne: 'durch Polier', buero: 'Korrektur Büro' };
@@ -13,7 +14,9 @@ const alsIso = (wert) => wienIso(wert.slice(0, 10), wert.slice(11, 16));
 const uhr = (x) => (!x ? '–' : /^\d{1,2}:\d{2}/.test(x) ? x.slice(0, 5) : lokal(x).slice(11));
 
 export default async function korrektur(el, ctx) {
-  const [alle, baustellen] = await Promise.all([get('/mitarbeiter'), get('/baustellen')]);
+  // 15.30: Namen und Koordinaten auch archivierter Baustellen (ältere Buchungen); die Auswahl bleibt bei den aktuellen
+  const [alle, baustellen, mitArchiv] = await Promise.all([get('/mitarbeiter'), get('/baustellen'), get('/baustellen?alle=1').catch(() => null)]);
+  const bsAlle = Array.isArray(mitArchiv) ? mitArchiv : baustellen;
   // Vier-Augen-Prinzip: die eigenen Zeiten korrigiert eine andere Person – außer die GF (15.29, der Server prüft dasselbe)
   const ichId = ctx.ich.benutzer.id;
   const gfSelbst = ctx.ich.benutzer.rolle === 'gf'; // rolle-ok: Vorbehalt der GF (15.29) wie Archiv aufheben, Server entscheidet
@@ -27,11 +30,18 @@ export default async function korrektur(el, ctx) {
   let bis = ctx.query.get('bis') || wienHeute();
   let von = ctx.query.get('von') || fmt.addTage(bis, -13);
   let liste = [], schichten = [];
-  const bsName = (id) => { const b = baustellen.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
+  const bsName = (id) => { const b = bsAlle.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
   const person = () => (leute.find((m) => m.id === benutzerId) || {}).name || '';
   const selbst = () => benutzerId === ichId;
   const SELBST_CHIP = '<span class="chip xs st-amber" data-selbstkorrektur>Selbstkorrektur GF</span>';
   const selbstHinweis = () => (selbst() ? `<div id="k-selbst-hinweis">${banner('warn', 'Eigene Zeiten – wird im Protokoll als Selbstkorrektur vermerkt.', 'shield')}</div>` : '');
+  // 15.30: Standort beim Stempeln (nur wenn die Person es selbst eingeschaltet hatte) – Lage zur Baustelle und Link zur Karte
+  const ortHtml = (x) => {
+    const l = standortLage(x.standort, bsAlle.find((b) => b.id === x.baustelleId));
+    if (!l) return '';
+    const g = genauText(x.standort.genauigkeit);
+    return `<span class="korr-ort" data-lage="${l.art}" title="Standort beim Stempeln${g ? ', Genauigkeit ' + g : ''}">${ic('pin', 'xs')}${esc(l.text)} · <a href="${esc(kartenLink(x.standort))}" target="_blank" rel="noopener noreferrer" data-karte>Karte</a></span>`;
+  };
   const bsWahl = (gewaehlt, leerText) => `<select class="input lg" name="baustelleId" ${leerText ? '' : 'required'}>${leerText ? `<option value="">${leerText}</option>` : ''}${baustellen.filter((b) => b.status !== 'abgeschlossen' || b.id === gewaehlt).map((b) => `<option value="${b.id}" ${gewaehlt === b.id ? 'selected' : ''}>${esc(bsName(b.id))}</option>`).join('')}</select>`;
 
   el.innerHTML = `
@@ -66,7 +76,7 @@ export default async function korrektur(el, ctx) {
       const d = x.datum || lokal(x.zeit).slice(0, 10);
       const kopf = d !== tag ? `<li class="korr-tag">${esc(fmt.datumLang(d))}</li>` : '';
       tag = d;
-      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.nachgetragen ? ' · <span class="chip xs st-amber" data-nachgetragen title="Keine Pause gestempelt – beim Gehen in der Stempeluhr nachgetragen">beim Gehen nachgetragen</span>' : ''}${x.quelle && x.quelle !== 'app' && !x.selbstkorrektur ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}</small></span>
+      return `${kopf}<li data-buchung="${x.id}"><time>${esc(x.uhrzeit || lokal(x.zeit).slice(11))}</time><span class="grow"><b>${esc(TYP[x.typ] || x.typ)}${x.typ === 'pause_start' && x.dauerMin ? ` (${x.dauerMin} Min${x.pauseBis ? ', endet ' + esc(fmt.uhr(x.pauseBis)) : ''})` : ''}</b><small>${esc(bsName(x.baustelleId))}${x.automatisch ? ' · automatisch (geplante Pause)' : ''}${x.nachgetragen ? ' · <span class="chip xs st-amber" data-nachgetragen title="Keine Pause gestempelt – beim Gehen in der Stempeluhr nachgetragen">beim Gehen nachgetragen</span>' : ''}${x.quelle && x.quelle !== 'app' && !x.selbstkorrektur ? ' · ' + esc(QUELLE[x.quelle] || x.quelle) : ''}${ortHtml(x)}</small></span>
         ${x.selbstkorrektur ? SELBST_CHIP : ''}<button type="button" class="btn ghost sm" data-aendern="${x.id}">${ic('edit')}Ändern</button><button type="button" class="icon-btn sm" data-loeschen="${x.id}" aria-label="Buchung ${esc(TYP[x.typ] || x.typ)} um ${esc(x.uhrzeit || lokal(x.zeit).slice(11))} löschen">${ic('trash')}</button></li>`;
     }).join('')}</ul>` : leer('Keine Buchungen in diesem Zeitraum.', 'clock');
   }

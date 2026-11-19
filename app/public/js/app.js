@@ -3,6 +3,7 @@
 import { get, post, abmeldenVormerken, abmeldenSenden, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
+import { standortNachtragOffen, standortNachtraegeFertig } from './standort-einwilligung.js';
 import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
@@ -356,6 +357,7 @@ function pfadJetzt() {
 }
 async function zeige() {
   if (ich && gemerktPruefen()) return; // 15.16 (H-S2): in einem anderen Tab ab- bzw. umgemeldet – dieser Tab ist schon gesperrt
+  if (ich && abmeldenLauf) return; // 15.30: Abmelden wartet noch auf einen Standort-Nachtrag – keine Ansicht der Person mehr
   const nr = ++lauf;
   if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
   $$('dialog[open]').forEach((d) => d.close());
@@ -558,9 +560,26 @@ let abmeldenLauf = null;
 function abmelden(opt = {}) {
   if (abmeldenLauf) return abmeldenLauf;
   abmeldenVormerken(); // vor allem anderen: ab jetzt geht keine Anfrage mehr unter dieser Sitzung hinaus
-  abmeldenLauf = lokalAbmelden({ amServer: true }).finally(() => { abmeldenLauf = null; });
-  if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn');
+  const ab = () => { const f = lokalAbmelden({ amServer: true }); if (opt.grund === 'untaetig') toast('Wegen Untätigkeit abgemeldet – bitte neu anmelden.', 'warn'); return f; };
+  abmeldenLauf = (standortNachtragOffen() ? standortAbwarten().then(ab) : ab()).finally(() => { abmeldenLauf = null; });
   return abmeldenLauf;
+}
+/**
+ * 15.30: Eben gestempelt, die Ortung läuft noch – der Standort wird danach unter dieser Sitzung angehängt (vorAbmelden).
+ * Die Ansicht der Person schließt sofort (wie 15.16 H-S1), bt_ich ist weg und das Abmelden vorgemerkt (ein Neuladen meldet
+ * ab); nur die Sitzung bleibt höchstens STANDORT_ABMELDEN_MS bestehen. „Nicht warten“ meldet sofort ab (ohne Standort).
+ */
+function standortAbwarten() {
+  if (aufraeumen) { try { aufraeumen(); } catch (e) { /* egal */ } aufraeumen = null; }
+  $$('dialog[open]').forEach((d) => d.close());
+  toastsWeg();
+  lauf++; clearInterval(pollTimer);
+  ichVergessen();
+  root.innerHTML = `<div class="state" role="status" id="abmelden-standort"><span class="spinner" aria-hidden="true"></span><p>Abmelden … Standort wird noch gesendet …</p><button type="button" class="btn ghost sm" id="abmelden-sofort">Nicht warten</button></div>`;
+  return new Promise((fertig) => {
+    standortNachtraegeFertig().then(fertig);
+    const b = $('#abmelden-sofort'); if (b) b.addEventListener('click', () => fertig());
+  });
 }
 function lokalAbmelden({ amServer = false } = {}) {
   sitzungWechsel(); // 15.12 (G2-018): auch beim Ablauf der Sitzung (401) und bei der Sperre nach Untätigkeit
@@ -601,7 +620,7 @@ function sperrePruefen() {
 }
 function bedient(e) {
   const blocken = () => { if (e && e.cancelable) { e.preventDefault(); e.stopPropagation(); } };
-  if (abmeldenLauf && e && e.target && e.target.closest && !e.target.closest('#login-card')) { blocken(); return; } // 15.16 (H-S1)
+  if (abmeldenLauf && e && e.target && e.target.closest && !e.target.closest('#login-card, #abmelden-standort')) { blocken(); return; } // 15.16 (H-S1)
   if (!ich) return;
   if (gemerktPruefen() || sperrePruefen()) { blocken(); return; } // 15.16 (H-S2): in einem anderen Tab ab-/umgemeldet
   aktivMem = Date.now();
@@ -614,7 +633,7 @@ window.addEventListener('pageshow', () => { gemerktPruefen(); }); // 15.16 (H-S2
 setInterval(sperrePruefen, 30000);
 // 15.8: Gerätewahl geändert (Mehr): die Untätigkeit zählt ab jetzt – ein Wechsel auf „geteilt“ meldet nicht sofort ab
 window.addEventListener('bt:geraet-art', () => { aktivMem = Date.now(); aktivGeschrieben = aktivMem; if (ich) speicher.setz(AKTIV, aktivMem); });
-window.addEventListener('bt:abgemeldet', () => { if (ich) { lokalAbmelden(); toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); } });
+window.addEventListener('bt:abgemeldet', () => { if (ich && !abmeldenLauf) { lokalAbmelden(); toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); } });
 // 15.5 (F-029): wieder online → ein vorgemerktes Abmelden sofort nachholen (api.js holt es vor jeder Anfrage nach)
 window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').catch(() => {}); });
 window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });

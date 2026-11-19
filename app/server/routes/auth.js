@@ -1,6 +1,6 @@
 'use strict';
 const v = require('../validierung');
-const { nichtAngemeldet, ungueltig, nichtGefunden } = require('../fehler');
+const { nichtAngemeldet, ungueltig, nichtGefunden, keinZugriff } = require('../fehler');
 const { benachrichtige, empfaengerMitRecht } = require('../benachrichtigung');
 const auth = require('../auth');
 const { eigeneBaustellenIds, ladeRechteFuer } = require('../rechte');
@@ -183,7 +183,8 @@ module.exports = function authRouten(api, bt) {
     if (!req.ctx) throw nichtAngemeldet();
     const b = req.ctx.benutzer;
     res.json({
-      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null },
+      // 15.30: Standort beim Stempeln – Zeitpunkt der eigenen Einwilligung (null = aus); gilt je Person, nicht je Gerät
+      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null, standortEinwilligung: b.standort_einwilligung || null },
       rechte: [...req.ctx.rechte],
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,
@@ -224,6 +225,31 @@ module.exports = function authRouten(api, bt) {
     db.lauf('UPDATE benutzer SET telefon = ? WHERE id = ?', t, req.ctx.benutzer.id);
     db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: req.ctx.benutzer.id, art: 'benutzer', objekt: `benutzer:${req.ctx.benutzer.id}`, neu: { telefon: t }, text: 'Eigene Telefonnummer geändert' });
     res.json({ telefon: t });
+  });
+
+  /**
+   * 15.30: „Standort beim Stempeln mitsenden“ – freiwillig, schaltet jede Person NUR für sich selbst ein oder aus (der
+   * Schalter ist die Einwilligung der Person). `benutzerId` ist nur zur Klarheit erlaubt und muss die eigene sein – niemand,
+   * auch nicht Büro oder Geschäftsführung, schaltet es für eine andere Person ein (403). Jede Änderung wird protokolliert.
+   */
+  api.put('/auth/standort', (req, res) => {
+    if (!req.ctx) throw nichtAngemeldet();
+    const body = v.objekt(req.body);
+    const ich = req.ctx.benutzer;
+    if (body.benutzerId !== undefined && body.benutzerId !== null && body.benutzerId !== ich.id) {
+      throw keinZugriff('Den Standort beim Stempeln schaltet jede Person nur für sich selbst ein oder aus.');
+    }
+    const an = v.bool(body.an, 'an');
+    const alt = (db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', ich.id) || {}).e || null;
+    const neu = an ? alt || bt.uhr().toISOString() : null;
+    if (neu !== alt) {
+      db.transaktion(() => {
+        db.lauf('UPDATE benutzer SET standort_einwilligung = ? WHERE id = ?', neu, ich.id);
+        db.protokolliere({ zeit: bt.uhr().toISOString(), benutzerId: ich.id, art: 'benutzer', objekt: `benutzer:${ich.id}`, alt: { standortEinwilligung: alt }, neu: { standortEinwilligung: neu },
+          text: an ? `${ich.name} hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet (Einwilligung)` : `${ich.name} hat „Standort beim Stempeln mitsenden“ ausgeschaltet (Einwilligung widerrufen)` });
+      });
+    }
+    res.json({ standortEinwilligung: neu });
   });
 
   /** Eigene PIN ändern (auch bei erzwungener Änderung) */

@@ -25,6 +25,7 @@ test('Zeiterfassung', async (t) => {
     assert.equal((await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: 999 })).status, 400);
     assert.equal((await ma.post('/zeit/stempeln', { typ: 'tanzen', baustelleId: 1 })).status, 400);
     assert.equal((await ma.post('/zeit/stempeln', { typ: 'gehen' })).status, 409);
+    assert.equal((await ma.put('/auth/standort', { an: true })).status, 200); // 15.30: nur mit eigener Einwilligung
     let r = await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten, standort: { lat: 47.72, lng: 16.18, genauigkeit: 12 } });
     assert.equal(r.status, 200);
     assert.equal(r.daten.status, 'arbeit');

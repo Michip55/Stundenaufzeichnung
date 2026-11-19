@@ -58,7 +58,7 @@ async function erfolgsAnfrage(k, schluessel, e, F, rolle, variante) {
     const body = b === undefined ? undefined : await mitVersion(ersetze(b, P), er.versionVon || p);
     const r = await k.als(rolle).anfrage(m, pf, body);
     if (r.status >= 300) throw new Error(`${schluessel}: Vorbereitung ${m} ${pf} → ${r.status} ${JSON.stringify(r.daten).slice(0, 200)}`);
-    if (i === 0) P.vorherId = r.daten && (r.daten.id !== undefined ? r.daten.id : r.daten.antragId);
+    if (i === 0) P.vorherId = r.daten && (r.daten.id !== undefined ? r.daten.id : r.daten.antragId !== undefined ? r.daten.antragId : r.daten.buchungId); // 15.30: Stempeln → buchungId
   }
   const pfad = er.pfad ? ersetze(er.pfad, P).replace(/^\/api/, '') : a.pfad;
   let body = er.body === undefined ? a.body : ersetze(er.body, P);

@@ -149,6 +149,9 @@ function ladeZustand(F) {
   // G2-009: Bild-Kanarien (fremde Liefer-/Wiegescheine)
   ZUSTAND.bilder = (F && F.bildKanarien) || [];
   ZUSTAND.geheim = (F && F.geheim) || [];
+  // 15.30: Standort-Kanarien (Koordinaten je Person, in JSON-/Text-Schreibweise mit Punkt und Komma, 7 und 6 Stellen)
+  const formen = (x) => [String(x), String(x).replace('.', ','), x.toFixed(6), x.toFixed(6).replace('.', ',')];
+  ZUSTAND.standort = ((F && F.standort) || []).map((g) => ({ ...g, formen: [...new Set([...formen(g.lat), ...formen(g.lng)])] }));
   ZUSTAND.ignorieren = (F && F.firma) ? [F.firma, require('../../server/pdf').winAnsi(F.firma)] : [];
   return ZUSTAND;
 }
@@ -509,6 +512,8 @@ async function scanne(rolle, r0, k) {
   // 15.5/15.8: Sitzungs-Token, Geräteschlüssel und Push-Endpunkte ANDERER Personen – für jede Rolle (auch die GF), jedes Format
   const ichSelbst = k.ich !== undefined ? k.ich : ID[rolle];
   for (const g of ZUSTAND.geheim || []) if (g.id !== ichSelbst && text.includes(g.wert)) v.push(`${wo}: ${g.art} von Person ${g.id} in der Antwort an ${ichSelbst}`);
+  // 15.30: Polier/Mitarbeiter sehen nie den Standort (Koordinaten beim Stempeln) einer anderen Person – in keinem Format
+  if (feld) for (const g of ZUSTAND.standort || []) if (g.id !== ichSelbst) { const f = g.formen.find((x) => text.includes(x)); if (f) v.push(`${wo}: Standort (Koordinate „${f}“) von Person ${g.id} in der Antwort an ${ichSelbst}`); }
   const geldFunde = feld ? W.findeGeld(text, ZUSTAND.geld) : [];
   for (const g of geldFunde.slice(0, 5)) v.push(`${wo}: Geld-Kanarie ${g.name} als „${g.form}“ („…${text.slice(Math.max(0, g.stelle - 50), g.stelle + g.form.length + 20).replace(/\s+/g, ' ')}…“)`);
   // G2-007: Anteil abgeleiteter €-Summen an der Auftragssumme („… 12,34 %“)
@@ -945,6 +950,21 @@ async function erstelleBasis() {
     // --- Zeit: Buchungen/Schichten je Person
     F.buchung = { mitarbeiter: s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', U.mitarbeiter).id, anderer: s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', ANDERER_MA).id };
     F.schicht = { anderer: s.db.eins("SELECT id FROM buchung WHERE benutzer_id = ? AND typ = 'kommen' ORDER BY id DESC", ANDERER_MA).id };
+    // 15.30: je Rolle eine eigene (ältere) Buchung; Standort-Kanarien – je Person mit Buchungen eine Buchung mit eindeutigen
+    // Koordinaten. Polier/Mitarbeiter dürfen die Koordinaten einer ANDEREN Person in keiner Antwort sehen (scanne).
+    F.buchungEigen = {};
+    for (const r of ROLLEN) {
+      let b = s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', ID[r]);
+      if (!b) b = { id: s.db.lauf("INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst) VALUES (?, 'kommen', '2026-11-02T06:00:00.000Z', 1, 'app', ?, '2026-11-02T06:00:00.000Z')", ID[r], ID[r]).id };
+      F.buchungEigen[r] = b.id;
+    }
+    F.standort = [];
+    for (const [i, p] of s.db.alle('SELECT DISTINCT benutzer_id AS id FROM buchung ORDER BY benutzer_id').entries()) {
+      const b = s.db.eins('SELECT id FROM buchung WHERE benutzer_id = ? ORDER BY id DESC', p.id);
+      const lat = Number((46.6 + i * 0.0731 + 0.0000123).toFixed(7)), lng = Number((14.2 + i * 0.0917 + 0.0000457).toFixed(7));
+      s.db.lauf('UPDATE buchung SET lat = ?, lng = ?, genauigkeit = 17 WHERE id = ?', lat, lng, b.id);
+      F.standort.push({ id: p.id, buchung: b.id, lat, lng });
+    }
     F.bsVersion = { bs1: await ver(`/baustellen/${BS.pitten}`), bs3: await ver(`/baustellen/${BS.reisinger}`) };
     F.dummyBenutzer = (await erwarte(await gf.post('/benutzer', { name: 'Rechte Dummy', rolle: 'mitarbeiter', pin: '482915' }), 201, 'Dummy')).id;
     // F-053: gleichrangige Konten (zweites Büro, zweiter Bauleiter) für Selbst-/Peer-Proben der Verwaltungsrouten

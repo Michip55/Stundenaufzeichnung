@@ -1548,6 +1548,15 @@ ALTER TABLE sitzung ADD COLUMN bis TEXT;
     sql: `
 ALTER TABLE buchung ADD COLUMN nachgetragen INTEGER NOT NULL DEFAULT 0;
 `
+  },
+  {
+    version: 54,
+    name: '15.30: Standort beim Stempeln – Einwilligung je Person (freiwillig, nur selbst einschaltbar)',
+    // standort_einwilligung: Zeitpunkt, zu dem die Person „Standort beim Stempeln mitsenden“ selbst eingeschaltet hat
+    // (NULL = aus, Standard). Gilt je Person am Server, nicht je Gerät – auf einem geteilten Tablet erbt niemand die Wahl.
+    sql: `
+ALTER TABLE benutzer ADD COLUMN standort_einwilligung TEXT;
+`
   }
 ];
 
