@@ -187,7 +187,9 @@ export const speicher = {
     // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
     // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
     // 15.25: bt_stunden_format = Anzeige der Monatsauswertung „hm“ (Std:Min) oder „dezimal“ – nur eine Einstellung, keine Daten
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
+    // 15.33: bt_handy_person = am eigenen Handy gemerkte Person ({id, pnr, name}) für die Anmeldung mit nur der PIN – bleibt beim
+    // Abmelden; „Geteiltes Gerät“ löscht sie (api.js setzGeraetArt). bt_letzte_pnr (bis 15.32) gibt es nicht mehr – wird gelöscht.
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_handy_person', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k) || behalten.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }

@@ -1,3 +1,5 @@
 .env
 nas-kopie.env
 *.db
+# 15.33: Sicherungen der .env vor der einmaligen Umstellung (namensliste-umstellen.sh) – enthalten Geheimnisse
+.env.vor-*

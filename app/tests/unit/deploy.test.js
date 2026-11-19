@@ -130,3 +130,77 @@ test('G-10: backup.sh macht den Probeordner für den Container-Benutzer (uid 100
   const st = JSON.parse(spawnSync(process.execPath, [`${SERVER}/sicherung.js`, 'anzeigen'], { env, encoding: 'utf8' }).stdout).sicherung;
   assert.equal(st.test.ok, true, JSON.stringify(st.test));
 });
+
+/**
+ * 15.33 (Inhaber 19.11.2026): Namensliste standardmäßig aus. update.sh stellt eine aus der alten Vorlage stammende Zeile
+ * BAUTAG_LOGIN_LISTE=1 EINMALIG auf 0 (deploy/namensliste-umstellen.sh): Sicherung vorher, nur für root lesbar, Merkzeile –
+ * danach bleibt eine bewusst gesetzte 1 stehen. Geprüft in einem leeren Ordner mit bash: =1, =0, fehlt, Merkzeile vorhanden.
+ */
+test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Sicherung, Rechte 600, Merkzeile)', () => {
+  const skript = path.join(DEPLOY, 'namensliste-umstellen.sh');
+  const lauf = (datei) => spawnSync('bash', [skript, datei], { encoding: 'utf8' });
+  const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-env-'));
+  const fall = (name, inhalt) => { const f = path.join(ordner, name, '.env'); fs.mkdirSync(path.dirname(f)); fs.writeFileSync(f, inhalt, { mode: 0o600 }); fs.chmodSync(f, 0o600); return f; };
+  const sicherungen = (f) => fs.readdirSync(path.dirname(f)).filter((n) => n.startsWith('.env.vor-15.33-'));
+  const modus = (f) => (fs.statSync(f).mode & 0o777).toString(8);
+  try {
+    // 1) Zeile =1 (alte Vorlage) → 0, Merkzeile davor, Sicherung mit altem Inhalt, Rechte 600, Exit-Code 3
+    const alt = 'BAUTAG_DOMAIN=bautag.example.at\n# Namensliste beim Anmelden (1 = Namen wählen, 0 = nur Personalnummer)\nBAUTAG_LOGIN_LISTE=1\nBAUTAG_WETTER=1\n';
+    const an = fall('an', alt);
+    let r = lauf(an);
+    assert.equal(r.status, 3, r.stdout + r.stderr);
+    assert.match(r.stdout, /EINMALIGE UMSTELLUNG/);
+    let neu = fs.readFileSync(an, 'utf8');
+    assert.match(neu, /^# 15\.33 Namensliste aus \(einmalig umgestellt am \d\d\.\d\d\.\d{4}.*\)\nBAUTAG_LOGIN_LISTE=0\n/m);
+    assert.ok(!/^BAUTAG_LOGIN_LISTE=1/m.test(neu));
+    assert.ok(neu.startsWith('BAUTAG_DOMAIN=bautag.example.at\n') && neu.endsWith('BAUTAG_WETTER=1\n'), 'übrige Zeilen verändert');
+    assert.equal(modus(an), '600');
+    const s1 = sicherungen(an);
+    assert.equal(s1.length, 1);
+    assert.equal(fs.readFileSync(path.join(path.dirname(an), s1[0]), 'utf8'), alt);
+    assert.equal(modus(path.join(path.dirname(an), s1[0])), '600');
+    assert.deepEqual(fs.readdirSync(path.dirname(an)).filter((n) => n.startsWith('.env-15.33.')), [], 'Zwischendatei liegen geblieben');
+    // 2) zweiter Lauf: nichts mehr (idempotent); danach bewusst wieder 1 → bleibt 1
+    r = lauf(an);
+    assert.equal(r.status, 0); assert.equal(r.stdout, '');
+    fs.writeFileSync(an, fs.readFileSync(an, 'utf8').replace('BAUTAG_LOGIN_LISTE=0', 'BAUTAG_LOGIN_LISTE=1'));
+    r = lauf(an);
+    assert.equal(r.status, 0);
+    assert.match(fs.readFileSync(an, 'utf8'), /^BAUTAG_LOGIN_LISTE=1$/m, 'bewusst gesetzte 1 erneut umgestellt');
+    assert.equal(sicherungen(an).length, 1);
+    // 3) Zeile =0 → unverändert, nur Merkzeile; Exit-Code 0
+    const aus = fall('aus', 'BAUTAG_LOGIN_LISTE=0\nBAUTAG_WETTER=1');
+    r = lauf(aus);
+    assert.equal(r.status, 0, r.stderr);
+    neu = fs.readFileSync(aus, 'utf8');
+    assert.equal(neu.split('\n').slice(0, 2).join('\n'), 'BAUTAG_LOGIN_LISTE=0\nBAUTAG_WETTER=1');
+    assert.match(neu, /\n# 15\.33 Namensliste aus \(einmalig geprüft am .*war nicht 1.*\)\n$/);
+    assert.equal(modus(aus), '600');
+    // 4) keine Zeile → unverändert (Standard aus), Merkzeile; später gesetzte 1 bleibt
+    const fehlt = fall('fehlt', 'BAUTAG_DOMAIN=x\n');
+    r = lauf(fehlt);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(fs.readFileSync(fehlt, 'utf8'), /^BAUTAG_DOMAIN=x\n# 15\.33 Namensliste aus \(einmalig geprüft am .*keine Zeile BAUTAG_LOGIN_LISTE.*\)\n$/);
+    fs.appendFileSync(fehlt, 'BAUTAG_LOGIN_LISTE=1\n');
+    assert.equal(lauf(fehlt).status, 0);
+    assert.match(fs.readFileSync(fehlt, 'utf8'), /^BAUTAG_LOGIN_LISTE=1$/m);
+    // 5) Merkzeile schon vorhanden (mit 1): nichts, keine Sicherung
+    const marke = fall('marke', '# 15.33 Namensliste aus (einmalig umgestellt am 19.11.2026)\nBAUTAG_LOGIN_LISTE=1\n');
+    r = lauf(marke);
+    assert.equal(r.status, 0); assert.equal(sicherungen(marke).length, 0);
+    assert.equal(fs.readFileSync(marke, 'utf8'), '# 15.33 Namensliste aus (einmalig umgestellt am 19.11.2026)\nBAUTAG_LOGIN_LISTE=1\n');
+    // 6) Schreibweisen der alten 1: Leerzeichen, Anführungszeichen, Windows-Zeilenende → 0 (Zeilenende bleibt)
+    const crlf = fall('crlf', 'A=1\r\nBAUTAG_LOGIN_LISTE = "1"\r\nB=2\r\n');
+    assert.equal(lauf(crlf).status, 3);
+    assert.match(fs.readFileSync(crlf, 'utf8'), /^A=1\r\n# 15\.33 Namensliste aus [^\n]*\)\r\nBAUTAG_LOGIN_LISTE=0\r\nB=2\r\n$/);
+    // 7) .env fehlt: nichts
+    assert.equal(lauf(path.join(ordner, 'gibtsnicht', '.env')).status, 0);
+    // update.sh ruft die Umstellung nach dem Holen des Programmstands auf und startet bei Code 3 neu
+    const u = lies('update.sh');
+    assert.match(u, /bash "\$DIR\/namensliste-umstellen\.sh" "\$DIR\/\.env"/);
+    assert.ok(u.indexOf('namensliste-umstellen.sh" "$DIR/.env"') > u.indexOf('git pull --ff-only'));
+    assert.match(u, /ENV_NEU" == 1[\s\S]*up -d --no-build app/);
+    // Vorlage: 0 mit Erklärung
+    assert.match(lies('.env.beispiel'), /^BAUTAG_LOGIN_LISTE=0$/m);
+  } finally { fs.rmSync(ordner, { recursive: true, force: true }); }
+});

@@ -65,7 +65,8 @@ function createApp(opt = {}) {
   require('./oeffentlich').geheimnis(db); // 15.11 (G2-017): Geheimnis der öffentlichen Kennungen gleich beim Start anlegen
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
-  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
+  // 15.33 (Inhaber 19.11.2026): öffentliche Namensliste standardmäßig AUS – nur BAUTAG_LOGIN_LISTE=1 schaltet sie ein
+  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE === '1';
   bt.bremse = new LoginBremse(db, uhr);
   // Ausbaustufe 2: Dienste (API.md 12.3–12.5, 12.18)
   bt.test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';

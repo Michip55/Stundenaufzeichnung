@@ -1,5 +1,8 @@
-// Anmeldung: Benutzer wählen (oder Personalnummer eingeben, wenn die Namensliste abgeschaltet ist), dann PIN.
-import { get, post, geraetArt, geraetVorwahl } from '../api.js';
+// Anmeldung (15.33, Inhaber 19.11.2026: „eigener Name am eigenen Handy“): Standard ohne öffentliche Namensliste –
+//  - eigenes Handy mit gemerkter Person: Name + „Auf diesem Handy gemerkt“ + PIN; „Andere Person“ → Personalnummer;
+//  - sonst (und immer am geteilten Gerät, ohne Namen und ohne Vorbelegung): Personalnummer, dann PIN;
+//  - nur mit BAUTAG_LOGIN_LISTE=1 am Server: Benutzer aus der Namensliste wählen, dann PIN (wie bis 15.32).
+import { get, post, geraetArt, geraetVorwahl, handyPerson, vergissHandyPerson } from '../api.js';
 import { ic, esc, MARK, avatar, rolleText, laden, speicher, fmt, geraetWahl, bindeGeraetWahl, $ } from '../ui.js';
 import { geraetPushAbo } from './push.js';
 
@@ -24,8 +27,8 @@ function ablaufText(e) {
 
 export default async function login(root, { angemeldet }) {
   let liste = [];
-  let ohneListe = false;   // Server liefert keine Namensliste (BAUTAG_LOGIN_LISTE=0) → Anmeldung mit Personalnummer
-  let gewaehlt = null;     // {id, name, rolle?} oder {pnr, name}
+  let ohneListe = true;    // 15.33: Standard – Server ohne Namensliste (nur BAUTAG_LOGIN_LISTE=1 schaltet sie ein) → Personalnummer
+  let gewaehlt = null;     // {id, name, rolle?} (Namensliste), {pnr, name} (Personalnummer) oder {pnr, name, gemerkt: true} (eigenes Handy)
   let pin = '';
   let sendet = false;
   let suche = '';
@@ -52,11 +55,25 @@ export default async function login(root, { angemeldet }) {
   const card = $('#login-card', root);
   // 15.8: Gerätewahl je Gerät – bleibt nach dem Abmelden erhalten. 15.21: Standard „Eigenes Handy“; die hier gezeigte Wahl gilt
   // nach der Anmeldung sofort für die Person, die sich anmeldet (ohne Bestätigung). „Geteiltes Gerät“ bleibt für das Gerät gemerkt.
-  bindeGeraetWahl(card, geraetVorwahl);
+  // 15.33: „Geteiltes Gerät“ gewählt → die gemerkte Person ist sofort vergessen (api.js), es geht mit der Personalnummer weiter
+  bindeGeraetWahl(card, (art) => {
+    geraetVorwahl(art);
+    if (art !== 'geteilt') return;
+    if (gewaehlt && gewaehlt.gemerkt) { zeigePnr(); return; }
+    const z = $('#pnr-form', card) && $('[data-zurueck]', card); if (z) z.remove();
+  });
   const untertitel = (b) => [b.rolle ? rolleText(b.rolle) : '', b.id === speicher.lies('bt_letzter') ? 'zuletzt angemeldet' : ''].filter(Boolean).join(' · ');
 
+  /** Startansicht: Namensliste (nur wenn eingeschaltet), gemerkte Person am eigenen Handy oder Personalnummer */
+  function anfang() {
+    if (!ohneListe) return zeigeListe();
+    const p = handyPerson();
+    if (p) { gewaehlt = { pnr: p.pnr, name: p.name, gemerkt: true }; pin = ''; return zeigePin(); }
+    return zeigePnr();
+  }
+
   function zeigeListe() {
-    if (ohneListe) return zeigePnr();
+    if (ohneListe) return anfang();
     gewaehlt = null; pin = '';
     const zuletzt = speicher.lies('bt_letzter');
     card.innerHTML = `
@@ -76,15 +93,19 @@ export default async function login(root, { angemeldet }) {
     s.addEventListener('input', () => { suche = s.value; zeichne(); });
   }
 
+  // 15.33: nie vorbelegt (am geteilten Gerät verrät nichts, wer sich zuletzt angemeldet hat); am eigenen Handy mit gemerkter
+  // Person führt „Zurück“ wieder zu ihr
   function zeigePnr(meldung = '') {
     gewaehlt = null; pin = '';
+    const p = handyPerson();
     card.innerHTML = `
+      ${p ? `<button type="button" class="link-back" data-zurueck>${ic('left')}Zurück</button>` : ''}
       <div class="login-head"><h2>Anmelden</h2><p>Mit Personalnummer und PIN</p></div>
       <form id="pnr-form" class="stack-s" autocomplete="off" novalidate>
-        <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" id="pnr" name="pnr" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="username" value="${esc(speicher.lies('bt_letzte_pnr') || '')}"></label>
+        <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" id="pnr" name="pnr" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autocomplete="off"></label>
         <p class="form-err" id="pnr-err" role="alert" ${meldung ? '' : 'hidden'}>${esc(meldung)}</p>
         <button type="submit" class="btn primary lg block">Weiter${ic('right')}</button>
-        <p class="muted sm">Die Personalnummer steht am Lohnzettel. Bei Fragen hilft das Büro.</p>
+        <p class="muted sm">Die Personalnummer steht am Lohnzettel und in der App unter „Mehr“. Bei Fragen hilft das Büro.</p>
       </form>
       ${geraetWahl(geraetArt(), { anmeldeseite: true })}`;
     $('#pnr-form', card).addEventListener('submit', (e) => {
@@ -97,10 +118,12 @@ export default async function login(root, { angemeldet }) {
     $('#pnr', card).focus();
   }
 
+  const kopfBild = () => (gewaehlt.pnr && !gewaehlt.gemerkt ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl'));
   function zeigePin(meldung = '', gesperrt = false) {
+    const gemerkt = !!gewaehlt.gemerkt;
     card.innerHTML = `
-      <button type="button" class="link-back" data-zurueck>${ic('left')}${ohneListe ? 'Andere Personalnummer' : 'Anderer Benutzer'}</button>
-      <div class="pin-user">${gewaehlt.pnr ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>${esc(gewaehlt.rolle ? rolleText(gewaehlt.rolle) : '')}</p></div>
+      ${gemerkt ? '' : `<button type="button" class="link-back" ${ohneListe ? 'data-zurueck-pnr' : 'data-zurueck'}>${ic('left')}${ohneListe ? 'Andere Personalnummer' : 'Anderer Benutzer'}</button>`}
+      <div class="pin-user${gemerkt ? ' gemerkt' : ''}">${kopfBild()}<h2>${esc(gewaehlt.name)}</h2><p>${esc(gemerkt ? 'Auf diesem Handy gemerkt' : gewaehlt.rolle ? rolleText(gewaehlt.rolle) : '')}</p></div>
       <div class="pin-dots${meldung ? ' shake' : ''}" aria-hidden="true"></div>
       <p class="pin-msg${meldung ? ' err' : ''}" id="pin-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'PIN eingeben und bestätigen')}</p>
       <div class="pin-pad" role="group" aria-label="PIN-Eingabe">
@@ -108,13 +131,15 @@ export default async function login(root, { angemeldet }) {
         <button type="button" class="pin-del" data-loeschen aria-label="Letzte Ziffer löschen">${ic('back')}</button>
         <button type="button" data-z="0" ${gesperrt ? 'disabled' : ''}>0</button>
         <button type="button" class="pin-ok" data-ok aria-label="Anmelden" disabled>${ic('check')}</button>
-      </div>`;
+      </div>
+      ${gemerkt ? `<button type="button" class="btn ghost lg block login-andere" data-andere>${ic('users')}Andere Person</button>
+      ${geraetWahl(geraetArt(), { anmeldeseite: true })}` : ''}`;
     punkte();
   }
   function zeigeCode(vorgang, meldung = '', gesperrt = false) {
     card.innerHTML = `
       <button type="button" class="link-back" data-zurueck>${ic('left')}Abbrechen</button>
-      <div class="pin-user">${gewaehlt.pnr ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl')}<h2>${esc(gewaehlt.name)}</h2><p>Zweiter Faktor</p></div>
+      <div class="pin-user">${kopfBild()}<h2>${esc(gewaehlt.name)}</h2><p>Zweiter Faktor</p></div>
       <form id="zf-login" class="stack-s" novalidate autocomplete="off">
         <label class="field"><span class="field-label">Code aus der Authenticator-App</span><input class="input lg zf-code" id="zf-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="9" placeholder="6 Ziffern" ${gesperrt ? 'disabled' : ''}></label>
         <p class="pin-msg${meldung ? ' err' : ''}" id="zf-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'Die PIN stimmt. Bitte jetzt den aktuellen Code eingeben.')}</p>
@@ -129,7 +154,7 @@ export default async function login(root, { angemeldet }) {
       $('#zf-ok', card).disabled = true;
       try {
         await post('/auth/login/2fa', { vorgang, code, ...(await geraetAngaben()) });
-        if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
+        if (!gewaehlt.pnr) speicher.setz('bt_letzter', gewaehlt.id); // 15.33: Name + Personalnummer merkt app.js (nur am eigenen Handy)
         await angemeldet();
       } catch (x) {
         const zu = x.status === 429 || x.status === 423;
@@ -153,7 +178,7 @@ export default async function login(root, { angemeldet }) {
       const antwort = await post('/auth/login', { ...(gewaehlt.pnr ? { pnr: gewaehlt.pnr, pin } : { benutzerId: gewaehlt.id, pin }), ...(await geraetAngaben()) });
       // 12.7: PIN stimmt, aber es fehlt noch der Code aus der Authenticator-App
       if (antwort && antwort.zweiterFaktor) { sendet = false; pin = ''; zeigeCode(antwort.vorgang); return; }
-      if (gewaehlt.pnr) speicher.setz('bt_letzte_pnr', String(gewaehlt.pnr)); else speicher.setz('bt_letzter', gewaehlt.id);
+      if (!gewaehlt.pnr) speicher.setz('bt_letzter', gewaehlt.id); // 15.33: Name + Personalnummer merkt app.js (nur am eigenen Handy)
       sendet = false;
       await angemeldet();
     } catch (e) {
@@ -173,7 +198,8 @@ export default async function login(root, { angemeldet }) {
   card.addEventListener('click', (e) => {
     const u = e.target.closest('.login-user');
     if (u) { gewaehlt = liste.find((b) => String(b.id) === u.dataset.id); pin = ''; zeigePin(); return; }
-    if (e.target.closest('[data-zurueck]')) { zeigeListe(); return; }
+    if (e.target.closest('[data-zurueck]')) { anfang(); return; }
+    if (e.target.closest('[data-zurueck-pnr]') || e.target.closest('[data-andere]')) { zeigePnr(); return; }
     const z = e.target.closest('[data-z]');
     if (z && !z.disabled) { ziffer(z.dataset.z); return; }
     if (e.target.closest('[data-loeschen]')) { pin = pin.slice(0, -1); punkte(); }
@@ -185,16 +211,23 @@ export default async function login(root, { angemeldet }) {
     if (/^\d$/.test(e.key)) ziffer(e.key);
     else if (e.key === 'Backspace') { pin = pin.slice(0, -1); punkte(); }
     else if (e.key === 'Enter') { e.preventDefault(); sende(); }
-    else if (e.key === 'Escape') zeigeListe();
+    else if (e.key === 'Escape') { if (ohneListe && !gewaehlt.gemerkt) zeigePnr(); else anfang(); }
   };
   document.addEventListener('keydown', taste);
 
   async function lade() {
     card.innerHTML = laden('Wird geladen …');
-    try { liste = await get('/auth/benutzerliste'); ohneListe = false; zeigeListe(); }
-    catch (e) {
-      // Namensliste abgeschaltet (404/403): Anmeldung über die Personalnummer
-      if (e.status === 404 || e.status === 403) { ohneListe = true; zeigePnr(); return; }
+    speicher.weg('bt_letzte_pnr'); // 15.33: bis 15.32 gemerkte Personalnummer – wird nicht mehr vorbelegt
+    if (geraetArt() !== 'eigen') vergissHandyPerson();
+    try {
+      // 15.33: erst fragen, ob die Namensliste eingeschaltet ist – ohne sie (Standard) wird sie gar nicht abgefragt
+      const a = await get('/auth/anmeldung');
+      ohneListe = !(a && a.namensliste === true);
+      if (!ohneListe) {
+        try { liste = await get('/auth/benutzerliste'); } catch (e) { if (e.status === 404 || e.status === 403) ohneListe = true; else throw e; }
+      }
+      anfang();
+    } catch (e) {
       card.innerHTML = `<div class="state big">${ic(e.netz ? 'wifiOff' : 'alert')}<h2>${e.netz ? 'Keine Verbindung' : 'Fehler'}</h2><p>${esc(e.netz ? 'Der Server ist nicht erreichbar. Zum Anmelden wird eine Verbindung benötigt.' : e.message)}</p><button type="button" class="btn ghost" data-neu-laden>Erneut versuchen</button></div>`;
     }
   }

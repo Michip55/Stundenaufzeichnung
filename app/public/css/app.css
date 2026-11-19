@@ -1283,3 +1283,11 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .korr-ort a { color: var(--blue); text-decoration: underline; }
 /* Prüfbefund n8-g (Bild 07/14): die Personen-Auswahl ist am PC breit genug für „Name (eigene Zeiten)“ */
 @media (min-width: 720px) { .toolbar .field.inline.k-person { flex: 0 1 320px; } }
+
+/* 15.33: Anmeldung am eigenen Handy – gemerkte Person, darunter „Andere Person“ über die ganze Breite */
+.pin-user.gemerkt { margin-top: 10px; }
+.login-card .login-andere { margin: 18px auto 0; max-width: 320px; width: 100%; flex: none; }
+.profile .profile-pnr { margin-top: 2px; font-size: 14px; } .profile .profile-pnr b { color: var(--ink, #1d2329); font-variant-numeric: tabular-nums; }
+/* 15.33: Benutzerverwaltung – aktive Konten ohne Personalnummer (ohne Namensliste nicht anmeldbar) */
+.warn-card { border-color: var(--amber-strong); } .warn-card .card-h { background: var(--amber-bg); border-radius: inherit; } .warn-card h3 { color: #7a4204; }
+.ohne-pnr { color: var(--amber); font-weight: 700; }

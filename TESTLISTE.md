@@ -6,7 +6,7 @@ So probieren Sie die Testversion aus. Alle Namen, Baustellen und Zahlen sind **e
 
 1. Einmalig Node.js „LTS“ von https://nodejs.org installieren (immer „Weiter“).
 2. Im Ordner **`BauTag-starten-Windows.bat`** doppelklicken (Mac: `BauTag-starten-Mac.command`). Der Browser öffnet sich mit http://localhost:3000.
-3. Anmelden: Namen antippen, **PIN 1234**. Am Anmeldebildschirm ist **„Eigenes Handy“** vorgewählt (bleibt bis Sonntag angemeldet, am Montag einmal die PIN; gilt sofort nach der Anmeldung); nur für ein Tablet, das mehrere benutzen, **„Geteiltes Gerät“** wählen (Abmeldung nach 30 Minuten ohne Bedienung; bleibt für dieses Gerät eingestellt, änderbar auch unter „Mehr“).
+3. Anmelden: **Personalnummer** (siehe Tabelle unten, z. B. 1102) und **PIN 1234**; am eigenen Handy merkt sich die App danach den Namen – beim nächsten Mal nur noch die PIN. Am Anmeldebildschirm ist **„Eigenes Handy“** vorgewählt (bleibt bis Sonntag angemeldet, am Montag einmal die PIN; gilt sofort nach der Anmeldung); nur für ein Tablet, das mehrere benutzen, **„Geteiltes Gerät“** wählen (Abmeldung nach 30 Minuten ohne Bedienung; bleibt für dieses Gerät eingestellt, änderbar auch unter „Mehr“).
 4. **Handy im selben WLAN:** Das Startfenster zeigt zusätzlich eine Adresse wie `192.168.0.23:3000` – diese am Handy mit `http://` davor öffnen. Fragt Windows nach der Firewall, „Zugriff zulassen“ (privates Netzwerk) wählen. Installieren am Startbildschirm, Push-Nachrichten und Offline-Betrieb gehen erst mit dem Server mit HTTPS.
 5. Zum Neuanfang: BauTag-Fenster schließen, **`BauTag-Testdaten-zuruecksetzen-Windows.bat`** doppelklicken, `JA` eingeben.
 
@@ -14,14 +14,14 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 
 ## Wer ist wer (Beispieldaten)
 
-| Rolle | Name zum Anmelden | Wofür |
+| Rolle | Name (Personalnummer zum Anmelden) | Wofür |
 |---|---|---|
-| Geschäftsführung | Michael Pichler | alles, inkl. Rechte sowie Büro- und Bauleiter-Konten |
-| Büro | Martina Koller | Preise, Lohn, Rechnungen, Planung, Urlaub genehmigen |
-| Bauleiter | Stefan Aigner | wie Büro (Entscheidung 13.11.2026), stempelt im Büro |
-| Polier | Josef Haidbauer (WHA Pitten) | Partie, Bautagesbericht, Schlechtwetter melden |
-| Mitarbeiter | Lukas Brandstätter | Stempeln, Mein Einsatz, Urlaub beantragen |
-| LKW-Fahrer | Karl Ungersböck | Meine Fuhren mit Google-Maps-Link |
+| Geschäftsführung | Michael Pichler (1102) | alles, inkl. Rechte sowie Büro- und Bauleiter-Konten |
+| Büro | Martina Koller (1101) | Preise, Lohn, Rechnungen, Planung, Urlaub genehmigen |
+| Bauleiter | Stefan Aigner (1103) | wie Büro (Entscheidung 13.11.2026), stempelt im Büro |
+| Polier | Josef Haidbauer (1001, WHA Pitten) | Partie, Bautagesbericht, Schlechtwetter melden |
+| Mitarbeiter | Lukas Brandstätter (1002) | Stempeln, Mein Einsatz, Urlaub beantragen |
+| LKW-Fahrer | Karl Ungersböck (1007) | Meine Fuhren mit Google-Maps-Link |
 
 ## 1. Büro / Bauleiter (Martina Koller oder Stefan Aigner)
 
@@ -100,6 +100,8 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Schaden melden** mit Foto.
 - [ ] **PIN ändern** (Mehr → PIN ändern): 4 Ziffern reichen für alle Rollen (z. B. 4826; nicht 1234 oder 7777).
 - [ ] **PIN nur einmal pro Woche** (auch als Büro, Bauleiter und GF prüfen): mit „Eigenes Handy“ anmelden – unter der Auswahl steht „Du bleibst bis Sonntag angemeldet. Am Montag fragt die App einmal nach der PIN.“ Handy einen Tag liegen lassen bzw. App schließen und wieder öffnen → ohne PIN weiter angemeldet. Am Montag früh fragt die App einmal nach der PIN. Mit „Geteiltes Gerät“ angemeldet: wie bisher nach 30 Minuten (Büro 60 Minuten) ohne Bedienung abgemeldet. In „Mehr“ auf „Geteiltes Gerät“ umstellen gilt sofort; zurück auf „Eigenes Handy“ gilt ab der nächsten Anmeldung mit PIN.
+- [ ] **Anmelden mit eigenem Namen am eigenen Handy:** Personalnummer 1002 und PIN eingeben. Unter „Mehr“ steht oben die eigene **Personalnummer**. Abmelden → die Anmeldeseite zeigt jetzt nur „Lukas Brandstätter – Auf diesem Handy gemerkt“ und das PIN-Feld; PIN eingeben → angemeldet. **„Andere Person“** → Personalnummer eingeben (Feld leer); „Zurück“ führt wieder zum gemerkten Namen. Meldet sich am selben Handy jemand anderer an, steht danach dessen Name dort.
+- [ ] **Keine Namen am geteilten Gerät:** am Anmeldebildschirm „Geteiltes Gerät“ wählen → der gemerkte Name verschwindet sofort; auch nach Anmelden und Abmelden erscheint nie ein Name, das Feld „Personalnummer“ ist immer leer. Eine öffentliche Namensliste gibt es nicht mehr.
 - [ ] **Geteiltes Tablet** (am Anmeldebildschirm „Geteiltes Gerät“ wählen): als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
 - [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter, Lohngruppe.
 
@@ -113,6 +115,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] Zusätzlich zum Büro: Rechte-Einstellungen, Büro- und Bauleiter-Konten, eigene Dokument-Kategorien, Zwei-Faktor-Anmeldung einrichten (QR-Code mit einer Authenticator-App) – sie ist freiwillig und lässt sich unter Mehr → Zwei-Faktor-Anmeldung mit PIN und Code wieder ausschalten, solange sie nicht für alle vorgeschrieben ist.
 - [ ] **Eigene Zeiten selbst korrigieren:** Monat → „Zeiten korrigieren“ → bei „Mitarbeiter“ den eigenen Namen „(eigene Zeiten)“ wählen → z. B. „Ganze Schicht nachtragen“: im Fenster steht gelb „Eigene Zeiten – wird im Protokoll als Selbstkorrektur vermerkt.“, ein Grund ist Pflicht. Danach tragen Schicht und Buchungen das Kennzeichen „Selbstkorrektur GF“, ebenso der Eintrag unter Benutzer → Protokoll („… (Selbstkorrektur durch GF – Vier-Augen-Prinzip nicht eingehalten)“). Gegenprobe als Büro (Martina Koller): der eigene Name steht dort nicht zur Wahl – die eigenen Zeiten korrigiert weiter eine andere Person.
 - [ ] **Selbst gestempeltes „Gehen“ korrigieren:** in der Stempeluhr Kommen und Gehen stempeln, dann in „Zeiten korrigieren“ (eigene Zeiten) beim Gehen „Ändern“ → nur Uhrzeit und Grund, keine Baustelle; Speichern klappt. Hatte die Buchung einen Standort, steht im Fenster, dass er beim Ändern der Uhrzeit entfernt wird. Ohne Änderung speichern → „Nichts geändert – bitte die Uhrzeit ändern.“ (bei Kommen: „… Uhrzeit oder Baustelle ändern.“).
+- [ ] **Personalnummern prüfen:** Benutzer & Rechte → Benutzer. Hat eine aktive Person keine Personalnummer, steht oben gelb „… aktive Personen ohne Personalnummer – sie können sich nicht anmelden“ mit den Namen. „Bearbeiten“ → ohne Nummer speichern geht nicht (Meldung), mit Nummer verschwindet die Person aus der Warnung. (In den Beispieldaten haben alle eine Nummer – zum Ausprobieren ist die Warnung daher leer.)
 - [ ] Hinweis: Das Geschäftsführungs-Konto kann niemand über die App entsperren oder zurücksetzen – nur direkt am Server (`node server/entsperren.js`). Empfehlung: zwei GF-Konten.
 
 ## Bekannte Punkte, die erst im Echtbetrieb gehen

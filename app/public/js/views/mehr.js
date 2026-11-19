@@ -33,9 +33,10 @@ export default async function mehr(el, ctx) {
   const s = syncStatus();
   standortAltEntfernen(); // 15.30: alte Wahl nur am Gerät gilt nicht als Einwilligung – die Person schaltet hier selbst ein
   const standort = standortEingeschaltet(ctx);
+  // 15.33: im Kopf auch die eigene Personalnummer (Anmeldung mit Personalnummer + PIN) – nur die eigene, aus GET /auth/ich
   el.innerHTML = `
   <div class="page narrow wide-md">
-    <section class="card pad profile">${avatar(u.name, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(rolleText(u.rolle))}${u.lohngruppe ? ' · ' + esc(u.lohngruppe) : ''}</p></div></section>
+    <section class="card pad profile">${avatar(u.name, 'xl')}<div><h2>${esc(u.name)}</h2><p>${esc(rolleText(u.rolle))}${u.lohngruppe ? ' · ' + esc(u.lohngruppe) : ''}</p>${u.pnr ? `<p class="profile-pnr" id="eigene-pnr" title="Zum Anmelden mit Personalnummer und PIN">Personalnummer <b>${esc(String(u.pnr))}</b></p>` : ''}</div></section>
     <form class="card pad stack-s" id="telefon-form" novalidate><label class="field"><span class="field-label">Mein Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc(u.telefon || '')}" placeholder="+43 664 …"></label><small class="muted">Sieht das Büro – und beim Polier die eigene Partie für „Polier anrufen“.</small><button type="submit" class="btn ghost" id="telefon-ok">Telefon speichern</button></form>
     <button type="button" class="punch out sch-melden" id="mehr-schaden"><span class="punch-ic">${ic('camera')}</span><span><b>Schaden melden</b><small>Defekt oder Unfall an Fahrzeug oder Gerät – mit Fotos</small></span></button>
     <nav class="card menu-list" aria-label="Alle Bereiche">

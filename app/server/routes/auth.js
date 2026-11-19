@@ -78,7 +78,16 @@ const clientIp = (req) => auth.ipSchluessel(req.ip || (req.socket && req.socket.
 module.exports = function authRouten(api, bt) {
   const { db } = bt;
 
-  /** Namensliste für die Anmeldung – ohne Rollen; per BAUTAG_LOGIN_LISTE=0 abschaltbar */
+  /**
+   * 15.33: Wie meldet man sich an? `namensliste` = öffentliche Namensliste eingeschaltet (BAUTAG_LOGIN_LISTE=1). Standard: aus –
+   * dann Anmeldung mit Personalnummer + PIN; die App fragt die Namensliste gar nicht erst ab (am geteilten Gerät keine Namen).
+   */
+  api.get('/auth/anmeldung', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ namensliste: Boolean(bt.loginListe) });
+  });
+
+  /** Namensliste für die Anmeldung – ohne Rollen; 15.33: nur mit BAUTAG_LOGIN_LISTE=1 (Standard aus → 404) */
   api.get('/auth/benutzerliste', (req, res) => {
     if (!bt.loginListe) throw nichtGefunden('Die Namensliste ist abgeschaltet – Anmeldung mit Personalnummer und PIN.');
     res.json(db.alle('SELECT id, name FROM benutzer WHERE aktiv = 1 ORDER BY name').map((b) => ({ id: b.id, name: b.name })));
@@ -184,7 +193,8 @@ module.exports = function authRouten(api, bt) {
     const b = req.ctx.benutzer;
     res.json({
       // 15.30: Standort beim Stempeln – Zeitpunkt der eigenen Einwilligung (null = aus); gilt je Person, nicht je Gerät
-      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), baustelleId: b.baustelle_id ?? null, standortEinwilligung: b.standort_einwilligung || null },
+      // 15.33: die EIGENE Personalnummer (Anmeldekennung ohne Namensliste) – nie die einer anderen Person
+      benutzer: { ...benutzerJson(b, darfLohngruppe(req.ctx.rechte)), pnr: b.pnr ?? null, baustelleId: b.baustelle_id ?? null, standortEinwilligung: b.standort_einwilligung || null },
       rechte: [...req.ctx.rechte],
       baustellenIds: eigeneBaustellenIds(db, b),
       mussPinAendern: b.muss_pin_aendern === 1,
