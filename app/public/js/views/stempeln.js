@@ -1,14 +1,14 @@
 // Stempeluhr: Status, laufende Zeit, Baustelle wählen, Kommen / Pause / Wechsel / Gehen.
 // Ohne Netz wird die Buchung lokal gemerkt und später nachgesendet (siehe offline.js).
-import { get, post } from '../api.js';
+import { get, post, sitzungGeneration } from '../api.js';
 import { ic, esc, fmt, banner, dialog, bestaetigen, toast, speicher, wieBuero, istIntern, $, $$ } from '../ui.js';
 import { zaehlerAbfrage } from './fuhrpark-dialoge.js';
 import { schadenMelden } from './schaeden.js';
 import { einreihen, warteschlange, nachsenden, setzOnline, vorlaeufig, abgelehnte, abgelehntErledigt, buchungText, wartetAufStandort, standortZurBuchung } from '../offline.js';
 import { pauseWaehlen, pausenAuswahl, merkeAuswahl, bisText } from '../pausen.js';
 import { stundenImText } from '../zahl.js';
-import { ortHolen, genauText } from '../standort.js';
-import { standortEingeschaltet, standortAltUebernehmen } from '../standort-einwilligung.js';
+import { ortHolen, ortErlaubnis, genauText } from '../standort.js';
+import { standortEingeschaltet, standortAltUebernehmen, nachtragLaeuft, nachtragLaeuftSchon, nachtragMerken, nachtragStandort, nachtragErledigt, nachtraegeGemerkt } from '../standort-einwilligung.js';
 
 const TYP = {
   kommen: ['Gekommen', 'tl-in'], gehen: ['Gegangen', 'tl-out'], pause_start: ['Pause begonnen', 'tl-pause'],
@@ -227,26 +227,52 @@ export default async function stempeln(el, ctx) {
     if (abfrage) zaehlerAbfrage(ctx, abfrage);
   }
 
-  /** 15.30: Ergebnis der Ortung an die eben gebuchte Stempelung hängen (online: eigene Schnittstelle, offline: in die Warteschlange) */
-  async function standortAnhaengen(ortP, { buchungId, nr, lauf }) {
-    const r = await ortP;
-    let neu;
-    if (!r.standort) {
-      if (nr) standortZurBuchung(nr, null);
-      neu = { zustand: r.fehler === 'verweigert' ? 'verweigert' : 'fehlt' };
-    } else if (nr) {
-      neu = standortZurBuchung(nr, r.standort) ? { zustand: 'ok', genauigkeit: r.standort.genauigkeit, offline: true } : { zustand: 'fehlt' };
-    } else {
-      neu = { zustand: 'fehlt' };
-      for (let versuch = 0; versuch < 3; versuch++) {
-        try { await post(`/zeit/stempeln/${buchungId}/standort`, { standort: r.standort }); neu = { zustand: 'ok', genauigkeit: r.standort.genauigkeit }; break; }
-        catch (e) { if (!vorlaeufig(e)) break; await new Promise((w) => setTimeout(w, 4000)); }
+  /**
+   * 15.30: Ergebnis der Ortung an die eben gebuchte Stempelung hängen (online: eigene Schnittstelle, offline: in die
+   * Warteschlange). Der Nachtrag läuft weiter, wenn die Ansicht wechselt; das Abmelden wartet kurz auf ihn (app.js), und am
+   * Gerät gemerkt holt ihn die Stempeluhr nach einem Neuladen nach (nachtraegeFortsetzen). `standort`: schon ermittelt.
+   */
+  function standortAnhaengen(ortP, { buchungId, nr, lauf, standort = null }) {
+    const gen = sitzungGeneration();
+    if (buchungId) nachtragMerken(ctx.ich.benutzer.id, buchungId);
+    return nachtragLaeuft(buchungId ? `b${buchungId}` : `q${nr}`, (async () => {
+      const r = standort ? { standort } : await ortP;
+      let neu;
+      if (!r.standort) {
+        if (nr) standortZurBuchung(nr, null); else nachtragErledigt(buchungId);
+        neu = { zustand: r.fehler === 'verweigert' ? 'verweigert' : 'fehlt' };
+      } else if (nr) {
+        neu = standortZurBuchung(nr, r.standort) ? { zustand: 'ok', genauigkeit: r.standort.genauigkeit, offline: true } : { zustand: 'fehlt' };
+      } else {
+        nachtragStandort(buchungId, r.standort); // falls die App jetzt geschlossen wird
+        neu = { zustand: 'fehlt' };
+        let behalten = false;
+        for (let versuch = 0; versuch < 3 && gen === sitzungGeneration(); versuch++) {
+          // vorAbmelden: geht noch unter der Sitzung der Person hinaus, auch wenn sie gerade abmeldet (das Abmelden wartet darauf)
+          try { await post(`/zeit/stempeln/${buchungId}/standort`, { standort: r.standort }, { vorAbmelden: true }); neu = { zustand: 'ok', genauigkeit: r.standort.genauigkeit }; break; }
+          catch (e) { if (!vorlaeufig(e)) break; behalten = versuch === 2; if (!behalten) await new Promise((w) => setTimeout(w, 4000)); }
+        }
+        if (!behalten) nachtragErledigt(buchungId); // ohne Netz: gemerkt lassen, die Stempeluhr versucht es später noch einmal
       }
+      if (lauf !== ortLauf) return; // inzwischen neu gestempelt – die Anzeige gehört der neueren Stempelung
+      ort = neu;
+      const z = ctx.aktuell() && $('#cc-standort', el);
+      if (z) z.outerHTML = ortHtml(ort);
+    })().catch(() => {}));
+  }
+
+  /** 15.30: am Gerät gemerkte Nachträge dieser Person (App nach dem Stempeln geschlossen oder neu geladen) nachholen */
+  async function nachtraegeFortsetzen() {
+    const offen = nachtraegeGemerkt(ctx.ich.benutzer.id).filter((x) => !nachtragLaeuftSchon(`b${x.buchungId}`));
+    if (!offen.length) return;
+    if (!standortEingeschaltet(ctx)) { offen.forEach((x) => nachtragErledigt(x.buchungId)); return; }
+    const erlaubnis = offen.some((x) => !x.standort) ? await ortErlaubnis() : 'granted';
+    for (const x of offen) {
+      // ohne schon ermittelten Standort nur neu orten, wenn das Gerät es ohne Rückfrage erlaubt (keine Frage beim Öffnen)
+      if (!x.standort && erlaubnis !== 'granted' && erlaubnis !== null) { nachtragErledigt(x.buchungId); continue; }
+      ort = { zustand: 'laeuft' };
+      standortAnhaengen(x.standort ? null : ortHolen(ORT), { buchungId: x.buchungId, lauf: ++ortLauf, standort: x.standort || null });
     }
-    if (lauf !== ortLauf) return; // inzwischen neu gestempelt – die Anzeige gehört der neueren Stempelung
-    ort = neu;
-    const z = ctx.aktuell() && $('#cc-standort', el);
-    if (z) z.outerHTML = ortHtml(ort);
   }
 
   el.addEventListener('click', async (e) => {
@@ -285,6 +311,7 @@ export default async function stempeln(el, ctx) {
   });
 
   await standortAltUebernehmen(ctx); // 15.30: alte Wahl nur am Gerät (bt_standort) einmal an den Server übernehmen
+  await nachtraegeFortsetzen();
   await lade();
   zeichne();
   return () => clearInterval(timer);

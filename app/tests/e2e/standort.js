@@ -14,6 +14,9 @@
  *  5. Lukas schaltet aus → „Pause beenden“ sendet nichts, keine Anzeige.
  *  6. Gerät ohne Erlaubnis (Fabian): Einschalten → Hinweis mit dem Weg in den Einstellungen, Schalter bleibt an; Kommen →
  *     „Standort nicht verfügbar“, kein Standort gespeichert.
+ *  7. Langsame Ortung (5 s, kalter GPS-Start), Roland: Pause und sofort abmelden → „Standort wird noch gesendet …“, danach
+ *     abgemeldet und der Standort an der Buchung; Pause beenden und die App sofort neu laden → die Stempeluhr holt den
+ *     Nachtrag nach. Dazu in 4): Buchung auf einer archivierten Baustelle zeigt die Entfernung (nicht nur „Standort“).
  */
 const { chromium } = require('playwright');
 const { starte, U, BS } = require('../api/hilfe');
@@ -25,6 +28,7 @@ const GROESSEN = [
 ];
 const NAME = { 2: 'Lukas Brandstätter', 4: 'Roland Kerschbaumer', 6: 'Fabian Stickler', 101: 'Martina Koller' };
 const PITTEN = { lat: 47.7333, lng: 16.1833 };
+const TERNITZ = { lat: 47.7167, lng: 16.0333 }; // wird in 4) archiviert
 const NAHE = { latitude: PITTEN.lat + 120 / 111195, longitude: PITTEN.lng, accuracy: 25 }; // 120 m nördlich, ±25 m
 
 // Optional: BAUTAG_SHOTS=/pfad → Bildschirmfotos der Schritte dort ablegen
@@ -41,10 +45,15 @@ async function laufe(browser, g) {
     const einw = (id) => s.db.eins('SELECT standort_einwilligung AS e FROM benutzer WHERE id = ?', id).e;
     const letzte = (id) => s.db.eins('SELECT id, typ, quelle, lat, lng, genauigkeit FROM buchung WHERE benutzer_id = ? ORDER BY id DESC LIMIT 1', id);
 
-    async function kontext({ erlaubt = true } = {}) {
+    async function kontext({ erlaubt = true, langsamMs = 0 } = {}) {
       const ctx = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, serviceWorkers: 'block',
         ...(erlaubt ? { geolocation: NAHE, permissions: ['geolocation'] } : { permissions: [] }) });
       await ctx.clock.install({ time: s.uhr() });
+      // 7): Ortung antwortet erst nach `langsamMs` (wie ein kalter GPS-Start); zählt die Aufrufe
+      if (langsamMs) await ctx.addInitScript(({ ms, o }) => {
+        const geo = { getCurrentPosition(ok) { window.__ortRufe = (window.__ortRufe || 0) + 1; setTimeout(() => ok({ coords: { latitude: o.latitude, longitude: o.longitude, accuracy: o.accuracy } }), ms); } };
+        Object.defineProperty(Navigator.prototype, 'geolocation', { configurable: true, get: () => geo });
+      }, { ms: langsamMs, o: NAHE });
       const page = await ctx.newPage();
       page.setDefaultTimeout(10000);
       const konsole = [];
@@ -161,7 +170,10 @@ async function laufe(browser, g) {
 
     /* ---- 4) Büro: Korrektur zeigt die Lage zur Baustelle ---- */
     // eine ältere Buchung von Lukas 3,2 km entfernt, eine auf einer Baustelle ohne Koordinaten
-    const alt = s.db.alle("SELECT id FROM buchung WHERE benutzer_id = ? AND zeit >= '2026-11-02' AND id NOT IN (?, ?) AND lat IS NULL ORDER BY zeit DESC LIMIT 2", U.mitarbeiter, kommen.id, pause.id);
+    const alt = s.db.alle("SELECT id FROM buchung WHERE benutzer_id = ? AND zeit >= '2026-11-02' AND id NOT IN (?, ?) AND lat IS NULL ORDER BY zeit DESC LIMIT 3", U.mitarbeiter, kommen.id, pause.id);
+    // eine auf einer inzwischen archivierten Baustelle mit Koordinaten (fehlt in GET /baustellen ohne ?alle=1)
+    s.db.lauf("UPDATE baustelle SET phase = 'archiviert', status = 'abgeschlossen', lat = ?, lng = ? WHERE id = ?", TERNITZ.lat, TERNITZ.lng, BS.ternitz);
+    s.db.lauf('UPDATE buchung SET baustelle_id = ?, lat = ?, lng = ?, genauigkeit = 20 WHERE id = ?', BS.ternitz, TERNITZ.lat + 850 / 111195, TERNITZ.lng, alt[2].id);
     s.db.lauf('UPDATE buchung SET baustelle_id = ?, lat = ?, lng = ?, genauigkeit = 15 WHERE id = ?', BS.pitten, PITTEN.lat + 3200 / 111195, PITTEN.lng, alt[0].id);
     s.db.lauf('UPDATE buchung SET baustelle_id = ?, lat = ?, lng = ?, genauigkeit = 30 WHERE id = ?', BS.kogler, 47.70, 16.10, alt[1].id);
     const b = await kontext();
@@ -178,6 +190,10 @@ async function laufe(browser, g) {
     pruef((await zeile(alt[0].id).innerText()).includes('3,2 km von der Baustelle') && await zeile(alt[0].id).getAttribute('data-lage') === 'weg', `Korrektur: „3,2 km von der Baustelle“ fehlt (${await zeile(alt[0].id).innerText().catch(() => '–')})`);
     const ohne = (await zeile(alt[1].id).innerText()).replace(/\s+/g, ' ').trim();
     pruef(/^Standort · Karte$/.test(ohne) && await zeile(alt[1].id).getAttribute('data-lage') === 'ohne', `Korrektur: Baustelle ohne Koordinaten zeigt „${ohne}“ statt „Standort · Karte“`);
+    pruef(!(await b.api('/baustellen')).json.some((x) => x.id === BS.ternitz), 'Vorbedingung: archivierte Baustelle steht in GET /baustellen');
+    const arch = (await zeile(alt[2].id).innerText().catch(() => '–')).replace(/\s+/g, ' ').trim();
+    pruef(arch.includes('850 m von der Baustelle') && await zeile(alt[2].id).getAttribute('data-lage') === 'weg', `Korrektur: archivierte Baustelle zeigt „${arch}“ statt „850 m von der Baustelle“`);
+    pruef((await b.page.locator(`#k-liste [data-buchung="${alt[2].id}"]`).innerText()).includes('Ternitz'), 'Korrektur: Name der archivierten Baustelle fehlt');
     const ohneOrt = await b.page.locator('#k-liste [data-buchung]').evaluateAll((l) => l.filter((x) => !x.querySelector('.korr-ort')).length);
     pruef(ohneOrt > 0, 'Korrektur: jede Buchung mit Standort-Hinweis (Buchungen ohne Standort dürfen keinen haben)');
     await b.layout('Korrektur mit Standort');
@@ -232,6 +248,76 @@ async function laufe(browser, g) {
     await n.layout('Stempeluhr ohne Erlaubnis');
     await foto(n.page, 'stempeluhr-nicht-verfuegbar', g);
     await n.zu('Ohne Erlaubnis');
+
+    /* ---- 7) Langsame Ortung: sofort abmelden bzw. App neu laden – der Standort geht nicht verloren ---- */
+    s.db.lauf('UPDATE benutzer SET standort_einwilligung = ? WHERE id = ?', s.uhr().toISOString(), 4); // Roland schaltet ein
+    const w = await kontext({ langsamMs: 5000 });
+    const nahe = (x) => !!x && x.lat !== null && Math.abs(x.lat - NAHE.latitude) < 1e-6 && Math.abs(x.lng - NAHE.longitude) < 1e-6 && x.genauigkeit === 25;
+    const gemerkt = () => w.page.evaluate(() => localStorage.getItem('bt_standort_nachtrag'));
+    await w.anmelden(4);
+    await w.geh('#/stempeln');
+    await w.page.waitForSelector('.clock-card[data-status="arbeit"] [data-stempel="pause_start"]');
+    await w.page.click('[data-stempel="pause_start"]');
+    await w.page.waitForSelector('dialog[open] #pause-wahl');
+    const t7 = Date.now();
+    await w.page.click('dialog[open] [data-pause-min="offen"]');
+    await w.page.waitForSelector('.clock-card[data-status="pause"]');
+    const p7 = letzte(4);
+    pruef(p7.typ === 'pause_start' && p7.lat === null && Date.now() - t7 < 4000, `Langsam: Pause nicht sofort gebucht (${JSON.stringify(p7)}, ${Date.now() - t7} ms)`);
+    await w.geh('#/mehr');
+    await w.page.click('#abmelden');
+    let warte = '';
+    try { await w.page.waitForSelector('#abmelden-standort', { timeout: 3000 }); warte = await w.text('#abmelden-standort'); } catch (e) { /* unten geprüft */ }
+    pruef(warte.includes('Standort wird noch gesendet'), `Sofort abmelden: kein Hinweis „Standort wird noch gesendet …“ (${warte || 'nichts'})`);
+    pruef(await w.page.locator('#view, .clock-card').count() === 0, 'Sofort abmelden: Ansicht der Person bleibt während des Wartens sichtbar');
+    await w.page.waitForSelector('.login-user, #login-suche', { timeout: 20000 });
+    const p7b = s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', p7.id);
+    pruef(nahe(p7b), `Sofort abmelden: Standort ging verloren (${JSON.stringify(p7b)})`);
+    pruef((await w.api('/auth/ich')).status === 401, 'Sofort abmelden: Sitzung danach noch gültig');
+    pruef(await gemerkt() === null, 'Sofort abmelden: Nachtrag bleibt am Gerät gemerkt');
+    // App gleich nach dem Stempeln neu laden
+    await w.anmelden(4);
+    await w.geh('#/stempeln');
+    await w.page.waitForSelector('[data-stempel="pause_ende"]');
+    await w.page.click('[data-stempel="pause_ende"]');
+    await w.page.waitForSelector('.clock-card[data-status="arbeit"]');
+    const pe7 = letzte(4);
+    const m7 = JSON.parse(await gemerkt() || '[]');
+    pruef(pe7.typ === 'pause_ende' && pe7.lat === null && m7.length === 1 && m7[0].buchungId === pe7.id && m7[0].benutzerId === 4, `Neu laden: Nachtrag nicht am Gerät gemerkt (${JSON.stringify({ pe7, m7 })})`);
+    await w.page.reload();
+    await w.page.waitForSelector('#view');
+    if (!/#\/stempeln/.test(w.page.url())) await w.geh('#/stempeln');
+    await ortZeile(w.page, /^Standort erfasst \(±25 m\)$/, 'Neu laden: Stempeluhr holt den Standort nach');
+    await w.page.waitForTimeout(300);
+    const pe7b = s.db.eins('SELECT id, typ, lat, lng, genauigkeit FROM buchung WHERE id = ?', pe7.id);
+    pruef(nahe(pe7b), `Neu laden: Standort ging verloren (${JSON.stringify(pe7b)})`);
+    pruef(await gemerkt() === null, 'Neu laden: Nachtrag nach dem Senden noch gemerkt');
+    // noch einmal neu laden: nichts mehr offen, keine neue Ortung
+    const rufe = await w.page.evaluate(() => window.__ortRufe || 0);
+    await w.page.reload();
+    await w.page.waitForSelector('#view');
+    await w.page.waitForTimeout(800);
+    pruef(await w.page.evaluate(() => window.__ortRufe || 0) === 0 && rufe >= 1, `Neu laden ohne offenen Nachtrag: Ortung trotzdem gestartet (${rufe})`);
+    // „Nicht warten“: sofort abgemeldet, danach geht unter der beendeten Sitzung nichts mehr hinaus
+    await w.geh('#/stempeln');
+    await w.page.waitForSelector('.clock-card[data-status="arbeit"] [data-stempel="pause_start"]');
+    await w.page.click('[data-stempel="pause_start"]');
+    await w.page.waitForSelector('dialog[open] #pause-wahl');
+    await w.page.click('dialog[open] [data-pause-min="offen"]');
+    await w.page.waitForSelector('.clock-card[data-status="pause"]');
+    const p8 = letzte(4);
+    await w.geh('#/mehr');
+    w.anfragen.length = 0;
+    await w.page.click('#abmelden');
+    await w.page.click('#abmelden-sofort', { timeout: 3000 }).catch(() => {});
+    const t8 = Date.now();
+    await w.page.waitForSelector('.login-user, #login-suche', { timeout: 10000 });
+    pruef(Date.now() - t8 < 2500, `„Nicht warten“: Abmelden dauerte ${Date.now() - t8} ms`);
+    await w.page.waitForTimeout(5500);
+    const p8b = s.db.eins('SELECT id, typ, lat FROM buchung WHERE id = ?', p8.id);
+    pruef(p8b.typ === 'pause_start' && p8b.lat === null && !w.anfragen.some((x) => /\/standort$/.test(x.url)), `„Nicht warten“: Standort trotzdem gesendet (${JSON.stringify({ p8b, a: w.anfragen.map((x) => x.url) })})`);
+    pruef(await gemerkt() === null, '„Nicht warten“: Nachtrag bleibt am Gerät gemerkt');
+    await w.zu('Langsame Ortung');
   } finally { await s.stop(); }
   return { fehler, schritte };
 }

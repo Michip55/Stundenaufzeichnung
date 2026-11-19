@@ -13,7 +13,9 @@ const alsIso = (wert) => wienIso(wert.slice(0, 10), wert.slice(11, 16));
 const uhr = (x) => (!x ? '–' : /^\d{1,2}:\d{2}/.test(x) ? x.slice(0, 5) : lokal(x).slice(11));
 
 export default async function korrektur(el, ctx) {
-  const [alle, baustellen] = await Promise.all([get('/mitarbeiter'), get('/baustellen')]);
+  // 15.30: Namen und Koordinaten auch archivierter Baustellen (ältere Buchungen); die Auswahl bleibt bei den aktuellen
+  const [alle, baustellen, mitArchiv] = await Promise.all([get('/mitarbeiter'), get('/baustellen'), get('/baustellen?alle=1').catch(() => null)]);
+  const bsAlle = Array.isArray(mitArchiv) ? mitArchiv : baustellen;
   // Vier-Augen-Prinzip: die eigenen Zeiten korrigiert niemand selbst
   const leute = alle.filter((m) => m.id !== ctx.ich.benutzer.id);
   const aktive = leute.filter((m) => m.aktiv !== false);
@@ -22,11 +24,11 @@ export default async function korrektur(el, ctx) {
   let bis = ctx.query.get('bis') || wienHeute();
   let von = ctx.query.get('von') || fmt.addTage(bis, -13);
   let liste = [], schichten = [];
-  const bsName = (id) => { const b = baustellen.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
+  const bsName = (id) => { const b = bsAlle.find((x) => x.id === id); return b ? `${b.kst ? b.kst + ' · ' : ''}${b.name}` : id != null ? `Baustelle ${id}` : '–'; };
   const person = () => (leute.find((m) => m.id === benutzerId) || {}).name || '';
   // 15.30: Standort beim Stempeln (nur wenn die Person es selbst eingeschaltet hatte) – Lage zur Baustelle und Link zur Karte
   const ortHtml = (x) => {
-    const l = standortLage(x.standort, baustellen.find((b) => b.id === x.baustelleId));
+    const l = standortLage(x.standort, bsAlle.find((b) => b.id === x.baustelleId));
     if (!l) return '';
     const g = genauText(x.standort.genauigkeit);
     return `<span class="korr-ort" data-lage="${l.art}" title="Standort beim Stempeln${g ? ', Genauigkeit ' + g : ''}">${ic('pin', 'xs')}${esc(l.text)} · <a href="${esc(kartenLink(x.standort))}" target="_blank" rel="noopener noreferrer" data-karte>Karte</a></span>`;
