@@ -291,7 +291,15 @@ test('15.34 Bericht löschen mit Papierkorb', async (t) => {
     assert.match(m.hinweis, /nur zusammen mit/);
     for (const art of ['matrix', 'ausnahme']) {
       const setze = (wert) => (art === 'matrix' ? c.gf.put('/rechte/matrix', { rolle: 'mitarbeiter', recht: 'bericht_loeschen', wert }) : c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert }));
-      assert.equal((await setze(true)).status, 200, art);
+      const gesetzt = await setze(true);
+      assert.equal(gesetzt.status, 200, art);
+      if (art === 'ausnahme') {
+        // Nachprüfung 19.11.2026: keine stille Sackgasse – Antwort und Ausnahmen-Liste sagen, dass die Ausnahme (noch) nicht wirkt
+        assert.equal(gesetzt.daten.wirksam, false, 'PUT meldet: ohne Wirkung');
+        const r = (await c.gf.get('/rechte')).daten;
+        assert.deepEqual(r.voraussetzung.bericht_loeschen, ['bericht_erstellen', 'bericht_freigeben']);
+        assert.equal(r.ausnahmen.find((a) => a.benutzerId === U.mitarbeiter && a.recht === 'bericht_loeschen').wirksam, false, 'Liste: ohne Wirkung');
+      }
       try {
         assert.ok(!(await c.mitarbeiter.get('/auth/ich')).daten.rechte.includes('bericht_loeschen'), `${art}: nicht wirksam ohne Berichtsrecht`);
         assert.equal((await c.mitarbeiter.get('/berichte/papierkorb')).status, 403, art);
@@ -305,9 +313,11 @@ test('15.34 Bericht löschen mit Papierkorb', async (t) => {
       } finally { await setze(false); }
     }
     // mit zusätzlichem Berichtsrecht (Ausnahme bericht_erstellen) wirkt es – wie beim Polier
-    await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_erstellen', wert: true });
-    await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: true });
+    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: true })).daten.wirksam, false);
+    assert.equal((await c.gf.put('/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_erstellen', wert: true })).daten.wirksam, true);
     try {
+      const aus = (await c.gf.get('/rechte')).daten.ausnahmen.filter((a) => a.benutzerId === U.mitarbeiter);
+      assert.deepEqual(aus.map((a) => [a.recht, a.wirksam]).sort(), [['bericht_erstellen', true], ['bericht_loeschen', true]], 'mit Berichtsrecht wirkt die Ausnahme');
       assert.ok((await c.mitarbeiter.get('/auth/ich')).daten.rechte.includes('bericht_loeschen'));
       assert.equal((await c.mitarbeiter.get('/berichte/papierkorb')).status, 200);
     } finally {

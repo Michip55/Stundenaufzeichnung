@@ -498,6 +498,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 /* Rechte */
 .rights th small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; font-family: ui-monospace, monospace; } .rights td { padding: 4px 8px; } .rights thead th.c { min-width: 96px; }
 .rights th small.recht-hinweis { font-family: inherit; font-size: 11.5px; color: var(--muted); white-space: normal; max-width: 460px; line-height: 1.3; margin-top: 2px; } /* 15.34 Prüfung: Voraussetzung eines Rechts */
+.plain.rows small.aus-ohne-wirkung { display: flex; align-items: flex-start; gap: 5px; color: #7a4204; margin-top: 3px; white-space: normal; line-height: 1.3; } .aus-ohne-wirkung .ic { width: 14px; height: 14px; margin-top: 1px; } /* 15.34 Nachprüfung: Ausnahme ohne Wirkung */
 .lock-cell { display: inline-grid; place-items: center; width: 46px; height: 28px; border-radius: 99px; background: repeating-linear-gradient(135deg, #eceef1 0 6px, #e2e5e9 6px 12px); color: #5a636e; } .lock-cell .ic { width: 15px; height: 15px; } td.locked { background: #fafbfc; }
 .log-ic { width: 34px; height: 34px; border-radius: 10px; background: #eceef1; color: var(--muted); display: grid; place-items: center; flex: none; } .log-ic .ic { width: 17px; height: 17px; } .log b { white-space: normal !important; }
 

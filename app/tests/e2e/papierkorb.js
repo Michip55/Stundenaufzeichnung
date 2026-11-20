@@ -14,6 +14,8 @@
  *     Steht eine Person inzwischen zur selben Zeit in einem anderen Bericht (Prüfung 19.11.2026): ebenso gesperrt, Hinweis
  *     mit Name, Tag und Kostenstelle.
  *  4. Bauleiter (= Büro) sieht dieselben Knöpfe; Freigegebener Bericht: Warnung „freigegeben“ im Dialog.
+ *  5. GF, Benutzer & Rechte (Nachprüfung 19.11.2026): Ausnahme „Bautagesberichte löschen“ für einen Mitarbeiter ohne
+ *     Berichtsrecht → Warnung im Dialog, Toast und Liste „Noch ohne Wirkung“; nach Matrix-Schalter „erstellen“ weg.
  * Ohne horizontalen Überlauf (Seite und Dialog), ohne Konsolenfehler.
  */
 const { chromium } = require('playwright');
@@ -194,6 +196,39 @@ async function laufe(browser, g) {
       await ueberlauf('Bauleiter Dialog');
       await dlg(page).locator('[data-zu]').first().click();
       pruef(db.eins('SELECT geloescht_zeit FROM bericht WHERE id = ?', freigegeben.id).geloescht_zeit === null, 'Abbrechen hat gelöscht');
+    });
+
+    // 5) GF, Benutzer & Rechte (Nachprüfung 19.11.2026): Ausnahme „Bautagesberichte löschen“ für einen Mitarbeiter ohne
+    //    Berichtsrecht – Warnung im Dialog, Hinweis in der Liste; verschwindet, sobald die Matrix „erstellen“ gibt
+    const maName = db.eins('SELECT name FROM benutzer WHERE id = ?', U.mitarbeiter).name;
+    await sitzung(U.gf, 'GF Ausnahme', async ({ page, geh, api, ueberlauf }) => {
+      await page.evaluate(() => localStorage.setItem('bt_rechtetab', 'matrix'));
+      await geh('/benutzer');
+      await page.locator('[data-akt="ausnahme"]').click();
+      await page.waitForSelector('dialog[open] #af-b', { timeout: 5000 });
+      await page.selectOption('#af-b', String(U.polier));
+      await page.selectOption('#af-r', 'bericht_loeschen');
+      const box = page.locator('dialog[open] #af-hinweis');
+      pruef(await box.locator('.banner.warn').count() === 0 && /nur zusammen mit/.test(await box.innerText()), 'Ausnahme-Dialog Polier: Hinweis fehlt oder unnötige Warnung');
+      await page.selectOption('#af-b', String(U.mitarbeiter));
+      await page.selectOption('#af-r', 'bericht_loeschen');
+      const warn = await box.locator('.banner.warn').innerText().catch(() => '');
+      pruef(warn.includes(maName) && /ohne Wirkung/.test(warn) && /erstellen/.test(warn), `Ausnahme-Dialog Mitarbeiter: Warnung fehlt (${warn})`);
+      await ueberlauf('Ausnahme-Dialog');
+      await page.locator('dialog[open] button[type=submit]').click();
+      await page.waitForSelector('#ausnahmen [data-aus-hinweis]', { timeout: 5000 }).catch(() => {});
+      const toastText = await page.locator('#toast-root').innerText().catch(() => '');
+      pruef(/ohne Wirkung/.test(toastText), `Toast nennt die fehlende Wirkung nicht (${toastText})`);
+      const zeile = page.locator(`#ausnahmen li[data-b="${U.mitarbeiter}"][data-r="bericht_loeschen"]`);
+      pruef(await zeile.locator('[data-aus-hinweis]').count() === 1 && /Noch ohne Wirkung/.test(await zeile.innerText()), 'Ausnahmen-Liste: Hinweis „Noch ohne Wirkung“ fehlt');
+      await ueberlauf('Ausnahmen-Liste');
+      // Matrix gibt Mitarbeitern „erstellen“ → Ausnahme wirkt, Hinweis verschwindet ohne Neuladen
+      await page.locator('#matrix td[data-rolle="mitarbeiter"][data-recht="bericht_erstellen"] label.tgl').click();
+      await page.waitForFunction((b) => !document.querySelector(`#ausnahmen li[data-b="${b}"][data-r="bericht_loeschen"] [data-aus-hinweis]`), U.mitarbeiter, { timeout: 5000 }).catch(() => {});
+      pruef(await zeile.locator('[data-aus-hinweis]').count() === 0, 'Ausnahmen-Liste: Hinweis bleibt nach Matrix-Schalter');
+      // aufräumen
+      await api('PUT', '/rechte/matrix', { rolle: 'mitarbeiter', recht: 'bericht_erstellen', wert: false });
+      await api('PUT', '/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: false });
     });
   } finally {
     await s.stop();

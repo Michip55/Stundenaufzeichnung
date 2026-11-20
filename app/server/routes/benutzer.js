@@ -90,6 +90,12 @@ module.exports = function benutzerRouten(api, bt) {
   /* ---------- Rechte ---------- */
   api.get('/rechte', brauche('benutzer'), (req, res) => {
     const namen = new Map(db.alle('SELECT id, name FROM benutzer').map((b) => [b.id, b.name]));
+    // 15.34 (Nachprüfung 19.11.2026): je Ausnahme, ob sie beim Benutzer wirkt (Voraussetzung, gesperrt) – sonst stille Sackgasse
+    const wirksam = new Map();
+    const wirkt = (benutzerId, recht) => {
+      if (!wirksam.has(benutzerId)) { const b = db.eins('SELECT id, rolle FROM benutzer WHERE id = ?', benutzerId); wirksam.set(benutzerId, b ? R.ladeRechteFuer(db, b) : new Set()); }
+      return wirksam.get(benutzerId).has(recht);
+    };
     res.json({
       rollen: R.ROLLEN,
       rollenNamen: R.ROLLEN_NAMEN,
@@ -97,8 +103,9 @@ module.exports = function benutzerRouten(api, bt) {
       matrix: R.ladeMatrix(db),
       gesperrt: R.GESPERRT,
       immer: R.IMMER,
+      voraussetzung: R.VORAUSSETZUNG,
       ausnahmen: db.alle('SELECT benutzer_id, recht, erteilt, erteilt_von FROM benutzer_recht ORDER BY benutzer_id, recht')
-        .map((a) => ({ benutzerId: a.benutzer_id, name: namen.get(a.benutzer_id), recht: a.recht, erteilt: a.erteilt, erteiltVon: a.erteilt_von })),
+        .map((a) => ({ benutzerId: a.benutzer_id, name: namen.get(a.benutzer_id), recht: a.recht, erteilt: a.erteilt, erteiltVon: a.erteilt_von, wirksam: wirkt(a.benutzer_id, a.recht) })),
       protokoll: protokollFuer(req.ctx, db.alle('SELECT * FROM protokoll ORDER BY id DESC LIMIT 300')).map((p) => ({
         id: p.id, zeit: p.zeit, benutzerId: p.benutzer_id, name: namen.get(p.benutzer_id) || null, art: p.art, objekt: p.objekt, alt: p.alt, neu: p.neu, text: p.text,
         ...(selbstkorrekturIm(p) ? { selbstkorrektur: true } : {}) // 15.29: Selbstkorrektur der GF erkennbar
@@ -141,7 +148,8 @@ module.exports = function benutzerRouten(api, bt) {
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'recht', objekt: `benutzer:${benutzerId}`, alt: { [recht]: vorher }, neu: { [recht]: wert }, text: `Ausnahme für ${b.name}: ${recht} ${wert ? 'erteilt' : 'entfernt'}` });
     });
     require('./fernunterschrift').linksOhneRechtWiderrufen(bt, { von: req.ctx.benutzer.id }); // 15.5 (F-047)
-    res.json({ ok: true, benutzerId, recht, wert, rechte: [...R.ladeRechteFuer(db, b)] });
+    const rechte = R.ladeRechteFuer(db, b);
+    res.json({ ok: true, benutzerId, recht, wert, rechte: [...rechte], ...(wert ? { wirksam: rechte.has(recht) } : {}) });
   });
 
   /* ---------- Benutzer ---------- */
