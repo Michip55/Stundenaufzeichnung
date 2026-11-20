@@ -257,7 +257,7 @@ small { font-size: 12.5px; }
 .week-list .wd:last-child { border: 0; } .wd-day { text-align: center; } .wd-day b { display: block; font-size: 16px; } .wd-day small { color: var(--muted); }
 .wd.today { background: #f3fbf5; } .wd.today .wd-day b { color: var(--green); } .wd.off { color: var(--faint); } .wd.off .wd-day b { color: var(--faint); font-weight: 600; }
 .wd-mid { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .wd.code .wd-mid, .wd.off .wd-mid { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
-.wd-mid .chip { max-width: 100%; height: auto; min-height: 20px; padding-block: 2px; line-height: 1.3; white-space: normal; border-radius: 10px; } /* 15.32: „Ausstempeln fehlt …“ bricht um statt aus der Karte zu ragen */
+.wd-mid .chip { max-width: 100%; height: auto; min-height: 20px; padding-block: 2px; line-height: 1.3; white-space: normal; border-radius: 10px; align-self: flex-start; } /* 15.32: „Ausstempeln fehlt …“ bricht um statt aus der Karte zu ragen; Nachprüfung: natürliche Breite, nicht über die ganze Mitte gezogen */
 .wd-line { font-weight: 600; font-size: 14.5px; } .wd-line small { font-weight: 400; color: var(--muted); } .wd-site { font-size: 12.5px; color: var(--muted); }
 .wd-bar { position: relative; width: 100%; max-width: 260px; height: 6px; border-radius: 4px; background: #eceef1; overflow: hidden; margin-top: 2px; } .wd-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--graphite-3); border-radius: 4px; } .wd-bar u { position: absolute; top: 0; bottom: 0; background: var(--amber-strong); }
 /* 15.32: Tagessumme in einer Zeile („9 Std. 51 Min.“), Zahlen fett, Einheiten klein wie in den Kacheln */

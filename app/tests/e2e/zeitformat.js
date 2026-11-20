@@ -9,6 +9,8 @@
  *     Die CSV für die Lohnverrechnung bleibt dezimal („9,85“). Handy: auch bei 320 px kein Überlauf, nichts abgeschnitten.
  *  2. Mitarbeiter: „Meine Woche“ in Langform („25 Std. 51 Min.“, Tag „9 Std. 51 Min.“ in EINER Zeile, leerer Tag „–“,
  *     15.32; alle Balken gleich lang skaliert, höchstens 260 px), Stempeluhr „Heute“ „9 Std. 51 Min.“.
+ * 2b. „Meine Woche“ mit „Ausstempeln fehlt“ (Nachprüfung 15.32): Hinweis in natürlicher Breite auch an einem Tag mit
+ *     Stunden; Tag ohne Stunden zeigt nur den Hinweis, keinen zusätzlichen „–“ in der Mitte.
  *  3. Summen = Summe der sichtbaren Einzelwerte: 5 × „7:40“ ergibt „38:20“ (nicht „38:21“ aus 5 × 7,67) in Meine Woche,
  *     Monatsauswertung (Summe, Normal + Üst. + Mehr, Kachel) und Bautagesbericht (3 × 7:40 = „23:00“); Dezimal bleibt die
  *     Summe der API. Arbeitszeitmodell-Dialog meldet dezimal wie die Eingabe; Hinweis der Nachkalkulation in Langform.
@@ -184,6 +186,47 @@ async function laufe(browser, g) {
     };
     await sitzung(U.mitarbeiter, 'Meine Woche', (h) => feld(h));
     if (g.width <= 719) await sitzung(U.mitarbeiter, 'Meine Woche 320px', (h) => feld(h, 320), 320);
+
+    /* ---- 2b) Meine Woche mit „Ausstempeln fehlt“ (Nachprüfung 15.32) ----
+     * Lukas, Woche 12.–18.10.2026 (ohne Seed-Daten): Mo 07:00–15:00 (8 Std.), dann 16:00 bis Di 09:00 = 17 Std. (unplausibel,
+     * zählt 0) → Mo „8 Std.“ UND Hinweis; Mi 07:00–24:00 = 17 Std. → nur Hinweis, keine Stunden, keine Baustelle.
+     * Erwartet: Hinweis in natürlicher Breite (nicht über die ganze Mitte gezogen), am Tag ohne Stunden kein einzelner
+     * Platzhalter „–“ unter dem Hinweis; ein leerer Tag behält „–“ in der Mitte. */
+    const buche = (typ, zeit, bs) => s.db.lauf("INSERT INTO buchung (benutzer_id, typ, zeit, baustelle_id, quelle, erfasst_von, erfasst) VALUES (?, ?, ?, ?, 'app', ?, ?)", U.mitarbeiter, typ, zeit, bs || null, U.mitarbeiter, zeit);
+    buche('kommen', '2026-10-12T05:00:00.000Z', BS.pitten); buche('gehen', '2026-10-12T13:00:00.000Z');
+    buche('kommen', '2026-10-12T14:00:00.000Z', BS.pitten); buche('gehen', '2026-10-13T07:00:00.000Z');
+    buche('kommen', '2026-10-14T05:00:00.000Z', BS.pitten); buche('gehen', '2026-10-14T22:00:00.000Z');
+    const hinweis = async ({ page, geh, api, text, layout }, breite) => {
+      const w = `Woche Hinweis${breite ? ` ${breite}px` : ''}`;
+      await geh('#/woche?datum=2026-10-14');
+      await page.waitForSelector('[data-tag-std="2026-10-12"]');
+      const tg = Object.fromEntries((await api('/zeit/woche?datum=2026-10-14')).json.tage.map((t) => [t.datum, t]));
+      pruef(tg['2026-10-12'].stunden === 8 && tg['2026-10-12'].unplausibel && tg['2026-10-14'].stunden === 0 && tg['2026-10-14'].unplausibel && !(tg['2026-10-14'].baustellen || []).length,
+        `${w}: Testdaten nicht aussagekräftig ${JSON.stringify([tg['2026-10-12'], tg['2026-10-14']].map((t) => [t.stunden, t.unplausibel]))}`);
+      pruef((await text('[data-tag-std="2026-10-12"]')) === '8 Std.' && (await text('[data-tag-std="2026-10-14"]')) === '–', `${w}: Tagessummen „${await text('[data-tag-std="2026-10-12"]')}“ / „${await text('[data-tag-std="2026-10-14"]')}“`);
+      const z = await page.evaluate(() => Object.fromEntries(['2026-10-12', '2026-10-13', '2026-10-14'].map((d) => {
+        const mid = document.querySelector(`[data-tag-std="${d}"]`).closest('.wd').querySelector('.wd-mid');
+        const chip = mid.querySelector(':scope > .chip');
+        let breit = null;
+        if (chip) {
+          // Breite des Hinweises gegen seinen Text (+ Innenabstand): gestreckt wäre er so breit wie die ganze Mitte;
+          // bricht er um (Handy), füllt er die Mitte zu Recht
+          const r = document.createRange(); r.selectNodeContents(chip);
+          const cs = getComputedStyle(chip), innen = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+          breit = { chip: Math.round(chip.getBoundingClientRect().width), text: Math.round(r.getBoundingClientRect().width + innen), mitte: Math.round(mid.getBoundingClientRect().width), zeilen: Math.round((chip.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / parseFloat(cs.lineHeight)) };
+        }
+        return [d, { breit, platzhalter: [...mid.querySelectorAll('.wd-site')].filter((e) => e.textContent.trim() === '–').length, kinder: mid.children.length }];
+      })));
+      for (const d of ['2026-10-12', '2026-10-14']) {
+        const b = z[d].breit;
+        pruef(b && (b.chip <= b.text + 2 || b.zeilen > 1) && b.chip <= b.mitte + 0.5, `${w}: Hinweis am ${d} nicht in natürlicher Breite ${JSON.stringify(b)}`);
+      }
+      pruef(z['2026-10-14'].platzhalter === 0 && z['2026-10-14'].kinder === 1, `${w}: Tag ohne Stunden mit Hinweis zeigt zusätzlich „–“ in der Mitte ${JSON.stringify(z['2026-10-14'])}`);
+      pruef(z['2026-10-13'].platzhalter === 1 && !z['2026-10-13'].breit, `${w}: leerer Tag ohne „–“ in der Mitte ${JSON.stringify(z['2026-10-13'])}`);
+      await layout(w, '.wd, .wd-mid, .wd-std');
+    };
+    await sitzung(U.mitarbeiter, 'Meine Woche Hinweis', (h) => hinweis(h));
+    if (g.width <= 719) await sitzung(U.mitarbeiter, 'Meine Woche Hinweis 360px', (h) => hinweis(h, 360), 360);
 
     /* ---- 3) Summen passen zu den sichtbaren Einzelwerten (Review 15.25) ----
      * Lukas stempelt Mo 16.11. bis Fr 20.11. je 07:00–14:40 = „7:40“ (API je 7,67). Die API summiert die gerundeten Tage
