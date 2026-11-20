@@ -264,6 +264,13 @@ module.exports = function benutzerRouten(api, bt) {
     if (id === req.ctx.benutzer.id && ((f.rolle && f.rolle !== alt.rolle) || f.aktiv === 0)) {
       throw keinZugriff('Die eigene Rolle kann niemand selbst ändern, und man kann sich nicht selbst deaktivieren.');
     }
+    // 15.33: ohne öffentliche Namensliste meldet man sich mit der Personalnummer an – ein aktives Konto ohne sie wäre ausgesperrt
+    // (gilt beim Bearbeiten, Reaktivieren und beim Entfernen der Nummer; Anlegen vergibt immer eine, C-12)
+    const pnrDanach = 'pnr' in f ? f.pnr : alt.pnr;
+    const aktivDanach = 'aktiv' in f ? f.aktiv : alt.aktiv;
+    if (!bt.loginListe && aktivDanach === 1 && pnrDanach == null) {
+      throw ungueltig(`Bitte eine Personalnummer eintragen: ${alt.name} meldet sich mit Personalnummer und PIN an – ohne Personalnummer ist keine Anmeldung möglich.`);
+    }
     // Aussperren verhindern: mindestens eine aktive Geschäftsführung bleibt
     const verliertGf = alt.rolle === 'gf' && ((f.rolle && f.rolle !== 'gf') || f.aktiv === 0);
     if (verliertGf && db.eins("SELECT COUNT(*) AS n FROM benutzer WHERE rolle = 'gf' AND aktiv = 1 AND id <> ?", id).n === 0) {

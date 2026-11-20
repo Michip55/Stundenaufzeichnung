@@ -1286,3 +1286,26 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .korr-ort a { color: var(--blue); text-decoration: underline; }
 /* Prüfbefund n8-g (Bild 07/14): die Personen-Auswahl ist am PC breit genug für „Name (eigene Zeiten)“ */
 @media (min-width: 720px) { .toolbar .field.inline.k-person { flex: 0 1 320px; } }
+
+/* 15.33: Anmeldung am eigenen Handy – gemerkte Person, darunter „Andere Person“ über die ganze Breite */
+.pin-user.gemerkt { margin-top: 10px; }
+.login-card .login-andere { margin: 18px auto 0; max-width: 320px; width: 100%; flex: none; }
+.login-card .pin-hilfe { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.35; margin: -10px auto 14px; max-width: 320px; }
+/* 15.33 Nachprüfung: Seite, body und #root scrollen nicht (15.19) – passt der Inhalt der Anmeldekarte nicht auf den Bildschirm
+   (gemerkte Person + PIN-Feld + „Andere Person“ + Gerätewahl, kleines Handy, Browser mit Adressleiste, Laptop quer), scrollt die
+   Karte selbst; bei wenig Höhe wird die Ansicht kompakter. Die Namensliste scrollt weiter in sich (.login-list). */
+.login-card { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.login-card > * { flex-shrink: 0; } .login-card > .login-list { flex-shrink: 1; }
+@media (max-height: 900px) {
+  .login-card .pin-user { margin-bottom: 12px; } .login-card .pin-user .avatar.xl { width: 64px; height: 64px; font-size: 22px; margin-bottom: 6px; }
+  .login-card .pin-user.gemerkt { margin-top: 2px; } .login-card .pin-dots { margin-bottom: 18px; }
+  .login-card .pin-pad { gap: 10px; } .login-card .pin-pad button { height: 58px; }
+  .login-card .login-andere { margin-top: 14px; }
+}
+@media (max-height: 680px) {
+  .login-card .pin-pad button { height: 52px; font-size: 24px; } .login-card .pin-user h2 { font-size: 20px; }
+}
+.profile .profile-pnr { margin-top: 2px; font-size: 14px; } .profile .profile-pnr b { color: var(--ink, #1d2329); font-variant-numeric: tabular-nums; }
+/* 15.33: Benutzerverwaltung – aktive Konten ohne Personalnummer (ohne Namensliste nicht anmeldbar) */
+.warn-card { border-color: var(--amber-strong); } .warn-card .card-h { background: var(--amber-bg); border-radius: inherit; } .warn-card h3 { color: #7a4204; }
+.ohne-pnr { color: var(--amber); font-weight: 700; }

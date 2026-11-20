@@ -28,6 +28,9 @@ services:
       BAUTAG_DB: /daten/bautag.db
       BAUTAG_UPLOADS: /daten/uploads
       BAUTAG_SICHERUNG_PRUEFEN: "1"
+      # 15.33: BAUTAG_LOGIN_LISTE=1 zählt nur mit BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 in .env (namensliste-umstellen.sh) – eine 1 aus
+      # der Vorlage vor 15.33 schaltet die Namensliste also auch dann nicht ein, wenn das Update noch das alte update.sh ausführt
+      BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT: "1"
     volumes:
       - ${BAUTAG_DATEN:-/var/lib/bautag/daten}:/daten
       - ${BAUTAG_SICHERUNG:-/var/lib/bautag/sicherung}:/sicherung

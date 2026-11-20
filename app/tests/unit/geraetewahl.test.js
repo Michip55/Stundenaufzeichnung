@@ -136,3 +136,62 @@ test('15.28: Texte – „Eigenes Handy“ sagt „bis Sonntag … am Montag ein
   assert.match(mehr, /<b>Eigenes Handy<\/b>/);
   assert.match(mehr, /<b>Geteiltes Gerät<\/b>/);
 });
+
+test('15.33: gemerkte Person am eigenen Handy – nur „eigen“ dieser Person, ersetzt, übersteht Abmelden, weg bei „Geteiltes Gerät“', async () => {
+  const A = await modul('api.js');
+  mitSpeicher(() => {
+    const ma = { id: 2, name: 'Lukas Brandstätter', pnr: 1002 };
+    const po = { id: 1, name: 'Josef Haidbauer', pnr: 1001 };
+    // ohne Anmeldung mit „Eigenes Handy“ (Gerätewahl noch nicht dieser Person zugeordnet): nichts gemerkt
+    A.merkeHandyPerson(ma);
+    assert.equal(A.handyPerson(), null);
+    // Anmeldung mit „Eigenes Handy“ (app.js: geraetArtBeiAnmeldung, dann merkeHandyPerson)
+    A.geraetArtBeiAnmeldung(ma.id); A.merkeHandyPerson(ma);
+    assert.deepEqual(A.handyPerson(), { id: 2, pnr: 1002, name: 'Lukas Brandstätter' });
+    // eine andere Person meldet sich am eigenen Handy an → ersetzt die gemerkte
+    A.geraetArtBeiAnmeldung(po.id); A.merkeHandyPerson(po);
+    assert.deepEqual(A.handyPerson(), { id: 1, pnr: 1001, name: 'Josef Haidbauer' });
+    // ohne Personalnummer lässt sich niemand mit Namen anmelden → nichts gemerkt
+    A.geraetArtBeiAnmeldung(9); A.merkeHandyPerson({ id: 9, name: 'Ohne Nummer', pnr: null });
+    assert.equal(A.handyPerson(), null);
+    A.geraetArtBeiAnmeldung(ma.id); A.merkeHandyPerson(ma);
+    // Stand ohne Feld pnr (altes gemerktes bt_ich, ohne Netz): dieselbe Person bleibt gemerkt, eine andere wird vergessen
+    A.merkeHandyPerson({ id: ma.id, name: ma.name });
+    assert.equal(A.handyPerson().pnr, 1002);
+    A.geraetArtBeiAnmeldung(po.id); A.merkeHandyPerson({ id: po.id, name: po.name });
+    assert.equal(A.handyPerson(), null);
+    A.geraetArtBeiAnmeldung(ma.id); A.merkeHandyPerson(ma);
+    // „Geteiltes Gerät“ (Anmeldeseite oder „Mehr“) → sofort vergessen, auch der Name im Speicher
+    A.geraetVorwahl('geteilt');
+    assert.equal(A.handyPerson(), null);
+    assert.equal(localStorage.getItem(A.HANDY_PERSON), null);
+    // am geteilten Gerät wird nie gemerkt – auch nicht nach einer Anmeldung
+    A.geraetArtBeiAnmeldung(ma.id); A.merkeHandyPerson(ma);
+    assert.equal(localStorage.getItem(A.HANDY_PERSON), null);
+    // in „Mehr“ „Eigenes Handy“ gewählt → gemerkt; „Geteiltes Gerät“ in „Mehr“ → vergessen
+    A.setzGeraetArt('eigen', ma.id); A.merkeHandyPerson(ma);
+    assert.equal(A.handyPerson().pnr, 1002);
+    A.setzGeraetArt('geteilt', ma.id); A.merkeHandyPerson(ma);
+    assert.equal(localStorage.getItem(A.HANDY_PERSON), null);
+    // kaputter oder fremder Inhalt → keine gemerkte Person
+    A.setzGeraetArt('eigen', ma.id);
+    for (const roh of ['x', '{}', '{"pnr":"1002","name":"A"}', '{"pnr":0,"name":"A"}', '{"pnr":1002,"name":""}']) {
+      localStorage.setItem(A.HANDY_PERSON, roh);
+      assert.equal(A.handyPerson(), null, roh);
+    }
+  });
+});
+
+test('15.33: bt_handy_person übersteht das Abmelden (R-08 räumt nur Daten der Person ab), bt_letzte_pnr nicht mehr', async () => {
+  const A = await modul('api.js');
+  const U = await modul('ui.js');
+  mitSpeicher(() => {
+    A.geraetArtBeiAnmeldung(2); A.merkeHandyPerson({ id: 2, name: 'Lukas Brandstätter', pnr: 1002 });
+    localStorage.setItem('bt_letzte_pnr', '"1002"');
+    localStorage.setItem('bt_ich', '{"benutzer":{"id":2}}');
+    U.speicher.raeumeBenutzer();
+    assert.equal(A.handyPerson().name, 'Lukas Brandstätter');
+    assert.equal(localStorage.getItem('bt_letzte_pnr'), null);
+    assert.equal(localStorage.getItem('bt_ich'), null);
+  });
+});

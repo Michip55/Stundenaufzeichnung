@@ -54,9 +54,12 @@ test('Polier/Mitarbeiter: Erwartungen gegenüber e6e3de3 unverändert (nichts ge
 /**
  * Neue Routen für alle Rollen (Inhaberentscheidung), die keine Daten liefern und nur die EIGENE Sitzung betreffen.
  * POST /api/auth/geraet (15.28): Gerätewahl „Geteiltes Gerät“ kürzt die eigene Sitzung; „eigen“ ändert nichts.
+ * GET /api/auth/anmeldung (15.33): öffentlich, nur ob die Namensliste eingeschaltet ist (Antwort geprüft in anmeldung-pnr.test.js).
  */
 const FUER_ALLE = {
-  'POST /api/auth/geraet': '15.28: Inhaber 19.11.2026 – PIN einmal pro Woche für alle Rollen; Antwort nur {sitzungArt, sitzungBis}'
+  'POST /api/auth/geraet': '15.28: Inhaber 19.11.2026 – PIN einmal pro Woche für alle Rollen; Antwort nur {sitzungArt, sitzungBis}',
+  // 15.33: öffentlich wie die Anmeldung selbst – Antwort nur {namensliste} (ob die Namensliste eingeschaltet ist), keine Daten
+  'GET /api/auth/anmeldung': '15.33: Inhaber 19.11.2026 – Anmeldung mit eigenem Namen am eigenen Handy; Antwort nur {namensliste}'
 };
 test('15.28: Routen für alle Rollen ohne Daten – Antwort nur die Lebensdauer der eigenen Sitzung', async () => {
   const { starte, U } = require('./hilfe');

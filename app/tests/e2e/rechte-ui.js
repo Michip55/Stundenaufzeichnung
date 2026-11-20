@@ -57,7 +57,7 @@ const GELD_SICHTBAR = /€|\bEUR\b|\d+,\d{2}\s?€/;
 
 /* ---------- G2-011: Gerätespeicher ---------- */
 // nach dem Abmelden erlaubt (gehört zum Gerät bzw. ist versiegelt, ui.js abmelden: GERAET/WARTEND); Testattrappen e2e_*
-const SPEICHER_NACH_ABMELDEN = new Set(['bt_uebersicht_klassisch', 'bt_stunden_format', 'bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
+const SPEICHER_NACH_ABMELDEN = new Set(['bt_uebersicht_klassisch', 'bt_stunden_format', 'bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt', 'bt_aktiv']);
 
 /* ---------- 15.17 (H-T2): Positivliste für IndexedDB und Cache Storage nach dem Abmelden ---------- */
 // IndexedDB: nur versiegelte Einträge der Schadens-Warteschlange (tresor.js) – ohne jede Angabe im Klartext

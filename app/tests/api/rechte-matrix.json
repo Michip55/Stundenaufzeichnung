@@ -18,6 +18,7 @@
 
     "GET /api/gesundheit": { "r": "O O O O O", "grund": "4 System / 7: für alle" },
     "GET /api/auth/benutzerliste": { "r": "O O O O O", "grund": "4 Auth / 7 B-03: nur {id,name}" },
+    "GET /api/auth/anmeldung": { "r": "O O O O O", "grund": "15.33 öffentlich: nur ob die Namensliste eingeschaltet ist (keine Namen)" },
     "POST /api/auth/login": { "r": "O O O O O", "spezial": "Anmeldung; eigene Tests in rechte-umgehung.test.js", "grund": "4 Auth" },
     "GET /api/auth/2fa": { "r": "J J J J J", "grund": "12.7 eigener Stand" },
     "POST /api/auth/2fa/einrichten": { "r": "N N J J J", "body": { "pin": "1234" }, "nein400": "12.7: andere Rollen → 400", "grund": "12.7 nur bauleiter/buero/gf" },

@@ -10,6 +10,9 @@
 #        „Bereits aktuell“ nur, wenn zusätzlich der LAUFENDE Container genau dieses Image verwendet (Image-ID per
 #        docker inspect) – wurde ein Lauf nach dem Bau und vor „up -d“ abgebrochen, startet der nächste das Image.
 # N-031: Die Caddyfile ist als Einzeldatei eingebunden – nach jeder Änderung wird Caddy neu erstellt.
+# 15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 in deploy/.env (namensliste-umstellen.sh), siehe Schritt 2/5.
+#        Nachprüfung: Hat git pull update.sh selbst geändert, läuft das Update mit der neuen Fassung weiter (exec, Schutzvariable
+#        BAUTAG_UPDATE_NEUSTART = Programmstand vor dem Pull) – bash läse sonst die alte, schon geöffnete Fassung zu Ende.
 set -Eeuo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,21 +59,46 @@ caddy_abgleichen() {
   "${COMPOSE[@]}" up -d --no-deps --force-recreate caddy || echo "WARNUNG: Caddy konnte nicht neu erstellt werden – bitte: ${COMPOSE[*]} up -d --force-recreate caddy" >&2
 }
 
-echo "==> 1/5 Sicherung vor dem Update"
-bash "$DIR/backup.sh" --lokal
+NEUSTART="${BAUTAG_UPDATE_NEUSTART:-}"
+unset BAUTAG_UPDATE_NEUSTART
+if [[ -n "$NEUSTART" && ! "$NEUSTART" =~ ^[0-9a-f]{40}$ ]]; then echo "BAUTAG_UPDATE_NEUSTART ungültig – bitte ohne diese Variable aufrufen." >&2; exit 1; fi
+
+if [[ -z "$NEUSTART" ]]; then
+  echo "==> 1/5 Sicherung vor dem Update"
+  bash "$DIR/backup.sh" --lokal
+fi
 VORHER_DB="$(find /var/lib/bautag/sicherung -maxdepth 1 -name 'bautag-*.db' 2>/dev/null | sort | tail -n 1 || true)"
 
-echo "==> 2/5 Neuen Programmstand holen"
+if [[ -z "$NEUSTART" ]]; then echo "==> 2/5 Neuen Programmstand holen"; fi
 cd "$REPO"
-ALT="$(git rev-parse HEAD)"
+ALT="${NEUSTART:-$(git rev-parse HEAD)}"
 GEBAUT="$(gebaute_revision)"
-git pull --ff-only
+if [[ -z "$NEUSTART" ]]; then
+  git pull --ff-only
+  # Nachprüfung 15.33: update.sh selbst geändert → mit der neuen Fassung weitermachen (Sicherung ist schon gemacht)
+  if [[ "$ALT" != "$(git rev-parse HEAD)" ]] && ! git diff --quiet "$ALT" HEAD -- deploy/update.sh; then
+    echo "update.sh wurde mit dem Programmstand erneuert – das Update läuft mit der neuen Fassung weiter."
+    BAUTAG_UPDATE_NEUSTART="$ALT" exec bash "$DIR/update.sh" "$@"
+  fi
+fi
 NEU="$(git rev-parse HEAD)"
+# 15.33: EINMALIG – eine aus der alten Vorlage stammende Zeile BAUTAG_LOGIN_LISTE=1 auf 0 (Namensliste aus); Sicherung der .env
+# vorher, Rechte nur für root, Merkzeile „# 15.33 Namensliste aus …“ – danach bleibt eine bewusst gesetzte 1 unangetastet
+ENV_NEU=0
+if [[ -f "$DIR/namensliste-umstellen.sh" ]]; then
+  bash "$DIR/namensliste-umstellen.sh" "$DIR/.env" || { rc=$?; if [[ $rc == 3 ]]; then ENV_NEU=1; else echo "WARNUNG: Umstellung der Namensliste (15.33) fehlgeschlagen (Code $rc) – .env unverändert." >&2; fi; }
+fi
 LAEUFT="$(laufendes_image)"
 BAUEN=1
 if [[ "$GEBAUT" == "$NEU" ]]; then
   if [[ -n "$LAEUFT" && "$LAEUFT" == "$(aktuelles_image)" ]]; then
     echo "Bereits aktuell ($NEU)."
+    if [[ "$ENV_NEU" == 1 ]]; then
+      # 15.33: geänderte Einstellungen gelten erst nach dem Neuerstellen des Containers
+      echo "Einstellungen geändert – App wird mit der neuen .env neu gestartet."
+      "${COMPOSE[@]}" up -d --no-build app
+      gesund || echo "WARNUNG: App antwortet nach dem Neustart nicht – bitte prüfen: ${COMPOSE[*]} logs --tail 200 app" >&2
+    fi
     caddy_abgleichen
     exit 0
   fi

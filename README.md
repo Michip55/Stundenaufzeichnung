@@ -26,7 +26,7 @@ Entwurf einer Plattform für einen Erdbau- und Pflasterbetrieb in Österreich (c
 
 ## App starten (echte Anwendung)
 
-**Am einfachsten (Windows):** einmal Node.js „LTS“ von https://nodejs.org installieren, dann im heruntergeladenen Ordner **`BauTag-starten-Windows.bat` doppelklicken** – der Browser öffnet sich automatisch (Mac: `BauTag-starten-Mac.command`). Anmelden mit Namen und PIN 1234 (Testdaten).
+**Am einfachsten (Windows):** einmal Node.js „LTS“ von https://nodejs.org installieren, dann im heruntergeladenen Ordner **`BauTag-starten-Windows.bat` doppelklicken** – der Browser öffnet sich automatisch (Mac: `BauTag-starten-Mac.command`). Anmelden mit Personalnummer und PIN 1234 (Testdaten: 1102 Geschäftsführung, 1101 Büro, 1103 Bauleiter, 1001 Polier, 1002 Mitarbeiter; am eigenen Handy merkt sich die App danach den Namen).
 
 **Testdaten zurücksetzen:** BauTag-Fenster schließen, `BauTag-Testdaten-zuruecksetzen-Windows.bat` (Mac: `BauTag-Testdaten-zuruecksetzen-Mac.command`) doppelklicken und mit `JA` bestätigen – beim nächsten Start gibt es frische Beispieldaten. Die Testversion hat eine eigene Datenbank; der Echtbetrieb auf dem Server startet immer leer (ohne Testdaten).
 

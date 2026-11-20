@@ -365,8 +365,8 @@ async function laufe(browser, g) {
     await w.zu('Langsame Ortung');
 
     /* ---- 9) Prüfbefunde n8-g: wartendes Abmelden (geteiltes Gerät, Fokus, Seite geschlossen bzw. abgestürzt) ---- */
-    const BLEIBT = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format',
-      'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt']); // ui.js raeumeBenutzer: GERAET + WARTEND
+    const BLEIBT = new Set(['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_handy_person', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format',
+      'bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt']); // ui.js raeumeBenutzer: GERAET + WARTEND (15.33: bt_handy_person = am eigenen Handy gemerkter Name + Personalnummer, gewollt)
     const sitzungen = () => s.db.alle('SELECT art FROM sitzung WHERE benutzer_id = 4').length;
     const warteBis = async (f, ms) => { for (let i = 0; i < ms / 100 && !f(); i++) await new Promise((r) => setTimeout(r, 100)); return f(); };
     // Roland stempelt (Pause bzw. Pause beenden – je nach Stand) und tippt in „Mehr“ auf Abmelden; die Ortung läuft noch

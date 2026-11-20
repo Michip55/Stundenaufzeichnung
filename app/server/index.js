@@ -56,6 +56,18 @@ function startPruefen(opt) {
   return { produktion, testToken };
 }
 
+/**
+ * 15.33: Namensliste der Anmeldung aus der Umgebung – nur genau BAUTAG_LOGIN_LISTE=1 schaltet sie ein.
+ * Nachprüfung 15.33: Im Docker-Betrieb (docker-compose.yml setzt BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT=1) zählt die 1 erst, wenn die
+ * .env die Zeile BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 enthält (schreibt deploy/namensliste-umstellen.sh bzw. steht in .env.beispiel).
+ * Grund: Das Update AUF 15.33 läuft noch mit dem alten update.sh (ohne die einmalige Umstellung) – eine 1 aus der alten Vorlage
+ * schaltete die Liste sonst bis zum nächsten Update wieder ein.
+ */
+function loginListeAusUmgebung(env) {
+  if (env.BAUTAG_LOGIN_LISTE !== '1') return false;
+  if (env.BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT === '1' && env.BAUTAG_LOGIN_LISTE_GEPRUEFT !== '15.33') return false;
+  return true;
+}
 function createApp(opt = {}) {
   const start = startPruefen(opt);
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
@@ -65,7 +77,8 @@ function createApp(opt = {}) {
   require('./oeffentlich').geheimnis(db); // 15.11 (G2-017): Geheimnis der öffentlichen Kennungen gleich beim Start anlegen
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
-  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
+  // 15.33 (Inhaber 19.11.2026): öffentliche Namensliste standardmäßig AUS – nur BAUTAG_LOGIN_LISTE=1 schaltet sie ein
+  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : loginListeAusUmgebung(process.env);
   bt.bremse = new LoginBremse(db, uhr);
   // Ausbaustufe 2: Dienste (API.md 12.3–12.5, 12.18)
   bt.test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
@@ -144,6 +157,9 @@ function createApp(opt = {}) {
   bt.pausenTimer.unref();
 
   bt.warnungen = [];
+  if (opt.loginListe === undefined && process.env.BAUTAG_LOGIN_LISTE === '1' && !bt.loginListe) {
+    bt.warnungen.push('BAUTAG_LOGIN_LISTE=1 in .env stammt aus der Vorlage vor 15.33 und wird nicht beachtet – Namensliste aus (Anmeldung mit Personalnummer). Der nächste Aufruf von update.sh stellt die Zeile einmalig auf 0 um; wer die Namensliste wirklich will, setzt danach wieder BAUTAG_LOGIN_LISTE=1.');
+  }
   // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) beim Start deutlich warnen
   bt.schluesselWarnung = null;
   if (!require('./geheim').schluesselGueltig(bt.schluessel)) {
@@ -377,4 +393,4 @@ if (require.main === module) {
   process.on('SIGTERM', stopp);
 }
 
-module.exports = { createApp, StartFehler };
+module.exports = { createApp, StartFehler, loginListeAusUmgebung };
