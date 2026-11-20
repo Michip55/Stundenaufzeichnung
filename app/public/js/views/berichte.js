@@ -181,11 +181,20 @@ const CODES = [['', '–'], ['K', 'K · Krank'], ['U', 'U · Urlaub'], ['SW', 'S
 // R-01: Den Krankenstand anderer sehen und setzen nur Büro/Lohn – alle anderen bekommen vom Server „abwesend“ (Anzeige „abw.“)
 const ABW = ['abwesend', 'abw. · abwesend'];
 const rund2 = (n) => Math.round(n * 100) / 100;
+/* Prüfung 20.11.2026 (15.34): Bericht wurde im Büro gelöscht – eigene Seite statt „Nicht gespeichert: Bericht nicht gefunden.“ */
+const istGeloescht = (e) => Boolean(e && e.status === 404 && e.daten && e.daten.geloescht);
+function zeigeGeloescht(el, ctx, e) {
+  el.innerHTML = `<div class="page narrow"><div class="card state big" data-zustand="geloescht" id="bericht-geloescht">${ic('trash')}<h2>Dieser Bericht wurde gelöscht</h2>
+    <p>${esc(e.message)}</p>${e.daten.grund ? `<p class="muted" data-geloescht-grund>Begründung: ${esc(e.daten.grund)}</p>` : ''}
+    <div class="state-akt"><a class="btn primary" href="#/berichte" data-zur-liste>${ic('clipboard')}Zur Berichtsliste</a>${ctx.kann('bericht_loeschen') ? `<a class="btn ghost" href="#/berichte/papierkorb">${ic('trash')}Papierkorb</a>` : ''}</div></div></div>`;
+  ctx.meldungenNeu();
+}
 export async function bericht(el, ctx) {
   const id = ctx.params[0];
   // 15.11 (G2-024, Regel 5): zuerst nur den Bericht – ist er gesperrt (403/404), erscheint die neutrale Seite, ohne dass
   // Geräte-, Material- oder Mitarbeiterlisten geladen wurden
-  const b = await get(`/berichte/${id}`);
+  let b;
+  try { b = await get(`/berichte/${id}`); } catch (e) { if (istGeloescht(e)) { zeigeGeloescht(el, ctx, e); return; } throw e; }
   const [geraeteKat, matKat, mitarbeiter, integ] = await Promise.all([
     get('/geraete'), get('/materialien'), get('/mitarbeiter').catch(() => []), ctx.integrationen(),
   ]);
@@ -321,6 +330,7 @@ export async function bericht(el, ctx) {
       }
       fehlerText = ''; gespeichertUm = Date.now();
     } catch (e) {
+      if (istGeloescht(e)) { offen.clear(); speichert = false; if (ctx.aktuell()) zeigeGeloescht(el, ctx, e); return; } // 15.34
       felder.forEach((f) => offen.add(f)); // nichts gilt als gespeichert, was der Server nicht bestätigt hat
       fehlerText = e.netz ? 'Keine Verbindung zum Server.' : e.message;
       speichert = false; anzeige();
@@ -842,6 +852,7 @@ export async function bericht(el, ctx) {
       if (b.status !== 'entwurf') ctx.meldungenNeu();
     } catch (e) {
       knopf.disabled = false;
+      if (istGeloescht(e)) { zeigeGeloescht(el, ctx, e); return; } // 15.34
       if (e.status === 409) {
         // D-07: Bericht wurde inzwischen geändert · D-05: für diese Rolle gibt es schon eine Unterschrift
         const veraltet = e.daten && e.daten.version != null && e.daten.version !== b.version;

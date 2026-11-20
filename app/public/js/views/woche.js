@@ -44,7 +44,7 @@ export default async function woche(el, ctx) {
         ${tage.length ? tage.map((t) => {
           const d = fmt.dt(t.datum);
           const frei = !t.stunden && !t.code;
-          return `<div class="wd${t.datum === heute ? ' today' : ''}${frei ? ' off' : ''}">
+          return `<div class="wd${t.datum === heute ? ' today' : ''}${frei ? ' off' : ''}${t.stunden ? '' : ' ohne-std'}">
             <div class="wd-day"><b>${fmt.WTK[d.getDay()]}</b><small>${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.</small></div>
             <div class="wd-mid">${t.code ? `<span>${codeBadge(t.code)} ${esc(CODES[t.code] || t.code)}${t.codeStatus && t.codeStatus !== 'genehmigt' ? ` <span class="chip xs ${t.codeStatus === 'abgelehnt' ? 'st-red' : 'st-amber'}">${t.codeStatus === 'abgelehnt' ? 'abgelehnt' : 'beantragt'}</span>` : ''}</span>` : ''}${t.unplausibel ? '<span class="chip xs st-red">Ausstempeln fehlt – 0 Std. gezählt, bitte im Büro melden</span>' : ''}${(t.baustellen || []).length ? `<span class="wd-site">${(t.baustellen || []).map((x) => esc(bsName(x))).filter(Boolean).join(' · ')}</span>` : frei && !t.unplausibel ? '<span class="wd-site">–</span>' : ''}
               ${t.stunden ? (() => { const n = typeof t.sollStd === 'number' ? t.sollStd : 8; return `<span class="wd-bar"><i data-st="width:${Math.min(100, (Math.min(t.stunden, n) / max) * 100)}%"></i>${t.stunden > n ? `<u data-st="left:${(n / max) * 100}%;width:${((t.stunden - n) / max) * 100}%"></u>` : ''}</span>`; })() : ''}</div>

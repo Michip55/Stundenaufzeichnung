@@ -263,6 +263,9 @@ small { font-size: 12.5px; }
 /* 15.32: Tagessumme in einer Zeile („9 Std. 51 Min.“), Zahlen fett, Einheiten klein wie in den Kacheln */
 .wd-std { text-align: right; white-space: nowrap; font-size: 17px; font-weight: 800; line-height: 1.25; letter-spacing: -.01em; font-variant-numeric: tabular-nums; } .wd-std i { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
 @media (max-width: 380px) { .week-list .wd { grid-template-columns: 40px minmax(0, 1fr) minmax(6.6em, auto); gap: 10px; padding: 12px 12px; } .wd-std { font-size: 15.5px; } .wd-std i { font-size: 11.5px; } }
+/* Prüfung 20.11.2026: Tage ohne Stunden („–“) brauchen die breite Zeitspalte nicht – „U Urlaub“ und „beantragt“ bleiben in einer Zeile */
+.week-list .wd.ohne-std { grid-template-columns: 46px minmax(0, 1fr) auto; }
+@media (max-width: 380px) { .week-list .wd.ohne-std { grid-template-columns: 40px minmax(0, 1fr) auto; } }
 .live { font-style: normal; color: var(--green); font-weight: 700; }
 .two-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .two-stats small { display: block; color: var(--muted); } .two-stats b { font-size: 19px; }
 .profile { display: flex; align-items: center; gap: 16px; } .profile .avatar { background: var(--red); } .profile h2 { font-size: 21px; font-weight: 800; letter-spacing: -.02em; } .profile p { color: var(--muted); }
@@ -335,6 +338,8 @@ a.btn { text-decoration: none; } .btn:disabled, .btn[aria-disabled="true"] { opa
 .state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 20px; text-align: center; color: var(--muted); }
 .state .ic { width: 32px; height: 32px; color: #a3abb5; } .state h2 { font-size: 20px; color: var(--text); font-weight: 800; letter-spacing: -.02em; } .state p { max-width: 420px; }
 .state.small { padding: 22px 16px; font-size: 13.5px; } .state.small .ic { width: 24px; height: 24px; } .state.empty { font-size: 14px; } .state.big { padding: 44px 24px; gap: 12px; }
+.state .state-akt { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; } /* 15.34: Bericht gelöscht */
+#bericht-geloescht > p:first-of-type { color: var(--text); }
 #root > .state { height: 100%; }
 .spinner { position: static; display: inline-block; width: 30px; height: 30px; border-radius: 50%; border: 3.5px solid #e4e7eb; border-top-color: var(--red); animation: spin .8s linear infinite; } .spinner.xs { width: 14px; height: 14px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -502,6 +507,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 .rights th small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; font-family: ui-monospace, monospace; } .rights td { padding: 4px 8px; } .rights thead th.c { min-width: 96px; }
 .rights th small.recht-hinweis { font-family: inherit; font-size: 11.5px; color: var(--muted); white-space: normal; max-width: 460px; line-height: 1.3; margin-top: 2px; } /* 15.34 Prüfung: Voraussetzung eines Rechts */
 .plain.rows small.aus-ohne-wirkung { display: flex; align-items: flex-start; gap: 5px; color: #7a4204; margin-top: 3px; white-space: normal; line-height: 1.3; } .aus-ohne-wirkung .ic { width: 14px; height: 14px; margin-top: 1px; } /* 15.34 Nachprüfung: Ausnahme ohne Wirkung */
+.rights td.ohne-wirkung input:checked + .switch { background: #d97706; } .rights .mx-ohne { display: block; width: 16px; height: 16px; margin: -6px auto 0; color: #b45309; line-height: 0; } .rights .mx-ohne .ic { width: 16px; height: 16px; } /* Prüfung 20.11.2026: Matrix-Recht ohne Voraussetzung der Rolle */
 .lock-cell { display: inline-grid; place-items: center; width: 46px; height: 28px; border-radius: 99px; background: repeating-linear-gradient(135deg, #eceef1 0 6px, #e2e5e9 6px 12px); color: #5a636e; } .lock-cell .ic { width: 15px; height: 15px; } td.locked { background: #fafbfc; }
 .log-ic { width: 34px; height: 34px; border-radius: 10px; background: #eceef1; color: var(--muted); display: grid; place-items: center; flex: none; } .log-ic .ic { width: 17px; height: 17px; } .log b { white-space: normal !important; }
 

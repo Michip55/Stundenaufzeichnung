@@ -326,6 +326,66 @@ test('15.34 Bericht löschen mit Papierkorb', async (t) => {
     }
   });
 
+  await t.test('Prüfung 20.11.2026: Ersteller/Polier erfährt das Löschen (Benachrichtigung, 404 mit Hinweis), andere nur die neutrale 404', async () => {
+    const id = await berichtMitStatus(s, c, 'entwurf', '2026-11-12');
+    const bs = s.db.eins('SELECT kst, polier_id FROM baustelle WHERE id = ?', BS.pitten);
+    assert.equal(bs.polier_id, U.polier);
+    const meldungen = async (cl) => (await cl.get('/benachrichtigungen')).daten.filter((n) => n.typ === 'bericht' && /Bautagesbericht (gelöscht|wiederhergestellt)/.test(n.titel) && n.text.includes('12.11.2026'));
+    const vorher = (await meldungen(c.pol)).length;
+    const v0 = await version(c.pol, id);
+    assert.equal((await loesche(c.buero, id, 'Doppelt angelegt, richtiger Bericht ist 26-041.')).status, 200);
+    // Benachrichtigung an den Polier (Ersteller + Polier der Baustelle: genau eine), nicht an die löschende Person
+    const m = await meldungen(c.pol);
+    assert.equal(m.length, vorher + 1, JSON.stringify(m));
+    assert.equal(m[0].titel, 'Bautagesbericht gelöscht');
+    assert.match(m[0].text, new RegExp(`^Bautagesbericht ${bs.kst} vom 12\\.11\\.2026 wurde von Martina Koller gelöscht – Begründung: Doppelt angelegt, richtiger Bericht ist 26-041\\. Eingaben`));
+    assert.equal(m[0].gelesen, false);
+    assert.deepEqual(await meldungen(c.buero), [], 'wer löscht, bekommt keine Meldung');
+    assert.ok(!(await meldungen(c.mitarbeiter)).length);
+    // 404 mit Hinweis für den Polier: Laden, Speichern, Unterschrift, Foto
+    const g = await c.pol.get(`/berichte/${id}`);
+    assert.equal(g.status, 404);
+    assert.equal(g.daten.geloescht, true);
+    assert.equal(g.daten.fehler, `Der Bautagesbericht ${bs.kst} vom 12.11.2026 wurde am ${g.daten.geloeschtAm.split('-').reverse().join('.')} gelöscht und kann nicht mehr bearbeitet werden. Bitte im Büro nachfragen.`);
+    assert.equal(g.daten.grund, 'Doppelt angelegt, richtiger Bericht ist 26-041.');
+    assert.equal(g.daten.personal, undefined, 'kein Berichtsinhalt');
+    const p = await c.pol.put(`/berichte/${id}`, { vorkommnisse: 'weitergetippt', version: v0 + 1 });
+    assert.equal(p.status, 404); assert.equal(p.daten.geloescht, true);
+    const u = await c.pol.postV(`/berichte/${id}/unterschrift`, { rolle: 'an', name: 'Josef Haidbauer', bildPng: demoUnterschrift('an-weg') });
+    assert.equal(u.status, 404); assert.equal(u.daten.geloescht, true);
+    const f = await c.pol.post(`/berichte/${id}/fotos`, { bildBase64: testJpeg().toString('base64'), dateiname: 'f.jpg' });
+    assert.equal(f.status, 404); assert.equal(f.daten.geloescht, true);
+    assert.equal(s.db.eins('SELECT vorkommnisse FROM bericht WHERE id = ?', id).vorkommnisse, '', 'nichts gespeichert');
+    // außerhalb des Bereichs bzw. unbekannt: neutral wie bisher; ohne Berichtsrecht 403
+    const p2 = await s.login(U.polier2);
+    const bs2 = s.db.eins('SELECT polier_id FROM baustelle WHERE id = ?', BS.pitten);
+    if (bs2.polier_id !== U.polier2) {
+      const n2 = await p2.get(`/berichte/${id}`);
+      assert.equal(n2.status, 404); assert.equal(n2.daten.fehler, 'Bericht nicht gefunden.'); assert.equal(n2.daten.geloescht, undefined);
+    }
+    const unbek = await c.pol.get('/berichte/999999');
+    assert.equal(unbek.status, 404); assert.equal(unbek.daten.geloescht, undefined); assert.equal(unbek.daten.fehler, 'Bericht nicht gefunden.');
+    assert.equal((await c.mitarbeiter.get(`/berichte/${id}`)).status, 403);
+    // Wiederherstellen: Lösch-Meldung gelesen, neue Meldung „wiederhergestellt“
+    assert.equal((await c.buero.post(`/berichte/${id}/wiederherstellen`, {})).status, 200);
+    const m2 = await meldungen(c.pol);
+    assert.equal(m2[0].titel, 'Bautagesbericht wiederhergestellt');
+    assert.match(m2[0].text, /wieder in der Liste/);
+    assert.equal(m2.find((x) => x.titel === 'Bautagesbericht gelöscht' && x.text.includes('26-041.')).gelesen, true);
+    assert.equal((await c.pol.get(`/berichte/${id}`)).status, 200);
+    // Begründung mit Geldwörtern: Polier bekommt sie weder in der Meldung noch in der 404, das Büro schon
+    assert.equal((await loesche(c.gf, id, 'Falscher Preis beim Material, neu anlegen')).status, 200);
+    const m3 = (await meldungen(c.pol))[0];
+    assert.equal(m3.titel, 'Bautagesbericht gelöscht');
+    assert.match(m3.text, /wurde von Michael Pichler gelöscht\. Eingaben/);
+    assert.ok(!/Preis/.test(m3.text), m3.text);
+    const g3 = await c.pol.get(`/berichte/${id}`);
+    assert.equal(g3.status, 404); assert.equal(g3.daten.geloescht, true); assert.equal(g3.daten.grund, undefined);
+    assert.ok(!/Preis/.test(JSON.stringify(g3.daten)));
+    assert.equal((await c.buero.get(`/berichte/${id}`)).daten.grund, 'Falscher Preis beim Material, neu anlegen');
+    assert.equal((await c.gf.post(`/berichte/${id}/wiederherstellen`, {})).status, 200);
+  });
+
   await t.test('nach 30 Tagen endgültig gelöscht – samt Fotodateien, Unterschriften, Zeilen und Links; vorher nicht', async () => {
     const id = await berichtMitStatus(s, c, 'entwurf', '2026-10-16');
     const foto = await c.pol.post(`/berichte/${id}/fotos`, { bildBase64: testJpeg().toString('base64'), dateiname: 'f.jpg' });

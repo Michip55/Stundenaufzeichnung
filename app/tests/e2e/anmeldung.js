@@ -21,6 +21,8 @@
  *  8. Benutzerverwaltung (GF): Warnung „N aktive Personen ohne Personalnummer – sie können sich nicht anmelden“ mit Namen (ohne
  *     inaktive), Speichern ohne Nummer → Meldung, mit Nummer → Warnung kleiner; Polier erreicht die Verwaltung nicht.
  *  9. Namensliste ausdrücklich eingeschaltet (BAUTAG_LOGIN_LISTE=1): Anmeldeseite wie bisher mit Namensliste.
+ *  Prüfung 20.11.2026: Hilfe passt zur Anmeldeart (8: ohne Liste Personalnummer-Texte; 9: „Namen antippen“, für die GF
+ *     Personalnummer freiwillig, ohne die beiden Pflicht-Schritte).
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -343,6 +345,13 @@ async function laufe(browser, g) {
         const d = await p3.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         pruef(d <= 1, `Benutzerverwaltung: seitlicher Überlauf (${d} px)`);
         if (bilder && g.name === 'pc') await p3.screenshot({ path: path.join(bilder, `benutzerverwaltung-ohne-personalnummer-${g.width}.png`) });
+        // Prüfung 20.11.2026: Hilfe passt zur Anmeldeart – ohne Namensliste Personalnummer-Text und beide Personalnummer-Schritte
+        await p3.evaluate(() => { location.hash = '#/hilfe'; });
+        await p3.waitForSelector('#hilfe-anmelden');
+        const ha = await p3.locator('#hilfe-anmelden').innerText();
+        pruef(await p3.locator('#hilfe-anmelden[data-namensliste="aus"]').count() === 1 && /mit Personalnummer/.test(ha) && /geteilten Gerät/.test(ha), `Hilfe ohne Namensliste: Anmeldetext „${ha.slice(0, 100)}“`);
+        const hb = await p3.locator('[data-thema="benutzer"]').textContent();
+        pruef(/Jede aktive Person braucht eine Personalnummer/.test(hb) && /Personalnummer geändert/.test(hb), 'Hilfe ohne Namensliste: Personalnummer-Schritte bei „Benutzer und Rechte“ fehlen');
       } finally { await c3.close(); }
       // Polier: keine Benutzerverwaltung, keine Liste fremder Konten
       const po = await s.login(U.polier);
@@ -364,6 +373,25 @@ async function laufe(browser, g) {
       await p2.click('.pin-pad [data-ok]');
       await p2.waitForSelector('#view');
       pruef((await p2.evaluate(async () => (await (await fetch('/api/auth/ich')).json()).benutzer.id)) === MA.id, 'Namensliste eingeschaltet: Anmeldung über die Liste geht nicht');
+      // Prüfung 20.11.2026: Hilfe mit eingeschalteter Namensliste – „Namen antippen“, kein „zeigt die App nie Namen“
+      await p2.evaluate(() => { location.hash = '#/hilfe'; });
+      await p2.waitForSelector('#hilfe-anmelden');
+      const ha2 = await p2.locator('#hilfe-anmelden').innerText();
+      pruef(await p2.locator('#hilfe-anmelden[data-namensliste="an"]').count() === 1 && /Namen antippen/.test(ha2) && !/nie Namen|Personalnummer/.test(ha2), `Hilfe mit Namensliste: Anmeldetext „${ha2.slice(0, 120)}“`);
+      if (bilder) await p2.screenshot({ path: path.join(bilder, `hilfe-namensliste-an-${g.width}.png`), fullPage: true });
+      // GF mit Namensliste: „Benutzer und Rechte“ nennt die Nummer freiwillig, ohne Pflicht-Warnung und ohne Schritt „geändert“
+      const ctx3 = await browser.newContext({ viewport: { width: g.width, height: g.height }, locale: 'de-AT', timezoneId: 'Europe/Vienna', hasTouch: g.mobil, serviceWorkers: 'block' });
+      try {
+        const p4 = await ctx3.newPage();
+        await p4.goto(`${s2.basis}/#/login`, { waitUntil: 'domcontentloaded' });
+        const st = await p4.evaluate(async (bid) => (await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ benutzerId: bid, pin: '1234' }) })).status, U.gf);
+        pruef(st === 200, `Namensliste: GF-Anmeldung ${st}`);
+        await p4.evaluate(() => localStorage.setItem('bt_ich', '{}'));
+        await p4.goto(`${s2.basis}/?start=${U.gf}#/hilfe`, { waitUntil: 'domcontentloaded' });
+        await p4.waitForSelector('#hilfe-anmelden');
+        const hb2 = await p4.locator('[data-thema="benutzer"]').textContent();
+        pruef(/Personalnummer ist freiwillig/.test(hb2) && !/Jede aktive Person braucht eine Personalnummer – damit/.test(hb2) && !/Personalnummer geändert/.test(hb2), `Hilfe mit Namensliste (GF): „Benutzer und Rechte“ falsch („${hb2.slice(0, 160)}“)`);
+      } finally { await ctx3.close(); }
     } finally { await s2.stop(); }
   } catch (e) {
     const zeile = (/anmeldung\.js:(\d+)/.exec(e.stack || '') || [])[1];

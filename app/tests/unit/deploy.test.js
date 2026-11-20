@@ -193,6 +193,20 @@ test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Siche
     const crlf = fall('crlf', 'A=1\r\nBAUTAG_LOGIN_LISTE = "1"\r\nB=2\r\n');
     assert.equal(lauf(crlf).status, 3);
     assert.match(fs.readFileSync(crlf, 'utf8'), /^A=1\r\n# 15\.33 Namensliste aus [^\n]*\)\r\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\r\nBAUTAG_LOGIN_LISTE=0\r\nB=2\r\n$/);
+    // 6b) Prüfung 20.11.2026: Kommentar hinter der 1 (Compose schneidet ihn ab → Wert 1) gilt als eingeschaltet → 0
+    const komm = fall('kommentar', 'A=1\nBAUTAG_LOGIN_LISTE=1 # Namen waehlen\nB=2\n');
+    r = lauf(komm);
+    assert.equal(r.status, 3, r.stdout + r.stderr);
+    assert.match(r.stdout, /EINMALIGE UMSTELLUNG/);
+    neu = fs.readFileSync(komm, 'utf8');
+    assert.match(neu, /^A=1\n# 15\.33 Namensliste aus \(einmalig umgestellt[^\n]*\)\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\nBAUTAG_LOGIN_LISTE=0\nB=2\n$/);
+    const komm2 = fall('kommentar2', "export BAUTAG_LOGIN_LISTE='1'\t# an\r\n");
+    assert.equal(lauf(komm2).status, 3);
+    assert.match(fs.readFileSync(komm2, 'utf8'), /\r\nBAUTAG_LOGIN_LISTE=0\r\n$/);
+    // =0 mit Kommentar: bleibt unverändert, nur Merkzeile
+    const komm3 = fall('kommentar3', 'BAUTAG_LOGIN_LISTE=0 # aus\n');
+    assert.equal(lauf(komm3).status, 0);
+    assert.match(fs.readFileSync(komm3, 'utf8'), /^BAUTAG_LOGIN_LISTE=0 # aus\n# 15\.33 Namensliste aus \(einmalig geprüft/);
     // 7) .env fehlt: nichts
     assert.equal(lauf(path.join(ordner, 'gibtsnicht', '.env')).status, 0);
     // update.sh ruft die Umstellung nach dem Holen des Programmstands auf und startet bei Code 3 neu

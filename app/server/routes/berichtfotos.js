@@ -87,7 +87,7 @@ module.exports = function berichtFotoRouten(api, bt) {
   function bericht(req, schreiben) {
     B.pruefeGrundrecht(req.ctx, schreiben); // 15.7 (F-036): Recht vor Existenz
     const b = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
-    if (!b) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!b) throw B.geloeschtOderUnbekannt(db, req.ctx, v.pfadId(req.params.id, 'Berichts-ID')); // 15.34: „wurde gelöscht“
     if (schreiben) {
       B.pruefeSchreiben(req.ctx, b.baustelle);
       if (b.status !== 'entwurf' || b.unterschriften.length) throw konflikt(B.GESPERRT_TEXT);
@@ -121,7 +121,7 @@ module.exports = function berichtFotoRouten(api, bt) {
     // 15.7 (F-036): ohne bericht_erstellen und ohne stammdaten (Papierbericht) sofort 403 – vor jeder Existenzprüfung
     if (!req.ctx.hat('bericht_erstellen') && !req.ctx.hat('stammdaten')) throw require('../fehler').keinZugriff('Berichte erstellen ist für Ihre Rolle nicht freigeschaltet.');
     const b0 = B.ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
-    if (!b0) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!b0) throw B.geloeschtOderUnbekannt(db, req.ctx, v.pfadId(req.params.id, 'Berichts-ID'));
     const f0 = db.eins('SELECT * FROM bericht_foto WHERE id = ? AND bericht_id = ?', v.pfadId(req.params.fid, 'Foto-ID'), b0.id);
     // Papierbericht-Seiten (Archiv, 12.12) löschen allein mit dem Recht stammdaten (15.4) – nie nach Rollenname
     let b, f;

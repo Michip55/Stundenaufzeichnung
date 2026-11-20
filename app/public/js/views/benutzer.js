@@ -43,6 +43,23 @@ export default async function benutzer(el, ctx) {
   const hatRecht = (m, recht) => fest(m.rolle, recht) || (!gesperrt(m.rolle, recht) && (!!((r.matrix || {})[m.rolle] || {})[recht] || (r.ausnahmen || []).some((a) => a.benutzerId === m.id && a.recht === recht)));
   const fehltVoraussetzung = (m, recht) => { const v = (r.voraussetzung || {})[recht] || []; return v.length > 0 && !v.some((x) => hatRecht(m, x)); };
   const ohneWirkung = (recht) => `Noch ohne Wirkung – ${rechtDaten(recht).hinweis || 'für diese Rolle gesperrt'}.`;
+  // Prüfung 20.11.2026: dasselbe in der Matrix – eingeschaltet, aber der Rolle fehlt die Voraussetzung (z. B. Löschen ohne
+  // „erstellen“/„freigeben“) → Schalter gedämpft mit Warnzeichen; nach jedem Matrix-Schalter neu bewertet (matrixWirkung)
+  const rolleHat = (rolle, recht) => fest(rolle, recht) || (!gesperrt(rolle, recht) && !!((r.matrix || {})[rolle] || {})[recht]);
+  const rolleOhneWirkung = (rolle, recht) => { const v = (r.voraussetzung || {})[recht] || []; return v.length > 0 && rolleHat(rolle, recht) && !v.some((x) => rolleHat(rolle, x)); };
+  const mxOhneText = (recht) => `Ohne Wirkung – erst „${((r.voraussetzung || {})[recht] || []).map(rechtText).join('“ oder „')}“ einschalten`;
+  const mxOhne = (recht) => `<span class="mx-ohne" data-mx-ohne role="img" aria-label="${esc(mxOhneText(recht))}" title="${esc(mxOhneText(recht))}">${ic('alert')}</span>`;
+  function matrixWirkung() {
+    $$('#matrix td[data-rolle][data-recht]', el).forEach((td) => {
+      const { rolle, recht } = td.dataset;
+      if (!(r.voraussetzung || {})[recht] || td.hasAttribute('data-gesperrt')) return;
+      const ohne = rolleOhneWirkung(rolle, recht);
+      td.classList.toggle('ohne-wirkung', ohne);
+      const da = $('[data-mx-ohne]', td);
+      if (ohne && !da) td.insertAdjacentHTML('beforeend', mxOhne(recht));
+      if (!ohne && da) da.remove();
+    });
+  }
 
   function matrixHtml() {
     const ro = rollen();
@@ -53,7 +70,8 @@ export default async function benutzer(el, ctx) {
           const an = !!((r.matrix || {})[x.schluessel] || {})[re.schluessel];
           if (gesperrt(x.schluessel, re.schluessel)) return `<td class="c locked" data-rolle="${x.schluessel}" data-recht="${re.schluessel}" data-gesperrt><span class="lock-cell" role="img" aria-label="Gesperrt: für ${esc(x.name)} nicht vergebbar" title="Gesperrt – für ${esc(x.name)} nicht vergebbar">${ic('lock')}</span></td>`;
           const f = fest(x.schluessel, re.schluessel);
-          return `<td class="c" data-rolle="${x.schluessel}" data-recht="${re.schluessel}"><label class="tgl" title="${f ? 'Immer aktiv – die Geschäftsführung kann sich nicht aussperren' : ''}"><input type="checkbox" class="vh" ${an ? 'checked' : ''} ${f ? 'disabled' : ''} aria-label="${esc(re.text)} für ${esc(x.name)}"><span class="switch" aria-hidden="true"></span></label></td>`;
+          const ohne = rolleOhneWirkung(x.schluessel, re.schluessel);
+          return `<td class="c${ohne ? ' ohne-wirkung' : ''}" data-rolle="${x.schluessel}" data-recht="${re.schluessel}"><label class="tgl" title="${f ? 'Immer aktiv – die Geschäftsführung kann sich nicht aussperren' : ''}"><input type="checkbox" class="vh" ${an ? 'checked' : ''} ${f ? 'disabled' : ''} aria-label="${esc(re.text)} für ${esc(x.name)}"><span class="switch" aria-hidden="true"></span></label>${ohne ? mxOhne(re.schluessel) : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table></div></section>
       <section class="card" aria-labelledby="h-aus">
         <div class="card-h pad-h"><h3 id="h-aus">Ausnahmen je Benutzer <span class="count">${(r.ausnahmen || []).length}</span></h3><button type="button" class="btn ghost sm" data-akt="ausnahme">${ic('plus')}Ausnahme</button></div>
@@ -290,8 +308,9 @@ export default async function benutzer(el, ctx) {
     try {
       await put('/rechte/matrix', { rolle: td.dataset.rolle, recht: td.dataset.recht, wert });
       r.matrix[td.dataset.rolle] = r.matrix[td.dataset.rolle] || {}; r.matrix[td.dataset.rolle][td.dataset.recht] = wert;
+      matrixWirkung();
       toast(`${rechtText(td.dataset.recht)}: für ${rolleText(td.dataset.rolle)} ${wert ? 'eingeschaltet' : 'ausgeschaltet'}.`);
-      get('/rechte').then((n) => { r = n; ausnahmenNeu(); }).catch(() => {});
+      get('/rechte').then((n) => { r = n; ausnahmenNeu(); matrixWirkung(); }).catch(() => {});
     } catch (x) { inp.checked = !wert; toast(x.message, 'warn'); }
     inp.disabled = false;
   });

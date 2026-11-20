@@ -55,7 +55,42 @@ function loeschen(bt, ctx, b, grund) {
       text: `Bericht ${b.baustelle.kst} ${b.datum} (${STATUS_TEXT[b.status] || b.status}) gelöscht – im Papierkorb bis ${tagText(require('./datum').wienDatum(new Date(endgueltigAm(zeit))))}. Begründung: ${grund}` });
   });
   folgen(bt, b, ctx.benutzer.id, 'Bautagesbericht gelöscht');
+  betroffeneBenachrichtigen(bt, ctx, b, { zeit, grund, art: 'geloescht' });
   return { geloeschtZeit: zeit, endgueltigAm: endgueltigAm(zeit) };
+}
+
+/**
+ * Prüfung 20.11.2026: Ersteller und Polier der Baustelle erfahren, dass „ihr“ Bericht gelöscht bzw. wiederhergestellt wurde
+ * (nicht, wer selbst gelöscht hat). Neutral, ohne €: enthält die Begründung Geld-/Kalkulationswörter, bekommen Empfänger ohne
+ * preise_sehen/kalk_sehen sie nicht (15.11 G2-015). Nur Empfänger, die Berichte dieser Baustelle sehen dürfen.
+ */
+function empfaengerZuBericht(db, b, ohne) {
+  const R = require('./rechte');
+  const ids = [...new Set([b.erstellt_von, b.baustelle && b.baustelle.polier_id].filter((x) => x != null && x !== ohne))];
+  return ids.map((id) => db.eins('SELECT * FROM benutzer WHERE id = ? AND aktiv = 1', id)).filter((u) => {
+    if (!u) return false;
+    const r = R.ladeRechteFuer(db, u);
+    return (r.has('bericht_erstellen') || r.has('bericht_freigeben')) && R.baustelleImBereich(u, b.baustelle);
+  });
+}
+/** Begründung für diesen Empfänger (ohne Geldwörter für Personen ohne Preis-/Kalkulationsrecht) oder '' */
+function grundFuer(db, u, grund) {
+  if (!grund) return '';
+  const r = require('./rechte').ladeRechteFuer(db, u);
+  return !r.has('preise_sehen') && !r.has('kalk_sehen') && require('./fehler').enthaeltGeld(grund) ? '' : grund;
+}
+function betroffeneBenachrichtigen(bt, ctx, b, { zeit, grund, art }) {
+  const { db } = bt;
+  const { benachrichtige } = require('./benachrichtigung');
+  const was = `Bautagesbericht ${b.baustelle.kst} vom ${tagText(b.datum)}`;
+  for (const u of empfaengerZuBericht(db, b, ctx.benutzer.id)) {
+    const g = art === 'geloescht' ? grundFuer(db, u, grund).replace(/[\s.!]+$/, '') : '';
+    benachrichtige(db, { benutzerId: u.id, typ: 'bericht', zeit, baustelleId: b.baustelle_id, schluessel: `bericht-${art}:${b.id}:${zeit}:v${b.version}`, // version: je Löschen/Wiederherstellen neu
+      titel: art === 'geloescht' ? 'Bautagesbericht gelöscht' : 'Bautagesbericht wiederhergestellt',
+      text: art === 'geloescht'
+        ? `${was} wurde von ${ctx.benutzer.name} gelöscht${g ? ` – Begründung: ${g}` : ''}. Eingaben dazu werden nicht mehr gespeichert – bei Fragen bitte im Büro melden.`
+        : `${was} wurde aus dem Papierkorb wiederhergestellt und ist wieder in der Liste.` });
+  }
 }
 
 /** Auswertungen, die vom Bericht abhängen, neu bewerten (Budget-Alarme, Servicebuch-Gerätestunden) */
@@ -118,6 +153,9 @@ function wiederherstellen(bt, ctx, z) {
   });
   const b = require('./routes/berichte').ladeBerichtRoh(db, z.id);
   folgen(bt, b, ctx.benutzer.id, 'Bautagesbericht wiederhergestellt');
+  // die Lösch-Meldung ist damit erledigt; Ersteller/Polier erfahren, dass der Bericht wieder da ist
+  db.lauf('UPDATE benachrichtigung SET gelesen = 1 WHERE gelesen = 0 AND schluessel LIKE ?', `bericht-geloescht:${z.id}:%`);
+  betroffeneBenachrichtigen(bt, ctx, b, { zeit: bt.uhr().toISOString(), art: 'wieder' });
   return b;
 }
 
@@ -175,4 +213,4 @@ function endgueltigLoeschen(bt) {
   return n;
 }
 
-module.exports = { FRIST_TAGE, FRIST_MS, MIN_GRUND, endgueltigAm, aktiverBericht, loeschen, wiederherstellen, geloeschte, eintragJson, endgueltigLoeschen };
+module.exports = { grundFuer, FRIST_TAGE, FRIST_MS, MIN_GRUND, endgueltigAm, aktiverBericht, loeschen, wiederherstellen, geloeschte, eintragJson, endgueltigLoeschen };

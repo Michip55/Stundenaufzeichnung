@@ -158,3 +158,46 @@ test('15.33: /auth/ich nennt die eigene Personalnummer – nie die einer anderen
     }
   } finally { await s.stop(); }
 });
+
+/**
+ * Prüfung 20.11.2026: Nach dem Update auf 15.33 (Namensliste aus) können sich aktive Konten ohne Personalnummer nicht anmelden.
+ * Der Server meldet sie schon beim Start (bt.warnungen → Protokoll), hervorgehoben, wenn kein Konto mit Recht „benutzer“ eine
+ * Nummer hat; mit eingeschalteter Namensliste keine Warnung (dort ist die Nummer freiwillig).
+ */
+test('Prüfung 20.11.2026: Startwarnung zu aktiven Konten ohne Personalnummer', async () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const { ohnePersonalnummerWarnungen } = require('../../server/index');
+  const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-pnr-'));
+  const dbPath = path.join(ordner, 'bautag.db');
+  let erst = true;
+  const start = (opt) => { const a = createApp({ dbPath, uhr: () => new Date(START), seed: erst, demo: true, test: true, ...opt }); erst = false; return a; };
+  const pnrWarn = (app) => app.bt.warnungen.filter((w) => /ohne Personalnummer|KEIN aktives Konto/.test(w));
+  try {
+    let app = start({ loginListe: false });
+    assert.deepEqual(pnrWarn(app), [], 'Beispieldaten: alle haben eine Nummer');
+    // Büro und Bauleiter ohne Nummer: eine Warnung mit Namen; die GF (Recht „benutzer“) hat noch eine
+    app.bt.db.lauf('UPDATE benutzer SET pnr = NULL WHERE id IN (?, ?)', U.buero, U.bauleiter);
+    app.schliessen();
+    app = start({ loginListe: false });
+    let w = pnrWarn(app);
+    assert.equal(w.length, 1, JSON.stringify(w));
+    assert.match(w[0], /^2 aktive Konten ohne Personalnummer – können sich ohne Namensliste nicht anmelden: Martina Koller \(buero\), Stefan Aigner \(bauleiter\)\./);
+    app.schliessen();
+    // auch die GF ohne Nummer: niemand mit Benutzerrecht kommt hinein → zweite, hervorgehobene Warnung mit dem Notweg
+    app = start({ loginListe: false });
+    app.bt.db.lauf('UPDATE benutzer SET pnr = NULL WHERE id = ?', U.gf);
+    w = ohnePersonalnummerWarnungen(app.bt.db);
+    assert.equal(w.length, 2);
+    assert.match(w[0], /^3 aktive Konten ohne Personalnummer/);
+    assert.match(w[1], /^ACHTUNG: KEIN aktives Konto mit dem Recht „Benutzer und Rechte verwalten“ hat eine Personalnummer/);
+    assert.match(w[1], /BAUTAG_LOGIN_LISTE=1 und BAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33/);
+    app.schliessen();
+    // mit Namensliste: keine Warnung (Nummer freiwillig); inaktive Konten zählen nie
+    app = start({ loginListe: true });
+    assert.deepEqual(pnrWarn(app), []);
+    app.bt.db.lauf('UPDATE benutzer SET aktiv = 0 WHERE pnr IS NULL AND id <> ?', U.gf);
+    w = ohnePersonalnummerWarnungen(app.bt.db);
+    assert.equal(w.length, 2); assert.match(w[0], /^1 aktives Konto ohne Personalnummer – kann sich/);
+    app.schliessen();
+  } finally { fs.rmSync(ordner, { recursive: true, force: true }); }
+});

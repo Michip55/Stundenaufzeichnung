@@ -11,6 +11,7 @@
  *     15.32; alle Balken gleich lang skaliert, höchstens 260 px), Stempeluhr „Heute“ „9 Std. 51 Min.“.
  * 2b. „Meine Woche“ mit „Ausstempeln fehlt“ (Nachprüfung 15.32): Hinweis in natürlicher Breite auch an einem Tag mit
  *     Stunden; Tag ohne Stunden zeigt nur den Hinweis, keinen zusätzlichen „–“ in der Mitte.
+ *     Prüfung 20.11.2026: beantragter Urlaub – „U Urlaub“ und „beantragt“ stehen auch bei 360/390 px in einer Zeile.
  *  3. Summen = Summe der sichtbaren Einzelwerte: 5 × „7:40“ ergibt „38:20“ (nicht „38:21“ aus 5 × 7,67) in Meine Woche,
  *     Monatsauswertung (Summe, Normal + Üst. + Mehr, Kachel) und Bautagesbericht (3 × 7:40 = „23:00“); Dezimal bleibt die
  *     Summe der API. Arbeitszeitmodell-Dialog meldet dezimal wie die Eingabe; Hinweis der Nachkalkulation in Langform.
@@ -196,6 +197,9 @@ async function laufe(browser, g) {
     buche('kommen', '2026-10-12T05:00:00.000Z', BS.pitten); buche('gehen', '2026-10-12T13:00:00.000Z');
     buche('kommen', '2026-10-12T14:00:00.000Z', BS.pitten); buche('gehen', '2026-10-13T07:00:00.000Z');
     buche('kommen', '2026-10-14T05:00:00.000Z', BS.pitten); buche('gehen', '2026-10-14T22:00:00.000Z');
+    // Prüfung 20.11.2026: Fr 16.10. Urlaub beantragt – „U Urlaub“ und „beantragt“ in EINER Zeile (Tag ohne Stunden braucht die
+    // breite Zeitspalte nicht)
+    s.db.lauf("INSERT INTO abwesenheit (benutzer_id, datum, code, status, erfasst_von, erfasst) VALUES (?, '2026-10-16', 'U', 'beantragt', ?, '2026-10-01T08:00:00.000Z')", U.mitarbeiter, U.mitarbeiter);
     const hinweis = async ({ page, geh, api, text, layout }, breite) => {
       const w = `Woche Hinweis${breite ? ` ${breite}px` : ''}`;
       await geh('#/woche?datum=2026-10-14');
@@ -223,6 +227,14 @@ async function laufe(browser, g) {
       }
       pruef(z['2026-10-14'].platzhalter === 0 && z['2026-10-14'].kinder === 1, `${w}: Tag ohne Stunden mit Hinweis zeigt zusätzlich „–“ in der Mitte ${JSON.stringify(z['2026-10-14'])}`);
       pruef(z['2026-10-13'].platzhalter === 1 && !z['2026-10-13'].breit, `${w}: leerer Tag ohne „–“ in der Mitte ${JSON.stringify(z['2026-10-13'])}`);
+      const u = await page.evaluate(() => {
+        const wd = document.querySelector('[data-tag-std="2026-10-16"]').closest('.wd');
+        const badge = wd.querySelector('.wd-mid .code-badge'), chip = wd.querySelector('.wd-mid .chip');
+        if (!badge || !chip) return null;
+        const a = badge.getBoundingClientRect(), c = chip.getBoundingClientRect();
+        return { mitte: Math.round((a.top + a.bottom) / 2 - (c.top + c.bottom) / 2), text: chip.textContent.trim(), rechts: Math.round(c.right - wd.querySelector('.wd-std').getBoundingClientRect().left) };
+      });
+      pruef(u && u.text === 'beantragt' && Math.abs(u.mitte) <= 3 && u.rechts <= 0, `${w}: „U Urlaub“ und „beantragt“ nicht in einer Zeile bzw. überlappend ${JSON.stringify(u)}`);
       await layout(w, '.wd, .wd-mid, .wd-std');
     };
     await sitzung(U.mitarbeiter, 'Meine Woche Hinweis', (h) => hinweis(h));

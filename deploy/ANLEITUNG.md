@@ -76,6 +76,15 @@ sudo bash /opt/bautag/deploy/update.sh
 
 Nach einer Änderung an der `Caddyfile` erstellt `update.sh` den Webserver (Caddy) automatisch neu. Ist ein Bau fehlgeschlagen, setzt `update.sh` den Programmstand zurück; einfach später erneut aufrufen – es baut dann wieder.
 
+**Einmalig beim Update auf 15.33 (Anmeldung mit Personalnummer, Namensliste aus):**
+1. *Vorher* prüfen, ob es aktive Konten ohne Personalnummer gibt – diese können sich nach dem Update nicht mehr anmelden:
+   ```
+   sudo docker compose -f /opt/bautag/deploy/docker-compose.yml exec -T app node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync(process.env.BAUTAG_DB).prepare('SELECT name, rolle FROM benutzer WHERE aktiv = 1 AND pnr IS NULL').all())"
+   ```
+   Steht dort jemand (`[]` heißt: alle haben eine Nummer), in der App unter *Benutzer & Rechte → Bearbeiten* die Personalnummer eintragen – vor allem bei Geschäftsführung und Büro.
+2. `update.sh` **zweimal** aufrufen: Der erste Lauf läuft noch mit der alten Fassung von `update.sh` und meldet die Umstellung nicht; erst der zweite stellt die `.env` einmalig um und meldet „EINMALIGE UMSTELLUNG …“.
+3. Im Protokoll der App (`… logs --tail 100 app`) nach „ohne Personalnummer“ suchen: Der Server nennt beim Start alle aktiven Konten ohne Nummer. Kann sich niemand mehr anmelden, hilft der Notweg unter *Hilfe bei Problemen*.
+
 ## Speicherplatz
 
 Was die Festplatte braucht (Richtwerte):
@@ -126,6 +135,7 @@ Siehe **SICHERHEIT.md, Abschnitt „Notfall: Wiederherstellung“**. Kurzfassung
 - Protokoll der App: `sudo docker compose -f /opt/bautag/deploy/docker-compose.yml logs --tail 100 app`
 - Protokoll der Sicherung: `sudo tail -50 /var/log/bautag-sicherung.log`
 - Neu starten: `sudo docker compose -f /opt/bautag/deploy/docker-compose.yml restart`
+- **Niemand kann sich anmelden („Anmeldung bitte mit Personalnummer“), weil Geschäftsführung/Büro keine Personalnummer haben** (Protokoll: „KEIN aktives Konto mit dem Recht … hat eine Personalnummer“): in `/opt/bautag/deploy/.env` vorübergehend `BAUTAG_LOGIN_LISTE=1` setzen und darunter `BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33` eintragen, dann `sudo docker compose -f /opt/bautag/deploy/docker-compose.yml up -d app`. Die Anmeldeseite zeigt jetzt wieder die Namen: anmelden, unter *Benutzer & Rechte* allen Personen eine Personalnummer eintragen. Danach in der `.env` wieder `BAUTAG_LOGIN_LISTE=0` und nochmals `… up -d app` – sonst bleibt die öffentliche Namensliste an.
 
 ## Größengrenzen beim Hochladen
 

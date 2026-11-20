@@ -16,6 +16,9 @@
  *  4. Bauleiter (= Büro) sieht dieselben Knöpfe; Freigegebener Bericht: Warnung „freigegeben“ im Dialog.
  *  5. GF, Benutzer & Rechte (Nachprüfung 19.11.2026): Ausnahme „Bautagesberichte löschen“ für einen Mitarbeiter ohne
  *     Berichtsrecht → Warnung im Dialog, Toast und Liste „Noch ohne Wirkung“; nach Matrix-Schalter „erstellen“ weg.
+ *  6. Prüfung 20.11.2026: Polier hat seinen Bericht offen, das Büro löscht ihn → beim Weitertippen Seite „Dieser Bericht wurde
+ *     gelöscht“ mit Begründung und „Zur Berichtsliste“ (auch nach dem Neuladen), Benachrichtigung; Büro mit Papierkorb-Verweis.
+ *     GF: Matrix-Zelle „Bautagesberichte löschen“ zeigt „ohne Wirkung“, sobald der Rolle „erstellen“ und „freigeben“ fehlen.
  * Ohne horizontalen Überlauf (Seite und Dialog), ohne Konsolenfehler.
  */
 const { chromium } = require('playwright');
@@ -198,6 +201,46 @@ async function laufe(browser, g) {
       pruef(db.eins('SELECT geloescht_zeit FROM bericht WHERE id = ?', freigegeben.id).geloescht_zeit === null, 'Abbrechen hat gelöscht');
     });
 
+    // 6) Prüfung 20.11.2026: Polier hat seinen Bericht offen, das Büro löscht ihn → beim nächsten Speichern eigene Seite
+    //    „Dieser Bericht wurde gelöscht“ mit Begründung und Weg zur Liste (statt „Nicht gespeichert: Bericht nicht gefunden.“);
+    //    nach dem Neuladen dieselbe Seite; Benachrichtigung in der Glocke.
+    {
+      const tag = '2026-11-11';
+      db.lauf('DELETE FROM bericht WHERE baustelle_id = 1 AND datum = ?', tag);
+      const pol = await s.login(U.polier);
+      const neu = (await pol.post('/berichte', { baustelleId: 1, datum: tag })).daten;
+      const buero = await s.login(U.buero);
+      const GRUND6 = 'Falscher Tag – der Bericht gehört zum 12.11.';
+      await sitzung(U.polier, 'Polier gelöscht', async ({ page, geh, ueberlauf }) => {
+        await geh(`/bericht/${neu.id}?schritt=4`);
+        pruef(await page.locator('.bform').count() === 1, 'Polier: Bericht nicht geöffnet');
+        const v = (await buero.get(`/berichte/${neu.id}`)).daten.version;
+        pruef((await buero.post(`/berichte/${neu.id}/loeschen`, { grund: GRUND6, version: v })).status === 200, 'Büro: Löschen');
+        await page.locator('textarea[data-f="arbeitsleistung"]').fill('Künette ausgehoben, 12 m Rohr verlegt');
+        await page.waitForSelector('#bericht-geloescht', { timeout: 8000 }).catch(() => {});
+        const t = await page.locator('#bericht-geloescht').innerText().catch(() => '');
+        pruef(/Dieser Bericht wurde gelöscht/.test(t) && /Bitte im Büro nachfragen/.test(t) && t.includes(GRUND6), `Polier: Hinweis „gelöscht“ fehlt („${t.slice(0, 160)}“)`);
+        pruef(await page.locator('#unsaved:visible, .bform').count() === 0, 'Polier: Formular bzw. „Nicht gespeichert“ steht noch da');
+        pruef(await page.locator('#bericht-geloescht a[href="#/berichte/papierkorb"]').count() === 0, 'Polier: Verweis auf den Papierkorb ohne Recht');
+        await ueberlauf('Polier: Bericht gelöscht');
+        await page.waitForFunction(() => !document.querySelector('#glocke-zahl') || !document.querySelector('#glocke-zahl').hidden, null, { timeout: 5000 }).catch(() => {});
+        const m = (await pol.get('/benachrichtigungen')).daten.find((x) => x.titel === 'Bautagesbericht gelöscht');
+        pruef(m && m.text.includes('11.11.2026') && m.text.includes('Martina Koller') && m.text.includes('Falscher Tag'), `Polier: Benachrichtigung fehlt (${m && m.text})`);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('#bericht-geloescht', { timeout: 8000 }).catch(() => {});
+        pruef(await page.locator('#bericht-geloescht').count() === 1 && await page.locator('[data-zustand="fehler"]').count() === 0, 'Polier: nach dem Neuladen nicht „gelöscht“');
+        await page.locator('#bericht-geloescht [data-zur-liste]').click();
+        await page.waitForFunction(() => location.hash === '#/berichte', null, { timeout: 5000 }).catch(() => {});
+        pruef(await page.evaluate(() => location.hash) === '#/berichte', 'Polier: „Zur Berichtsliste“ führt nicht zur Liste');
+      }, /status of 404/);
+      // Büro (mit Papierkorb) sieht beim Öffnen dieselbe Seite mit Verweis auf den Papierkorb
+      await sitzung(U.buero, 'Büro gelöscht', async ({ page, geh }) => {
+        await geh(`/bericht/${neu.id}`);
+        pruef(await page.locator('#bericht-geloescht a[href="#/berichte/papierkorb"]').count() === 1, 'Büro: Verweis auf den Papierkorb fehlt');
+      }, /status of 404/);
+      await buero.post(`/berichte/${neu.id}/wiederherstellen`, {});
+    }
+
     // 5) GF, Benutzer & Rechte (Nachprüfung 19.11.2026): Ausnahme „Bautagesberichte löschen“ für einen Mitarbeiter ohne
     //    Berichtsrecht – Warnung im Dialog, Hinweis in der Liste; verschwindet, sobald die Matrix „erstellen“ gibt
     const maName = db.eins('SELECT name FROM benutzer WHERE id = ?', U.mitarbeiter).name;
@@ -226,7 +269,29 @@ async function laufe(browser, g) {
       await page.locator('#matrix td[data-rolle="mitarbeiter"][data-recht="bericht_erstellen"] label.tgl').click();
       await page.waitForFunction((b) => !document.querySelector(`#ausnahmen li[data-b="${b}"][data-r="bericht_loeschen"] [data-aus-hinweis]`), U.mitarbeiter, { timeout: 5000 }).catch(() => {});
       pruef(await zeile.locator('[data-aus-hinweis]').count() === 0, 'Ausnahmen-Liste: Hinweis bleibt nach Matrix-Schalter');
+      // Prüfung 20.11.2026: Matrix-Zelle zeigt „ohne Wirkung“, sobald der Rolle „erstellen“ und „freigeben“ fehlen
+      const zelle = page.locator('#matrix td[data-rolle="buero"][data-recht="bericht_loeschen"]');
+      pruef(await zelle.locator('[data-mx-ohne]').count() === 0, 'Matrix: Büro „löschen“ ohne Grund als ohne Wirkung markiert');
+      for (const recht of ['bericht_erstellen', 'bericht_freigeben']) {
+        await page.locator(`#matrix td[data-rolle="buero"][data-recht="${recht}"] label.tgl`).click();
+        await page.waitForFunction((r) => { const i = document.querySelector(`#matrix td[data-rolle="buero"][data-recht="${r}"] input`); return i && !i.checked && !i.disabled; }, recht, { timeout: 5000 }).catch(() => {});
+      }
+      await page.waitForFunction(() => document.querySelector('#matrix td[data-rolle="buero"][data-recht="bericht_loeschen"] [data-mx-ohne]'), null, { timeout: 5000 }).catch(() => {});
+      const titel = await zelle.locator('[data-mx-ohne]').getAttribute('title').catch(() => '');
+      pruef(/Ohne Wirkung – erst „Bautagesbericht erstellen“ oder „Bautagesbericht freigeben“ einschalten/.test(titel || ''), `Matrix: Warnzeichen „ohne Wirkung“ fehlt (${titel})`);
+      pruef(await zelle.evaluate((td) => td.classList.contains('ohne-wirkung')) && await zelle.locator('input').isChecked(), 'Matrix: Zelle nicht gedämpft bzw. Schalter verändert');
+      pruef(await page.locator('#matrix td[data-rolle="bauleiter"][data-recht="bericht_loeschen"] [data-mx-ohne]').count() === 0, 'Matrix: Bauleiter fälschlich markiert');
+      pruef((await api('GET', '/rechte')).json.matrix.buero.bericht_loeschen === true, 'Matrix: Wert „löschen“ verändert');
+      await ueberlauf('Matrix ohne Wirkung');
+      if (process.env.E2E_BILDER) {
+        await zelle.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: require('node:path').join(process.env.E2E_BILDER, `matrix-ohne-wirkung-${g.width}.png`) });
+      }
+      await page.locator('#matrix td[data-rolle="buero"][data-recht="bericht_freigeben"] label.tgl').click();
+      await page.waitForFunction(() => !document.querySelector('#matrix td[data-rolle="buero"][data-recht="bericht_loeschen"] [data-mx-ohne]'), null, { timeout: 5000 }).catch(() => {});
+      pruef(await zelle.locator('[data-mx-ohne]').count() === 0, 'Matrix: Warnzeichen bleibt nach „freigeben“ an');
       // aufräumen
+      await api('PUT', '/rechte/matrix', { rolle: 'buero', recht: 'bericht_erstellen', wert: true });
       await api('PUT', '/rechte/matrix', { rolle: 'mitarbeiter', recht: 'bericht_erstellen', wert: false });
       await api('PUT', '/rechte/ausnahme', { benutzerId: U.mitarbeiter, recht: 'bericht_loeschen', wert: false });
     });

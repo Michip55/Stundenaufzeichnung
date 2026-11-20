@@ -172,6 +172,23 @@ function pruefeSchreiben(ctx, bs) {
   if (!baustelleImBereich(ctx.benutzer, bs)) throw keinZugriff('Dieser Bericht gehört zu einer Baustelle außerhalb Ihres Bereichs.');
 }
 
+/**
+ * Prüfung 20.11.2026 (15.34): Wer den Bericht vor dem Löschen sehen durfte (Recht + Bereich), erfährt beim Öffnen und
+ * Speichern, dass er gelöscht wurde – samt Datum und Begründung (ohne Geldwörter für Personen ohne Preisrecht).
+ * Alle anderen bekommen weiter die neutrale 404 wie für einen unbekannten Bericht (15.11 G2-024).
+ */
+function geloeschtOderUnbekannt(db, ctx, id) {
+  const z = db.eins('SELECT id, baustelle_id, datum, geloescht_zeit, geloescht_grund FROM bericht WHERE id = ? AND geloescht_zeit IS NOT NULL', id);
+  const bs = z && ladeBaustelle(db, z.baustelle_id);
+  if (!z || !bs || !baustelleImBereich(ctx.benutzer, bs)) return nichtGefunden('Bericht nicht gefunden.');
+  const am = require('../datum').wienDatum(new Date(z.geloescht_zeit));
+  const g = z.geloescht_grund || '';
+  const grund = !ctx.hat('preise_sehen') && !ctx.hat('kalk_sehen') && require('../fehler').enthaeltGeld(g) ? '' : g;
+  const de = (d) => d.split('-').reverse().join('.');
+  return new ApiFehler(404, 'NICHT_GEFUNDEN', `Der Bautagesbericht ${bs.kst} vom ${de(z.datum)} wurde am ${de(am)} gelöscht und kann nicht mehr bearbeitet werden. Bitte im Büro nachfragen.`,
+    { geloescht: true, geloeschtAm: am, ...(grund ? { grund } : {}) });
+}
+
 /* ---------- Validierung Teil-Update ---------- */
 
 function mehrzeilig(wert, feld, max = 5000) {
@@ -466,7 +483,7 @@ module.exports = function berichtRouten(api, bt) {
     pruefeGrundrecht(req.ctx, schreiben); // 15.7 (F-036)
     const id = v.pfadId(req.params.id, 'Berichts-ID');
     const b = ladeBerichtRoh(db, id);
-    if (!b) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!b) throw geloeschtOderUnbekannt(db, req.ctx, id);
     if (schreiben) pruefeSchreiben(req.ctx, b.baustelle); else pruefeLesen(req.ctx, b.baustelle);
     return b;
   }
@@ -579,7 +596,7 @@ module.exports = function berichtRouten(api, bt) {
   api.post('/berichte/:id/loeschen', (req, res) => {
     if (!req.ctx.hat('bericht_loeschen')) throw keinZugriff(LOESCH_TEXT); // 15.7 (F-036): Recht vor Existenz und Body
     const b = ladeBerichtRoh(db, v.pfadId(req.params.id, 'Berichts-ID'));
-    if (!b) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!b) throw geloeschtOderUnbekannt(db, req.ctx, v.pfadId(req.params.id, 'Berichts-ID'));
     if (!baustelleImBereich(req.ctx.benutzer, b.baustelle)) throw keinZugriff(BEREICH_TEXT);
     const body = v.objekt(req.body);
     const grund = v.text(body.grund, 'grund', { max: 500, pflicht: false }) || '';
@@ -771,7 +788,7 @@ module.exports = function berichtRouten(api, bt) {
     const id = v.pfadId(req.params.id, 'Berichts-ID');
     if (!req.ctx.hat('bericht_freigeben')) throw keinZugriff('Berichte freigeben ist für Ihre Rolle nicht freigeschaltet.'); // 15.7 (F-036): Rechte vor Existenz
     const b = ladeBerichtRoh(db, id);
-    if (!b) throw nichtGefunden('Bericht nicht gefunden.');
+    if (!b) throw geloeschtOderUnbekannt(db, req.ctx, id);
     if (!baustelleImBereich(req.ctx.benutzer, b.baustelle)) throw keinZugriff('Freigeben dürfen Sie nur Berichte Ihrer eigenen Baustellen.');
     if (b.status === 'freigegeben') throw konflikt('Der Bericht ist bereits freigegeben.');
     if (b.status !== 'unterschrieben') throw konflikt('Freigabe erst nach beiden Unterschriften (Auftragnehmer und Bauherr) möglich.');
@@ -883,3 +900,4 @@ module.exports.pruefeGrundrecht = pruefeGrundrecht;
 module.exports.berichtUeberschneidungen = berichtUeberschneidungen;
 module.exports.GESPERRT_TEXT = GESPERRT_TEXT;
 module.exports.pruefePng = pruefePng;
+module.exports.geloeschtOderUnbekannt = geloeschtOderUnbekannt;

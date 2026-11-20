@@ -57,6 +57,22 @@ function startPruefen(opt) {
 }
 
 /**
+ * Prüfung 20.11.2026 (15.33): Warnungen zu aktiven Konten ohne Personalnummer (nur ohne Namensliste sinnvoll).
+ * @returns {string[]}
+ */
+function ohnePersonalnummerWarnungen(db) {
+  const ohne = db.alle("SELECT id, name, rolle FROM benutzer WHERE aktiv = 1 AND (pnr IS NULL OR TRIM(pnr) = '') ORDER BY name");
+  if (!ohne.length) return [];
+  const namen = ohne.slice(0, 8).map((u) => `${u.name} (${u.rolle})`).join(', ') + (ohne.length > 8 ? ` und ${ohne.length - 8} weitere` : '');
+  const w = [`${ohne.length} aktive${ohne.length === 1 ? 's Konto' : ' Konten'} ohne Personalnummer – ${ohne.length === 1 ? 'kann' : 'können'} sich ohne Namensliste nicht anmelden: ${namen}. In der App unter „Benutzer & Rechte“ → Bearbeiten die Personalnummer eintragen.`];
+  const verwaltung = require('./benachrichtigung').empfaengerMitRecht(db, 'benutzer');
+  if (!verwaltung.some((u) => u.pnr != null && String(u.pnr).trim() !== '')) {
+    w.push('ACHTUNG: KEIN aktives Konto mit dem Recht „Benutzer und Rechte verwalten“ hat eine Personalnummer – niemand kann sich zum Eintragen anmelden. Notweg (deploy/ANLEITUNG.md, „Niemand kann sich anmelden“): in .env vorübergehend BAUTAG_LOGIN_LISTE=1 und BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 setzen, neu starten, mit Namen anmelden, Personalnummern eintragen, danach BAUTAG_LOGIN_LISTE=0 und neu starten.');
+  }
+  return w;
+}
+
+/**
  * 15.33: Namensliste der Anmeldung aus der Umgebung – nur genau BAUTAG_LOGIN_LISTE=1 schaltet sie ein.
  * Nachprüfung 15.33: Im Docker-Betrieb (docker-compose.yml setzt BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT=1) zählt die 1 erst, wenn die
  * .env die Zeile BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 enthält (schreibt deploy/namensliste-umstellen.sh bzw. steht in .env.beispiel).
@@ -188,6 +204,10 @@ function createApp(opt = {}) {
     }
   } catch (e) { console.error('[BauTag] Geheimnisse prüfen:', e.message); }
   bt.warnungen.push(...require('./kostenstellen').altCodesOffen(db)); // Migration 29: Ziel-KST belegt
+  // Prüfung 20.11.2026 (15.33): ohne Namensliste meldet man sich nur mit Personalnummer an – aktive Konten ohne Nummer schon
+  // beim Start melden (die Warnung in „Benutzer & Rechte“ sieht erst, wer hineinkommt); hat kein Konto mit Benutzerrecht eine
+  // Nummer, kommt niemand mehr hinein → Notweg in deploy/ANLEITUNG.md („Niemand kann sich anmelden“)
+  if (!bt.loginListe) bt.warnungen.push(...ohnePersonalnummerWarnungen(db));
   const verwalter = require('./rechte').entsperrKonten(db);
   if (verwalter.length < 2) {
     bt.warnungen.push(`Nur ${verwalter.length} aktives Verwaltungs-Konto (GF/Büro) kann gesperrte Konten entsperren – bitte mindestens zwei anlegen (Notfall: node server/entsperren.js <Personalnummer>).`);
@@ -394,4 +414,4 @@ if (require.main === module) {
   process.on('SIGTERM', stopp);
 }
 
-module.exports = { createApp, StartFehler, loginListeAusUmgebung };
+module.exports = { createApp, StartFehler, loginListeAusUmgebung, ohnePersonalnummerWarnungen };

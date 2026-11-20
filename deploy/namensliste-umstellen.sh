@@ -26,8 +26,9 @@ if grep -q "^${MARKE}" "$DATEI"; then
   exit 0 # schon einmal umgestellt bzw. geprüft – eine bewusste Einstellung bleibt, wie sie ist
 fi
 
-# BAUTAG_LOGIN_LISTE=1 (auch mit Leerzeichen, Anführungszeichen, export oder Windows-Zeilenende)
-AN_MUSTER='^[[:space:]]*(export[[:space:]]+)?BAUTAG_LOGIN_LISTE[[:space:]]*=[[:space:]]*["'"'"']?1["'"'"']?[[:space:]]*$'
+# BAUTAG_LOGIN_LISTE=1 (auch mit Leerzeichen, Anführungszeichen, export, Windows-Zeilenende oder – Prüfung 20.11.2026 –
+# einem mit Leerraum abgesetzten Kommentar dahinter: „BAUTAG_LOGIN_LISTE=1 # Namen wählen“; Docker Compose schneidet ihn ab)
+AN_MUSTER='^[[:space:]]*(export[[:space:]]+)?BAUTAG_LOGIN_LISTE[[:space:]]*=[[:space:]]*["'"'"']?1["'"'"']?([[:space:]]+#.*)?[[:space:]]*$'
 if grep -Eq "$AN_MUSTER" "$DATEI"; then
   ART=an
   TEXT="${MARKE} (einmalig umgestellt am ${HEUTE}: vorher BAUTAG_LOGIN_LISTE=1; wieder einschalten: Zeile unten auf 1 setzen)"
