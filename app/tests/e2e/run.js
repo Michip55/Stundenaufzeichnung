@@ -33,7 +33,9 @@ const freierPort = () => new Promise((ok, nok) => { const s = net.createServer()
 async function starteServer(extra = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-e2e-'));
   // BAUTAG_DEMO=1: Testdaten ohne Pflicht zur PIN-Änderung (die Pflicht wird mit einem neu angelegten Benutzer geprüft)
-  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_TEST_TOKEN: TEST_TOKEN, BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
+  // 15.33: Namensliste am Server standardmäßig aus – die Abläufe hier melden sich über die Liste an und schalten sie ausdrücklich ein
+  // (Anmeldung ohne Liste: Abschnitt 8 mit BAUTAG_LOGIN_LISTE=0 und tests/e2e/anmeldung.js)
+  const env = { ...process.env, BAUTAG_DB: path.join(dir, 'bautag.db'), NODE_ENV: 'test', BAUTAG_DEMO: '1', BAUTAG_LOGIN_LISTE: '1', TRUST_PROXY: '1', BAUTAG_UHR: UHR, BAUTAG_UPLOADS: path.join(dir, 'uploads'), BAUTAG_TEST_TOKEN: TEST_TOKEN, BAUTAG_SCHLUESSEL: process.env.BAUTAG_SCHLUESSEL || 'e2e-nur-fuer-tests-0123456789abcdef0123456789abcdef', ...extra }; // F-14: Testfotos nie in den Checkout
   const seed = spawnSync(process.execPath, ['server/seed.js'], { cwd: APP, env, encoding: 'utf8' });
   if (seed.status !== 0) throw new Error('Seed fehlgeschlagen:\n' + seed.stdout + seed.stderr);
   const port = await freierPort();
@@ -1655,6 +1657,11 @@ async function laufe(browser, g) {
       console.log('    PIN einmal pro Woche (eigenes Handy bis Sonntag, Montag PIN, geteiltes Gerät unverändert) …');
       try { const pw = await require('./pin-woche').laufe(browser, g); r.fehler.push(...pw.fehler); r.schritte += pw.schritte; } catch (e) { r.fehler.push('Abbruch PIN-Woche: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Anmeldung „eigener Name am eigenen Handy“, ohne Namensliste, geteiltes Gerät ohne Namen (tests/e2e/anmeldung.js, API.md 15.33)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_ANMELDUNG) {
+      console.log('    Anmeldung (eigenes Handy merkt die Person, Andere Person, geteiltes Gerät ohne Namen, Zwei-Faktor, Sperre) …');
+      try { const an = await require('./anmeldung').laufe(browser, g); r.fehler.push(...an.fehler); r.schritte += an.schritte; } catch (e) { r.fehler.push('Abbruch Anmeldung: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     // Nachkontrolle Sitzung/Gerät: sofortiges Abmelden bei langsamem Netz, zweiter Tab (tests/e2e/sitzung-n2.js, API.md 15.16)
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_SITZUNG_N2) {
       console.log('    Sitzung/Gerät N2 (Abmelden bei langsamem Netz, zweiter Tab) …');
@@ -1709,6 +1716,11 @@ async function laufe(browser, g) {
     if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_STANDORT) {
       console.log('    Standort beim Stempeln (Schalter je Person, „Standort erfasst“, Korrektur „bei der Baustelle“, ohne Erlaubnis) …');
       try { const so = await require('./standort').laufe(browser, g); r.fehler.push(...so.fehler); r.schritte += so.schritte; } catch (e) { r.fehler.push('Abbruch Standort: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
+    // Bautagesbericht löschen mit Papierkorb: Rechte, Dialog mit Begründung, Papierkorb, Wiederherstellen (tests/e2e/papierkorb.js, API.md 15.34)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAPIERKORB) {
+      console.log('    Bericht löschen und Papierkorb (nur mit Recht, Begründung Pflicht, Wiederherstellen, Konflikt mit neuem Bericht) …');
+      try { const pk = await require('./papierkorb').laufe(browser, g); r.fehler.push(...pk.fehler); r.schritte += pk.schritte; } catch (e) { r.fehler.push('Abbruch Papierkorb: ' + e.message); console.log('    ✗ ' + e.message); }
     }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);

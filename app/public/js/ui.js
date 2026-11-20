@@ -38,6 +38,7 @@ const IC = {
   euro: '<path d="M18 6.5A7 7 0 1 0 18 17.5M4 10.5h9M4 13.5h9"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.5-3 8-7.5 9.5-4.5-1.5-7.5-5-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.2 10"/>',
   back: '<path d="M10 6l-6 6 6 6M4 12h16"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   more: '<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
   sign: '<path d="M3 17c2.5-6 4.5-9.5 6-9.5 2.5 0-1.5 9 1 9 1.8 0 2.5-4 4-4 1.3 0 .7 3 2.3 3 1 0 1.9-1 4.2-1M3 20.5h18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
@@ -187,7 +188,9 @@ export const speicher = {
     // 15.12 (G2-021) / 15.21: bt_geraet_art_benutzer = für wen „Eigenes Handy“ gilt (nur die Benutzer-ID);
     // bt_push_wunsch = Benutzer-IDs, die Push an diesem Gerät eingeschaltet hatten (nur IDs, keine Inhalte)
     // 15.25: bt_stunden_format = Anzeige der Monatsauswertung „hm“ (Std:Min) oder „dezimal“ – nur eine Einstellung, keine Daten
-    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_letzte_pnr', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
+    // 15.33: bt_handy_person = am eigenen Handy gemerkte Person ({id, pnr, name}) für die Anmeldung mit nur der PIN – bleibt beim
+    // Abmelden; „Geteiltes Gerät“ löscht sie (api.js setzGeraetArt). bt_letzte_pnr (bis 15.32) gibt es nicht mehr – wird gelöscht.
+    const GERAET = ['bt_install_weg', 'bt_installiert', 'bt_letzter', 'bt_handy_person', 'bt_geraet_benutzer', 'bt_abmelden_offen', 'bt_geraet_art', 'bt_geraet_art_benutzer', 'bt_push_wunsch', 'bt_uebersicht_klassisch', 'bt_stunden_format'];
     const WARTEND = ['bt_stempel_queue', 'bt_stempel_abgelehnt', 'bt_fuhren_warten', 'bt_fuhren_abgelehnt'];
     for (const lager of [localStorage, sessionStorage]) {
       try { for (const k of Object.keys(lager)) if (k.startsWith('bt_') && !(lager === localStorage && (GERAET.includes(k) || WARTEND.includes(k) || behalten.includes(k)))) lager.removeItem(k); } catch (e) { /* gesperrt */ }

@@ -253,13 +253,19 @@ small { font-size: 12.5px; }
 .kpi > small { color: var(--muted); font-weight: 600; font-size: 12.5px; } .kpi > b { font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1; white-space: nowrap; } .kpi b i { font-style: normal; font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
 .kpi em { font-style: normal; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .kpi .meter { width: 100%; margin: 3px 0; } .kpi.link:hover { border-color: #c5cad1; }
 .kpi.sm { padding: 12px 14px; } .kpi.sm > b { font-size: 21px; }
-.week-list .wd { display: grid; grid-template-columns: 46px 1fr auto; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line-2); align-items: center; }
+.week-list .wd { display: grid; grid-template-columns: 46px minmax(0, 1fr) minmax(7.4em, auto); gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--line-2); align-items: center; }
 .week-list .wd:last-child { border: 0; } .wd-day { text-align: center; } .wd-day b { display: block; font-size: 16px; } .wd-day small { color: var(--muted); }
 .wd.today { background: #f3fbf5; } .wd.today .wd-day b { color: var(--green); } .wd.off { color: var(--faint); } .wd.off .wd-day b { color: var(--faint); font-weight: 600; }
-.wd-mid { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .wd.code .wd-mid, .wd.off .wd-mid { flex-direction: row; align-items: center; gap: 8px; }
+.wd-mid { min-width: 0; display: flex; flex-direction: column; gap: 3px; } .wd.code .wd-mid, .wd.off .wd-mid { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wd-mid .chip { max-width: 100%; height: auto; min-height: 20px; padding-block: 2px; line-height: 1.3; white-space: normal; border-radius: 10px; align-self: flex-start; } /* 15.32: „Ausstempeln fehlt …“ bricht um statt aus der Karte zu ragen; Nachprüfung: natürliche Breite, nicht über die ganze Mitte gezogen */
 .wd-line { font-weight: 600; font-size: 14.5px; } .wd-line small { font-weight: 400; color: var(--muted); } .wd-site { font-size: 12.5px; color: var(--muted); }
-.wd-bar { position: relative; height: 6px; border-radius: 4px; background: #eceef1; overflow: hidden; margin-top: 2px; } .wd-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--graphite-3); border-radius: 4px; } .wd-bar u { position: absolute; top: 0; bottom: 0; background: var(--amber-strong); }
-.wd-std { text-align: right; } .wd-std b { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; display: block; line-height: 1.1; } .wd-std small { color: var(--muted); font-size: 11.5px; }
+.wd-bar { position: relative; width: 100%; max-width: 260px; height: 6px; border-radius: 4px; background: #eceef1; overflow: hidden; margin-top: 2px; } .wd-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--graphite-3); border-radius: 4px; } .wd-bar u { position: absolute; top: 0; bottom: 0; background: var(--amber-strong); }
+/* 15.32: Tagessumme in einer Zeile („9 Std. 51 Min.“), Zahlen fett, Einheiten klein wie in den Kacheln */
+.wd-std { text-align: right; white-space: nowrap; font-size: 17px; font-weight: 800; line-height: 1.25; letter-spacing: -.01em; font-variant-numeric: tabular-nums; } .wd-std i { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+@media (max-width: 380px) { .week-list .wd { grid-template-columns: 40px minmax(0, 1fr) minmax(6.6em, auto); gap: 10px; padding: 12px 12px; } .wd-std { font-size: 15.5px; } .wd-std i { font-size: 11.5px; } }
+/* Prüfung 20.11.2026: Tage ohne Stunden („–“) brauchen die breite Zeitspalte nicht – „U Urlaub“ und „beantragt“ bleiben in einer Zeile */
+.week-list .wd.ohne-std { grid-template-columns: 46px minmax(0, 1fr) auto; }
+@media (max-width: 380px) { .week-list .wd.ohne-std { grid-template-columns: 40px minmax(0, 1fr) auto; } }
 .live { font-style: normal; color: var(--green); font-weight: 700; }
 .two-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .two-stats small { display: block; color: var(--muted); } .two-stats b { font-size: 19px; }
 .profile { display: flex; align-items: center; gap: 16px; } .profile .avatar { background: var(--red); } .profile h2 { font-size: 21px; font-weight: 800; letter-spacing: -.02em; } .profile p { color: var(--muted); }
@@ -332,6 +338,8 @@ a.btn { text-decoration: none; } .btn:disabled, .btn[aria-disabled="true"] { opa
 .state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 20px; text-align: center; color: var(--muted); }
 .state .ic { width: 32px; height: 32px; color: #a3abb5; } .state h2 { font-size: 20px; color: var(--text); font-weight: 800; letter-spacing: -.02em; } .state p { max-width: 420px; }
 .state.small { padding: 22px 16px; font-size: 13.5px; } .state.small .ic { width: 24px; height: 24px; } .state.empty { font-size: 14px; } .state.big { padding: 44px 24px; gap: 12px; }
+.state .state-akt { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; } /* 15.34: Bericht gelöscht */
+#bericht-geloescht > p:first-of-type { color: var(--text); }
 #root > .state { height: 100%; }
 .spinner { position: static; display: inline-block; width: 30px; height: 30px; border-radius: 50%; border: 3.5px solid #e4e7eb; border-top-color: var(--red); animation: spin .8s linear infinite; } .spinner.xs { width: 14px; height: 14px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -497,6 +505,9 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 
 /* Rechte */
 .rights th small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; font-family: ui-monospace, monospace; } .rights td { padding: 4px 8px; } .rights thead th.c { min-width: 96px; }
+.rights th small.recht-hinweis { font-family: inherit; font-size: 11.5px; color: var(--muted); white-space: normal; max-width: 460px; line-height: 1.3; margin-top: 2px; } /* 15.34 Prüfung: Voraussetzung eines Rechts */
+.plain.rows small.aus-ohne-wirkung { display: flex; align-items: flex-start; gap: 5px; color: #7a4204; margin-top: 3px; white-space: normal; line-height: 1.3; } .aus-ohne-wirkung .ic { width: 14px; height: 14px; margin-top: 1px; } /* 15.34 Nachprüfung: Ausnahme ohne Wirkung */
+.rights td.ohne-wirkung input:checked + .switch { background: #d97706; } .rights .mx-ohne { display: block; width: 16px; height: 16px; margin: -6px auto 0; color: #b45309; line-height: 0; } .rights .mx-ohne .ic { width: 16px; height: 16px; } /* Prüfung 20.11.2026: Matrix-Recht ohne Voraussetzung der Rolle */
 .lock-cell { display: inline-grid; place-items: center; width: 46px; height: 28px; border-radius: 99px; background: repeating-linear-gradient(135deg, #eceef1 0 6px, #e2e5e9 6px 12px); color: #5a636e; } .lock-cell .ic { width: 15px; height: 15px; } td.locked { background: #fafbfc; }
 .log-ic { width: 34px; height: 34px; border-radius: 10px; background: #eceef1; color: var(--muted); display: grid; place-items: center; flex: none; } .log-ic .ic { width: 17px; height: 17px; } .log b { white-space: normal !important; }
 
@@ -518,7 +529,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
   .bud-rows a { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; } .bud-rows .bud-bar { grid-column: 1 / -1; order: 3; } .bud-rows .bud-pct { display: none; }
   .tabs { align-self: stretch; } .tabs button { flex: 1; justify-content: center; padding: 0 8px; } .tabs .count { display: none; }
   .tbl th, .tbl td { padding: 9px 10px; } .price-in input { width: 68px; } .price-tbl td.muted.nw { display: none; } .price-tbl thead th:first-child:not(:nth-last-child(-n+3)) { display: none; }
-  .rights th small { display: none; } .rights thead th.c { min-width: 70px; font-size: 10.5px; white-space: normal; }
+  .rights th small { display: none; } .rights th small.recht-hinweis { display: block; max-width: 180px; } .rights thead th.c { min-width: 70px; font-size: 10.5px; white-space: normal; }
   .thr { gap: 6px; }
 
   /* Bautagesbericht als Assistent */
@@ -1283,3 +1294,43 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .korr-ort a { color: var(--blue); text-decoration: underline; }
 /* Prüfbefund n8-g (Bild 07/14): die Personen-Auswahl ist am PC breit genug für „Name (eigene Zeiten)“ */
 @media (min-width: 720px) { .toolbar .field.inline.k-person { flex: 0 1 320px; } }
+
+/* 15.33: Anmeldung am eigenen Handy – gemerkte Person, darunter „Andere Person“ über die ganze Breite */
+.pin-user.gemerkt { margin-top: 10px; }
+.login-card .login-andere { margin: 18px auto 0; max-width: 320px; width: 100%; flex: none; }
+.login-card .pin-hilfe { text-align: center; color: var(--muted); font-size: 13px; line-height: 1.35; margin: -10px auto 14px; max-width: 320px; }
+/* 15.33 Nachprüfung: Seite, body und #root scrollen nicht (15.19) – passt der Inhalt der Anmeldekarte nicht auf den Bildschirm
+   (gemerkte Person + PIN-Feld + „Andere Person“ + Gerätewahl, kleines Handy, Browser mit Adressleiste, Laptop quer), scrollt die
+   Karte selbst; bei wenig Höhe wird die Ansicht kompakter. Die Namensliste scrollt weiter in sich (.login-list). */
+.login-card { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.login-card > * { flex-shrink: 0; } .login-card > .login-list { flex-shrink: 1; }
+@media (max-height: 900px) {
+  .login-card .pin-user { margin-bottom: 12px; } .login-card .pin-user .avatar.xl { width: 64px; height: 64px; font-size: 22px; margin-bottom: 6px; }
+  .login-card .pin-user.gemerkt { margin-top: 2px; } .login-card .pin-dots { margin-bottom: 18px; }
+  .login-card .pin-pad { gap: 10px; } .login-card .pin-pad button { height: 58px; }
+  .login-card .login-andere { margin-top: 14px; }
+}
+@media (max-height: 680px) {
+  .login-card .pin-pad button { height: 52px; font-size: 24px; } .login-card .pin-user h2 { font-size: 20px; }
+}
+.profile .profile-pnr { margin-top: 2px; font-size: 14px; } .profile .profile-pnr b { color: var(--ink, #1d2329); font-variant-numeric: tabular-nums; }
+/* 15.33: Benutzerverwaltung – aktive Konten ohne Personalnummer (ohne Namensliste nicht anmeldbar) */
+.warn-card { border-color: var(--amber-strong); } .warn-card .card-h { background: var(--amber-bg); border-radius: inherit; } .warn-card h3 { color: #7a4204; }
+.ohne-pnr { color: var(--amber); font-weight: 700; }
+/* 15.34: Bautagesbericht löschen (rot umrandet, nur mit Recht bericht_loeschen) und Papierkorb */
+.btn.ghost.btn-loeschen { color: var(--red-d); border-color: #f0c7c4; } .btn.ghost.btn-loeschen:hover { background: var(--red-bg); border-color: #e9a9a4; }
+.loesch-kopf { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 14px; border-radius: var(--r-sm); background: #f6f7f9; border: 1px solid var(--line); }
+.loesch-kopf b { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; } .loesch-kopf span:not(.chip) { grid-column: 1; color: var(--muted); font-size: 13.5px; }
+.loesch-kopf .chip { grid-column: 2; grid-row: 1 / span 2; }
+.pk-list { list-style: none; } .pk-list > li { border-bottom: 1px solid var(--line-2); } .pk-list > li:last-child { border: 0; }
+.pk-row { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; }
+.pk-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .pk-txt > b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .pk-txt > small { color: var(--muted); }
+.pk-info, .pk-frist { font-size: 13px; color: var(--muted); } .pk-frist b { color: var(--text); font-weight: 700; }
+.pk-grund { font-size: 13.5px; font-style: italic; overflow-wrap: anywhere; }
+.pk-hinweis { font-size: 13px; color: var(--amber); font-weight: 600; } .pk-hinweis a { color: var(--blue); text-decoration: underline; }
+.pk-akt { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+@media (max-width: 719px) {
+  .form-top .btn-loeschen { height: 36px; padding: 0 10px; }
+  .pk-row { flex-wrap: wrap; gap: 8px 10px; padding: 12px; } .pk-row .rep-date { width: 74px; }
+  .pk-akt { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; } .pk-akt .btn { flex: 1 1 auto; max-width: 240px; }
+}

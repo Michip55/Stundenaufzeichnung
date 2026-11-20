@@ -56,6 +56,34 @@ function startPruefen(opt) {
   return { produktion, testToken };
 }
 
+/**
+ * Prüfung 20.11.2026 (15.33): Warnungen zu aktiven Konten ohne Personalnummer (nur ohne Namensliste sinnvoll).
+ * @returns {string[]}
+ */
+function ohnePersonalnummerWarnungen(db) {
+  const ohne = db.alle("SELECT id, name, rolle FROM benutzer WHERE aktiv = 1 AND (pnr IS NULL OR TRIM(pnr) = '') ORDER BY name");
+  if (!ohne.length) return [];
+  const namen = ohne.slice(0, 8).map((u) => `${u.name} (${u.rolle})`).join(', ') + (ohne.length > 8 ? ` und ${ohne.length - 8} weitere` : '');
+  const w = [`${ohne.length} aktive${ohne.length === 1 ? 's Konto' : ' Konten'} ohne Personalnummer – ${ohne.length === 1 ? 'kann' : 'können'} sich ohne Namensliste nicht anmelden: ${namen}. In der App unter „Benutzer & Rechte“ → Bearbeiten die Personalnummer eintragen.`];
+  const verwaltung = require('./benachrichtigung').empfaengerMitRecht(db, 'benutzer');
+  if (!verwaltung.some((u) => u.pnr != null && String(u.pnr).trim() !== '')) {
+    w.push('ACHTUNG: KEIN aktives Konto mit dem Recht „Benutzer und Rechte verwalten“ hat eine Personalnummer – niemand kann sich zum Eintragen anmelden. Notweg (deploy/ANLEITUNG.md, „Niemand kann sich anmelden“): in .env vorübergehend BAUTAG_LOGIN_LISTE=1 und BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 setzen, neu starten, mit Namen anmelden, Personalnummern eintragen, danach BAUTAG_LOGIN_LISTE=0 und neu starten.');
+  }
+  return w;
+}
+
+/**
+ * 15.33: Namensliste der Anmeldung aus der Umgebung – nur genau BAUTAG_LOGIN_LISTE=1 schaltet sie ein.
+ * Nachprüfung 15.33: Im Docker-Betrieb (docker-compose.yml setzt BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT=1) zählt die 1 erst, wenn die
+ * .env die Zeile BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 enthält (schreibt deploy/namensliste-umstellen.sh bzw. steht in .env.beispiel).
+ * Grund: Das Update AUF 15.33 läuft noch mit dem alten update.sh (ohne die einmalige Umstellung) – eine 1 aus der alten Vorlage
+ * schaltete die Liste sonst bis zum nächsten Update wieder ein.
+ */
+function loginListeAusUmgebung(env) {
+  if (env.BAUTAG_LOGIN_LISTE !== '1') return false;
+  if (env.BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT === '1' && env.BAUTAG_LOGIN_LISTE_GEPRUEFT !== '15.33') return false;
+  return true;
+}
 function createApp(opt = {}) {
   const start = startPruefen(opt);
   const dbPath = opt.dbPath || process.env.BAUTAG_DB || path.join(__dirname, '..', 'data', 'bautag.db');
@@ -65,7 +93,8 @@ function createApp(opt = {}) {
   require('./oeffentlich').geheimnis(db); // 15.11 (G2-017): Geheimnis der öffentlichen Kennungen gleich beim Start anlegen
   const bt = { db, uhr, version: VERSION, pdfUnkomprimiert: Boolean(opt.pdfUnkomprimiert), sitzung: sitzungsKonfig(opt.sitzung || {}) };
   bt.demo = opt.demo !== undefined ? Boolean(opt.demo) : process.env.BAUTAG_DEMO === '1';
-  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : process.env.BAUTAG_LOGIN_LISTE !== '0';
+  // 15.33 (Inhaber 19.11.2026): öffentliche Namensliste standardmäßig AUS – nur BAUTAG_LOGIN_LISTE=1 schaltet sie ein
+  bt.loginListe = opt.loginListe !== undefined ? Boolean(opt.loginListe) : loginListeAusUmgebung(process.env);
   bt.bremse = new LoginBremse(db, uhr);
   // Ausbaustufe 2: Dienste (API.md 12.3–12.5, 12.18)
   bt.test = opt.test !== undefined ? Boolean(opt.test) : process.env.BAUTAG_TEST === '1';
@@ -131,6 +160,7 @@ function createApp(opt = {}) {
     sicher('Plan-Erinnerung', require('./planer').pruefeErinnerung); // nie automatisch veröffentlichen (12.8c)
     sicher('Sitzungen', (x) => require('./auth').abgelaufeneSitzungenLoeschen(x.db, x.uhr(), x.sitzung)); // 15.12 (G2-019): samt Push-Abos
     sicher('Push geteilter Geräte', require('./push').geteilteAbosAufraeumen); // 15.16 (H-S3): nach der Sperre nach Untätigkeit
+    sicher('Papierkorb', require('./papierkorb').endgueltigLoeschen); // 15.34: Bautagesberichte nach 30 Tagen endgültig löschen
     require('./push').anstossen(bt);
   };
   try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }
@@ -144,6 +174,9 @@ function createApp(opt = {}) {
   bt.pausenTimer.unref();
 
   bt.warnungen = [];
+  if (opt.loginListe === undefined && process.env.BAUTAG_LOGIN_LISTE === '1' && !bt.loginListe) {
+    bt.warnungen.push('BAUTAG_LOGIN_LISTE=1 in .env stammt aus der Vorlage vor 15.33 und wird nicht beachtet – Namensliste aus (Anmeldung mit Personalnummer). Der nächste Aufruf von update.sh stellt die Zeile einmalig auf 0 um; wer die Namensliste wirklich will, setzt danach wieder BAUTAG_LOGIN_LISTE=1.');
+  }
   // N-063: ohne gültigen Schlüssel (außerhalb des Echtbetriebs, der dann gar nicht startet) beim Start deutlich warnen
   bt.schluesselWarnung = null;
   if (!require('./geheim').schluesselGueltig(bt.schluessel)) {
@@ -171,6 +204,10 @@ function createApp(opt = {}) {
     }
   } catch (e) { console.error('[BauTag] Geheimnisse prüfen:', e.message); }
   bt.warnungen.push(...require('./kostenstellen').altCodesOffen(db)); // Migration 29: Ziel-KST belegt
+  // Prüfung 20.11.2026 (15.33): ohne Namensliste meldet man sich nur mit Personalnummer an – aktive Konten ohne Nummer schon
+  // beim Start melden (die Warnung in „Benutzer & Rechte“ sieht erst, wer hineinkommt); hat kein Konto mit Benutzerrecht eine
+  // Nummer, kommt niemand mehr hinein → Notweg in deploy/ANLEITUNG.md („Niemand kann sich anmelden“)
+  if (!bt.loginListe) bt.warnungen.push(...ohnePersonalnummerWarnungen(db));
   const verwalter = require('./rechte').entsperrKonten(db);
   if (verwalter.length < 2) {
     bt.warnungen.push(`Nur ${verwalter.length} aktives Verwaltungs-Konto (GF/Büro) kann gesperrte Konten entsperren – bitte mindestens zwei anlegen (Notfall: node server/entsperren.js <Personalnummer>).`);
@@ -377,4 +414,4 @@ if (require.main === module) {
   process.on('SIGTERM', stopp);
 }
 
-module.exports = { createApp, StartFehler };
+module.exports = { createApp, StartFehler, loginListeAusUmgebung, ohnePersonalnummerWarnungen };

@@ -801,14 +801,14 @@ module.exports = function planerRouten(api, bt) {
     return f;
   }
   // 15.15 (H-G4): Berichtsversion, wie ctx sie sieht (Fahrer ohne volle Sicht: Sichtversion)
-  const berichtVersionFuer = (ctx, berichtId) => { const r = db.eins('SELECT id, version, geaendert FROM bericht WHERE id = ?', berichtId); return r ? require('../berichtsicht').stand(db, ctx, r).version : undefined; };
+  const berichtVersionFuer = (ctx, berichtId) => { const r = db.eins('SELECT id, version, geaendert FROM bericht WHERE id = ? AND geloescht_zeit IS NULL', berichtId); return r ? require('../berichtsicht').stand(db, ctx, r).version : undefined; };
   const fuhreAntwort = (id, status = 200) => {
     const f = db.eins('SELECT * FROM plan_fuhre WHERE id = ?', id);
     const K = kontext(f.datum, f.datum);
     const j = F.fuhreJson(db, f, K);
     j.konflikte = P.konflikteTag(f.datum, [], [f], K).map((k) => ({ typ: k.typ, text: k.text }));
     j.geaendertNachVeroeffentlichung = Boolean(f.veroeffentlicht_zeit) && f.veroeffentlicht_hash !== F.fuhreHash(j);
-    if (j.berichtZeile && j.berichtZeile.status === 'uebernommen' && f.bericht_id) j.berichtZeile.berichtVersion = (db.eins('SELECT version FROM bericht WHERE id = ?', f.bericht_id) || {}).version; // G-02
+    if (j.berichtZeile && j.berichtZeile.status === 'uebernommen' && f.bericht_id) j.berichtZeile.berichtVersion = (db.eins('SELECT version FROM bericht WHERE id = ? AND geloescht_zeit IS NULL', f.bericht_id) || {}).version; // G-02
     return { status, j };
   };
   /** 15.7 (F-036): ohne Planerrecht keine Existenzauskunft – eine fehlende Fuhre gibt dann dieselbe 403 wie eine fremde */

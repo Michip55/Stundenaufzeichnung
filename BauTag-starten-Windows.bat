@@ -42,7 +42,8 @@ echo.
 echo  ==============================================================
 echo   BauTag laeuft:  http://localhost:3000
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do echo   Handy im selben WLAN:%%a:3000  ^(vorne http:// eintippen^)
-echo   Anmelden mit einem Namen und der PIN 1234 ^(nur Testdaten^)
+echo   Anmelden mit Personalnummer und PIN 1234 ^(nur Testdaten^):
+echo     1102 Geschaeftsfuehrung, 1101 Buero, 1103 Bauleiter, 1001 Polier, 1002 Mitarbeiter
 echo   Dieses Fenster offen lassen. Beenden: Fenster schliessen.
 echo  ==============================================================
 echo.

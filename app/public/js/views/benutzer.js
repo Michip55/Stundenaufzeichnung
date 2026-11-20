@@ -12,6 +12,7 @@ export default async function benutzer(el, ctx) {
   const BUERO_ROLLEN = ['mitarbeiter', 'polier']; // diese Benutzer pflegt das Büro (15.9: Bauleiter = Büro → nur die GF)
   const BUERO_VERGIBT = ['mitarbeiter', 'polier'];             // D-02: die Rolle Bauleiter (€-Einsicht) vergibt nur die GF
   let r = {}, leute, lohngruppen = [], baustellen = [], modelle = [];
+  let namensliste = false; // 15.33: öffentliche Namensliste am Server (Standard aus → Anmeldung mit Personalnummer)
   let tab = !voll ? 'benutzer' : ctx.query.get('reiter') === 'dienste' ? 'dienste' : ['matrix', 'benutzer', 'dienste', 'protokoll'].includes(speicher.lies('bt_rechtetab')) ? speicher.lies('bt_rechtetab') : 'matrix';
   // 15.9: der Server sagt je Konto, ob der Aufrufer es verwalten darf (nie das eigene, Büro/Bauleiter nur niedrigere Stufe)
   const istIch = (m) => Number(m.id) === Number(ctx.ich.benutzer.id);
@@ -24,6 +25,7 @@ export default async function benutzer(el, ctx) {
     [r, leute, baustellen] = await Promise.all([voll ? get('/rechte') : {}, get('/benutzer'), get('/baustellen').catch(() => [])]);
     if (!lohngruppen.length && ctx.kann('preise_sehen')) { try { lohngruppen = (await get('/preise')).lohngruppen || []; } catch (e) { /* optional */ } }
     try { modelle = await get('/arbeitszeitmodelle?inaktiv=1'); } catch (e) { modelle = []; } // 15.23
+    try { namensliste = (await get('/auth/anmeldung')).namensliste === true; } catch (e) { namensliste = false; } // 15.33
   }
   const modellName = (id) => (modelle.find((x) => x.id === id) || {}).name || '';
   // 15.23: Vorgabe für neue Personen nach der Rolle (Datenvorgabe wie am Server – Mitarbeiter/Polier: KV Bau, BUAK-pflichtig)
@@ -36,30 +38,56 @@ export default async function benutzer(el, ctx) {
   const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
   const rechtText = (k) => ((r.rechte || []).find((x) => x.schluessel === k) || {}).text || k;
   const name = (id) => (leute.find((m) => m.id === id) || {}).name || `Benutzer ${id}`;
+  // 15.34 (Nachprüfung 19.11.2026): Rechte mit Voraussetzung (bericht_loeschen) – wirkt die Ausnahme bei dieser Person?
+  const rechtDaten = (k) => (r.rechte || []).find((x) => x.schluessel === k) || {};
+  const hatRecht = (m, recht) => fest(m.rolle, recht) || (!gesperrt(m.rolle, recht) && (!!((r.matrix || {})[m.rolle] || {})[recht] || (r.ausnahmen || []).some((a) => a.benutzerId === m.id && a.recht === recht)));
+  const fehltVoraussetzung = (m, recht) => { const v = (r.voraussetzung || {})[recht] || []; return v.length > 0 && !v.some((x) => hatRecht(m, x)); };
+  const ohneWirkung = (recht) => `Noch ohne Wirkung – ${rechtDaten(recht).hinweis || 'für diese Rolle gesperrt'}.`;
+  // Prüfung 20.11.2026: dasselbe in der Matrix – eingeschaltet, aber der Rolle fehlt die Voraussetzung (z. B. Löschen ohne
+  // „erstellen“/„freigeben“) → Schalter gedämpft mit Warnzeichen; nach jedem Matrix-Schalter neu bewertet (matrixWirkung)
+  const rolleHat = (rolle, recht) => fest(rolle, recht) || (!gesperrt(rolle, recht) && !!((r.matrix || {})[rolle] || {})[recht]);
+  const rolleOhneWirkung = (rolle, recht) => { const v = (r.voraussetzung || {})[recht] || []; return v.length > 0 && rolleHat(rolle, recht) && !v.some((x) => rolleHat(rolle, x)); };
+  const mxOhneText = (recht) => `Ohne Wirkung – erst „${((r.voraussetzung || {})[recht] || []).map(rechtText).join('“ oder „')}“ einschalten`;
+  const mxOhne = (recht) => `<span class="mx-ohne" data-mx-ohne role="img" aria-label="${esc(mxOhneText(recht))}" title="${esc(mxOhneText(recht))}">${ic('alert')}</span>`;
+  function matrixWirkung() {
+    $$('#matrix td[data-rolle][data-recht]', el).forEach((td) => {
+      const { rolle, recht } = td.dataset;
+      if (!(r.voraussetzung || {})[recht] || td.hasAttribute('data-gesperrt')) return;
+      const ohne = rolleOhneWirkung(rolle, recht);
+      td.classList.toggle('ohne-wirkung', ohne);
+      const da = $('[data-mx-ohne]', td);
+      if (ohne && !da) td.insertAdjacentHTML('beforeend', mxOhne(recht));
+      if (!ohne && da) da.remove();
+    });
+  }
 
   function matrixHtml() {
     const ro = rollen();
     return `
       ${banner('info', '<b>Gesperrte Felder</b> (Schloss) können für diese Rolle nie vergeben werden – auch nicht als Ausnahme. So bleiben Preise und Lohndaten vor Polier und Mitarbeitern verborgen.', 'lock')}
       <section class="card"><div class="tbl-wrap"><table class="tbl rights" id="matrix"><thead><tr><th>Recht</th>${ro.map((x) => `<th class="c">${esc(x.name)}</th>`).join('')}</tr></thead>
-        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
+        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}${re.hinweis ? `<small class="recht-hinweis" data-recht-hinweis>${esc(re.hinweis)}</small>` : ''}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
           const an = !!((r.matrix || {})[x.schluessel] || {})[re.schluessel];
           if (gesperrt(x.schluessel, re.schluessel)) return `<td class="c locked" data-rolle="${x.schluessel}" data-recht="${re.schluessel}" data-gesperrt><span class="lock-cell" role="img" aria-label="Gesperrt: für ${esc(x.name)} nicht vergebbar" title="Gesperrt – für ${esc(x.name)} nicht vergebbar">${ic('lock')}</span></td>`;
           const f = fest(x.schluessel, re.schluessel);
-          return `<td class="c" data-rolle="${x.schluessel}" data-recht="${re.schluessel}"><label class="tgl" title="${f ? 'Immer aktiv – die Geschäftsführung kann sich nicht aussperren' : ''}"><input type="checkbox" class="vh" ${an ? 'checked' : ''} ${f ? 'disabled' : ''} aria-label="${esc(re.text)} für ${esc(x.name)}"><span class="switch" aria-hidden="true"></span></label></td>`;
+          const ohne = rolleOhneWirkung(x.schluessel, re.schluessel);
+          return `<td class="c${ohne ? ' ohne-wirkung' : ''}" data-rolle="${x.schluessel}" data-recht="${re.schluessel}"><label class="tgl" title="${f ? 'Immer aktiv – die Geschäftsführung kann sich nicht aussperren' : ''}"><input type="checkbox" class="vh" ${an ? 'checked' : ''} ${f ? 'disabled' : ''} aria-label="${esc(re.text)} für ${esc(x.name)}"><span class="switch" aria-hidden="true"></span></label>${ohne ? mxOhne(re.schluessel) : ''}</td>`;
         }).join('')}</tr>`).join('')}</tbody></table></div></section>
       <section class="card" aria-labelledby="h-aus">
         <div class="card-h pad-h"><h3 id="h-aus">Ausnahmen je Benutzer <span class="count">${(r.ausnahmen || []).length}</span></h3><button type="button" class="btn ghost sm" data-akt="ausnahme">${ic('plus')}Ausnahme</button></div>
-        ${(r.ausnahmen || []).length ? `<ul class="plain rows" id="ausnahmen">${r.ausnahmen.map((a) => `<li data-b="${a.benutzerId}" data-r="${esc(a.recht)}">${avatar(a.name || name(a.benutzerId), 'sm')}<span class="grow"><b>${esc(a.name || name(a.benutzerId))}</b><small>${esc(rechtText(a.recht))}</small></span><button type="button" class="icon-btn sm" data-aus-weg aria-label="Ausnahme entfernen">${ic('trash')}</button></li>`).join('')}</ul>` : '<p class="muted sm pad-s">Keine Ausnahmen. Ausnahmen erweitern die Rechte einzelner Personen – z. B. ein Polier, der selbst freigeben darf.</p>'}
+        ${(r.ausnahmen || []).length ? `<ul class="plain rows" id="ausnahmen">${r.ausnahmen.map((a) => `<li data-b="${a.benutzerId}" data-r="${esc(a.recht)}" ${a.wirksam === false ? 'data-ohne-wirkung' : ''}>${avatar(a.name || name(a.benutzerId), 'sm')}<span class="grow"><b>${esc(a.name || name(a.benutzerId))}</b><small>${esc(rechtText(a.recht))}</small>${a.wirksam === false ? `<small class="aus-ohne-wirkung" data-aus-hinweis>${ic('alert')}${esc(ohneWirkung(a.recht))}</small>` : ''}</span><button type="button" class="icon-btn sm" data-aus-weg aria-label="Ausnahme entfernen">${ic('trash')}</button></li>`).join('')}</ul>` : '<p class="muted sm pad-s">Keine Ausnahmen. Ausnahmen erweitern die Rechte einzelner Personen – z. B. ein Polier, der selbst freigeben darf.</p>'}
       </section>`;
   }
   function benutzerHtml() {
     const gesperrte = leute.filter(istGesperrt);
-    const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.arbeitszeitmodell && modellName(m.arbeitszeitmodell) ? ' · ' + esc(modellName(m.arbeitszeitmodell)) : ''}${m.buakPflichtig ? ' · BUAK' : ''}${m.standortEinwilligung ? ' · <span data-standort-an title="Hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet – ändern kann es nur die Person">Standort an</span>' : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
+    // 15.33: ohne Namensliste meldet man sich mit Personalnummer + PIN an – aktive Konten ohne Nummer sind ausgesperrt
+    const ohnePnr = namensliste ? [] : leute.filter((m) => m.aktiv !== false && m.aktiv !== 0 && !m.pnr);
+    const zeile = (m) => `<li class="${m.aktiv === false || m.aktiv === 0 ? 'inaktiv' : ''}" data-benutzer="${m.id}" ${istGesperrt(m) ? 'data-gesperrt' : ''}>${avatar(m.name, 'sm')}<span class="grow"><b>${esc(m.name)}</b><small>${esc(rolleText(m.rolle))}${m.pnr ? ' · Nr. ' + esc(m.pnr) : !namensliste && m.aktiv !== false && m.aktiv !== 0 ? ' · <span class="ohne-pnr" data-ohne-pnr>ohne Personalnummer</span>' : ''}${m.lohngruppe ? ' · ' + esc((lohngruppen.find((l) => l.id === m.lohngruppe) || {}).name || m.lohngruppe) : ''}${m.arbeitszeitmodell && modellName(m.arbeitszeitmodell) ? ' · ' + esc(modellName(m.arbeitszeitmodell)) : ''}${m.buakPflichtig ? ' · BUAK' : ''}${m.standortEinwilligung ? ' · <span data-standort-an title="Hat „Standort beim Stempeln mitsenden“ selbst eingeschaltet – ändern kann es nur die Person">Standort an</span>' : ''}${m.aktiv === false || m.aktiv === 0 ? ' · inaktiv' : ''}</small></span>
       ${istGesperrt(m) ? `<span class="chip st-red" title="${m.gesperrtBis ? 'läuft ab am ' + esc(fmt.zeitpunkt(m.gesperrtBis)) + ' Uhr' : ''}">${ic('lock')}Gesperrt${m.gesperrtBis ? ` bis ${esc(fmt.zeitpunkt(m.gesperrtBis).slice(0, 6))} ${esc(fmt.uhr(m.gesperrtBis))}` : ''}</span>${zuruecksetzbar(m) ? `<button type="button" class="btn primary sm" data-entsperren="${m.id}">Entsperren</button>` : `<span class="muted sm nw" data-nur-gf>${esc(nurDurch(m))}</span>`}` : ''}
       ${darfBearbeiten(m) ? `<button type="button" class="btn ghost sm" data-bearb="${m.id}">${ic('edit')}Bearbeiten</button>` : (istIch(m) ? '<span class="muted sm nw" data-eigenes-konto>Eigenes Konto: PIN und Telefon unter „Mehr“</span>' : '<span class="muted sm nw">Bearbeiten nur durch GF</span>')}</li>`;
     return `${!voll ? banner('info', 'Als Büro legen Sie Mitarbeiter und Poliere an, pflegen ihre Daten, setzen PINs zurück und entsperren Konten. Konten von Büro, Bauleitern und Geschäftsführung sowie die Rechte-Matrix verwaltet die Geschäftsführung.', 'shield') : ''}
       ${gesperrte.length ? `<section class="card" id="gesperrte" aria-labelledby="h-gesp"><div class="card-h pad-h"><h3 id="h-gesp">${ic('lock')}Gesperrte Konten <span class="count red">${gesperrte.length}</span></h3></div><ul class="plain rows">${gesperrte.map(zeile).join('')}</ul><p class="card-note">Nach zu vielen falschen PIN-Eingaben wird ein Konto befristet gesperrt (24 Std., dann länger). „Entsperren“ hebt die Sperre sofort auf; wenn die PIN vergessen wurde, zusätzlich unter „Bearbeiten“ eine neue Start-PIN vergeben. Konten gleicher oder höherer Stufe (Büro, Bauleiter) entsperrt nur die Geschäftsführung, Konten der Geschäftsführung nur der Notfall-Befehl am Server.</p></section>` : ''}
+      ${ohnePnr.length ? `<section class="card warn-card" id="ohne-pnr" aria-labelledby="h-ohne-pnr"><div class="card-h pad-h"><h3 id="h-ohne-pnr">${ic('alert')}${ohnePnr.length === 1 ? '1 aktive Person' : `${ohnePnr.length} aktive Personen`} ohne Personalnummer – ${ohnePnr.length === 1 ? 'sie kann' : 'sie können'} sich nicht anmelden</h3></div><ul class="plain rows">${ohnePnr.map(zeile).join('')}</ul><p class="card-note">Angemeldet wird mit Personalnummer und PIN. Bitte unter „Bearbeiten“ die Personalnummer eintragen (z. B. die vom Lohnzettel).</p></section>` : ''}
       <div class="toolbar"><span class="grow"></span><button type="button" class="btn primary" data-akt="neu">${ic('plus')}Neuer Benutzer</button></div>
       <section class="card">${leute.length ? `<ul class="plain rows" id="benutzerliste">${leute.map(zeile).join('')}</ul>` : leer('Keine Benutzer.', 'users')}</section>`;
   }
@@ -76,6 +104,12 @@ export default async function benutzer(el, ctx) {
     if (tab === 'dienste') { const box = document.createElement('div'); $('#b-panel', el).appendChild(box); diensteTab(box, ctx); }
   }
   const neuLaden = async () => { await lade(); if (ctx.aktuell()) zeichne(); };
+  // 15.34 (Nachprüfung): nach einem Matrix-Schalter nur die Ausnahmen-Karte neu zeichnen (Wirkung kann sich ändern)
+  const ausnahmenNeu = () => {
+    const alt = $('#h-aus', el); if (!alt || !ctx.aktuell()) return;
+    const box = document.createElement('div'); box.innerHTML = matrixHtml();
+    const neu = box.querySelector('section[aria-labelledby="h-aus"]'); if (neu) alt.closest('section').replaceWith(neu);
+  };
 
   function benutzerDialog(m) {
     const lg = lohngruppen.length ? `<select class="input lg" name="lohngruppe"><option value="">– keine –</option>${lohngruppen.map((l) => `<option value="${esc(l.id)}" ${m && (m.lohngruppe === l.id || m.lohngruppe === l.name || m.lohngruppeId === l.id) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>`
@@ -86,7 +120,7 @@ export default async function benutzer(el, ctx) {
       ${!voll ? '<p class="muted sm" id="rolle-hinweis">Die Rolle Bauleiter (gleiche Rechte wie das Büro) vergibt nur die Geschäftsführung. Über neue Benutzer und Rollenwechsel wird die Geschäftsführung benachrichtigt.</p>' : '<span id="rolle-hinweis" hidden></span>'}
       <div class="form-grid"><label class="field"><span class="field-label">Lohngruppe</span>${lg}</label>
       ${m && lohngruppen.length ? `<div class="field" id="lg-ab-box" hidden><label><span class="field-label">Neue Lohngruppe gültig ab</span><input class="input lg" type="date" name="lohngruppeGueltigAb" id="lg-ab" value="${m.lohngruppe || m.lohngruppeId ? wienHeute() : ''}" min="2000-01-01" aria-describedby="lg-anfang"></label><small class="muted" id="lg-anfang" hidden>Erste Lohngruppe: leer lassen = gilt von Anfang an – auch für bereits erfasste Stunden.</small><small class="price-err" id="lg-rueck" hidden>Ändert die Kosten bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}
-      <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? '' : 'wird automatisch vergeben'}"></label>
+      <label class="field"><span class="field-label">Personalnummer</span><input class="input lg" name="pnr" inputmode="numeric" pattern="[0-9]{1,6}" maxlength="6" value="${esc((m && m.pnr) || '')}" placeholder="${m ? (namensliste ? '' : 'nötig zum Anmelden') : 'wird automatisch vergeben'}"></label>
       <label class="field"><span class="field-label">Telefon (dienstlich)</span><input class="input lg" name="telefon" type="tel" inputmode="tel" maxlength="30" value="${esc((m && m.telefon) || '')}" placeholder="+43 664 …"></label></div>
       ${modelle.length ? `<div class="form-grid" id="az-box"><label class="field"><span class="field-label">Arbeitszeitmodell</span><select class="input lg" name="arbeitszeitmodell" id="az-wahl" aria-describedby="az-kurz">${modelle.filter((x) => x.aktiv !== false || (m && m.arbeitszeitmodell === x.id)).map((x) => `<option value="${x.id}" ${(m ? m.arbeitszeitmodell : vorgabeModell(m ? m.rolle : 'mitarbeiter')) === x.id ? 'selected' : ''}>${esc(x.name)}${x.aktiv === false ? ' (inaktiv)' : ''}</option>`).join('')}</select><small class="muted" id="az-kurz"></small></label>
       ${m ? `<div class="field" id="az-ab-box" hidden><label><span class="field-label">Neues Modell gültig ab</span><input class="input lg" type="date" name="arbeitszeitmodellGueltigAb" id="az-ab" value="${wienHeute()}" min="2000-01-01"></label><small class="price-err" id="az-rueck" hidden>Ändert Über- und Mehrstunden bereits erfasster Tage ab diesem Datum – wird beim Speichern eigens bestätigt.</small></div>` : ''}</div>
@@ -225,14 +259,26 @@ export default async function benutzer(el, ctx) {
   function ausnahmeDialog() {
     const d = dialog({ titel: 'Ausnahme vergeben', inhalt: `<form id="af" class="stack-s">
       <label class="field"><span class="field-label">Benutzer</span><select class="input lg" name="benutzerId" id="af-b">${leute.filter((m) => m.aktiv !== false && m.aktiv !== 0).map((m) => `<option value="${m.id}" data-rolle="${esc(m.rolle)}">${esc(m.name)} (${esc(rolleText(m.rolle))})</option>`).join('')}</select></label>
-      <label class="field"><span class="field-label">Zusätzliches Recht</span><select class="input lg" name="recht" id="af-r"></select></label>
+      <label class="field"><span class="field-label">Zusätzliches Recht</span><select class="input lg" name="recht" id="af-r" aria-describedby="af-hinweis"></select></label>
+      <div id="af-hinweis" data-af-hinweis aria-live="polite"></div>
       <p class="muted sm">Gesperrte Rechte der jeweiligen Rolle stehen nicht zur Auswahl.</p><p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="af">Vergeben</button>' });
-    const fuelle = () => { const rolle = $('#af-b', d.el).selectedOptions[0].dataset.rolle; $('#af-r', d.el).innerHTML = (r.rechte || []).map((re) => `<option value="${re.schluessel}" ${gesperrt(rolle, re.schluessel) ? 'disabled' : ''}>${esc(re.text)}${gesperrt(rolle, re.schluessel) ? ' (gesperrt)' : ''}</option>`).join(''); const frei = $$('#af-r option:not([disabled])', d.el)[0]; if (frei) frei.selected = true; };
-    fuelle(); $('#af-b', d.el).addEventListener('change', fuelle);
+    // 15.34 (Nachprüfung): Hinweis des gewählten Rechts; fehlt der Person die Voraussetzung, deutlich als Warnung
+    const hinweis = () => {
+      const m = leute.find((x) => String(x.id) === $('#af-b', d.el).value), recht = $('#af-r', d.el).value, re = rechtDaten(recht);
+      const box = $('#af-hinweis', d.el);
+      if (m && fehltVoraussetzung(m, recht)) box.innerHTML = banner('warn', `<b>Bei ${esc(m.name)} noch ohne Wirkung:</b> ${esc(re.hinweis || '')}.`);
+      else box.innerHTML = re.hinweis ? `<p class="muted sm" data-af-recht-hinweis>${esc(rechtText(recht))}: ${esc(re.hinweis)}.</p>` : '';
+    };
+    const fuelle = () => { const rolle = $('#af-b', d.el).selectedOptions[0].dataset.rolle; $('#af-r', d.el).innerHTML = (r.rechte || []).map((re) => `<option value="${re.schluessel}" ${gesperrt(rolle, re.schluessel) ? 'disabled' : ''}>${esc(re.text)}${gesperrt(rolle, re.schluessel) ? ' (gesperrt)' : ''}</option>`).join(''); const frei = $$('#af-r option:not([disabled])', d.el)[0]; if (frei) frei.selected = true; hinweis(); };
+    fuelle(); $('#af-b', d.el).addEventListener('change', fuelle); $('#af-r', d.el).addEventListener('change', hinweis);
     $('#af', d.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target);
-      try { await put('/rechte/ausnahme', { benutzerId: Number(f.get('benutzerId')), recht: f.get('recht'), wert: true }); d.zu(); toast('Ausnahme vergeben.'); neuLaden(); }
+      try {
+        const a = await put('/rechte/ausnahme', { benutzerId: Number(f.get('benutzerId')), recht: f.get('recht'), wert: true }); d.zu();
+        if (a && a.wirksam === false) toast(`Ausnahme vergeben, aber noch ohne Wirkung – ${rechtDaten(f.get('recht')).hinweis || 'für diese Rolle gesperrt'}.`, 'warn'); else toast('Ausnahme vergeben.');
+        neuLaden();
+      }
       catch (x) { const err = $('.form-err', d.el); err.hidden = false; err.textContent = x.message; }
     });
   }
@@ -262,8 +308,9 @@ export default async function benutzer(el, ctx) {
     try {
       await put('/rechte/matrix', { rolle: td.dataset.rolle, recht: td.dataset.recht, wert });
       r.matrix[td.dataset.rolle] = r.matrix[td.dataset.rolle] || {}; r.matrix[td.dataset.rolle][td.dataset.recht] = wert;
+      matrixWirkung();
       toast(`${rechtText(td.dataset.recht)}: für ${rolleText(td.dataset.rolle)} ${wert ? 'eingeschaltet' : 'ausgeschaltet'}.`);
-      get('/rechte').then((n) => { r = n; }).catch(() => {});
+      get('/rechte').then((n) => { r = n; ausnahmenNeu(); matrixWirkung(); }).catch(() => {});
     } catch (x) { inp.checked = !wert; toast(x.message, 'warn'); }
     inp.disabled = false;
   });

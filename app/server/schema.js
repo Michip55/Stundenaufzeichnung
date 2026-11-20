@@ -1574,6 +1574,65 @@ UPDATE buchung SET lat = NULL, lng = NULL, genauigkeit = NULL
    AND NOT (erfasst_von IS NOT NULL AND erfasst_von = benutzer_id AND quelle IN ('app', 'offline') AND lat IS NOT NULL AND lng IS NOT NULL
         AND EXISTS (SELECT 1 FROM benutzer b WHERE b.id = buchung.benutzer_id AND b.standort_einwilligung IS NOT NULL AND b.standort_einwilligung <= buchung.erfasst));
 `
+  },
+  {
+    version: 56,
+    name: '15.34: Bautagesbericht löschen mit Papierkorb (30 Tage wiederherstellbar)',
+    // Inhaber 19.11.2026: GF/Büro/Bauleiter löschen Bautagesberichte (jeder Status, Begründung Pflicht); 30 Tage im Papierkorb.
+    // Weiches Löschen direkt am Bericht (geloescht_*), damit Personal-, Geräte-, Material-, Regiezeilen, Unterschriften, Fotos
+    // und Sichtstand unverändert an derselben ID bleiben – Wiederherstellen ist damit verlustfrei. geloescht_fuhren: Fuhren,
+    // die beim Löschen vom Bericht gelöst wurden (JSON [{id, status}]), für das Wiederherstellen.
+    // Neuaufbau der Tabelle, weil UNIQUE (baustelle_id, datum) als Tabellen-Constraint nicht entfernt werden kann: an seine
+    // Stelle tritt ein Teilindex nur über nicht gelöschte Berichte (neuer Bericht für denselben Tag nach dem Löschen möglich).
+    // Läuft mit ausgeschalteten Fremdschlüsseln (sonst löschte DROP TABLE alle Kindzeilen); foreign_key_check danach (db.js).
+    fremdschluesselAus: true,
+    sql: `
+CREATE TABLE bericht_neu (
+  id INTEGER PRIMARY KEY,
+  baustelle_id INTEGER NOT NULL REFERENCES baustelle(id),
+  datum TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'entwurf' CHECK (status IN ('entwurf','unterschrieben','freigegeben')),
+  seg_taetigkeit TEXT,
+  seg_stunden REAL,
+  arbeitsleistung TEXT NOT NULL DEFAULT '',
+  mb_eigen TEXT NOT NULL DEFAULT '',
+  mb_fremd TEXT NOT NULL DEFAULT '',
+  paletten_euro INTEGER NOT NULL DEFAULT 0,
+  paletten_weissenboeck INTEGER NOT NULL DEFAULT 0,
+  vorkommnisse TEXT NOT NULL DEFAULT '',
+  wetter TEXT,
+  erstellt_von INTEGER REFERENCES benutzer(id),
+  erstellt TEXT NOT NULL,
+  geaendert TEXT NOT NULL,
+  freigegeben_von INTEGER REFERENCES benutzer(id),
+  freigegeben_zeit TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  geaendert_nach_unterschrift TEXT,
+  selbstfreigabe INTEGER NOT NULL DEFAULT 0,
+  sicht_version INTEGER,
+  sicht_geaendert TEXT,
+  sicht_hash TEXT,
+  sicht_real INTEGER,
+  geloescht_zeit TEXT,
+  geloescht_von INTEGER REFERENCES benutzer(id),
+  geloescht_grund TEXT,
+  geloescht_fuhren TEXT,
+  CHECK ((geloescht_zeit IS NULL) = (geloescht_grund IS NULL))
+);
+INSERT INTO bericht_neu (id, baustelle_id, datum, status, seg_taetigkeit, seg_stunden, arbeitsleistung, mb_eigen, mb_fremd, paletten_euro,
+  paletten_weissenboeck, vorkommnisse, wetter, erstellt_von, erstellt, geaendert, freigegeben_von, freigegeben_zeit, version,
+  geaendert_nach_unterschrift, selbstfreigabe, sicht_version, sicht_geaendert, sicht_hash, sicht_real)
+SELECT id, baustelle_id, datum, status, seg_taetigkeit, seg_stunden, arbeitsleistung, mb_eigen, mb_fremd, paletten_euro,
+  paletten_weissenboeck, vorkommnisse, wetter, erstellt_von, erstellt, geaendert, freigegeben_von, freigegeben_zeit, version,
+  geaendert_nach_unterschrift, selbstfreigabe, sicht_version, sicht_geaendert, sicht_hash, sicht_real FROM bericht;
+DROP TABLE bericht;
+ALTER TABLE bericht_neu RENAME TO bericht;
+CREATE UNIQUE INDEX bericht_tag ON bericht(baustelle_id, datum) WHERE geloescht_zeit IS NULL;
+CREATE INDEX bericht_datum ON bericht(datum);
+CREATE INDEX bericht_papierkorb ON bericht(geloescht_zeit) WHERE geloescht_zeit IS NOT NULL;
+INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT r.rolle, 'bericht_loeschen', 1
+  FROM (SELECT 'gf' AS rolle UNION ALL SELECT 'buero' UNION ALL SELECT 'bauleiter') r WHERE EXISTS (SELECT 1 FROM rolle_recht);
+`
   }
 ];
 

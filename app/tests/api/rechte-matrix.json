@@ -18,6 +18,7 @@
 
     "GET /api/gesundheit": { "r": "O O O O O", "grund": "4 System / 7: für alle" },
     "GET /api/auth/benutzerliste": { "r": "O O O O O", "grund": "4 Auth / 7 B-03: nur {id,name}" },
+    "GET /api/auth/anmeldung": { "r": "O O O O O", "grund": "15.33 öffentlich: nur ob die Namensliste eingeschaltet ist (keine Namen)" },
     "POST /api/auth/login": { "r": "O O O O O", "spezial": "Anmeldung; eigene Tests in rechte-umgehung.test.js", "grund": "4 Auth" },
     "GET /api/auth/2fa": { "r": "J J J J J", "grund": "12.7 eigener Stand" },
     "POST /api/auth/2fa/einrichten": { "r": "N N J J J", "body": { "pin": "1234" }, "nein400": "12.7: andere Rollen → 400", "grund": "12.7 nur bauleiter/buero/gf" },
@@ -102,6 +103,9 @@
     "POST /api/berichte/:id/personal-aktualisieren": { "r": "N E J J J", "pfad": "/api/berichte/{bericht}/personal-aktualisieren", "body": { "version": 999 }, "erfolg": {"body": {"version": "{version}"}, "versionVon": "/api/berichte/{bericht}"}, "grund": "6: Bereich" },
     "POST /api/berichte/:id/unterschrift": { "r": "N E J J J", "pfad": "/api/berichte/{bericht}/unterschrift", "body": { "rolle": "an", "name": "Probe", "bildPng": "data:image/png;base64,AAAA", "version": 999 }, "erfolg": {"body": {"rolle": "an", "name": "Probe", "bildPng": "{png}", "version": "{version}"}, "versionVon": "/api/berichte/{bericht}"}, "grund": "4: Bereich" },
     "DELETE /api/berichte/:id/unterschrift/:rolle": { "r": "N E J J J", "pfad": "/api/berichte/{bericht}/unterschrift/an", "ok": [200, 404], "okGrund": "keine AN-Unterschrift im Entwurf → 404 erst nach der Rechteprüfung", "erfolg": {"vorher": [["POST", "/api/berichte/{bericht}/unterschrift",{"rolle": "an", "name": "Probe", "bildPng": "{png}", "version": "{version}"}]], "versionVon": "/api/berichte/{bericht}"}, "grund": "7: bericht_erstellen im Bereich" },
+    "GET /api/berichte/papierkorb": { "r": "N N J J J", "grund": "15.34: Recht bericht_loeschen (Bauleiter = Büro), nur Baustellen im Bereich" },
+    "POST /api/berichte/:id/loeschen": { "r": "N N J J J", "pfad": "/api/berichte/{bericht}/loeschen", "body": { "grund": "Rechte-Probe: doppelt angelegt", "version": 999 }, "grund": "15.34: Recht bericht_loeschen im Bereich, Begründung Pflicht" },
+    "POST /api/berichte/:id/wiederherstellen": { "r": "N N J J J", "pfad": "/api/berichte/{berichtGeloescht}/wiederherstellen", "body": {}, "grund": "15.34: Recht bericht_loeschen im Bereich" },
     "POST /api/berichte/:id/freigeben": { "r": "N N J J J", "pfad": "/api/berichte/{bericht}/freigeben", "body": {}, "grund": "2: bericht_freigeben (Bauleiter = Büro, 15.4)" },
     "GET /api/berichte/:id/pdf": { "r": "N E J J J", "pfad": "/api/berichte/{berichtAlt}/pdf", "varianten": [{"query": "?fassung=intern", "r": "N N J J J"}, {"query": "?fassung=intern&fotos=1", "r": "N N J J J"}, {"query": "?fassung=ag"}, {"query": "?fassung=ag&fotos=1"}, {"pfad": "/api/berichte/{bericht}/pdf", "query": "?fassung=intern&fotos=1", "r": "N N J J J"}, {"pfad": "/api/berichte/{bericht}/pdf", "query": "?fassung=ag&fotos=1"}], "grund": "4: nie €; G2-009: Fotoanhang auch für den Bericht mit fremdem Lieferschein (nie an Polier/Mitarbeiter, 15.7 N-112)" },
 

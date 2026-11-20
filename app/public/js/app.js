@@ -1,6 +1,6 @@
 // BauTag – Start, Rahmen (Seitenleiste / Schiene / Tab-Leiste) und Hash-Routing.
 // Alles Rollenabhängige ergibt sich ausschließlich aus den Rechten von GET /api/auth/ich.
-import { get, post, abmeldenVormerken, abmeldenSenden, abmeldenOffen, abmeldenWarten, abmeldenBeimSchliessen, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung } from './api.js';
+import { get, post, abmeldenVormerken, abmeldenSenden, abmeldenOffen, abmeldenWarten, abmeldenBeimSchliessen, bindungLoeschen, geraetArtFuer, setzGeraetArt, geraetArtBeiAnmeldung, sperreMinutenFuer, sitzungWechsel, setzAngemeldet, pushNachAnmeldung, merkeHandyPerson } from './api.js';
 import { ic, esc, MARK, fmt, laden, keinZugriff, fehlerBox, avatar, rolleText, dialog, speicher, toast, $, $$ } from './ui.js';
 import { syncStatus, setzBenutzer, setzOnline, nachsenden, nachsendenFertig } from './offline.js';
 import { standortNachtragOffen, standortNachtraegeFertig, STANDORT_ABMELDEN_MS } from './standort-einwilligung.js';
@@ -8,7 +8,7 @@ import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
 import woche from './views/woche.js';
-import { berichte, bericht } from './views/berichte.js';
+import { berichte, bericht, papierkorb } from './views/berichte.js';
 import dashboard from './views/dashboard.js';
 import { baustellen, baustelle } from './views/baustellen.js';
 import { archiv } from './views/lebenslauf.js';
@@ -123,6 +123,7 @@ const ROUTEN = [
   { muster: /^\/kolonne$/, nav: 'kolonne', titel: 'Kolonne stempeln', view: kolonne, darf: eines('kolonne') },
   { muster: /^\/woche$/, nav: 'woche', titel: 'Meine Woche', view: woche, darf: eines('zeit_eigen') },
   { muster: /^\/berichte$/, nav: 'berichte', titel: 'Bautagesberichte', view: berichte, darf: eines('bericht_erstellen', 'bericht_freigeben') },
+  { muster: /^\/berichte\/papierkorb$/, nav: 'berichte', titel: 'Papierkorb', view: papierkorb, darf: eines('bericht_loeschen') }, // 15.34
   { muster: /^\/bericht\/(\d+)$/, nav: 'berichte', titel: 'Bautagesbericht', view: bericht, darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { muster: /^\/dashboard$/, nav: 'dashboard', titel: 'Übersicht', view: dashboard, darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
   { muster: /^\/baustellen$/, nav: 'baustellen', titel: 'Baustellen', view: baustellen, darf: siehtBaustellen },
@@ -209,6 +210,7 @@ function geraetGewaehlt(art) {
   if (!ich) return geraetArtFuer(null);
   const id = ich.benutzer.id;
   const neu = setzGeraetArt(art, id);
+  merkeHandyPerson(ich.benutzer); // 15.33: „eigen“ → Name + Personalnummer für die nächste Anmeldung merken; „geteilt“ → vergessen
   const erlaubnis = typeof Notification === 'undefined' ? 'default' : Notification.permission;
   if (neu === 'eigen' && pushNachAnmeldung(id, erlaubnis)) pushStillEinschalten({ geteilt: false }).catch(() => {});
   else pushGeraetArtMelden(neu !== 'eigen').catch(() => {});
@@ -520,6 +522,9 @@ async function ladeIch(nurMitHinweis = false, { frisch = false } = {}) {
     // ohne Bestätigung); beim Neustart mit bestehender Sitzung bleibt es bei der gespeicherten Wahl (geraetArtFuer)
     if (frisch) geraetArtBeiAnmeldung(ich.benutzer.id);
     speicher.setz('bt_geraet_benutzer', ich.benutzer.id);
+    // 15.33: am eigenen Handy dieser Person Name + Personalnummer für die Anmeldeseite merken – nach der Anmeldung und auch beim
+    // Start mit laufender Wochen-Sitzung (niemand muss nach der Umstellung die Personalnummer eintippen); sonst vergessen
+    merkeHandyPerson(ich.benutzer);
     if (frisch) { aktivMem = Date.now(); aktivGeschrieben = aktivMem; speicher.setz(AKTIV, aktivMem); } // Untätigkeit zählt ab der Anmeldung
     // Nur Name/Rolle/Rechte für den Offline-Start merken (keine Preis- oder Lohndaten)
     speicher.setz('bt_ich', ich);
@@ -664,7 +669,7 @@ setInterval(sperrePruefen, 30000);
 window.addEventListener('bt:geraet-art', () => { aktivMem = Date.now(); aktivGeschrieben = aktivMem; if (ich) speicher.setz(AKTIV, aktivMem); });
 window.addEventListener('bt:abgemeldet', () => { if (ich && !abmeldenLauf) { lokalAbmelden(); toast('Sitzung abgelaufen – bitte neu anmelden.', 'warn'); } });
 // 15.5 (F-029): wieder online → ein vorgemerktes Abmelden sofort nachholen (api.js holt es vor jeder Anfrage nach)
-window.addEventListener('online', () => { if (!ich) get('/auth/benutzerliste').catch(() => {}); });
+window.addEventListener('online', () => { if (!ich) get('/auth/anmeldung').catch(() => {}); });
 window.addEventListener('bt:2fa', () => { if (ich && !(ich.zweiFaktor && ich.zweiFaktor.pflicht && !ich.zweiFaktor.aktiv)) { ich.zweiFaktor = { aktiv: false, pflicht: true }; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:pin', () => { if (ich && !ich.mussPinAendern) { ich.mussPinAendern = true; clearInterval(pollTimer); root.innerHTML = ''; zeige(); } });
 window.addEventListener('bt:nachgesendet', () => { holeMeldungen(); const { pfad } = pfadJetzt(); if (pfad === '/stempeln' || pfad === '/woche') zeige(); });

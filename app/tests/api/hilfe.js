@@ -11,6 +11,8 @@ const U = { mitarbeiter: 2, polier: 1, polier2: 8, bauleiter: 103, buero: 101, g
 const BS = { pitten: 1, kogler: 2, reisinger: 3, breitenau: 4, ternitz: 5, gloggnitz: 6, neustadt: 7, kieswerk: 8 };
 const START = '2026-11-12T09:24:00.000Z'; // Do 12.11.2026, 10:24 Wiener Zeit
 
+// 15.33: am Server ist die Namensliste standardmäßig aus – die Tests (Anmeldung mit benutzerId) schalten sie hier ausdrücklich ein;
+// Tests der Anmeldung ohne Liste übergeben loginListe: false
 async function starte(opt = {}) {
   let jetzt = new Date(opt.start || START);
   const uhr = () => new Date(jetzt.getTime());
@@ -18,7 +20,7 @@ async function starte(opt = {}) {
   uhr.plus = (min) => { jetzt = new Date(jetzt.getTime() + min * 60000); };
   const app = createApp({
     dbPath: opt.dbPath || ':memory:', uhr, nodeEnv: opt.nodeEnv, testToken: opt.testToken, seed: opt.seed !== false, demo: opt.demo !== false, euroSicherheitsnetz: opt.euroSicherheitsnetz,
-    pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe, trustProxy: opt.trustProxy,
+    pdfUnkomprimiert: opt.pdfUnkomprimiert, loginListe: opt.loginListe ?? true, trustProxy: opt.trustProxy,
     // Ausbaustufe 2: Attrappen für externe Dienste (API.md 12.18)
     test: opt.test, kiClient: opt.kiClient, wetterAbruf: opt.wetterAbruf, mailTransport: opt.mailTransport, schluessel: opt.schluessel, url: opt.url, wetter: opt.wetter,
     // Standard in Tests: lange Sitzungen, damit Uhrsprünge nicht abmelden (eigener Test für Ablaufzeiten)
@@ -81,7 +83,9 @@ async function starte(opt = {}) {
 
   async function login(benutzerId, pin = '1234', ip) {
     const c = client(null, ip || null);
-    const r = await c.post('/auth/login', { benutzerId, pin });
+    // 15.33: ohne Namensliste mit der Personalnummer der Person anmelden
+    const wer = app.bt.loginListe ? { benutzerId } : { pnr: (app.bt.db.eins('SELECT pnr FROM benutzer WHERE id = ?', benutzerId) || {}).pnr };
+    const r = await c.post('/auth/login', { ...wer, pin });
     if (r.status !== 200) throw new Error(`Login ${benutzerId} fehlgeschlagen: ${r.status} ${JSON.stringify(r.daten)}`);
     return c;
   }

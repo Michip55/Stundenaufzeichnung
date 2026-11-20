@@ -60,7 +60,10 @@ function erfordertFuer({ typ, schluessel, benutzerId }) {
     case 'baustelle':
       if (/^bv:(sr|bg|hr):/.test(s)) return PREISE; // Schlussrechnung, Bankgarantie, Haftrücklass
       return STAMM; // Gewährleistung, Fertigmeldung
-    case 'bericht': return ['bericht_freigeben']; // „Bericht zur Freigabe“
+    case 'bericht':
+      // Prüfung 20.11.2026: „Bautagesbericht gelöscht/wiederhergestellt“ an Ersteller und Polier (15.34)
+      if (/^bericht-(geloescht|wieder):/.test(s)) return ['bericht_erstellen|bericht_freigeben'];
+      return ['bericht_freigeben']; // „Bericht zur Freigabe“
     case 'plan':
       if (/^(plan:erinnerung|plan:anfrage|fuhre:pruefen):/.test(s)) return STAMM; // an die Planer
       return KEINE; // eigene Einsätze, Partie-Meldung, eigene Anfrage erledigt

@@ -465,7 +465,10 @@ async function scanne(rolle, r0, k) {
           const p2 = x.benutzerId !== undefined ? x.benutzerId : person;
           const eigeneRoute = p2 === undefined && EIGENE_PFADE[k.route] && EIGENE_PFADE[k.route].test(pfad);
           if (x.code === 'K' && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Krankenstand (Code K) einer anderen Person (${p2}) bei ${pfad}`);
-          if (x.pnr != null && p2 !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${p2}) bei ${pfad}`);
+          // 15.33: ein Personen-Datensatz mit Personalnummer trägt seine Benutzer-ID als `id` ({id, name, pnr} in /auth/ich und im
+          // gemerkten bt_ich) – die eigene Personalnummer ist dann erkennbar die eigene, jede andere bleibt ein Befund
+          const pnrVon = x.benutzerId !== undefined ? x.benutzerId : Number.isInteger(x.id) && 'name' in x ? x.id : p2;
+          if (x.pnr != null && pnrVon !== eigeneId && !eigeneRoute) v.push(`${wo}: Personalnummer einer anderen Person (${pnrVon}) bei ${pfad}`);
           // Mitarbeiter: Zeiten, Abwesenheiten und Urlaub nur von sich selbst (API.md 7 B-07, 12.19)
           if (rolle === 'mitarbeiter' && !k.mitAusnahmen && x.benutzerId !== undefined && x.benutzerId !== eigeneId && /(GET|POST) \/api\/(abwesenheiten|urlaub|zeit)\b/.test(k.route)) v.push(`${wo}: Daten einer anderen Person (${x.benutzerId}) bei ${pfad}`);
           // Inhaber 13.11.2026: Polier und Mitarbeiter sehen Abwesenheiten anderer gar nicht (auch nicht „abwesend“)
@@ -913,6 +916,14 @@ async function erstelleBasis() {
       const link = await erwarte(await gf.post(`/berichte/${F.bericht[kk]}/unterschrift-link`, { rolle: 'bh', name: 'Bauherr' }), 201, 'Fern-Link');
       F.bericht[`${kk}Link`] = link.id;
       F.bericht[`${kk}Token`] = link.url.split('/').pop();
+    }
+    // --- 15.34: je Baustelle ein gelöschter Bericht im Papierkorb (für GET /berichte/papierkorb und …/wiederherstellen)
+    for (const [bs, kk] of [[BS.pitten, 'bs1'], [BS.reisinger, 'bs3']]) {
+      let tag = '2026-10-14';
+      while (s.db.eins('SELECT 1 AS x FROM bericht WHERE baustelle_id = ? AND datum = ?', bs, tag)) tag = require('../../server/datum').plusTage(tag, -1);
+      const g = await erwarte(await gf.post('/berichte', { baustelleId: bs, datum: tag }), 201, 'Bericht für den Papierkorb');
+      await erwarte(await gf.post(`/berichte/${g.id}/loeschen`, { grund: 'Rechte-Test: doppelt angelegt', version: g.version }), 200, 'Bericht löschen');
+      F.bericht[`${kk}Geloescht`] = g.id;
     }
     // --- N-112 (15.7): Dokument „Lieferscheine“ auf BS 1, hochgeladen von der GF – Polier/Mitarbeiter sehen es nie
     F.dok.lieferscheinBs1 = await dok(BS.pitten, 'lieferscheine', `${TEXT.lieferschein}-DOK`);

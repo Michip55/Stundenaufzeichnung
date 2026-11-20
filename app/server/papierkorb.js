@@ -1,0 +1,216 @@
+'use strict';
+/**
+ * Bautagesbericht löschen mit Papierkorb (API.md 15.34, Inhaber 19.11.2026).
+ *
+ * - Löschen ist „weich“: bericht.geloescht_zeit/_von/_grund werden gesetzt, alle Kindzeilen (Personal, Geräte, Material, Regie,
+ *   Unterschriften, Fotos, Sichtstand) bleiben unverändert an derselben ID. Jede Abfrage auf bericht schließt gelöschte
+ *   Berichte aus (`geloescht_zeit IS NULL`) – Listen, Zähler, Nachkalkulation, Monat/Lohn/BUAK, Servicebuch, Fuhren, PDFs.
+ * - 30 Tage wiederherstellbar; danach löscht der stündliche Lauf (server/index.js bt.stuendlich) den Bericht endgültig – samt
+ *   Fotos/Lieferscheinen/Papierbericht-Dateien, Unterschriften, Personal-/Geräte-/Material-/Regiezeilen und Fern-Links.
+ * - Stempelzeiten (Tabelle buchung) gehören nicht zum Bericht und bleiben immer unverändert.
+ * - Fuhren (12.8b), die mit dem Bericht verknüpft waren, werden wieder „Vorschlag“ ohne Bericht (ein neuer Bericht für den Tag
+ *   kann sie übernehmen); beim Wiederherstellen werden die noch unveränderten Fuhren wieder verknüpft.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+
+const FRIST_TAGE = 30;
+const FRIST_MS = FRIST_TAGE * 24 * 60 * 60 * 1000;
+const MIN_GRUND = 5;
+
+/** Zeitpunkt (ISO), ab dem ein am `zeit` gelöschter Bericht endgültig weg ist */
+const endgueltigAm = (zeit) => new Date(new Date(zeit).getTime() + FRIST_MS).toISOString();
+
+/** Nicht gelöschter Bericht derselben Baustelle am selben Tag (außer `ohneId`) */
+function aktiverBericht(db, baustelleId, datum, ohneId = -1) {
+  return db.eins('SELECT id, status FROM bericht WHERE baustelle_id = ? AND datum = ? AND geloescht_zeit IS NULL AND id <> ?', baustelleId, datum, ohneId);
+}
+
+const tagText = (datum) => datum.split('-').reverse().join('.');
+const STATUS_TEXT = { entwurf: 'Entwurf', unterschrieben: 'unterschrieben', freigegeben: 'freigegeben' };
+
+/** Offene Hinweise zum Bericht („Bericht zur Freigabe“, „Zeiten überschneiden sich“) als gelesen markieren bzw. löschen */
+const HINWEIS_MUSTER = (id) => [`bericht:${id}:%`, `bericht-ueberschneidung:${id}:%`];
+
+/**
+ * Bericht in den Papierkorb (in einer Transaktion). `b` = ladeBerichtRoh (nicht gelöscht), Rechte sind geprüft.
+ * @returns {{geloeschtZeit:string, endgueltigAm:string}}
+ */
+function loeschen(bt, ctx, b, grund) {
+  const { db } = bt;
+  const zeit = bt.uhr().toISOString();
+  db.transaktion(() => {
+    const fuhren = db.alle('SELECT id, bericht_status AS status FROM plan_fuhre WHERE bericht_id = ? ORDER BY id', b.id);
+    // übernommene und vorgeschlagene Fuhren: wieder Vorschlag ohne Bericht; „prüfen“ behält den Hinweis, nur ohne Verweis
+    db.lauf("UPDATE plan_fuhre SET bericht_status = 'vorschlag', bericht_id = NULL WHERE bericht_id = ? AND bericht_status IN ('uebernommen', 'vorschlag')", b.id);
+    db.lauf('UPDATE plan_fuhre SET bericht_id = NULL WHERE bericht_id = ?', b.id);
+    const n = db.lauf('UPDATE bericht SET geloescht_zeit = ?, geloescht_von = ?, geloescht_grund = ?, geloescht_fuhren = ?, version = version + 1 WHERE id = ? AND geloescht_zeit IS NULL',
+      zeit, ctx.benutzer.id, grund, fuhren.length ? JSON.stringify(fuhren) : null, b.id).changes;
+    require('./berichtsicht').nachfuehren(db, b.id, null); // 15.15 (H-G4): Sichtstand mitführen (Inhalt unverändert)
+    if (!n) throw require('./fehler').konflikt('Der Bericht wurde inzwischen schon gelöscht.');
+    require('./routes/berichte').linksUngueltig(db, b.id); // offene Fernunterschrift-Links gelten nicht mehr (12.9)
+    for (const m of HINWEIS_MUSTER(b.id)) db.lauf('UPDATE benachrichtigung SET gelesen = 1 WHERE gelesen = 0 AND schluessel LIKE ?', m);
+    db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'bericht', objekt: `bericht:${b.id}`,
+      alt: { status: b.status, unterschriften: b.unterschriften.map((u) => u.rolle), fuhren: fuhren.map((f) => f.id) }, neu: { geloescht: zeit, grund },
+      text: `Bericht ${b.baustelle.kst} ${b.datum} (${STATUS_TEXT[b.status] || b.status}) gelöscht – im Papierkorb bis ${tagText(require('./datum').wienDatum(new Date(endgueltigAm(zeit))))}. Begründung: ${grund}` });
+  });
+  folgen(bt, b, ctx.benutzer.id, 'Bautagesbericht gelöscht');
+  betroffeneBenachrichtigen(bt, ctx, b, { zeit, grund, art: 'geloescht' });
+  return { geloeschtZeit: zeit, endgueltigAm: endgueltigAm(zeit) };
+}
+
+/**
+ * Prüfung 20.11.2026: Ersteller und Polier der Baustelle erfahren, dass „ihr“ Bericht gelöscht bzw. wiederhergestellt wurde
+ * (nicht, wer selbst gelöscht hat). Neutral, ohne €: enthält die Begründung Geld-/Kalkulationswörter, bekommen Empfänger ohne
+ * preise_sehen/kalk_sehen sie nicht (15.11 G2-015). Nur Empfänger, die Berichte dieser Baustelle sehen dürfen.
+ */
+function empfaengerZuBericht(db, b, ohne) {
+  const R = require('./rechte');
+  const ids = [...new Set([b.erstellt_von, b.baustelle && b.baustelle.polier_id].filter((x) => x != null && x !== ohne))];
+  return ids.map((id) => db.eins('SELECT * FROM benutzer WHERE id = ? AND aktiv = 1', id)).filter((u) => {
+    if (!u) return false;
+    const r = R.ladeRechteFuer(db, u);
+    return (r.has('bericht_erstellen') || r.has('bericht_freigeben')) && R.baustelleImBereich(u, b.baustelle);
+  });
+}
+/** Begründung für diesen Empfänger (ohne Geldwörter für Personen ohne Preis-/Kalkulationsrecht) oder '' */
+function grundFuer(db, u, grund) {
+  if (!grund) return '';
+  const r = require('./rechte').ladeRechteFuer(db, u);
+  return !r.has('preise_sehen') && !r.has('kalk_sehen') && require('./fehler').enthaeltGeld(grund) ? '' : grund;
+}
+function betroffeneBenachrichtigen(bt, ctx, b, { zeit, grund, art }) {
+  const { db } = bt;
+  const { benachrichtige } = require('./benachrichtigung');
+  const was = `Bautagesbericht ${b.baustelle.kst} vom ${tagText(b.datum)}`;
+  for (const u of empfaengerZuBericht(db, b, ctx.benutzer.id)) {
+    const g = art === 'geloescht' ? grundFuer(db, u, grund).replace(/[\s.!]+$/, '') : '';
+    benachrichtige(db, { benutzerId: u.id, typ: 'bericht', zeit, baustelleId: b.baustelle_id, schluessel: `bericht-${art}:${b.id}:${zeit}:v${b.version}`, // version: je Löschen/Wiederherstellen neu
+      titel: art === 'geloescht' ? 'Bautagesbericht gelöscht' : 'Bautagesbericht wiederhergestellt',
+      text: art === 'geloescht'
+        ? `${was} wurde von ${ctx.benutzer.name} gelöscht${g ? ` – Begründung: ${g}` : ''}. Eingaben dazu werden nicht mehr gespeichert – bei Fragen bitte im Büro melden.`
+        : `${was} wurde aus dem Papierkorb wiederhergestellt und ist wieder in der Liste.` });
+  }
+}
+
+/** Auswertungen, die vom Bericht abhängen, neu bewerten (Budget-Alarme, Servicebuch-Gerätestunden) */
+function folgen(bt, b, benutzerId, anlass) {
+  if (b.status !== 'entwurf') require('./budget').pruefeBudget(bt, b.baustelle_id, { anlass, benutzerId });
+  if (b.status !== 'entwurf' && b.geraete && b.geraete.length) require('./fuhrpark-erinnerung').pruefeFuhrparkSicher(bt);
+}
+
+/**
+ * Was dem Wiederherstellen im Weg steht (oder null):
+ * - neuer Bericht derselben Baustelle am selben Tag
+ * - Prüfung 19.11.2026: Personen, die inzwischen zur selben Zeit in einem anderen aktiven Bericht stehen (sonst zwei aktive
+ *   Berichte mit überlappenden Zeiten – Stunden doppelt in Monat/Lohn/BUAK/Nachkalkulation; PUT lehnt das mit 400 ab).
+ *   Ohne stammdaten/lohn bleibt der Text neutral (15.11 G2-016: keine fremden Baustellen/Zeiten).
+ * @returns {null|{art:'neuer_bericht'|'ueberschneidung', text:string, neuerBerichtId?:number, ueberschneidungen?:object[]}}
+ */
+function hindernis(db, ctx, z) {
+  const anderer = aktiverBericht(db, z.baustelle_id, z.datum, z.id);
+  if (anderer) {
+    return { art: 'neuer_bericht', neuerBerichtId: anderer.id,
+      text: `Für ${z.kst} am ${tagText(z.datum)} gibt es inzwischen einen neuen Bericht. Wiederherstellen geht erst, wenn dieser neue Bericht gelöscht ist – oder die Angaben bitte von Hand in den neuen Bericht übernehmen.` };
+  }
+  const ue = require('./routes/berichte').berichtUeberschneidungen(db, z.id);
+  if (!ue.length) return null;
+  if (!require('./datenschutz').berichtSiehtAbwesenheiten(ctx)) {
+    return { art: 'ueberschneidung', text: 'Mindestens eine Person aus diesem Bericht steht inzwischen zur selben Zeit in einem anderen Bautagesbericht. Bitte im Büro klären lassen – danach kann der Bericht wiederhergestellt werden.' };
+  }
+  const t = ue.map((x) => { const o = x.andere[0]; return `${x.name} steht am ${tagText(o.datum)} inzwischen im Bericht von ${o.kst} (${o.von1}–${o.bis})`; });
+  return { art: 'ueberschneidung',
+    text: `${t.slice(0, 2).join('; ')}${t.length > 2 ? ` und ${t.length - 2} weitere` : ''} – die Zeiten überschneiden sich. Zuerst dort klären, dann wiederherstellen.`,
+    ueberschneidungen: ue.map((x) => ({ benutzerId: x.benutzerId, name: x.name, berichte: x.andere.map((o) => ({ id: o.id, kst: o.kst, datum: o.datum })) })) };
+}
+
+/**
+ * Gelöschten Bericht wiederherstellen (Rechte geprüft). 409, wenn es inzwischen einen neuen Bericht für denselben Tag gibt,
+ * sich Personalzeiten mit einem anderen aktiven Bericht überschneiden oder die Frist abgelaufen ist.
+ */
+function wiederherstellen(bt, ctx, z) {
+  const { db } = bt;
+  const { konflikt } = require('./fehler');
+  const zeit = bt.uhr().toISOString();
+  if (endgueltigAm(z.geloescht_zeit) <= zeit) throw konflikt('Die 30 Tage im Papierkorb sind abgelaufen – der Bericht wird endgültig gelöscht und kann nicht mehr wiederhergestellt werden.');
+  db.transaktion(() => {
+    const h = hindernis(db, ctx, z); // in der Transaktion: geprüft wird der Stand, der wiederhergestellt wird
+    if (h) throw konflikt(h.text, { hindernis: h.art, ...(h.neuerBerichtId ? { id: h.neuerBerichtId } : {}), ...(h.ueberschneidungen ? { ueberschneidungen: h.ueberschneidungen } : {}) });
+    const n = db.lauf('UPDATE bericht SET geloescht_zeit = NULL, geloescht_von = NULL, geloescht_grund = NULL, geloescht_fuhren = NULL, version = version + 1 WHERE id = ? AND geloescht_zeit IS NOT NULL', z.id).changes;
+    require('./berichtsicht').nachfuehren(db, z.id, null); // 15.15 (H-G4)
+    if (!n) throw konflikt('Der Bericht ist nicht mehr im Papierkorb.');
+    // Fuhren wieder verknüpfen – nur, wenn sie seitdem unverändert „Vorschlag ohne Bericht“ geblieben sind
+    let fuhren = [];
+    try { fuhren = JSON.parse(z.geloescht_fuhren || '[]'); } catch (_) { fuhren = []; }
+    let wieder = 0;
+    for (const f of fuhren) {
+      const jetztStatus = f.status === 'pruefen' ? 'pruefen' : 'vorschlag'; // so hat loeschen() sie hinterlassen
+      wieder += db.lauf('UPDATE plan_fuhre SET bericht_status = ?, bericht_id = ? WHERE id = ? AND bericht_id IS NULL AND bericht_status = ?',
+        f.status, z.id, f.id, jetztStatus).changes;
+    }
+    db.protokolliere({ zeit, benutzerId: ctx.benutzer.id, art: 'bericht', objekt: `bericht:${z.id}`, alt: { geloescht: z.geloescht_zeit, grund: z.geloescht_grund }, neu: { status: z.status, fuhren: wieder },
+      text: `Bericht ${z.kst} ${z.datum} (${STATUS_TEXT[z.status] || z.status}) aus dem Papierkorb wiederhergestellt` });
+  });
+  const b = require('./routes/berichte').ladeBerichtRoh(db, z.id);
+  folgen(bt, b, ctx.benutzer.id, 'Bautagesbericht wiederhergestellt');
+  // die Lösch-Meldung ist damit erledigt; Ersteller/Polier erfahren, dass der Bericht wieder da ist
+  db.lauf('UPDATE benachrichtigung SET gelesen = 1 WHERE gelesen = 0 AND schluessel LIKE ?', `bericht-geloescht:${z.id}:%`);
+  betroffeneBenachrichtigen(bt, ctx, b, { zeit: bt.uhr().toISOString(), art: 'wieder' });
+  return b;
+}
+
+/** Gelöschte Berichte (Zeilen mit Baustelle), neueste Löschung zuerst */
+function geloeschte(db, { id = null } = {}) {
+  return db.alle(`SELECT r.id, r.baustelle_id, r.datum, r.status, r.version, r.geloescht_zeit, r.geloescht_von, r.geloescht_grund, r.geloescht_fuhren,
+      b.kst, b.name, b.kurz, b.polier_id, b.bauleiter_id, u.name AS geloescht_von_name,
+      (SELECT COUNT(*) FROM unterschrift x WHERE x.bericht_id = r.id) AS unterschriften
+    FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id LEFT JOIN benutzer u ON u.id = r.geloescht_von
+    WHERE r.geloescht_zeit IS NOT NULL ${id != null ? 'AND r.id = ?' : ''} ORDER BY r.geloescht_zeit DESC, r.id DESC`, ...(id != null ? [id] : []));
+}
+
+/** Eintrag der Papierkorb-Liste (ohne €, ohne Personal) */
+function eintragJson(db, ctx, z) {
+  const h = hindernis(db, ctx, z);
+  return {
+    id: z.id, baustelleId: z.baustelle_id, kst: z.kst, baustelle: z.kurz || z.name, datum: z.datum, status: z.status, version: z.version,
+    unterschriften: z.unterschriften,
+    geloescht: { zeit: z.geloescht_zeit, von: z.geloescht_von ? { id: z.geloescht_von, name: z.geloescht_von_name || '?' } : null, grund: z.geloescht_grund },
+    endgueltigAm: endgueltigAm(z.geloescht_zeit),
+    endgueltigDatum: require('./datum').wienDatum(new Date(endgueltigAm(z.geloescht_zeit))),
+    wiederherstellbar: !h,
+    ...(h ? { hindernis: { art: h.art, text: h.text } } : {}),
+    ...(h && h.neuerBerichtId ? { neuerBerichtId: h.neuerBerichtId } : {})
+  };
+}
+
+/**
+ * Stündlicher Lauf: Berichte, die länger als 30 Tage im Papierkorb liegen, endgültig löschen (samt Dateien).
+ * @returns {number} Anzahl endgültig gelöschter Berichte
+ */
+function endgueltigLoeschen(bt) {
+  const { db } = bt;
+  const jetzt = bt.uhr();
+  const grenze = new Date(jetzt.getTime() - FRIST_MS).toISOString();
+  const faellig = db.alle(`SELECT r.id, r.datum, r.status, r.geloescht_zeit, r.geloescht_grund, b.kst FROM bericht r JOIN baustelle b ON b.id = r.baustelle_id
+    WHERE r.geloescht_zeit IS NOT NULL AND r.geloescht_zeit <= ? ORDER BY r.geloescht_zeit, r.id`, grenze);
+  if (!faellig.length) return 0;
+  const Bild = require('./fuhrpark-bild');
+  const ordner = path.join(bt.uploads, 'berichte'); // = routes/berichtfotos.js ordner()
+  let n = 0;
+  for (const z of faellig) {
+    const dateien = db.alle('SELECT datei FROM bericht_foto WHERE bericht_id = ?', z.id).map((f) => f.datei);
+    db.transaktion(() => {
+      db.lauf('UPDATE plan_fuhre SET bericht_id = NULL WHERE bericht_id = ?', z.id); // Fremdschlüssel ohne CASCADE
+      for (const m of HINWEIS_MUSTER(z.id)) db.lauf('DELETE FROM benachrichtigung WHERE schluessel LIKE ?', m);
+      // ON DELETE CASCADE: Personal, Geräte, Material, Regie, Unterschriften (+ Widerrufe), Fotos, Fern-Links, Sichtstand
+      db.lauf('DELETE FROM bericht WHERE id = ? AND geloescht_zeit IS NOT NULL', z.id);
+      db.protokolliere({ zeit: jetzt.toISOString(), benutzerId: null, art: 'bericht', objekt: `bericht:${z.id}`, alt: { geloescht: z.geloescht_zeit, grund: z.geloescht_grund, dateien: dateien.length },
+        text: `Bericht ${z.kst} ${z.datum} endgültig gelöscht (${FRIST_TAGE} Tage im Papierkorb abgelaufen${dateien.length ? `, ${dateien.length} Datei(en)` : ''})` });
+    });
+    for (const d of dateien) { try { fs.unlinkSync(Bild.dateiPfad(ordner, d)); } catch (_) { /* schon weg */ } }
+    n++;
+  }
+  return n;
+}
+
+module.exports = { grundFuer, FRIST_TAGE, FRIST_MS, MIN_GRUND, endgueltigAm, aktiverBericht, loeschen, wiederherstellen, geloeschte, eintragJson, endgueltigLoeschen };

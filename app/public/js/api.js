@@ -28,7 +28,7 @@ let abbruch = typeof AbortController === 'function' ? new AbortController() : nu
 // ANMELDUNG_ANDERS – die Antwort wird verworfen und die Seite sperrt sich (Ereignis bt:fremd).
 let angemeldet = null;
 export function setzAngemeldet(benutzerId) { angemeldet = benutzerId != null && Number.isInteger(Number(benutzerId)) ? Number(benutzerId) : null; }
-const OHNE_ICH = ['/auth/login', '/auth/login/2fa', '/auth/logout', '/auth/benutzerliste'];
+const OHNE_ICH = ['/auth/login', '/auth/login/2fa', '/auth/logout', '/auth/benutzerliste', '/auth/anmeldung'];
 export const sitzungGeneration = () => generation;
 export function sitzungWechsel() {
   generation++;
@@ -100,6 +100,7 @@ export function setzGeraetArt(art, benutzerId = null) {
     localStorage.setItem(GERAET_ART, neu);
     if (neu === 'eigen' && benutzerId != null && Number.isInteger(Number(benutzerId))) localStorage.setItem(GERAET_ART_BENUTZER, String(Number(benutzerId)));
     else localStorage.removeItem(GERAET_ART_BENUTZER);
+    if (neu === 'geteilt') localStorage.removeItem(HANDY_PERSON); // 15.33: am geteilten Gerät nie einen Namen gemerkt lassen
   } catch (e) { /* gesperrt: es bleibt beim sicheren „geteilt“ (geraetArtFuer) */ }
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('bt:geraet-art', { detail: neu }));
   return neu;
@@ -139,6 +140,34 @@ export function geraetArtBeiAnmeldung(benutzerId) {
   setzGeraetArt('eigen', id);
   return { art: geraetArtFuer(id), vorher: inhaber != null && inhaber !== id ? inhaber : null };
 }
+/*
+ * 15.33 (Inhaber 19.11.2026): „Eigener Name am eigenen Handy“ – am eigenen Handy merkt sich die App die Person, die sich zuletzt
+ * angemeldet hat ({id, pnr, name}); die Anmeldeseite zeigt dann nur ihren Namen und die PIN-Eingabe (Anmeldung mit {pnr, pin}).
+ * Gemerkt wird nur, wenn das Gerät für genau diese Person „Eigenes Handy“ ist (geraetArtFuer) – nach jeder Anmeldung und beim
+ * Start mit laufender Wochen-Sitzung (app.js ladeIch). Bleibt beim Abmelden (ui.js GERAET); „Geteiltes Gerät“ löscht es sofort
+ * (setzGeraetArt); meldet sich eine andere Person am eigenen Handy an, ersetzt sie die gemerkte. Am geteilten Gerät nie.
+ */
+export const HANDY_PERSON = 'bt_handy_person';
+export function handyPerson() {
+  try {
+    if (geraetArt() !== 'eigen') return null;
+    const p = JSON.parse(localStorage.getItem(HANDY_PERSON) || 'null');
+    return p && Number.isInteger(p.pnr) && p.pnr > 0 && typeof p.name === 'string' && p.name ? { id: Number.isInteger(p.id) ? p.id : null, pnr: p.pnr, name: p.name } : null;
+  } catch (e) { return null; }
+}
+/** nach der Anmeldung bzw. beim Start: `benutzer` ({id, name, pnr}) merken – nur am eigenen Handy dieser Person, sonst vergessen */
+export function merkeHandyPerson(benutzer) {
+  try {
+    // geteiltes Gerät bzw. „eigen“ gilt nicht für diese Person: keinen Namen stehen lassen
+    if (!benutzer || geraetArtFuer(benutzer.id) !== 'eigen') localStorage.removeItem(HANDY_PERSON);
+    else if (benutzer.pnr === undefined) { // Stand ohne Personalnummer (z. B. gemerktes bt_ich von vor 15.33, ohne Netz): nur eine fremde Person vergessen
+      const p = handyPerson(); if (p && p.id !== Number(benutzer.id)) localStorage.removeItem(HANDY_PERSON);
+    } else if (Number.isInteger(benutzer.pnr) && benutzer.pnr > 0) localStorage.setItem(HANDY_PERSON, JSON.stringify({ id: benutzer.id, pnr: benutzer.pnr, name: String(benutzer.name || '') }));
+    else localStorage.removeItem(HANDY_PERSON); // ohne Personalnummer lässt sich niemand mit dem gemerkten Namen anmelden
+  } catch (e) { /* gesperrt: dann eben die Personalnummer eingeben */ }
+}
+export const vergissHandyPerson = () => { try { localStorage.removeItem(HANDY_PERSON); } catch (e) { /* egal */ } };
+
 // 15.12: „Push auf diesem Gerät gewünscht“ – je Person, nur am Gerät (Liste von Benutzer-IDs), bleibt beim Abmelden erhalten.
 // Mit der Sitzung endet das Abo (G2-019); nach der nächsten Anmeldung DERSELBEN Person auf ihrem eigenen Handy schaltet die App
 // Push still wieder ein – nie für eine andere Person, nie ohne Erlaubnis des Browsers, nie auf einem geteilten Gerät.
