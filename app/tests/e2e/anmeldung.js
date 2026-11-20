@@ -14,6 +14,9 @@
  *  5. Geteiltes Gerät: Wahl auf der Anmeldeseite vergisst die gemerkte Person sofort; danach nie Namen, keine Vorbelegung,
  *     auch nicht nach Anmelden/Abmelden; keine Anfrage an die Namensliste.
  *  6. Zwei-Faktor (Büro): eigenes Handy, PIN → Code → angemeldet; danach gemerkt, PIN → Code → angemeldet.
+ *  6b. Personalnummer der gemerkten Person geändert: richtige PIN → „Benutzer oder PIN falsch“ mit Hinweis auf „Andere Person“;
+ *     dort mit der neuen Nummer → angemeldet, neue Nummer gemerkt. Dazu (Abschnitte 2, 6b) echte Erreichbarkeit von
+ *     „Andere Person“ und Gerätewahl per Wischen/Mausrad, auch bei 360×640, 390×664, 1024×768, 1366×768.
  *  7. Sperre: zu viele falsche PINs bei der gemerkten Person → Sperrtext, Ziffern gesperrt, „Andere Person“ bleibt.
  *  8. Benutzerverwaltung (GF): Warnung „N aktive Personen ohne Personalnummer – sie können sich nicht anmelden“ mit Namen (ohne
  *     inaktive), Speichern ohne Nummer → Meldung, mit Nummer → Warnung kleiner; Polier erreicht die Verwaltung nicht.
@@ -80,6 +83,39 @@ async function laufe(browser, g) {
       await page.waitForSelector('#login-card #pnr, #login-card .pin-user', { timeout: 20000 }); await bereit();
     }
     const waehle = async (art) => { await page.click(`#geraet-wahl label:has(input[value="${art}"])`); await sleep(200); };
+    // Nachprüfung 15.33 (Befund 1): echte Erreichbarkeit – Seite, body und #root scrollen nicht; ohne programmatisches Scrollen
+    // (scrollIntoView ginge auch bei overflow hidden) wischen (Touch) bzw. Mausrad, dann muss „Andere Person“ und „Geteiltes Gerät“
+    // ganz im sichtbaren Bereich und kein Teil der Karte unter ihrem Rand liegen.
+    async function wische() {
+      const k = await page.evaluate(() => { const r = document.querySelector('#login-card').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.7, h: r.height }; });
+      if (g.mobil) {
+        const cdp = await ctx.newCDPSession(page);
+        for (let n = 0; n < 3; n++) {
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: k.x, y: k.y }] });
+          for (let i = 1; i <= 12; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: k.x, y: k.y - i * Math.min(25, k.h / 30) }] }); await sleep(16); }
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(250);
+        }
+        await cdp.detach();
+      } else { await page.mouse.move(k.x, k.y); await page.mouse.wheel(0, 1500); await sleep(400); }
+    }
+    async function erreichbar(wo) {
+      await page.evaluate(() => { document.querySelector('#login-card').scrollTop = 0; });
+      const vorher = await page.evaluate(() => { const a = document.querySelector('[data-andere]').getBoundingClientRect(); return { andere: Math.round(a.bottom), ih: innerHeight }; });
+      await wische();
+      const r = await page.evaluate(() => {
+        const c = document.querySelector('#login-card').getBoundingClientRect();
+        const box = (e) => { const x = e.getBoundingClientRect(); return { top: Math.round(x.top), bottom: Math.round(x.bottom) }; };
+        const andere = box(document.querySelector('[data-andere]')), geteilt = box(document.querySelector('#geraet-wahl input[value="geteilt"]').closest('label'));
+        const unten = Math.min(innerHeight, Math.round(c.bottom));
+        const unter = [...document.querySelectorAll('#login-card > *')].filter((e) => e.getBoundingClientRect().bottom > c.bottom + 1).map((e) => e.className || e.tagName);
+        return { andere, geteilt, unten, unter, ok: andere.top >= 0 && andere.bottom <= unten && geteilt.bottom <= unten && !unter.length };
+      });
+      pruef(r.ok, `${wo}: „Andere Person“/„Geteiltes Gerät“ nach dem Wischen nicht ganz sichtbar bzw. Inhalt unter dem Kartenrand (${JSON.stringify(r)})`);
+      await page.evaluate(() => { document.querySelector('#login-card').scrollTop = 0; });
+      return vorher;
+    }
+    // weitere Bildschirmhöhen je Größe: kleines Handy, Handy-Browser mit Adressleiste, Laptop quer
+    const ENGE = { handy: [[360, 640], [390, 664], [360, 740]], tablet: [[1024, 768]], pc: [[1366, 768], [1024, 768]] }[g.name] || [];
 
     /* ---- 1) frisches Gerät, Server ohne Namensliste ---- */
 
@@ -126,14 +162,20 @@ async function laufe(browser, g) {
     const breite = await page.evaluate(() => { const a = document.querySelector('[data-andere]').getBoundingClientRect(), p = document.querySelector('.pin-pad').getBoundingClientRect(), w = document.querySelector('#geraet-wahl').getBoundingClientRect(); return { a: a.width, p: p.width, unter: w.top >= a.bottom - 1 && a.top >= p.bottom - 1 }; });
     pruef(Math.abs(breite.a - breite.p) <= 2 && breite.unter, `„Andere Person“ nicht über die ganze Breite unter dem PIN-Feld bzw. Gerätewahl nicht darunter (${JSON.stringify(breite)})`);
     await ueberlauf('Gemerkte Person');
-    // Gerätewahl erreichbar (Seite bzw. Karte scrollt)
-    await page.locator('#geraet-wahl').scrollIntoViewIfNeeded();
-    pruef(await page.locator('#geraet-wahl label:has(input[value="geteilt"])').isVisible(), 'Gerätewahl unter der gemerkten Person nicht erreichbar');
-    await page.evaluate(() => { const c = document.querySelector('#login-card'); if (c) c.scrollTop = 0; window.scrollTo(0, 0); });
+    // Gerätewahl und „Andere Person“ wirklich erreichbar (Wischen/Mausrad), auch bei wenig Höhe; „Andere Person“ ohne Scrollen sichtbar
+    for (const [w, h] of [[g.width, g.height], ...ENGE]) {
+      if (w !== g.width || h !== g.height) { await page.setViewportSize({ width: w, height: h }); await sleep(250); }
+      const v = await erreichbar(`Gemerkte Person ${w}×${h}`);
+      pruef(v.andere <= v.ih, `Gemerkte Person ${w}×${h}: „Andere Person“ erst nach dem Scrollen sichtbar (${v.andere} > ${v.ih})`);
+    }
+    await page.setViewportSize({ width: g.width, height: g.height }); await sleep(250);
     await bild('eigenes-handy-gemerkt');
     await pinEingeben('9999');
     m = await warteMeldung();
     pruef(/PIN falsch/.test(m) && await page.locator('.pin-user.gemerkt').count() === 1 && await page.locator('[data-andere]').count() === 1, `Gemerkt, falsche PIN: Ansicht/Meldung falsch („${m}“)`);
+    // Nachprüfung 15.33 (Befund 3): Ausweg nach „Benutzer oder PIN falsch“ – ohne zu verraten, ob Nummer oder PIN falsch war
+    const hilfe = await page.locator('#pin-hilfe').innerText().catch(() => '');
+    pruef(/Andere Person/.test(hilfe) && /Personalnummer/.test(hilfe) && /Büro/.test(hilfe), `Gemerkt, falsche PIN: Hinweis auf „Andere Person“ fehlt („${hilfe}“)`);
     await pinEingeben('1234');
     await angemeldet();
     let i = await ich();
@@ -220,6 +262,33 @@ async function laufe(browser, g) {
     i = await ich();
     pruef(i.benutzer && i.benutzer.id === BU.id, 'Zwei-Faktor: nicht als Büro angemeldet');
     await abmelden();
+
+    /* ---- 6b) Nachprüfung 15.33 (Befund 3): Personalnummer der gemerkten Person im Büro geändert ---- */
+
+    abschnitt = '6b';
+    await page.click('[data-andere]'); await page.waitForSelector('#pnr');
+    await pnrEingeben(MA.pnr); await pinEingeben('1234'); await angemeldet();
+    await abmelden();
+    pruef((await page.locator('.pin-user h2').innerText()) === MA.name, 'Personalnummer geändert: gemerkte Person fehlt');
+    const neuePnr = 9871;
+    db.lauf('UPDATE benutzer SET pnr = ? WHERE id = ?', neuePnr, MA.id);
+    await pinEingeben('1234');
+    m = await warteMeldung();
+    const hilfe2 = await page.locator('#pin-hilfe').innerText().catch(() => '');
+    pruef(/falsch/i.test(m) && /Andere Person/.test(hilfe2), `Personalnummer geändert: kein Hinweis auf den Ausweg („${m}“ / „${hilfe2}“)`);
+    pruef(!/Personalnummer (ist )?(falsch|unbekannt|geändert)/i.test(m), `Personalnummer geändert: Meldung verrät, dass die Nummer falsch ist („${m}“)`);
+    for (const [w, h] of [[g.width, g.height], ...ENGE]) {
+      if (w !== g.width || h !== g.height) { await page.setViewportSize({ width: w, height: h }); await sleep(250); }
+      await erreichbar(`Gemerkte Person mit Hinweis ${w}×${h}`);
+    }
+    await page.setViewportSize({ width: g.width, height: g.height }); await sleep(250);
+    await bild('gemerkt-hinweis-andere-person');
+    await page.click('[data-andere]'); await page.waitForSelector('#pnr');
+    await pnrEingeben(neuePnr); await pinEingeben('1234'); await angemeldet();
+    gm = await gemerkt();
+    pruef(gm && gm.id === MA.id && gm.pnr === neuePnr, `Personalnummer geändert: neue Nummer nach der Anmeldung nicht gemerkt (${JSON.stringify(gm)})`);
+    await abmelden();
+    pruef((await page.locator('.pin-user h2').innerText()) === MA.name && await page.locator('#pin-hilfe').count() === 0, 'Personalnummer geändert: gemerkte Ansicht danach falsch');
 
     /* ---- 7) Sperre bei der gemerkten Person ---- */
 

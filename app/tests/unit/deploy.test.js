@@ -151,7 +151,7 @@ test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Siche
     assert.equal(r.status, 3, r.stdout + r.stderr);
     assert.match(r.stdout, /EINMALIGE UMSTELLUNG/);
     let neu = fs.readFileSync(an, 'utf8');
-    assert.match(neu, /^# 15\.33 Namensliste aus \(einmalig umgestellt am \d\d\.\d\d\.\d{4}.*\)\nBAUTAG_LOGIN_LISTE=0\n/m);
+    assert.match(neu, /^# 15\.33 Namensliste aus \(einmalig umgestellt am \d\d\.\d\d\.\d{4}.*\)\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\nBAUTAG_LOGIN_LISTE=0\n/m);
     assert.ok(!/^BAUTAG_LOGIN_LISTE=1/m.test(neu));
     assert.ok(neu.startsWith('BAUTAG_DOMAIN=bautag.example.at\n') && neu.endsWith('BAUTAG_WETTER=1\n'), 'übrige Zeilen verändert');
     assert.equal(modus(an), '600');
@@ -174,13 +174,13 @@ test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Siche
     assert.equal(r.status, 0, r.stderr);
     neu = fs.readFileSync(aus, 'utf8');
     assert.equal(neu.split('\n').slice(0, 2).join('\n'), 'BAUTAG_LOGIN_LISTE=0\nBAUTAG_WETTER=1');
-    assert.match(neu, /\n# 15\.33 Namensliste aus \(einmalig geprüft am .*war nicht 1.*\)\n$/);
+    assert.match(neu, /\n# 15\.33 Namensliste aus \(einmalig geprüft am .*war nicht 1.*\)\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\n$/);
     assert.equal(modus(aus), '600');
     // 4) keine Zeile → unverändert (Standard aus), Merkzeile; später gesetzte 1 bleibt
     const fehlt = fall('fehlt', 'BAUTAG_DOMAIN=x\n');
     r = lauf(fehlt);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(fs.readFileSync(fehlt, 'utf8'), /^BAUTAG_DOMAIN=x\n# 15\.33 Namensliste aus \(einmalig geprüft am .*keine Zeile BAUTAG_LOGIN_LISTE.*\)\n$/);
+    assert.match(fs.readFileSync(fehlt, 'utf8'), /^BAUTAG_DOMAIN=x\n# 15\.33 Namensliste aus \(einmalig geprüft am .*keine Zeile BAUTAG_LOGIN_LISTE.*\)\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\n$/);
     fs.appendFileSync(fehlt, 'BAUTAG_LOGIN_LISTE=1\n');
     assert.equal(lauf(fehlt).status, 0);
     assert.match(fs.readFileSync(fehlt, 'utf8'), /^BAUTAG_LOGIN_LISTE=1$/m);
@@ -192,7 +192,7 @@ test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Siche
     // 6) Schreibweisen der alten 1: Leerzeichen, Anführungszeichen, Windows-Zeilenende → 0 (Zeilenende bleibt)
     const crlf = fall('crlf', 'A=1\r\nBAUTAG_LOGIN_LISTE = "1"\r\nB=2\r\n');
     assert.equal(lauf(crlf).status, 3);
-    assert.match(fs.readFileSync(crlf, 'utf8'), /^A=1\r\n# 15\.33 Namensliste aus [^\n]*\)\r\nBAUTAG_LOGIN_LISTE=0\r\nB=2\r\n$/);
+    assert.match(fs.readFileSync(crlf, 'utf8'), /^A=1\r\n# 15\.33 Namensliste aus [^\n]*\)\r\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\r\nBAUTAG_LOGIN_LISTE=0\r\nB=2\r\n$/);
     // 7) .env fehlt: nichts
     assert.equal(lauf(path.join(ordner, 'gibtsnicht', '.env')).status, 0);
     // update.sh ruft die Umstellung nach dem Holen des Programmstands auf und startet bei Code 3 neu
@@ -200,7 +200,78 @@ test('15.33: einmalige Umstellung BAUTAG_LOGIN_LISTE=1 → 0 (alle Fälle, Siche
     assert.match(u, /bash "\$DIR\/namensliste-umstellen\.sh" "\$DIR\/\.env"/);
     assert.ok(u.indexOf('namensliste-umstellen.sh" "$DIR/.env"') > u.indexOf('git pull --ff-only'));
     assert.match(u, /ENV_NEU" == 1[\s\S]*up -d --no-build app/);
-    // Vorlage: 0 mit Erklärung
-    assert.match(lies('.env.beispiel'), /^BAUTAG_LOGIN_LISTE=0$/m);
+    // Vorlage: 0 mit Erklärung, Merkzeile und BAUTAG_LOGIN_LISTE_GEPRUEFT – eine neue Installation wird nie umgestellt
+    const vorlage = fall('vorlage', lies('.env.beispiel'));
+    assert.match(lies('.env.beispiel'), /^# 15\.33 Namensliste aus .*\nBAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\nBAUTAG_LOGIN_LISTE=0$/m);
+    r = lauf(vorlage);
+    assert.equal(r.status, 0); assert.equal(r.stdout, ''); assert.equal(fs.readFileSync(vorlage, 'utf8'), lies('.env.beispiel'));
+  } finally { fs.rmSync(ordner, { recursive: true, force: true }); }
+});
+
+/**
+ * Nachprüfung 15.33 (Befund 2): Das Update AUF 15.33 führt noch das ALTE update.sh aus (bash liest die geöffnete alte Datei weiter,
+ * git pull legt die neue nur daneben). Darum (a) zählt im Docker-Betrieb eine 1 erst mit BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33 – das
+ * alte update.sh baut und startet mit der NEUEN docker-compose.yml, die Namensliste ist also schon nach diesem Update aus;
+ * (b) update.sh startet sich nach git pull mit der neuen Fassung neu, wenn sich update.sh geändert hat (künftige Updates).
+ */
+test('15.33 Nachprüfung: alte 1 aus der Vorlage wirkt im Docker-Betrieb nicht, bis die .env geprüft ist', () => {
+  const { loginListeAusUmgebung: f } = require(path.join(SERVER, 'index.js'));
+  const docker = { BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT: '1' };
+  assert.equal(f({ ...docker, BAUTAG_LOGIN_LISTE: '1' }), false, 'alte 1 ohne Prüfung');
+  assert.equal(f({ ...docker, BAUTAG_LOGIN_LISTE: '1', BAUTAG_LOGIN_LISTE_GEPRUEFT: '15.33' }), true, 'bewusste 1 nach der Prüfung');
+  assert.equal(f({ ...docker, BAUTAG_LOGIN_LISTE: '0', BAUTAG_LOGIN_LISTE_GEPRUEFT: '15.33' }), false);
+  assert.equal(f({ ...docker, BAUTAG_LOGIN_LISTE_GEPRUEFT: '15.33' }), false);
+  assert.equal(f({ BAUTAG_LOGIN_LISTE: '1' }), true, 'ohne Docker (Entwicklung, Tests) zählt die 1 wie bisher');
+  assert.equal(f({}), false);
+  const compose = lies('docker-compose.yml');
+  const app = compose.slice(compose.indexOf('  app:'), compose.indexOf('  caddy:'));
+  assert.match(app, /environment:[\s\S]*\n {6}BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT: "1"\n/);
+  const ohneKommentar = app.split('\n').filter((z) => !/^\s*#/.test(z)).join('\n');
+  assert.ok(!/BAUTAG_LOGIN_LISTE_GEPRUEFT|BAUTAG_LOGIN_LISTE:/.test(ohneKommentar), 'die Prüfung selbst kommt nur aus .env');
+});
+
+test('15.33 Nachprüfung: update.sh startet sich nach git pull mit der neuen Fassung neu (Ablauf alt → neu in einem Git-Klon)', () => {
+  const ordner = fs.mkdtempSync(path.join(os.tmpdir(), 'bautag-upd-'));
+  const git = (wo, ...a) => { const r = spawnSync('git', ['-C', wo, ...a], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  try {
+    // Quelle: Stand „alt“ (update.sh ohne Umstellung, gibt ALT aus), dann Stand „neu“ (echtes update.sh)
+    const quelle = path.join(ordner, 'quelle'); fs.mkdirSync(path.join(quelle, 'deploy'), { recursive: true });
+    git(quelle, 'init', '-q', '-b', 'main'); git(quelle, 'config', 'user.email', 't@t'); git(quelle, 'config', 'user.name', 't');
+    const neuUpdate = lies('update.sh');
+    // Docker, Sicherung und Gesundheitsprüfung durch Attrappen ersetzen (PATH), sonst bleibt das Skript unverändert
+    const attrappen = path.join(ordner, 'bin'); fs.mkdirSync(attrappen);
+    fs.writeFileSync(path.join(attrappen, 'docker'), `#!/usr/bin/env bash\necho "docker $*" >> "${ordner}/docker.log"\ncase "$*" in *"image inspect"*) exit 1;; *"ps -q"*) exit 0;; esac\nexit 0\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(quelle, 'deploy', 'backup.sh'), '#!/usr/bin/env bash\necho "SICHERUNG $*" >> "$(dirname "$0")/../../sicherung.log"\n');
+    fs.writeFileSync(path.join(quelle, 'deploy', 'update.sh'), '#!/usr/bin/env bash\nset -e\nDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nbash "$DIR/backup.sh" --lokal\ncd "$DIR/.."\ngit pull -q --ff-only\necho "ALTES update.sh"\n');
+    git(quelle, 'add', '-A'); git(quelle, 'commit', '-q', '-m', 'alt');
+    const server = path.join(ordner, 'server');
+    spawnSync('git', ['clone', '-q', quelle, server]);
+    fs.writeFileSync(path.join(server, 'deploy', '.env'), 'BAUTAG_DOMAIN=x\nBAUTAG_LOGIN_LISTE=1\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(quelle, 'deploy', 'update.sh'), neuUpdate);
+    fs.copyFileSync(path.join(DEPLOY, 'namensliste-umstellen.sh'), path.join(quelle, 'deploy', 'namensliste-umstellen.sh'));
+    git(quelle, 'add', '-A'); git(quelle, 'commit', '-q', '-m', 'neu');
+    const env = { ...process.env, PATH: `${attrappen}:${process.env.PATH}`, BAUTAG_GESUND_VERSUCHE: '1' };
+    delete env.BAUTAG_UPDATE_NEUSTART;
+    // 1) erstes Update mit dem ALTEN update.sh: .env bleibt (dafür die Prüfung in der App, Test oben)
+    let r = spawnSync('bash', [path.join(server, 'deploy', 'update.sh')], { env, encoding: 'utf8' });
+    assert.match(r.stdout, /ALTES update\.sh/);
+    assert.match(fs.readFileSync(path.join(server, 'deploy', '.env'), 'utf8'), /^BAUTAG_LOGIN_LISTE=1$/m);
+    // 2) ein weiterer Stand mit geändertem update.sh: das (jetzt neue) update.sh startet sich nach dem Pull mit der neuesten Fassung
+    fs.writeFileSync(path.join(quelle, 'deploy', 'update.sh'), neuUpdate.replace('echo "==> 3/5 Container bauen', 'echo "NEUESTE FASSUNG"\necho "==> 3/5 Container bauen'));
+    git(quelle, 'add', '-A'); git(quelle, 'commit', '-q', '-m', 'neuer');
+    const altRev = git(server, 'rev-parse', 'HEAD');
+    r = spawnSync('bash', [path.join(server, 'deploy', 'update.sh')], { env, encoding: 'utf8' });
+    const aus = r.stdout + r.stderr;
+    assert.match(aus, /update\.sh wurde mit dem Programmstand erneuert/, aus);
+    assert.match(aus, /NEUESTE FASSUNG/, 'neue Fassung läuft nicht weiter');
+    assert.equal((aus.match(/==> 1\/5/g) || []).length, 1, 'Sicherung doppelt angekündigt');
+    assert.equal(fs.readFileSync(path.join(ordner, 'sicherung.log'), 'utf8').split('\n').filter(Boolean).length, 2, 'Sicherung beim Neustart wiederholt');
+    assert.match(aus, new RegExp(`${altRev.slice(0, 7)}|\\bneuer\\b`), 'ALT ging beim Neustart verloren (Liste der neuen Stände fehlt)');
+    assert.match(aus, /\bneuer\b/);
+    assert.match(aus, /EINMALIGE UMSTELLUNG/);
+    assert.match(fs.readFileSync(path.join(server, 'deploy', '.env'), 'utf8'), /^BAUTAG_LOGIN_LISTE_GEPRUEFT=15\.33\nBAUTAG_LOGIN_LISTE=0$/m);
+    // 3) ohne Änderung an update.sh kein Neustart
+    r = spawnSync('bash', [path.join(server, 'deploy', 'update.sh')], { env, encoding: 'utf8' });
+    assert.ok(!/erneuert/.test(r.stdout + r.stderr));
   } finally { fs.rmSync(ordner, { recursive: true, force: true }); }
 });

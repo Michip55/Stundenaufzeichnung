@@ -119,13 +119,16 @@ export default async function login(root, { angemeldet }) {
   }
 
   const kopfBild = () => (gewaehlt.pnr && !gewaehlt.gemerkt ? `<span class="avatar xl" aria-hidden="true">${ic('user')}</span>` : avatar(gewaehlt.name, 'xl'));
-  function zeigePin(meldung = '', gesperrt = false) {
+  // 15.33 Nachprüfung: `hilfe` – bei der gemerkten Person nach „Benutzer oder PIN falsch“ der Ausweg (Personalnummer geändert,
+  // Konto deaktiviert); verrät nicht, ob Nummer oder PIN falsch war
+  function zeigePin(meldung = '', gesperrt = false, hilfe = false) {
     const gemerkt = !!gewaehlt.gemerkt;
     card.innerHTML = `
       ${gemerkt ? '' : `<button type="button" class="link-back" ${ohneListe ? 'data-zurueck-pnr' : 'data-zurueck'}>${ic('left')}${ohneListe ? 'Andere Personalnummer' : 'Anderer Benutzer'}</button>`}
       <div class="pin-user${gemerkt ? ' gemerkt' : ''}">${kopfBild()}<h2>${esc(gewaehlt.name)}</h2><p>${esc(gemerkt ? 'Auf diesem Handy gemerkt' : gewaehlt.rolle ? rolleText(gewaehlt.rolle) : '')}</p></div>
       <div class="pin-dots${meldung ? ' shake' : ''}" aria-hidden="true"></div>
       <p class="pin-msg${meldung ? ' err' : ''}" id="pin-msg" role="${meldung ? 'alert' : 'status'}">${esc(meldung || 'PIN eingeben und bestätigen')}</p>
+      ${gemerkt && hilfe ? '<p class="pin-hilfe" id="pin-hilfe">Stimmt die PIN sicher? Dann unten über „Andere Person“ mit der Personalnummer anmelden – oder im Büro nachfragen.</p>' : ''}
       <div class="pin-pad" role="group" aria-label="PIN-Eingabe">
         ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-z="${n}" ${gesperrt ? 'disabled' : ''}>${n}</button>`).join('')}
         <button type="button" class="pin-del" data-loeschen aria-label="Letzte Ziffer löschen">${ic('back')}</button>
@@ -188,7 +191,7 @@ export default async function login(root, { angemeldet }) {
         : e.status === 429 ? (e.message || 'Zu viele Fehlversuche. Bitte später erneut versuchen.')
         : e.status === 401 || e.status === 400 ? (e.message || 'PIN falsch. Bitte erneut eingeben.')
         : e.message;
-      zeigePin(text, e.status === 429 || e.status === 423);
+      zeigePin(text, e.status === 429 || e.status === 423, !e.netz && (e.status === 401 || e.status === 400));
     }
   }
   function ziffer(z) {

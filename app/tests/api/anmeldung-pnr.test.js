@@ -46,6 +46,24 @@ test('15.33: Namensliste standardmäßig aus – nur BAUTAG_LOGIN_LISTE=1 schalt
     assert.ok(l.daten.length >= 5 && l.daten.every((b) => Object.keys(b).sort().join() === 'id,name'));
     assert.equal((await holen(basis, '/auth/login', { benutzerId: U.mitarbeiter, pin: '1234' })).status, 200);
   });
+  // Nachprüfung 15.33 (Befund 2): im Docker-Betrieb zählt eine 1 aus der alten Vorlage erst nach der Prüfung der .env
+  const gemerkt = { NUR: process.env.BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT, G: process.env.BAUTAG_LOGIN_LISTE_GEPRUEFT };
+  process.env.BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT = '1';
+  try {
+    delete process.env.BAUTAG_LOGIN_LISTE_GEPRUEFT;
+    await mitEnv('1', async (basis, app) => {
+      assert.deepEqual((await holen(basis, '/auth/anmeldung')).daten, { namensliste: false }, 'alte 1 schaltet die Liste ein');
+      assert.equal((await holen(basis, '/auth/benutzerliste')).status, 404);
+      assert.ok(app.bt.warnungen.some((w) => /BAUTAG_LOGIN_LISTE=1 .*nicht beachtet/.test(w)), 'Warnung im Protokoll fehlt');
+    });
+    process.env.BAUTAG_LOGIN_LISTE_GEPRUEFT = '15.33';
+    await mitEnv('1', async (basis, app) => {
+      assert.deepEqual((await holen(basis, '/auth/anmeldung')).daten, { namensliste: true }, 'bewusste 1 nach der Prüfung');
+      assert.ok(!app.bt.warnungen.some((w) => /BAUTAG_LOGIN_LISTE/.test(w)));
+    });
+  } finally {
+    for (const [k, v] of [['BAUTAG_LOGIN_LISTE_NUR_GEPRUEFT', gemerkt.NUR], ['BAUTAG_LOGIN_LISTE_GEPRUEFT', gemerkt.G]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
   // die Option von createApp (Tests) geht der Umgebung vor
   const vorher = process.env.BAUTAG_LOGIN_LISTE;
   process.env.BAUTAG_LOGIN_LISTE = '1';

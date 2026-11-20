@@ -6,14 +6,16 @@
 # am eigenen Handy merkt sich die App die Person (Name und Personalnummer). Diese Umstellung läuft GENAU EINMAL:
 #   - Zeile BAUTAG_LOGIN_LISTE=1 → wird zu BAUTAG_LOGIN_LISTE=0 (Sicherung der .env vorher, Rechte bleiben nur für root);
 #   - Zeile =0 oder keine Zeile → nichts umzustellen (Standard ist jetzt aus);
-#   - in jedem Fall wird die Merkzeile „# 15.33 Namensliste aus (einmalig …)“ eingetragen. Steht sie schon in der Datei, wird
-#     nichts mehr geändert – eine später bewusst gesetzte Zeile BAUTAG_LOGIN_LISTE=1 bleibt also stehen.
+#   - in jedem Fall wird die Merkzeile „# 15.33 Namensliste aus (einmalig …)“ eingetragen, darunter BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33
+#     (erst damit zählt im Docker-Betrieb eine 1 – siehe docker-compose.yml und server/index.js loginListeAusUmgebung). Steht die
+#     Merkzeile schon in der Datei, wird nichts mehr geändert – eine später bewusst gesetzte Zeile BAUTAG_LOGIN_LISTE=1 bleibt stehen.
 # Exit-Code: 3 = Namensliste ausgeschaltet (update.sh startet die App dann neu, damit die Einstellung gilt),
 #            0 = sonst (nichts oder nur die Merkzeile eingetragen), 1 = Fehler.
 set -Eeuo pipefail
 
 DATEI="${1:?Aufruf: namensliste-umstellen.sh <Pfad zur .env>}"
 MARKE='# 15.33 Namensliste aus'
+GEPRUEFT='BAUTAG_LOGIN_LISTE_GEPRUEFT=15.33'
 HEUTE="$(date +%d.%m.%Y)"
 
 if [[ ! -f "$DATEI" ]]; then
@@ -45,14 +47,14 @@ NEU="$(mktemp "$(dirname "$DATEI")/.env-15.33.XXXXXX")"
 trap 'rm -f "$NEU"' EXIT
 chmod 600 "$NEU"
 if [[ "$ART" == an ]]; then
-  awk -v muster="$AN_MUSTER" -v marke="$TEXT" '
-    $0 ~ muster { cr = ($0 ~ /\r$/) ? "\r" : ""; if (!gesetzt) { print marke cr; gesetzt = 1 } print "BAUTAG_LOGIN_LISTE=0" cr; next }
+  awk -v muster="$AN_MUSTER" -v marke="$TEXT" -v gepr="$GEPRUEFT" '
+    $0 ~ muster { cr = ($0 ~ /\r$/) ? "\r" : ""; if (!gesetzt) { print marke cr; print gepr cr; gesetzt = 1 } print "BAUTAG_LOGIN_LISTE=0" cr; next }
     { print }' "$DATEI" > "$NEU"
 else
   cat "$DATEI" > "$NEU"
   # letzte Zeile ohne Zeilenende? dann erst eines anhängen
   if [[ -s "$NEU" && "$(tail -c 1 "$NEU" | od -An -c | tr -d ' ')" != '\n' ]]; then printf '\n' >> "$NEU"; fi
-  printf '%s\n' "$TEXT" >> "$NEU"
+  printf '%s\n%s\n' "$TEXT" "$GEPRUEFT" >> "$NEU"
 fi
 chown --reference="$DATEI" "$NEU" 2>/dev/null || true
 chmod 600 "$NEU"
