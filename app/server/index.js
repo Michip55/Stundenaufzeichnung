@@ -144,6 +144,7 @@ function createApp(opt = {}) {
     sicher('Plan-Erinnerung', require('./planer').pruefeErinnerung); // nie automatisch veröffentlichen (12.8c)
     sicher('Sitzungen', (x) => require('./auth').abgelaufeneSitzungenLoeschen(x.db, x.uhr(), x.sitzung)); // 15.12 (G2-019): samt Push-Abos
     sicher('Push geteilter Geräte', require('./push').geteilteAbosAufraeumen); // 15.16 (H-S3): nach der Sperre nach Untätigkeit
+    sicher('Papierkorb', require('./papierkorb').endgueltigLoeschen); // 15.34: Bautagesberichte nach 30 Tagen endgültig löschen
     require('./push').anstossen(bt);
   };
   try { require('./push').vapid(bt); } catch (e) { console.error('[BauTag] VAPID:', e.message); }

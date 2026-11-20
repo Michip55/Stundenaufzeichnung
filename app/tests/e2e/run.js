@@ -1717,6 +1717,11 @@ async function laufe(browser, g) {
       console.log('    Standort beim Stempeln (Schalter je Person, „Standort erfasst“, Korrektur „bei der Baustelle“, ohne Erlaubnis) …');
       try { const so = await require('./standort').laufe(browser, g); r.fehler.push(...so.fehler); r.schritte += so.schritte; } catch (e) { r.fehler.push('Abbruch Standort: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Bautagesbericht löschen mit Papierkorb: Rechte, Dialog mit Begründung, Papierkorb, Wiederherstellen (tests/e2e/papierkorb.js, API.md 15.34)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_PAPIERKORB) {
+      console.log('    Bericht löschen und Papierkorb (nur mit Recht, Begründung Pflicht, Wiederherstellen, Konflikt mit neuem Bericht) …');
+      try { const pk = await require('./papierkorb').laufe(browser, g); r.fehler.push(...pk.fehler); r.schritte += pk.schritte; } catch (e) { r.fehler.push('Abbruch Papierkorb: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

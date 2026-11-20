@@ -25,7 +25,7 @@ function erwartung(eintrag, rolle) {
 }
 
 /** Platzhalter je Rolle und Variante (eigen = Objekt im eigenen Bereich, fremd = außerhalb) */
-const BEREICHS_PLATZHALTER = new Set(['bs', 'bericht', 'berichtAlt', 'berichtFoto', 'berichtLieferschein', 'berichtLink', 'rechnung', 'zahlung', 'pos', 'posStand', 'posMenge', 'leistung', 'nachtrag', 'fremd', 'lv',
+const BEREICHS_PLATZHALTER = new Set(['bs', 'bericht', 'berichtAlt', 'berichtGeloescht', 'berichtFoto', 'berichtLieferschein', 'berichtLink', 'rechnung', 'zahlung', 'pos', 'posStand', 'posMenge', 'leistung', 'nachtrag', 'fremd', 'lv',
   'dok', 'einsatz', 'einsatzPerson', 'einsatzAnlage', 'fuhre', 'fuhreFoto', 'abschnitt', 'anfrage', 'schaden', 'schadenFoto', 'ichOderAnderer', 'person', 'abwEigen', 'antragEigen', 'abwAnderer', 'antragAnderer',
   'benachrichtigung', 'pushAbo', 'bsVersion', 'buchungEigen']);
 function platzhalter(F, rolle, variante, ueber = {}) {
@@ -35,6 +35,7 @@ function platzhalter(F, rolle, variante, ueber = {}) {
     bs: e ? BS.pitten : BS.reisinger,
     bericht: e ? F.bericht.bs1 : F.bericht.bs3,
     berichtAlt: e ? F.bericht.bs1Alt : F.bericht.bs3Alt,
+    berichtGeloescht: e ? F.bericht.bs1Geloescht : F.bericht.bs3Geloescht, // 15.34: im Papierkorb
     berichtFoto: e ? F.bericht.bs1Foto : F.bericht.bs3Foto,
     // G2-009: Lieferschein der GF im Bericht (Polier/Mitarbeiter sehen ihn nie, N-112)
     berichtLieferschein: e ? F.bericht.bs1Lieferschein : F.bericht.bs3Lieferschein,

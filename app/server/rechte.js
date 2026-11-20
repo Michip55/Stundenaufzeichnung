@@ -17,6 +17,9 @@ const RECHTE = [
   { schluessel: 'kolonne', text: 'Kolonne (Partie) stempeln' },
   { schluessel: 'bericht_erstellen', text: 'Bautagesbericht erstellen' },
   { schluessel: 'bericht_freigeben', text: 'Bautagesbericht freigeben' },
+  // Inhaber 19.11.2026 (API.md 15.34): löschen (jeder Status, mit Begründung) und aus dem Papierkorb wiederherstellen
+  // Prüfung 19.11.2026: wirkt nur zusammen mit „erstellen“ oder „freigeben“ (VORAUSSETZUNG) – sonst Lese-Umweg
+  { schluessel: 'bericht_loeschen', text: 'Bautagesberichte löschen', hinweis: 'wirkt nur zusammen mit „Bautagesbericht erstellen“ oder „freigeben“' },
   { schluessel: 'preise_sehen', text: 'Preise und €-Werte sehen' },
   { schluessel: 'preise_bearbeiten', text: 'Preise, Auftragssumme und Nachträge bearbeiten' },
   { schluessel: 'kalk_sehen', text: 'Nachkalkulation und Budget sehen' },
@@ -31,9 +34,9 @@ const STANDARD_MATRIX = {
   mitarbeiter: { zeit_eigen: true },
   polier: { zeit_eigen: true, kolonne: true, bericht_erstellen: true },
   // Inhaber 13.11.2026: „Bauleiter ist eigentlich Büro … in allem wie Büro“ → gleiche Standardrechte wie Büro
-  bauleiter: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
-  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
-  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
+  bauleiter: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
+  buero: { zeit_eigen: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, fuhrpark: true },
+  gf: { zeit_eigen: true, kolonne: true, bericht_erstellen: true, bericht_freigeben: true, bericht_loeschen: true, preise_sehen: true, preise_bearbeiten: true, kalk_sehen: true, lohn: true, stammdaten: true, benutzer: true, fuhrpark: true }
 };
 
 /** Für diese Rollen technisch gesperrt – weder per Matrix noch per Ausnahme vergebbar. */
@@ -50,6 +53,13 @@ const GESPERRT = {
 };
 /** Rechte, die einer Rolle nie entzogen werden können */
 const IMMER = { gf: ['benutzer'] };
+
+/**
+ * Rechte, die nur zusammen mit (mindestens einem) anderen Recht wirken. API.md 15.34 (Prüfung 19.11.2026): Löschen und
+ * Wiederherstellen zeigen den Bericht (Papierkorb, Antwort des Wiederherstellens) – wer Berichte nicht sehen darf
+ * (weder erstellen noch freigeben), bekommt bericht_loeschen auch per Matrix/Ausnahme nicht wirksam.
+ */
+const VORAUSSETZUNG = { bericht_loeschen: ['bericht_erstellen', 'bericht_freigeben'] };
 
 const istGesperrt = (rolle, recht) => (GESPERRT[rolle] || []).includes(recht);
 const istImmer = (rolle, recht) => (IMMER[rolle] || []).includes(recht);
@@ -69,6 +79,7 @@ function effektiveRechte(rolle, matrixRolle, ausnahmen = []) {
     if (istImmer(rolle, r)) v = true;
     if (v) s.add(r);
   }
+  for (const [r, eines] of Object.entries(VORAUSSETZUNG)) if (s.has(r) && !eines.some((x) => s.has(x))) s.delete(r);
   return s;
 }
 
@@ -226,7 +237,7 @@ function eigeneBaustellenIds(db, benutzer) {
 }
 
 module.exports = { BUERO_ROLLEN, verwaltungsStufe,
-  ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, PREIS_LOHN_RECHTE,
+  ROLLEN, ROLLEN_NAMEN, RECHTE, RECHT_SCHLUESSEL, STANDARD_MATRIX, GESPERRT, IMMER, VORAUSSETZUNG, PREIS_LOHN_RECHTE,
   istGesperrt, istImmer, effektiveRechte, bereich, baustelleImBereich, darfPreise, darfKalk,
   EURO_FELDER, KALK_FELDER, entferneEuroFelder, findeEuroFelder,
   BUERO_VERWALTBAR, darfBenutzerVerwalten, entsperrKonten, ladeMatrix, schreibeStandardMatrix, ladeRechteFuer, kontext, eigeneBaustellenIds

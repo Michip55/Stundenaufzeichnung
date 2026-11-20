@@ -106,7 +106,7 @@ function abgleichen(db, heute, nurBenutzerId = null) {
 /** Baustellen, auf denen die Person ab `ab` Berichtsstunden hat (für die Budget-Prüfung) */
 function betroffeneBaustellen(db, benutzerId, ab) {
   return db.alle(`SELECT DISTINCT r.baustelle_id AS id FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-    WHERE bp.benutzer_id = ? AND r.datum >= ?`, benutzerId, ab).map((x) => x.id);
+    WHERE bp.benutzer_id = ? AND r.datum >= ? AND r.geloescht_zeit IS NULL`, benutzerId, ab).map((x) => x.id);
 }
 
 /** Stündlicher Lauf: Abgleich; tritt ein Eintrag in Kraft → Budgets einmal am Tag prüfen */

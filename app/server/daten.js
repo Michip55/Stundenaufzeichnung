@@ -31,21 +31,22 @@ function ladePreise(db) {
 
 /** Kostenrelevante Berichtsdaten (alle Status) einer Baustelle */
 function ladeBerichteFuerKalk(db, baustelleId) {
-  const berichte = db.alle('SELECT id, datum, status FROM bericht WHERE baustelle_id = ? ORDER BY datum', baustelleId);
+  // 15.34: gelöschte Berichte (Papierkorb) zählen in keiner Nachkalkulation
+  const berichte = db.alle('SELECT id, datum, status FROM bericht WHERE baustelle_id = ? AND geloescht_zeit IS NULL ORDER BY datum', baustelleId);
   if (!berichte.length) return [];
   const nachId = new Map(berichte.map((b) => [b.id, { ...b, personal: [], geraete: [], material: [], regie: [] }]));
   // 12.22: Lohngruppe am Berichtstag
   for (const p of db.alle(`SELECT bp.bericht_id, bp.stunden, bp.benutzer_id, ${require('./lohngruppen').lgAm('b', 'r.datum')} AS lohngruppe_id FROM bericht_personal bp
-      JOIN benutzer b ON b.id = bp.benutzer_id JOIN bericht r ON r.id = bp.bericht_id WHERE r.baustelle_id = ?`, baustelleId)) {
+      JOIN benutzer b ON b.id = bp.benutzer_id JOIN bericht r ON r.id = bp.bericht_id WHERE r.baustelle_id = ? AND r.geloescht_zeit IS NULL`, baustelleId)) {
     nachId.get(p.bericht_id).personal.push({ benutzerId: p.benutzer_id, lohngruppeId: p.lohngruppe_id, stunden: p.stunden });
   }
-  for (const g of db.alle('SELECT bg.* FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id WHERE r.baustelle_id = ?', baustelleId)) {
+  for (const g of db.alle('SELECT bg.* FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id WHERE r.baustelle_id = ? AND r.geloescht_zeit IS NULL', baustelleId)) {
     nachId.get(g.bericht_id).geraete.push({ geraetId: g.geraet_id, stunden: g.stunden });
   }
-  for (const m of db.alle('SELECT bm.* FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id WHERE r.baustelle_id = ?', baustelleId)) {
+  for (const m of db.alle('SELECT bm.* FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id WHERE r.baustelle_id = ? AND r.geloescht_zeit IS NULL', baustelleId)) {
     nachId.get(m.bericht_id).material.push({ materialId: m.material_id, menge: m.menge });
   }
-  for (const r of db.alle('SELECT rg.* FROM bericht_regie rg JOIN bericht r ON r.id = rg.bericht_id WHERE r.baustelle_id = ?', baustelleId)) {
+  for (const r of db.alle('SELECT rg.* FROM bericht_regie rg JOIN bericht r ON r.id = rg.bericht_id WHERE r.baustelle_id = ? AND r.geloescht_zeit IS NULL', baustelleId)) {
     nachId.get(r.bericht_id).regie.push({ text: r.text, stunden: r.stunden });
   }
   return [...nachId.values()];

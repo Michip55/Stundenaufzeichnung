@@ -135,7 +135,7 @@ function inBericht(bt, f, benutzerId) {
     else if (einheitF === 't' && einheitM === 'm3' && m.dichte) menge = r3(menge / m.dichte);
     else return pruefen(`Einheit ${einheitF} passt nicht zu ${m.name} (${m.einheit}) und keine Dichte hinterlegt.`);
   }
-  const b = db.eins('SELECT id, status FROM bericht WHERE baustelle_id = ? AND datum = ?', nach.baustelleId, f.datum);
+  const b = require('./papierkorb').aktiverBericht(db, nach.baustelleId, f.datum); // 15.34: nie in einen gelöschten Bericht
   const offen = b && b.status === 'entwurf' && !db.eins('SELECT 1 AS x FROM unterschrift WHERE bericht_id = ?', b.id);
   if (offen) {
     require('./berichtsicht').vorbereiten(db, b.id); // 15.15 (H-G4): Ausgangsstand vor der Änderung

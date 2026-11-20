@@ -48,6 +48,10 @@ npm test                       # Unit- und API-Tests (node:test, :memory:-Datenb
 
 Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mit `sqlite3 … ".backup"` im laufenden Betrieb) **und der Fotoordner** der Schadensmeldungen (`BAUTAG_UPLOADS`, Standard: Ordner `uploads` neben der Datenbank). Beide gehören zusammen – Fotos ohne Datenbank sind nicht zuordenbar, die Datenbank ohne Fotos zeigt fehlende Bilder.
 
+**Papierkorb der Bautagesberichte (API.md 15.34):** Gelöschte Berichte bleiben 30 Tage samt Fotos (Ordner `uploads/berichte`), Unterschriften und Zeilen in Datenbank und Fotoordner; der stündliche Lauf des Servers löscht sie danach endgültig (keine eigene Einstellung, keine Umgebungsvariable). Eine ältere Sicherung enthält solche Berichte noch – nach dem Zurückspielen liegen sie wieder im Papierkorb und werden beim nächsten stündlichen Lauf endgültig gelöscht, wenn ihre 30 Tage abgelaufen sind.
+
+**Aktualisierung auf Migration 56 (15.34):** Die Migration baut die Tabelle `bericht` neu auf (Fremdschlüssel während der Migration aus, `foreign_key_check` vor dem Abschluss; bei einem Fehler bleibt die Datenbank unverändert). Wie vor jeder Aktualisierung vorher sichern; die Dauer hängt von der Zahl der Berichte ab (Sekundenbereich).
+
 ## Umgebungsvariablen
 
 | Variable | Standard | Bedeutung |
@@ -81,6 +85,7 @@ Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mi
 | `positionen.js`, `katalog-excel.js`, `positionen-zuordnung.js` | Nachkalkulation nach Positionen (API.md 10): Positionskatalog aus der Excel-Vorlage (`daten/katalog_vorlage.json`, neu erzeugen mit `node server/katalog-excel.js`), Projektpositionen je Baustelle, automatische Mengen aus Berichten, Landschaftsabgabe aus Naturmaterial, Excel-Import/-Export (`exceljs`) |
 | `pdf.js` | Bautagesbericht-PDF im Aufbau der Papiervorlage, ohne €-Werte; Fassung Auftraggeber ohne K/U |
 | `daten.js` | gemeinsame Lade-Funktionen |
+| `papierkorb.js` | Bautagesbericht löschen mit Papierkorb (API.md 15.34): weiches Löschen mit Begründung, Liste, Wiederherstellen (409 bei neuem Bericht am selben Tag), endgültiges Löschen nach 30 Tagen im stündlichen Lauf (samt Fotodateien) |
 | `routes/*.js` | HTTP-Routen je Bereich (u. a. `abwesenheiten.js` Antrag/Genehmigung, `zeit.js` mit Zeitkorrektur durch das Büro) |
 | `seed.js`, `png.js` | Testdaten, Demo-Unterschriften |
 | `fuhrpark.js` | Servicebuch (API.md 11): reine Rechenfunktionen – Zählerstand/Schätzung aus Bautagesberichten, Wochenschnitt, Prognose, Fälligkeit „was zuerst eintritt“ (§57a-Rhythmus, Intervalle, Stichtage, Zähler), Anlagenstatus, Plausibilität |

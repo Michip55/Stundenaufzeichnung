@@ -8,8 +8,9 @@ test('Standard-Matrix entspricht API.md', () => {
   assert.deepEqual([...eff('mitarbeiter')].sort(), ['zeit_eigen']);
   assert.deepEqual([...eff('polier')].sort(), ['bericht_erstellen', 'kolonne', 'zeit_eigen']);
   // Inhaber 13.11.2026: Bauleiter in allem wie Büro
-  assert.deepEqual([...eff('bauleiter')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
-  assert.deepEqual([...eff('buero')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
+  // 15.34 (Inhaber 19.11.2026): bericht_loeschen für GF, Büro und Bauleiter
+  assert.deepEqual([...eff('bauleiter')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'bericht_loeschen', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
+  assert.deepEqual([...eff('buero')].sort(), ['bericht_erstellen', 'bericht_freigeben', 'bericht_loeschen', 'fuhrpark', 'kalk_sehen', 'lohn', 'preise_bearbeiten', 'preise_sehen', 'stammdaten', 'zeit_eigen']);
   assert.equal(eff('gf').size, R.RECHT_SCHLUESSEL.length);
 });
 
@@ -33,6 +34,15 @@ test('Bauleiter wie Büro (13.11.2026): Preise, Lohn, Stammdaten vergebbar; nur 
   assert.deepEqual([...R.effektiveRechte('bauleiter', {}, ['preise_bearbeiten', 'lohn', 'stammdaten'])].sort(), ['lohn', 'preise_bearbeiten', 'stammdaten']);
   assert.equal(R.effektiveRechte('bauleiter', {}, ['benutzer']).has('benutzer'), false);
   assert.deepEqual(R.GESPERRT.bauleiter, R.GESPERRT.buero);
+});
+
+test('15.34 (Prüfung 19.11.2026): bericht_loeschen wirkt nur mit bericht_erstellen oder bericht_freigeben', () => {
+  assert.equal(R.effektiveRechte('mitarbeiter', { zeit_eigen: true, bericht_loeschen: true }, []).has('bericht_loeschen'), false, 'Matrix');
+  assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['bericht_loeschen']).has('bericht_loeschen'), false, 'Ausnahme');
+  assert.equal(R.effektiveRechte('mitarbeiter', R.STANDARD_MATRIX.mitarbeiter, ['bericht_loeschen', 'bericht_erstellen']).has('bericht_loeschen'), true);
+  assert.equal(R.effektiveRechte('polier', R.STANDARD_MATRIX.polier, ['bericht_loeschen']).has('bericht_loeschen'), true, 'Polier hat erstellen');
+  assert.equal(R.effektiveRechte('buero', { bericht_loeschen: true, bericht_freigeben: true }, []).has('bericht_loeschen'), true, 'freigeben genügt');
+  assert.equal(R.effektiveRechte('buero', { bericht_loeschen: true }, []).has('bericht_loeschen'), false);
 });
 
 test('GF behält immer das Recht benutzer', () => {

@@ -128,10 +128,22 @@ class Datenbank {
     const vorhanden = new Set(this.alle('SELECT version FROM schema_version').map((z) => z.version));
     for (const m of MIGRATIONEN) {
       if (vorhanden.has(m.version) || m.version > bisVersion) continue;
-      this.transaktion(() => {
-        this.db.exec(m.sql);
-        this.lauf('INSERT INTO schema_version (version, name, angewendet) VALUES (?, ?, ?)', m.version, m.name, new Date().toISOString());
-      });
+      // 15.34: Neuaufbau einer Eltern-Tabelle (z. B. bericht) nur mit ausgeschalteten Fremdschlüsseln – sonst löschte DROP TABLE
+      // über ON DELETE CASCADE alle Kindzeilen. Das Pragma wirkt nur außerhalb einer Transaktion; vor dem COMMIT prüft
+      // foreign_key_check, dass alle Verweise wieder stimmen (sonst Rollback, die Datenbank bleibt unverändert).
+      if (m.fremdschluesselAus) this.db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        this.transaktion(() => {
+          this.db.exec(m.sql);
+          if (m.fremdschluesselAus) {
+            const fehler = this.alle('PRAGMA foreign_key_check');
+            if (fehler.length) throw new Error(`Migration ${m.version}: ${fehler.length} ungültige Fremdschlüssel (${fehler.slice(0, 3).map((f) => `${f.table}→${f.parent}`).join(', ')})`);
+          }
+          this.lauf('INSERT INTO schema_version (version, name, angewendet) VALUES (?, ?, ?)', m.version, m.name, new Date().toISOString());
+        });
+      } finally {
+        if (m.fremdschluesselAus) this.db.exec('PRAGMA foreign_keys = ON');
+      }
     }
   }
 

@@ -8,7 +8,7 @@ import login from './views/login.js';
 import stempeln from './views/stempeln.js';
 import kolonne from './views/kolonne.js';
 import woche from './views/woche.js';
-import { berichte, bericht } from './views/berichte.js';
+import { berichte, bericht, papierkorb } from './views/berichte.js';
 import dashboard from './views/dashboard.js';
 import { baustellen, baustelle } from './views/baustellen.js';
 import { archiv } from './views/lebenslauf.js';
@@ -123,6 +123,7 @@ const ROUTEN = [
   { muster: /^\/kolonne$/, nav: 'kolonne', titel: 'Kolonne stempeln', view: kolonne, darf: eines('kolonne') },
   { muster: /^\/woche$/, nav: 'woche', titel: 'Meine Woche', view: woche, darf: eines('zeit_eigen') },
   { muster: /^\/berichte$/, nav: 'berichte', titel: 'Bautagesberichte', view: berichte, darf: eines('bericht_erstellen', 'bericht_freigeben') },
+  { muster: /^\/berichte\/papierkorb$/, nav: 'berichte', titel: 'Papierkorb', view: papierkorb, darf: eines('bericht_loeschen') }, // 15.34
   { muster: /^\/bericht\/(\d+)$/, nav: 'berichte', titel: 'Bautagesbericht', view: bericht, darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { muster: /^\/dashboard$/, nav: 'dashboard', titel: 'Übersicht', view: dashboard, darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
   { muster: /^\/baustellen$/, nav: 'baustellen', titel: 'Baustellen', view: baustellen, darf: siehtBaustellen },

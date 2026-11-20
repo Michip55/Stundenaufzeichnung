@@ -195,11 +195,11 @@ function autoMengen(db, baustelleId, positionen) {
   };
   // 12.22: Stunden nach der Lohngruppe, die die Person am Berichtstag hatte
   const personal = gruppiert(db.alle(`SELECT ${require('./lohngruppen').lgAm('b', 'r.datum')} AS ref, r.datum, SUM(bp.stunden) AS m FROM bericht_personal bp JOIN bericht r ON r.id = bp.bericht_id
-    JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY ref, r.datum`, baustelleId));
+    JOIN benutzer b ON b.id = bp.benutzer_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND r.geloescht_zeit IS NULL GROUP BY ref, r.datum`, baustelleId));
   const geraete = gruppiert(db.alle(`SELECT g.code AS ref, r.datum, SUM(bg.stunden) AS m FROM bericht_geraet bg JOIN bericht r ON r.id = bg.bericht_id
-    JOIN geraet g ON g.id = bg.geraet_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY g.code, r.datum`, baustelleId));
+    JOIN geraet g ON g.id = bg.geraet_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND r.geloescht_zeit IS NULL GROUP BY g.code, r.datum`, baustelleId));
   const material = gruppiert(db.alle(`SELECT m.code AS ref, m.einheit, r.datum, SUM(bm.menge) AS m FROM bericht_material bm JOIN bericht r ON r.id = bm.bericht_id
-    JOIN material m ON m.id = bm.material_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' GROUP BY m.code, r.datum`, baustelleId));
+    JOIN material m ON m.id = bm.material_id WHERE r.baustelle_id = ? AND r.status <> 'entwurf' AND r.geloescht_zeit IS NULL GROUP BY m.code, r.datum`, baustelleId));
   const quellen = { personal, geraet: geraete, material };
   const verwendet = new Map();
   const gemeldet = new Set();

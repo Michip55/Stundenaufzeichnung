@@ -17,7 +17,7 @@ const { chunk } = require('./fuhrpark-bilder');
 const { wienDatum, plusTage } = require('../../server/datum');
 
 const LANG = { feldMin: 60 * 24 * 60, bueroMin: 60 * 24 * 60, maxH: 24 * 60 };
-const ALLE_AUSNAHMEN = ['kolonne', 'bericht_erstellen', 'bericht_freigeben', 'fuhrpark'];
+const ALLE_AUSNAHMEN = ['kolonne', 'bericht_erstellen', 'bericht_freigeben', 'bericht_loeschen', 'fuhrpark']; // 15.34: auch bericht_loeschen
 const b64 = (buf) => buf.toString('base64');
 /** PNG (Graustufen) mit eindeutigem Pixelmuster je Startwert – verschiedene Belege, keine Zusammenführung */
 function bild(start, kante = 40) {

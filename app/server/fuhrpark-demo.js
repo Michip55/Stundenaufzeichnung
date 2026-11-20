@@ -93,7 +93,7 @@ function seedFuhrpark(db, jetzt) {
       let nachher = 0;
       if (ausBericht && gcode) {
         const zeilen = db.alle(`SELECT bg.stunden FROM bericht_geraet bg JOIN bericht b ON b.id = bg.bericht_id
-          WHERE bg.geraet_id = ? AND b.status IN ('unterschrieben','freigegeben') AND b.datum > ? AND b.datum <= ? AND (bg.anlage_id IS NULL OR bg.anlage_id = ?)`, geraet.get(gcode), letzte, H, id);
+          WHERE bg.geraet_id = ? AND b.status IN ('unterschrieben','freigegeben') AND b.geloescht_zeit IS NULL AND b.datum > ? AND b.datum <= ? AND (bg.anlage_id IS NULL OR bg.anlage_id = ?)`, geraet.get(gcode), letzte, H, id);
         nachher = gcode === 'radlader' || gcode === 'ruettel' ? 0 : zeilen.reduce((a, x) => a + x.stunden, 0);
       }
       const wertLetzte = Math.round(ziel - nachher);
@@ -118,7 +118,7 @@ function seedFuhrpark(db, jetzt) {
 
   // Gerätestunden der Radlader und Rüttelplatten teils zuordnen (Rest „nicht zugeordnet“)
   const zuordnen = (code, anlagen) => {
-    db.alle('SELECT bg.bericht_id FROM bericht_geraet bg JOIN bericht b ON b.id = bg.bericht_id WHERE bg.geraet_id = ? ORDER BY b.datum, b.id', geraet.get(code))
+    db.alle('SELECT bg.bericht_id FROM bericht_geraet bg JOIN bericht b ON b.id = bg.bericht_id WHERE bg.geraet_id = ? AND b.geloescht_zeit IS NULL ORDER BY b.datum, b.id', geraet.get(code))
       .forEach((z, i) => { const a = anlagen[i % anlagen.length]; if (a) db.lauf('UPDATE bericht_geraet SET anlage_id = ? WHERE bericht_id = ? AND geraet_id = ?', ids[a], z.bericht_id, geraet.get(code)); });
   };
   zuordnen('radlader', ['A20', 'A21', null]);

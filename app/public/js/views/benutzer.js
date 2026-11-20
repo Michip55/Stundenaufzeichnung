@@ -38,13 +38,18 @@ export default async function benutzer(el, ctx) {
   const fest = (rolle, recht) => (rolle === 'gf' && recht === 'benutzer') || (((r.immer || {})[rolle]) || []).includes(recht);
   const rechtText = (k) => ((r.rechte || []).find((x) => x.schluessel === k) || {}).text || k;
   const name = (id) => (leute.find((m) => m.id === id) || {}).name || `Benutzer ${id}`;
+  // 15.34 (Nachprüfung 19.11.2026): Rechte mit Voraussetzung (bericht_loeschen) – wirkt die Ausnahme bei dieser Person?
+  const rechtDaten = (k) => (r.rechte || []).find((x) => x.schluessel === k) || {};
+  const hatRecht = (m, recht) => fest(m.rolle, recht) || (!gesperrt(m.rolle, recht) && (!!((r.matrix || {})[m.rolle] || {})[recht] || (r.ausnahmen || []).some((a) => a.benutzerId === m.id && a.recht === recht)));
+  const fehltVoraussetzung = (m, recht) => { const v = (r.voraussetzung || {})[recht] || []; return v.length > 0 && !v.some((x) => hatRecht(m, x)); };
+  const ohneWirkung = (recht) => `Noch ohne Wirkung – ${rechtDaten(recht).hinweis || 'für diese Rolle gesperrt'}.`;
 
   function matrixHtml() {
     const ro = rollen();
     return `
       ${banner('info', '<b>Gesperrte Felder</b> (Schloss) können für diese Rolle nie vergeben werden – auch nicht als Ausnahme. So bleiben Preise und Lohndaten vor Polier und Mitarbeitern verborgen.', 'lock')}
       <section class="card"><div class="tbl-wrap"><table class="tbl rights" id="matrix"><thead><tr><th>Recht</th>${ro.map((x) => `<th class="c">${esc(x.name)}</th>`).join('')}</tr></thead>
-        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
+        <tbody>${(r.rechte || []).map((re) => `<tr><th scope="row">${esc(re.text)}${re.hinweis ? `<small class="recht-hinweis" data-recht-hinweis>${esc(re.hinweis)}</small>` : ''}<small>${esc(re.schluessel)}</small></th>${ro.map((x) => {
           const an = !!((r.matrix || {})[x.schluessel] || {})[re.schluessel];
           if (gesperrt(x.schluessel, re.schluessel)) return `<td class="c locked" data-rolle="${x.schluessel}" data-recht="${re.schluessel}" data-gesperrt><span class="lock-cell" role="img" aria-label="Gesperrt: für ${esc(x.name)} nicht vergebbar" title="Gesperrt – für ${esc(x.name)} nicht vergebbar">${ic('lock')}</span></td>`;
           const f = fest(x.schluessel, re.schluessel);
@@ -52,7 +57,7 @@ export default async function benutzer(el, ctx) {
         }).join('')}</tr>`).join('')}</tbody></table></div></section>
       <section class="card" aria-labelledby="h-aus">
         <div class="card-h pad-h"><h3 id="h-aus">Ausnahmen je Benutzer <span class="count">${(r.ausnahmen || []).length}</span></h3><button type="button" class="btn ghost sm" data-akt="ausnahme">${ic('plus')}Ausnahme</button></div>
-        ${(r.ausnahmen || []).length ? `<ul class="plain rows" id="ausnahmen">${r.ausnahmen.map((a) => `<li data-b="${a.benutzerId}" data-r="${esc(a.recht)}">${avatar(a.name || name(a.benutzerId), 'sm')}<span class="grow"><b>${esc(a.name || name(a.benutzerId))}</b><small>${esc(rechtText(a.recht))}</small></span><button type="button" class="icon-btn sm" data-aus-weg aria-label="Ausnahme entfernen">${ic('trash')}</button></li>`).join('')}</ul>` : '<p class="muted sm pad-s">Keine Ausnahmen. Ausnahmen erweitern die Rechte einzelner Personen – z. B. ein Polier, der selbst freigeben darf.</p>'}
+        ${(r.ausnahmen || []).length ? `<ul class="plain rows" id="ausnahmen">${r.ausnahmen.map((a) => `<li data-b="${a.benutzerId}" data-r="${esc(a.recht)}" ${a.wirksam === false ? 'data-ohne-wirkung' : ''}>${avatar(a.name || name(a.benutzerId), 'sm')}<span class="grow"><b>${esc(a.name || name(a.benutzerId))}</b><small>${esc(rechtText(a.recht))}</small>${a.wirksam === false ? `<small class="aus-ohne-wirkung" data-aus-hinweis>${ic('alert')}${esc(ohneWirkung(a.recht))}</small>` : ''}</span><button type="button" class="icon-btn sm" data-aus-weg aria-label="Ausnahme entfernen">${ic('trash')}</button></li>`).join('')}</ul>` : '<p class="muted sm pad-s">Keine Ausnahmen. Ausnahmen erweitern die Rechte einzelner Personen – z. B. ein Polier, der selbst freigeben darf.</p>'}
       </section>`;
   }
   function benutzerHtml() {
@@ -81,6 +86,12 @@ export default async function benutzer(el, ctx) {
     if (tab === 'dienste') { const box = document.createElement('div'); $('#b-panel', el).appendChild(box); diensteTab(box, ctx); }
   }
   const neuLaden = async () => { await lade(); if (ctx.aktuell()) zeichne(); };
+  // 15.34 (Nachprüfung): nach einem Matrix-Schalter nur die Ausnahmen-Karte neu zeichnen (Wirkung kann sich ändern)
+  const ausnahmenNeu = () => {
+    const alt = $('#h-aus', el); if (!alt || !ctx.aktuell()) return;
+    const box = document.createElement('div'); box.innerHTML = matrixHtml();
+    const neu = box.querySelector('section[aria-labelledby="h-aus"]'); if (neu) alt.closest('section').replaceWith(neu);
+  };
 
   function benutzerDialog(m) {
     const lg = lohngruppen.length ? `<select class="input lg" name="lohngruppe"><option value="">– keine –</option>${lohngruppen.map((l) => `<option value="${esc(l.id)}" ${m && (m.lohngruppe === l.id || m.lohngruppe === l.name || m.lohngruppeId === l.id) ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>`
@@ -230,14 +241,26 @@ export default async function benutzer(el, ctx) {
   function ausnahmeDialog() {
     const d = dialog({ titel: 'Ausnahme vergeben', inhalt: `<form id="af" class="stack-s">
       <label class="field"><span class="field-label">Benutzer</span><select class="input lg" name="benutzerId" id="af-b">${leute.filter((m) => m.aktiv !== false && m.aktiv !== 0).map((m) => `<option value="${m.id}" data-rolle="${esc(m.rolle)}">${esc(m.name)} (${esc(rolleText(m.rolle))})</option>`).join('')}</select></label>
-      <label class="field"><span class="field-label">Zusätzliches Recht</span><select class="input lg" name="recht" id="af-r"></select></label>
+      <label class="field"><span class="field-label">Zusätzliches Recht</span><select class="input lg" name="recht" id="af-r" aria-describedby="af-hinweis"></select></label>
+      <div id="af-hinweis" data-af-hinweis aria-live="polite"></div>
       <p class="muted sm">Gesperrte Rechte der jeweiligen Rolle stehen nicht zur Auswahl.</p><p class="form-err" role="alert" hidden></p></form>`,
       fuss: '<button class="btn ghost" type="button" data-zu>Abbrechen</button><button class="btn primary" type="submit" form="af">Vergeben</button>' });
-    const fuelle = () => { const rolle = $('#af-b', d.el).selectedOptions[0].dataset.rolle; $('#af-r', d.el).innerHTML = (r.rechte || []).map((re) => `<option value="${re.schluessel}" ${gesperrt(rolle, re.schluessel) ? 'disabled' : ''}>${esc(re.text)}${gesperrt(rolle, re.schluessel) ? ' (gesperrt)' : ''}</option>`).join(''); const frei = $$('#af-r option:not([disabled])', d.el)[0]; if (frei) frei.selected = true; };
-    fuelle(); $('#af-b', d.el).addEventListener('change', fuelle);
+    // 15.34 (Nachprüfung): Hinweis des gewählten Rechts; fehlt der Person die Voraussetzung, deutlich als Warnung
+    const hinweis = () => {
+      const m = leute.find((x) => String(x.id) === $('#af-b', d.el).value), recht = $('#af-r', d.el).value, re = rechtDaten(recht);
+      const box = $('#af-hinweis', d.el);
+      if (m && fehltVoraussetzung(m, recht)) box.innerHTML = banner('warn', `<b>Bei ${esc(m.name)} noch ohne Wirkung:</b> ${esc(re.hinweis || '')}.`);
+      else box.innerHTML = re.hinweis ? `<p class="muted sm" data-af-recht-hinweis>${esc(rechtText(recht))}: ${esc(re.hinweis)}.</p>` : '';
+    };
+    const fuelle = () => { const rolle = $('#af-b', d.el).selectedOptions[0].dataset.rolle; $('#af-r', d.el).innerHTML = (r.rechte || []).map((re) => `<option value="${re.schluessel}" ${gesperrt(rolle, re.schluessel) ? 'disabled' : ''}>${esc(re.text)}${gesperrt(rolle, re.schluessel) ? ' (gesperrt)' : ''}</option>`).join(''); const frei = $$('#af-r option:not([disabled])', d.el)[0]; if (frei) frei.selected = true; hinweis(); };
+    fuelle(); $('#af-b', d.el).addEventListener('change', fuelle); $('#af-r', d.el).addEventListener('change', hinweis);
     $('#af', d.el).addEventListener('submit', async (e) => {
       e.preventDefault(); const f = new FormData(e.target);
-      try { await put('/rechte/ausnahme', { benutzerId: Number(f.get('benutzerId')), recht: f.get('recht'), wert: true }); d.zu(); toast('Ausnahme vergeben.'); neuLaden(); }
+      try {
+        const a = await put('/rechte/ausnahme', { benutzerId: Number(f.get('benutzerId')), recht: f.get('recht'), wert: true }); d.zu();
+        if (a && a.wirksam === false) toast(`Ausnahme vergeben, aber noch ohne Wirkung – ${rechtDaten(f.get('recht')).hinweis || 'für diese Rolle gesperrt'}.`, 'warn'); else toast('Ausnahme vergeben.');
+        neuLaden();
+      }
       catch (x) { const err = $('.form-err', d.el); err.hidden = false; err.textContent = x.message; }
     });
   }
@@ -268,7 +291,7 @@ export default async function benutzer(el, ctx) {
       await put('/rechte/matrix', { rolle: td.dataset.rolle, recht: td.dataset.recht, wert });
       r.matrix[td.dataset.rolle] = r.matrix[td.dataset.rolle] || {}; r.matrix[td.dataset.rolle][td.dataset.recht] = wert;
       toast(`${rechtText(td.dataset.recht)}: für ${rolleText(td.dataset.rolle)} ${wert ? 'eingeschaltet' : 'ausgeschaltet'}.`);
-      get('/rechte').then((n) => { r = n; }).catch(() => {});
+      get('/rechte').then((n) => { r = n; ausnahmenNeu(); }).catch(() => {});
     } catch (x) { inp.checked = !wert; toast(x.message, 'warn'); }
     inp.disabled = false;
   });
