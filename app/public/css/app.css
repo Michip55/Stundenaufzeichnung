@@ -1243,7 +1243,17 @@ button.ue-row[aria-expanded="true"] .ue-auf { transform: rotate(180deg); } .ue-a
 .fae-rl { background: #fafbfc; min-height: 52px; } .fae-rl .ue-t { font-size: 14.5px; color: var(--muted); } .fae-rl .fae-zeile b { font-size: 14.5px; font-weight: 600; color: var(--muted); }
 .fae-fuss { margin: 0 4px; font-size: 13px; color: var(--muted); text-align: right; } .fae-fuss b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .fae-hinweis { margin: 0 4px; font-size: 12.5px; color: var(--faint); line-height: 1.4; }
-.fae-alle { background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); border-bottom: 0; }
+/* 15.37: Reiter „Alle Rechnungen | Offene Posten | Fälligkeiten“ (.tabs wie Urlaub/Baustelle) – eine Leiste über den drei Seiten,
+   an derselben Stelle für alle Reiter; die schmalere Fälligkeiten-Spalte beginnt links unter der Leiste */
+.view-box > .page.re-kopf { flex: 0 0 auto; padding-bottom: 0; }
+.re-inhalt { flex: 1 0 auto; display: flex; flex-direction: column; max-width: 1560px; width: 100%; margin: 0 auto; }
+.re-inhalt > .page { flex: 1 0 auto; margin-left: 0; padding-top: 16px; }
+.re-reiter .re-kurz { display: none; }
+@media (max-width: 719px) {
+  .re-reiter a { flex: 1 1 auto; justify-content: center; height: 44px; padding: 0 10px; }
+  .re-reiter .re-lang { display: none; } .re-reiter .re-kurz { display: inline; }
+  .re-inhalt > .page { padding-top: 12px; }
+}
 @media (max-width: 719px) {
   .fae-row { align-items: flex-start; }
   .fae-row > .fae-ok, .fae-row > .ue-chev { margin-top: 12px; }

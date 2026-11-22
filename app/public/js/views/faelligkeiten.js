@@ -3,6 +3,7 @@
 // mit „mit Skonto € X bis TT.MM.“ (nur solange die Skontofrist läuft) und „ohne Skonto € Y bis TT.MM.“ (Zahlungsziel);
 // Rücklass-Freigaben als eigene, gedämpfte Zeilen. Beträge = Zahlbetrag (Brutto − Rücklässe, abzüglich bereits bezahlt),
 // „mit Skonto“ zusätzlich abzüglich des noch möglichen Skontos. Alle Beträge kommen vom Server (Recht preise_sehen).
+// 15.37: Reiter „Fälligkeiten“ der Seite „Rechnungen“ (Leiste aus rechnungen.js mitRechnungsReitern) – „Alle Rechnungen“ ist der erste Reiter.
 import { get } from '../api.js';
 import { ic, esc, fmt } from '../ui.js';
 import { rechnungOeffnen, bezahltDialog, offenGesamtHtml } from './rechnungen.js';
@@ -55,7 +56,6 @@ export default async function faelligkeiten(el, ctx) {
       ${offenGesamtHtml(d.offenGesamt)}
       ${leer ? `<div class="ue-erledigt" id="fae-leer" role="status">${ic('check')}<span>Nichts offen – keine Rechnung und kein Rücklass fällig.</span></div>` : d.gruppen.map(gruppe).join('')}
       <p class="fae-hinweis">Beträge: Zahlbetrag = Brutto − Deckungs- und Haftrücklass, abzüglich bereits bezahlt (Reverse Charge: Brutto = Netto). „mit Skonto“ zusätzlich abzüglich des noch möglichen Skontos – nur solange die Skontofrist läuft. „Offen gesamt“ = offene Zahlbeträge (inkl. strittiger Differenzen) + einbehaltene Rücklässe − Überzahlungen.</p>
-      <a class="ue-row fae-alle" href="#/rechnungen" id="fae-zu-rechnungen"><span class="ue-txt"><span class="ue-t">Alle Rechnungen</span></span>${ic('right', 'ue-chev')}</a>
     </div>`;
   }
   const neu = async () => { try { d = await get('/faelligkeiten'); } catch (_) { return; } if (ctx.aktuell()) zeichne(); };

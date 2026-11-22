@@ -38,7 +38,8 @@ async function stammdatenUndLebenslauf(h, z) {
   /* ---- Büro: Material anlegen, Bauvorhaben Y anlegen ---- */
   await anmelden('buero');
   let nav = await h.navIds();
-  pruef(nav.includes('plan') && nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Offene Posten/Urlaub (${nav})`);
+  // 15.37: „Offene Posten“ ist ein Reiter von „Rechnungen“ – im Menü nur noch „Rechnungen“
+  pruef(nav.includes('plan') && nav.includes('rechnungen') && !nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Rechnungen/Urlaub oder noch mit „Offene Posten“ (${nav})`);
   await geh('/preise');
   // 15.23: sechster Reiter „Arbeitszeitmodelle“
   pruef(await page.locator('[data-tab]').count() === 6 && await page.locator('#tab-arbeitszeit').count() === 1 && await page.locator('#stamm-links a').count() >= 2, 'A2-Stamm: Reiter (Katalog, Geräte, Material, Lohngruppen, Leistungen, Arbeitszeitmodelle) oder Verweise fehlen');

@@ -1265,7 +1265,7 @@ async function laufe(browser, g) {
     /* ============ 4. Bauleiter: in allem wie das Büro (Inhaber 13.11.2026), bekommt den Budget-Alarm ============ */
     ich = await anmelden('bauleiter');
     nav = await navIds();
-    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
+    pruef(['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'kalkulation', 'preise', 'monat', 'benutzer', 'stempeln', 'urlaub'].every((n) => nav.includes(n)) && !nav.includes('offeneposten') && !nav.includes('einsatz') && !nav.includes('einsatz2') && !nav.includes('partie'), `Bauleiter-Navigation falsch (wie Büro, dazu Stempeluhr und Urlaub, ohne „Mein Einsatz“): ${nav}`);
     pruef((await api('GET', '/benachrichtigungen')).json.some((m) => m.typ === 'budget' && m.baustelleId === bsId), 'Budget-Alarm: Bauleiter hat keine Benachrichtigung');
     await page.waitForSelector('#glocke.has');
     await geh('/dashboard', 'bauleiter-dashboard');
@@ -1295,7 +1295,7 @@ async function laufe(browser, g) {
     await geh(`/kalkulation/${bsId}`); await geh('/baustellen'); await geh(`/baustelle/${bsId}`); await geh('/berichte'); await geh('/stempeln');
     await geh('/monat', 'bauleiter-monat'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Monatsauswertung gesperrt (wie Büro offen)');
     await geh('/korrektur'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Zeiten korrigieren gesperrt (wie Büro offen)');
-    await geh('/offene-posten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0, 'Bauleiter: Offene Posten gesperrt (wie Büro offen)');
+    await geh('/offene-posten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#re-reiter [data-re-reiter="offene-posten"][aria-selected="true"]').count() === 1, 'Bauleiter: Offene Posten gesperrt oder ohne Reiter (wie Büro offen, 15.37)');
     await geh('/rechnungen'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#rechnungen-seite #re-neu-alle').count() === 1, 'Bauleiter: Rechnungen gesperrt (wie Büro offen)');
     await geh('/faelligkeiten'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#faelligkeiten').count() === 1, 'Bauleiter: Fälligkeiten gesperrt (wie Büro offen)');
     await geh('/benutzer', 'bauleiter-benutzer'); pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 0 && await page.locator('#matrix, [data-recht-zelle]').count() === 0, 'Bauleiter: Benutzer-Seite gesperrt oder mit Rechte-Matrix (die bleibt bei der Geschäftsführung)');

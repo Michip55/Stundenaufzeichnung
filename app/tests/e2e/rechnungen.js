@@ -13,7 +13,13 @@
  *  3. Büro: Seite „Rechnungen“ – Filter Baustelle, Status, Art, Zeitraum (gleich der Schnittstelle).
  *  4. Büro: Fälligkeiten (über die Übersicht „Rechnungen“) – Gruppen, „mit Skonto … bis“ / „ohne Skonto … bis“, Rücklass-Zeilen,
  *     Summen gleich GET /faelligkeiten; ruhig (keine Unterstreichung, kein Blau), kein seitlicher Überlauf.
- *  5. Polier und Mitarbeiter: Rechnungen/Fälligkeiten gesperrt, kein €, Schnittstellen 403.
+ *  5. Polier und Mitarbeiter: Rechnungen/Fälligkeiten/Offene Posten gesperrt, keine Reiter, nichts davon in „Mehr“, kein €,
+ *     Schnittstellen 403.
+ *  6. 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter von „Rechnungen“ – Menü (Seitenleiste, untere Leiste, „Mehr“) nur
+ *     „Rechnungen“; Reiter wechseln, Leiste springt nicht, Zurück-Taste, alte Adressen #/offene-posten und #/faelligkeiten (neu
+ *     geladen, auch mit ?status=), „Offen gesamt“ und Übersicht „Überfällig“ öffnen den passenden Reiter; Handy 390/360 px:
+ *     Reiter in einer Zeile, mindestens 44 px hoch, kein Überlauf. Prüfbefunde: die Leiste steht schon während des Ladens
+ *     (langsames Netz) und bei Serverfehler/„Keine Verbindung“ – dann mit „Erneut versuchen“ darunter, die anderen Reiter gehen.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -300,7 +306,7 @@ async function laufe(browser, g, opt = {}) {
       pruef(stil.every((x) => !/underline/.test(x.u)) && !stil.some((x) => /rgb\(0, 0, 238\)|rgb\(37, 99, 235\)|rgb\(26, 115, 232\)/.test(x.f)), 'Fälligkeiten mit Unterstreichung oder blauen Links');
       await ueberlauf('Fälligkeiten');
       await shot(page, '2-faelligkeiten');
-      if (opt.bilder) { await page.evaluate(() => { const v = document.querySelector('#fae-zu-rechnungen'); v.scrollIntoView({ block: 'end' }); }); await page.waitForTimeout(200); await page.screenshot({ path: path.join(opt.bilder, `2-faelligkeiten-unten-${g.name}.png`) }); }
+      if (opt.bilder) { await page.evaluate(() => { const v = document.querySelector('#faelligkeiten .fae-hinweis'); v.scrollIntoView({ block: 'end' }); }); await page.waitForTimeout(200); await page.screenshot({ path: path.join(opt.bilder, `2-faelligkeiten-unten-${g.name}.png`) }); }
       // „Offen gesamt“ oben (offene Zahlbeträge + einbehaltene Rücklässe) – gleich der Schnittstelle, auch in der Übersicht
       const ogWert = async () => Number(await page.locator('#offen-gesamt').getAttribute('data-wert'));
       pruef(await ogWert() === f.offenGesamt.betrag && (await page.locator('#offen-gesamt').textContent()).replace(/\s+/g, ' ').includes('davon überfällig'), `Offen gesamt: ${await ogWert()} ≠ ${f.offenGesamt.betrag}`);
@@ -356,8 +362,139 @@ async function laufe(browser, g, opt = {}) {
       await page.waitForSelector('dialog[open] #re-detail');
       pruef((await page.locator('#re-detail').innerText()).includes(AUER.empfaenger), 'Detail ohne Rechnungsempfänger');
       await page.keyboard.press('Escape');
-      await page.click('#fae-zu-rechnungen');
+      pruef(await page.locator('#fae-zu-rechnungen').count() === 0, '15.37: Link „Alle Rechnungen“ unter den Fälligkeiten doppelt zum Reiter');
+      await page.click('#re-reiter [data-re-reiter="rechnungen"]');
       await page.waitForSelector('#rechnungen-seite');
+
+      // 6) 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter von „Rechnungen“ – Menü, Reiter, alte Adressen, Handy
+      {
+        const reiter = async () => page.evaluate(() => {
+          const l = document.querySelector('#re-reiter');
+          if (!l) return null;
+          const a = [...l.querySelectorAll('a[role="tab"]')];
+          const r = l.getBoundingClientRect();
+          return {
+            ids: a.map((x) => x.dataset.reReiter), texte: a.map((x) => x.innerText.trim()), hrefs: a.map((x) => x.getAttribute('href')),
+            an: a.filter((x) => x.getAttribute('aria-selected') === 'true').map((x) => x.dataset.reReiter), on: a.filter((x) => x.classList.contains('on')).map((x) => x.dataset.reReiter),
+            box: { x: Math.round(r.x), y: Math.round(r.y), b: Math.round(r.right) }, zeilen: new Set(a.map((x) => Math.round(x.getBoundingClientRect().top))).size,
+            hoehe: Math.min(...a.map((x) => x.getBoundingClientRect().height)), rechts: Math.max(...a.map((x) => x.getBoundingClientRect().right)), breit: document.documentElement.clientWidth,
+            scroll: l.scrollWidth - l.clientWidth,
+            nav: [...document.querySelectorAll('#nav-seite .nav-item.active')].map((x) => x.dataset.nav), titel: document.querySelector('#titel').textContent
+          };
+        });
+        const handy = g.width <= 719;
+        const istAuf = async (id, sel, wo) => {
+          const r = await reiter();
+          pruef(!!r && JSON.stringify(r.ids) === JSON.stringify(['rechnungen', 'offene-posten', 'faelligkeiten']) && JSON.stringify(r.hrefs) === JSON.stringify(['#/rechnungen', '#/offene-posten', '#/faelligkeiten']), `15.37 ${wo}: Reiterleiste fehlt oder falsch (${JSON.stringify(r && r.ids)})`);
+          if (!r) return null;
+          pruef(JSON.stringify(r.texte) === JSON.stringify([handy ? 'Alle' : 'Alle Rechnungen', 'Offene Posten', 'Fälligkeiten']), `15.37 ${wo}: Beschriftung der Reiter ${JSON.stringify(r.texte)}`);
+          pruef(JSON.stringify(r.an) === JSON.stringify([id]) && JSON.stringify(r.on) === JSON.stringify([id]), `15.37 ${wo}: aktiver Reiter ${r.an} statt ${id}`);
+          pruef(JSON.stringify(r.nav) === JSON.stringify(['rechnungen']) && r.titel === 'Rechnungen', `15.37 ${wo}: Menüpunkt „Rechnungen“ nicht markiert bzw. Titel „${r.titel}“ (${r.nav})`);
+          pruef(await page.locator(sel).count() >= 1, `15.37 ${wo}: Inhalt ${sel} fehlt`);
+          pruef(r.zeilen === 1 && r.scroll <= 1 && r.rechts <= r.breit, `15.37 ${wo}: Reiter nicht in einer Zeile oder abgeschnitten (${JSON.stringify({ z: r.zeilen, s: r.scroll, r: r.rechts, b: r.breit })})`);
+          if (handy) pruef(r.hoehe >= 44, `15.37 ${wo}: Reiter am Handy zu niedrig (${r.hoehe} px)`);
+          await ueberlauf(`15.37 ${wo}`);
+          return r;
+        };
+        // Menü: nur „Rechnungen“ – Seitenleiste, untere Leiste, „Mehr“
+        const navAlle = await page.evaluate(() => [...document.querySelectorAll('[data-nav]')].map((a) => a.dataset.nav));
+        pruef(navAlle.includes('rechnungen') && !navAlle.includes('offeneposten') && !navAlle.includes('faelligkeiten'), `15.37: Menü noch mit „Offene Posten“/„Fälligkeiten“ (${[...new Set(navAlle)]})`);
+        pruef(!/Offene Posten|Fälligkeiten/.test(await page.locator('#nav-seite').textContent()) && !/Offene Posten|Posten|Fälligkeiten/.test(await page.locator('#nav-tab').textContent()), '15.37: Seitenleiste oder untere Leiste nennt „Offene Posten“/„Fälligkeiten“');
+        // Reiter wechseln (Klick), Leiste bleibt an derselben Stelle, Zurück-Taste
+        const r1 = await istAuf('rechnungen', '#rechnungen-seite', 'Alle Rechnungen');
+        pruef(await page.locator('#rechnungen-seite #re-zu-faellig').count() === 0, '15.37: Knopf „Fälligkeiten“ in der Werkzeugleiste doppelt zum Reiter');
+        await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+        await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#offene-posten #op-liste');
+        const r2 = await istAuf('offene-posten', '#offene-posten', 'Reiter Offene Posten');
+        await shot(page, '7-reiter-offene-posten');
+        await page.click('#re-reiter [data-re-reiter="faelligkeiten"]');
+        await page.waitForFunction(() => location.hash === '#/faelligkeiten'); await page.waitForSelector('#faelligkeiten .fae-gruppe');
+        const r3 = await istAuf('faelligkeiten', '#faelligkeiten', 'Reiter Fälligkeiten');
+        await shot(page, '7-reiter-faelligkeiten');
+        pruef(!!(r1 && r2 && r3) && [r2, r3].every((r) => r.box.x === r1.box.x && r.box.y === r1.box.y), `15.37: Reiterleiste springt beim Wechsel (${JSON.stringify([r1, r2, r3].map((r) => r && r.box))})`);
+        await page.goBack();
+        await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#offene-posten #op-liste');
+        await istAuf('offene-posten', '#offene-posten', 'Zurück-Taste');
+        // alte Adressen direkt (neu geladen) öffnen den passenden Reiter
+        for (const [h, id, sel] of [['#/offene-posten', 'offene-posten', '#offene-posten #op-liste'], ['#/faelligkeiten', 'faelligkeiten', '#faelligkeiten .fae-gruppe'], ['#/offene-posten?status=ueberfaellig', 'offene-posten', '#offene-posten [data-op-filter="ueberfaellig"].on']]) {
+          await page.goto(`${s.basis}/?neu=${id}${h}`); await page.waitForSelector(sel);
+          await istAuf(id, sel, `Adresse ${h}`);
+        }
+        // „Offen gesamt“ auf „Alle Rechnungen“ führt zum Reiter Fälligkeiten; die Übersicht „Überfällig“ zum Reiter Offene Posten
+        await geh('#/rechnungen'); await page.waitForSelector('#rechnungen-seite #re-og #offen-gesamt');
+        await page.click('#re-og');
+        await page.waitForFunction(() => location.hash === '#/faelligkeiten'); await page.waitForSelector('#faelligkeiten .fae-gruppe');
+        await istAuf('faelligkeiten', '#faelligkeiten', '„Offen gesamt“');
+        await geh('#/dashboard'); await page.waitForSelector('#bv-kacheln a[data-kpi="ueberfaellig"]');
+        await page.click('#bv-kacheln a[data-kpi="ueberfaellig"]');
+        await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#offene-posten #op-liste');
+        await istAuf('offene-posten', '#offene-posten', 'Übersicht „Überfällig“');
+        // Prüfbefunde 15.37: Die Leiste steht sofort – beim Wechsel während des Ladens (langsames Netz) und bei einem Ladefehler,
+        // damit die anderen Reiter erreichbar bleiben (am Handy gibt es dafür sonst keinen Menüpunkt mehr)
+        {
+          const pfadIst = (...p) => (u) => p.includes(new URL(u).pathname);
+          await geh('#/rechnungen'); await page.waitForSelector('#rechnungen-seite');
+          const r0 = await reiter();
+          const langsam = pfadIst('/api/offene-posten');
+          await page.route(langsam, async (route) => { await new Promise((ok) => setTimeout(ok, 1500)); await route.continue().catch(() => {}); });
+          await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+          await page.waitForFunction(() => location.hash === '#/offene-posten');
+          await page.waitForTimeout(400);
+          const rl = await reiter();
+          const lz = await page.evaluate(() => { window.__reLeiste = document.querySelector('#re-reiter'); return { spinner: !!document.querySelector('#view .view-box > .state .spinner'), inhalt: !!document.querySelector('#offene-posten') }; });
+          pruef(!!rl && JSON.stringify(rl.an) === '["offene-posten"]' && !!r0 && rl.box.x === r0.box.x && rl.box.y === r0.box.y && lz.spinner && !lz.inhalt, `15.37 Prüfbefund: Reiterleiste fehlt oder springt während des Ladens (${JSON.stringify({ r: rl && rl.an, box: rl && rl.box, r0: r0 && r0.box, ...lz })})`);
+          await page.waitForSelector('#offene-posten #op-liste');
+          pruef(await page.evaluate(() => document.querySelector('#re-reiter') === window.__reLeiste && !document.querySelector('#view .spinner')), '15.37 Prüfbefund: Reiterleiste nach dem Laden neu gezeichnet bzw. Platzhalter „Wird geladen“ bleibt stehen');
+          await istAuf('offene-posten', '#offene-posten', 'nach langsamem Laden');
+          await page.unroute(langsam);
+          // Serverfehler im Reiter „Offene Posten“: Fehlerbox unter der Leiste, Reiter bedienbar, „Erneut versuchen“ lädt den Reiter
+          await geh('#/rechnungen'); await page.waitForSelector('#rechnungen-seite');
+          await page.route(langsam, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ fehler: 'kaputt' }) }));
+          await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+          await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#view [data-zustand="fehler"]');
+          const rf = await reiter();
+          pruef(!!rf && JSON.stringify(rf.an) === '["offene-posten"]' && rf.box.x === r0.box.x && rf.box.y === r0.box.y && await page.locator('#view #re-reiter ~ [data-zustand="fehler"], #view .re-kopf ~ .page [data-zustand="fehler"]').count() === 1 && await page.locator('#view [data-neu-laden]').count() === 1, `15.37 Prüfbefund: Serverfehler ohne Reiterleiste bzw. ohne „Erneut versuchen“ (${JSON.stringify(rf && rf.an)})`);
+          await ueberlauf('15.37 Prüfbefund Serverfehler');
+          await page.click('#re-reiter [data-re-reiter="rechnungen"]');
+          await page.waitForFunction(() => location.hash === '#/rechnungen'); await page.waitForSelector('#rechnungen-seite #re-ergebnis section');
+          await istAuf('rechnungen', '#rechnungen-seite', 'vom fehlgeschlagenen Reiter zurück');
+          await geh('#/offene-posten'); await page.waitForSelector('#view [data-zustand="fehler"]');
+          await page.unroute(langsam);
+          await page.click('#view [data-neu-laden]'); await page.waitForSelector('#offene-posten #op-liste');
+          await istAuf('offene-posten', '#offene-posten', '„Erneut versuchen“ nach Serverfehler');
+          // keine Verbindung beim Reiter „Alle Rechnungen“ (einziger Menüpunkt): „Keine Verbindung“ unter der Leiste, die anderen Reiter gehen
+          const ohneNetz = pfadIst('/api/rechnungen');
+          await page.route(ohneNetz, (route) => route.abort('internetdisconnected'));
+          await geh('#/rechnungen'); await page.waitForSelector('#view [data-zustand="fehler"]');
+          const rn = await reiter();
+          pruef(!!rn && JSON.stringify(rn.an) === '["rechnungen"]' && rn.box.x === r0.box.x && rn.box.y === r0.box.y && /Keine Verbindung/.test(await page.locator('#view [data-zustand="fehler"]').innerText()) && await page.locator('#view [data-neu-laden]').count() === 1, `15.37 Prüfbefund: „Keine Verbindung“ ohne Reiterleiste (${JSON.stringify(rn && rn.an)})`);
+          await ueberlauf('15.37 Prüfbefund keine Verbindung');
+          for (const [id, sel] of [['offene-posten', '#offene-posten #op-liste'], ['faelligkeiten', '#faelligkeiten .fae-gruppe']]) {
+            await page.click(`#re-reiter [data-re-reiter="${id}"]`);
+            await page.waitForFunction((x) => location.hash === '#/' + x, id); await page.waitForSelector(sel);
+            await istAuf(id, sel.split(' ')[0], `Reiter ${id} ohne Verbindung zu den Rechnungen`);
+            await page.goBack(); await page.waitForFunction(() => location.hash === '#/rechnungen'); await page.waitForSelector('#view [data-zustand="fehler"]');
+          }
+          await page.unroute(ohneNetz);
+          await page.click('#view [data-neu-laden]'); await page.waitForSelector('#rechnungen-seite #re-ergebnis section');
+          await istAuf('rechnungen', '#rechnungen-seite', '„Erneut versuchen“ nach „Keine Verbindung“');
+        }
+        // „Mehr“ (am Handy die Liste aller Bereiche): nur „Rechnungen“
+        await geh('#/mehr');
+        const mehr = await page.locator('nav[aria-label="Alle Bereiche"] a').evaluateAll((l) => l.map((a) => a.getAttribute('href')));
+        pruef(mehr.includes('#/rechnungen') && !mehr.includes('#/offene-posten') && !mehr.includes('#/faelligkeiten'), `15.37: „Mehr“ nennt ${mehr.filter((x) => /rechnung|posten|faellig/.test(x))}`);
+        // Handy 360 px: alle drei Reiter in einer Zeile, kein seitlicher Überlauf
+        if (handy) {
+          await page.setViewportSize({ width: 360, height: g.height });
+          for (const [h, id, sel] of [['#/rechnungen', 'rechnungen', '#rechnungen-seite #re-tabelle'], ['#/offene-posten', 'offene-posten', '#offene-posten #op-liste'], ['#/faelligkeiten', 'faelligkeiten', '#faelligkeiten .fae-gruppe']]) {
+            await geh(h); await page.waitForSelector(sel);
+            await istAuf(id, sel, `360 px ${h}`);
+          }
+          await shot(page, '7-reiter-360');
+          await page.setViewportSize({ width: g.width, height: g.height });
+        }
+        await geh('#/rechnungen'); await page.waitForSelector('#rechnungen-seite');
+      }
 
       // Zahlungsabgleich (Inhaber 17.11.2026): erwartet 1.722,48 (in der Skontofrist), tatsächlich bezahlt 1.700,00 →
       // Differenz 22,48 = Bankspesen 2,48 akzeptiert + Abzug Bauwesenversicherung 20,00 strittig
@@ -419,13 +556,16 @@ async function laufe(browser, g, opt = {}) {
     /* ---- 5) Polier und Mitarbeiter: kein Geld ---- */
     for (const id of [U.polier, U.mitarbeiter]) {
       await sitzung(id, NAME[id], async ({ page, geh, api }) => {
-        for (const h of ['#/rechnungen', '#/faelligkeiten']) {
+        for (const h of ['#/rechnungen', '#/faelligkeiten', '#/offene-posten']) {
           await geh(h);
           const t = await page.locator('#view').innerText();
           pruef(await page.locator('[data-zustand="kein-zugriff"]').count() === 1 && !/€|Skonto|Rücklass|000\/W26|1\.775/.test(t), `${NAME[id]} ${h}: nicht gesperrt oder Geld sichtbar`);
+          pruef(await page.locator('#re-reiter, [data-re-reiter]').count() === 0 && !/Offene Posten|Fälligkeiten|Alle Rechnungen/.test(t), `${NAME[id]} ${h}: Reiter der Rechnungen sichtbar (15.37)`);
         }
-        pruef(await page.locator('[data-nav="rechnungen"]').count() === 0, `${NAME[id]}: Menüpunkt „Rechnungen“ sichtbar`);
-        for (const p of ['/faelligkeiten', '/rechnungen', '/rechnungen?typ=regie']) {
+        pruef(await page.locator('[data-nav="rechnungen"], [data-nav="offeneposten"]').count() === 0, `${NAME[id]}: Menüpunkt „Rechnungen“ bzw. „Offene Posten“ sichtbar`);
+        await geh('#/mehr');
+        pruef(!/Rechnung|Offene Posten|Fälligkeit/.test(await page.locator('#view').innerText()) && await page.locator('#view a[href="#/rechnungen"], #view a[href="#/offene-posten"], #view a[href="#/faelligkeiten"]').count() === 0, `${NAME[id]}: „Mehr“ nennt Rechnungen/Offene Posten/Fälligkeiten (15.37)`);
+        for (const p of ['/faelligkeiten', '/rechnungen', '/rechnungen?typ=regie', '/offene-posten']) {
           const r = await api(p);
           pruef(r.status === 403 && !/\d+[.,]\d\d|000\/W26/.test(JSON.stringify(r.json)), `${NAME[id]} ${p}: ${r.status}`);
         }

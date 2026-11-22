@@ -105,7 +105,7 @@ async function laufe(browser, g) {
       const anfragen = [];
       await page.route('**/api/auth/logout', async (r) => { await sleep(6000); await r.continue().catch(() => {}); logoutFertig = Date.now(); });
       page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/')) anfragen.push({ p: `${r.method()} ${u.pathname}`, t: Date.now() }); });
-      const navBox = await page.locator('.nav-item[data-nav="offeneposten"]').first().boundingBox().catch(() => null);
+      const navBox = await page.locator('.nav-item[data-nav="rechnungen"]').first().boundingBox().catch(() => null);
       await t.geh('/mehr');
       await page.click('#abmelden');
       const ok = page.locator('dialog[open] [data-ok]');
@@ -117,7 +117,7 @@ async function laufe(browser, g) {
       pruef(leer(sofort), `H-S1: 250 ms nach „Abmelden“ ist die App der Person noch sichtbar (${JSON.stringify(sofort)})`);
       pruef(!/bt_bindung=/.test(await page.evaluate(() => document.cookie)), 'H-S1: Bindungs-Cookie bleibt, solange das Abmelden unterwegs ist');
       pruef(!(await page.evaluate(() => localStorage.getItem('bt_ich'))) && !!(await page.evaluate(() => localStorage.getItem('bt_abmelden_offen'))), 'H-S1: bt_ich nicht sofort gelöscht bzw. Abmelden nicht vorgemerkt');
-      // die nächste Person tippt dort, wo eben „Offene Posten“ war, und versucht die Adresse direkt
+      // die nächste Person tippt dort, wo eben der Menüpunkt „Rechnungen“ war (15.37: Offene Posten ist ein Reiter davon), und versucht die Adresse direkt
       if (navBox) await page.mouse.click(navBox.x + navBox.width / 2, navBox.y + navBox.height / 2);
       await page.evaluate(() => { location.hash = '#/offene-posten'; });
       await sleep(1500);
@@ -191,7 +191,7 @@ async function laufe(browser, g) {
       await t2.page.mouse.click(Math.round(g.width / 2), Math.round(g.height / 2));
       await sleep(1200);
       const nach = await t2.spuren(U.buero);
-      pruef(!nach.name && !nach.euro && !nach.ar && await t2.page.locator('.nav-item[data-nav="offeneposten"]').count() === 0, `H-S2${wie}: Tab 2 zeigt nach der Anmeldung des Poliers Daten/Menü des Büros (${JSON.stringify(nach)})`);
+      pruef(!nach.name && !nach.euro && !nach.ar && await t2.page.locator('.nav-item[data-nav="rechnungen"]').count() === 0, `H-S2${wie}: Tab 2 zeigt nach der Anmeldung des Poliers Daten/Menü des Büros (${JSON.stringify(nach)})`);
       // dieselbe Person in beiden Tabs: Abmelden in einem Tab beendet auch den anderen
       await t2.page.goto(`${s.basis}/?neu=1#/stempeln`); // neues Dokument (nicht nur Adresszusatz)
       await t2.page.waitForSelector('#view');

@@ -2,7 +2,7 @@
 // Rechnungen werden in Auer geschrieben – BauTag erfasst sie nur (PDF + Kopfdaten wie auf dem Papier, 15.24) und hält den Zahlungsstand.
 // Alle Beträge kommen vom Server; ohne Preis-Recht gibt es diese Ansichten nicht.
 import { get, post, put, del } from '../api.js';
-import { ic, esc, fmt, geldFelder, geldWert, leer, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
+import { ic, esc, fmt, geldFelder, geldWert, leer, laden, banner, dialog, bestaetigen, toast, $, $$ } from '../ui.js';
 import { wienHeute, parseZahl } from '../zahl.js';
 import { dateiBase64 } from './dokumente.js';
 import { importAssistent } from './import.js';
@@ -523,6 +523,28 @@ export async function offenePosten(el, ctx) {
   zeichne();
 }
 
+/* ---------- 15.37: Reiter „Alle Rechnungen | Offene Posten | Fälligkeiten“ über den drei Seiten ---------- */
+// Jeder Reiter ist eine eigene Adresse (Lesezeichen, Zurück-Taste, Links aus Übersicht und Benachrichtigungen bleiben gültig);
+// Rechte wie die Routen (preise_sehen). Am Handy steht „Alle“ statt „Alle Rechnungen“, damit die drei Reiter in eine Zeile passen.
+export const RECHNUNGS_REITER = [['rechnungen', '/rechnungen', 'Alle Rechnungen', 'Alle'], ['offene-posten', '/offene-posten', 'Offene Posten'], ['faelligkeiten', '/faelligkeiten', 'Fälligkeiten']];
+export const rechnungsReiter = (aktiv) => `<div class="tabs re-reiter" role="tablist" aria-label="Bereiche der Rechnungen" id="re-reiter">${RECHNUNGS_REITER.map(([k, pfad, lang, kurz]) => `<a role="tab" aria-selected="${k === aktiv}" class="${k === aktiv ? 'on' : ''}" data-re-reiter="${k}" href="#${pfad}"${k === aktiv ? ' aria-current="page"' : ''}>${kurz ? `<span class="re-lang">${esc(lang)}</span><span class="re-kurz">${esc(kurz)}</span>` : esc(lang)}</a>`).join('')}</div>`;
+/**
+ * Ansicht mit Reiterleiste: Die Leiste steht sofort (auch während des Ladens und bei einem Ladefehler), darunter zuerst
+ * „Wird geladen …“ wie überall. Die Seite selbst zeichnet unverändert in einen eigenen Behälter, der den Platzhalter ersetzt,
+ * sobald sie geladen ist. Wirft sie, setzt der Router (app.js zeige) die Fehlerbox mit „Erneut versuchen“ an die Stelle des
+ * Platzhalters ([data-fehler-platz]) – die Reiter bleiben; 401/403 wie bisher (Abmelden bzw. gesperrte Seite ohne Reiter).
+ */
+export const mitRechnungsReitern = (aktiv, view) => async (el, ctx) => {
+  el.innerHTML = `<div class="page re-kopf">${rechnungsReiter(aktiv)}</div>${laden()}`;
+  const platz = el.lastElementChild;
+  platz.setAttribute('data-fehler-platz', '');
+  const inhalt = document.createElement('div');
+  inhalt.className = 're-inhalt';
+  const fertig = await view(inhalt, ctx);
+  if (ctx.aktuell() && platz.isConnected) platz.replaceWith(inhalt);
+  return fertig;
+};
+
 /* ---------- Seite „Rechnungen“ (15.24): alle Rechnungen über alle Baustellen, Filter, „Neue Rechnung“ ---------- */
 const STATUS_FILTER = [['', 'Alle'], ['offen,teilbezahlt,ueberfaellig,differenz', 'Offen'], ['ueberfaellig', 'Überfällig'], ['differenz', 'Differenz strittig'], ['bezahlt', 'Bezahlt']];
 export async function rechnungenSeite(el, ctx) {
@@ -539,7 +561,7 @@ export async function rechnungenSeite(el, ctx) {
   await lade();
   const bsOpt = () => `<option value="">Alle Baustellen</option>${baustellen.map((b) => `<option value="${b.id}" ${String(b.id) === f.baustelleId ? 'selected' : ''}>${esc(`${b.kst || ''} ${b.name || ''}`)}</option>`).join('')}`;
   el.innerHTML = `<div class="page" id="rechnungen-seite">
-    <div class="toolbar wrap"><p class="muted sm weit">Rechnungen werden in Auer geschrieben und hier mit Kopfdaten und PDF erfasst.</p><a class="btn ghost" id="re-zu-faellig" href="#/faelligkeiten">${ic('calendar')}Fälligkeiten</a>${darf ? `<button type="button" class="btn primary" id="re-neu-alle">${ic('plus')}Neue Rechnung</button>` : ''}</div>
+    <div class="toolbar wrap"><p class="muted sm weit">Rechnungen werden in Auer geschrieben und hier mit Kopfdaten und PDF erfasst.</p>${darf ? `<button type="button" class="btn primary" id="re-neu-alle">${ic('plus')}Neue Rechnung</button>` : ''}</div>
     <a class="re-og" href="#/faelligkeiten" id="re-og" aria-label="Fälligkeiten ansehen"></a>
     <div class="re-filter card" id="re-filter" role="search" aria-label="Rechnungen filtern">
       <label class="field"><span class="field-label">Baustelle</span><select class="input" id="ref-bs">${bsOpt()}</select></label>

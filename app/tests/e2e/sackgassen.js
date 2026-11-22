@@ -31,9 +31,10 @@ const GROESSEN = [
 ];
 
 // Sichtbare Menüpunkte je Rolle (Reihenfolge wie in der Seitenleiste). Bewusst ausgeschrieben – nicht aus der App abgeleitet.
-const BUERO_MENUE = ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'woche'];
+// 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter von „Rechnungen“ – kein eigener Menüpunkt mehr
+const BUERO_MENUE = ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'woche'];
 const MENUE = {
-  gf: ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'offeneposten', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'kolonne', 'woche'],
+  gf: ['dashboard', 'berichte', 'baustellen', 'plan', 'rechnungen', 'kalkulation', 'preise', 'fuhrpark', 'monat', 'abwesenheiten', 'urlaub', 'benutzer', 'stempeln', 'kolonne', 'woche'],
   buero: BUERO_MENUE,
   bauleiter: BUERO_MENUE, // Inhaber 13.11.2026: wie das Büro (Stempeluhr und Urlaub hat auch das Büro)
   polier: ['stempeln', 'partie', 'kolonne', 'berichte', 'woche', 'baustellen', 'einsatz2', 'fuhrpark', 'abwesenheiten', 'urlaub'],
