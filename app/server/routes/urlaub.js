@@ -104,18 +104,115 @@ module.exports = function urlaubRouten(api, bt) {
     }
     return { genommen, geplant, beantragt };
   }
+  /* ---------- 15.36: Angestellte (UrlG) – Anspruch und Rest aus dem Vorjahr ---------- */
+  const KETTE_JAHRE = 10; // harte Grenze: höchstens 10 Urlaubsjahre zurück
+  const runde = (x) => Math.round(x * 10) / 10;
+  /** Anspruch, Einheit und Übertrag eines UrlG-Urlaubsjahres aus der Konto-Zeile `k` (oder ohne) und dem Vorjahr `vor` */
+  function urlgWerte(k, vor, jahr) {
+    const eigen = !!(k && k.anspruch != null);
+    const auto = !k || k.uebertrag_auto !== 0; // ohne Zeile bzw. ohne ausdrücklich festgelegten Übertrag: automatisch
+    const autoWert = vor && vor.rest != null ? vor.rest : 0; // rest null: Vorjahr nur für den Anspruch in der Kette (vor der Grenze)
+    return {
+      anspruch: eigen ? k.anspruch : vor ? vor.anspruch : 25,
+      einheit: eigen ? k.einheit : vor ? vor.einheit : k ? k.einheit : 'Arbeitstage',
+      quelle: eigen ? jahr : vor ? vor.quelle : null, // Urlaubsjahr, dessen Konto-Zeile den Anspruch festlegt (null = Vorgabe 25)
+      auto, autoWert, uebertrag: auto ? autoWert : k.uebertrag
+    };
+  }
+  /** 15.36 (Prüfbefund): wirksames BUAK-Kennzeichen heute und Tag seines letzten Wechsels (benutzer.buak_wechsel, Migration 57) */
+  function kennzeichen(b) {
+    const z = db.eins('SELECT rolle, buak_pflichtig, buak_wechsel FROM benutzer WHERE id = ?', b.id) || { rolle: b.rolle, buak_pflichtig: b.buak_pflichtig };
+    const art = AZ.buakPflichtig(z) ? 'buak' : 'urlg';
+    return { jetzt: art, vorher: art === 'buak' ? 'urlg' : 'buak', wechsel: z.buak_wechsel || null };
+  }
+  /**
+   * 15.36 (Prüfbefund): Art eines Urlaubsjahres ohne Konto-Zeile – das heutige Kennzeichen, für Urlaubsjahre VOR dem Urlaubsjahr
+   * des letzten Wechsels die andere Art (wer bis dahin Arbeiter war, hatte dort BUAK-Jahre). `beginn(y)` = Beginn MM-TT.
+   */
+  function artOhneZeile(kz, jahr, beginn) {
+    if (!kz.wechsel) return kz.jetzt;
+    const y = Number(kz.wechsel.slice(0, 4));
+    const wj = kz.wechsel >= `${y}-${beginn(y)}` ? y : y - 1;
+    return jahr < wj ? kz.vorher : kz.jetzt;
+  }
+  /**
+   * 15.36: Werte des UrlG-Urlaubsjahres `jahr` samt Kette über die Vorjahre (live gerechnet, nichts gespeichert).
+   * Übertrag (automatisch) = Rest des Urlaubsjahres jahr−1 der Person = Anspruch + Übertrag − genommen − geplant (wie konto()),
+   * auch negativ. Die Kette beginnt beim ersten Urlaubsjahr der Person mit Konto-Zeile oder Urlaubseintrag (davor gibt es nichts
+   * zu übertragen) und reißt an jedem BUAK-Jahr ab (kein Übertrag und kein Anspruch aus BUAK-Jahren; ohne Konto-Zeile gilt die
+   * Art laut Kennzeichen samt dessen letztem Wechsel, artOhneZeile). Prüfbefund: Der Anspruch kommt aus der letzten Zeile mit
+   * Anspruch, ohne Grenze; der Übertrag reicht höchstens KETTE_JAHRE vor das LAUFENDE Urlaubsjahr zurück – eine feste Grenze,
+   * nicht je abgefragtem Jahr, damit der Übertrag von J immer dem Rest entspricht, den das Konto J−1 selbst zeigt.
+   * Je Person vier Abfragen (Kennzeichen, Konto-Zeilen, erster Urlaubstag, Urlaubstage der Kette) – auch für die ganze Kontenliste.
+   */
+  function urlgKette(b, jahr, E = einst()) {
+    const zeilen = new Map(db.alle('SELECT * FROM urlaub_konto WHERE benutzer_id = ?', b.id).map((k) => [k.jahr, k]));
+    // dieselben Grenzen wie grenzen()/beginnFuer(), nur ohne eine Abfrage je Jahr
+    const beginn = (y) => (zeilen.get(y) && zeilen.get(y).beginn) || standardBeginn(y, E);
+    const gr = (y) => ({ von: `${y}-${beginn(y)}`, bis: plusTage(`${y + 1}-${beginn(y + 1)}`, -1) });
+    const kz = kennzeichen(b);
+    const art = (y) => (zeilen.has(y) ? zeilen.get(y).art : artOhneZeile(kz, y, beginn));
+    let start = Infinity;
+    for (const y of zeilen.keys()) start = Math.min(start, y);
+    const erste = db.eins("SELECT MIN(datum) AS d FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' AND status IN ('genehmigt','beantragt')", b.id).d;
+    if (erste) { const y = Number(erste.slice(0, 4)); start = Math.min(start, erste >= `${y}-${beginn(y)}` ? y : y - 1); }
+    start = Math.max(start, 2000); // Konto-Jahre ab 2000 (PUT); ein uralter Urlaubseintrag verlängert die Schleife nicht beliebig
+    let ab = jahr; // erstes Jahr der zusammenhängenden UrlG-Jahre vor `jahr`
+    while (ab - 1 >= start && art(ab - 1) === 'urlg') ab--;
+    const h = heute(), hy = Number(h.slice(0, 4));
+    const laufend = h >= `${hy}-${beginn(hy)}` ? hy : hy - 1;
+    const abU = Math.max(ab, laufend - KETTE_JAHRE); // ab hier wird der Rest (Übertrag) gerechnet
+    let vor = null;
+    if (ab < jahr) {
+      // genommen + geplant = genehmigte Urlaubstage an Arbeitstagen (beantragte zählen nicht, wie zaehle()/konto())
+      const tage = abU < jahr ? db.alle("SELECT datum FROM abwesenheit WHERE benutzer_id = ? AND code = 'U' AND status = 'genehmigt' AND datum >= ? AND datum <= ?", b.id, gr(abU).von, gr(jahr - 1).bis)
+        .map((a) => a.datum).filter(istArbeitstag) : [];
+      for (let y = ab; y < jahr; y++) {
+        const w = urlgWerte(zeilen.get(y), vor, y);
+        if (y < abU) { vor = { ...w, rest: null }; continue; } // nur Anspruch/Einheit weitergeben
+        const g = gr(y);
+        vor = { ...w, rest: runde(w.anspruch + w.uebertrag - tage.filter((d) => d >= g.von && d <= g.bis).length) };
+      }
+    }
+    return { ...urlgWerte(zeilen.get(jahr), vor, jahr), aus: vor && vor.rest != null ? jahr - 1 : null };
+  }
+  /** TT.MM.JJJJ */
+  const deD = (d) => d.split('-').reverse().join('.');
+  /** 15.36: Datum `n` Monate vor `datum` (am Monatsende gekürzt, z. B. 31.08. → 28./29.02.) */
+  function monateZurueck(datum, n) {
+    let [y, m] = datum.split('-').map(Number);
+    m -= n;
+    while (m < 1) { m += 12; y--; }
+    const t = Math.min(Number(datum.slice(8, 10)), new Date(Date.UTC(y, m, 0)).getUTCDate());
+    return `${y}-${String(m).padStart(2, '0')}-${String(t).padStart(2, '0')}`;
+  }
+  /** 15.36: Hinweis für die Verwaltung – BUAK-Kontoauszug fehlt oder ist älter als 6 Monate (nur im laufenden Urlaubsjahr) */
+  function buakHinweis(k) {
+    if (k.art !== 'buak' || !k.buak) return null;
+    if (k.buak.stand == null) return { typ: 'fehlt', text: 'Noch kein BUAK-Stand eingetragen' };
+    if (!k.buak.datum) return { typ: 'fehlt', text: 'BUAK-Stand ohne Datum des Kontoauszugs – bitte Datum eintragen' };
+    if (k.buak.datum < monateZurueck(heute(), 6)) return { typ: 'veraltet', datum: k.buak.datum, text: `BUAK-Auszug vom ${deD(k.buak.datum)} – älter als 6 Monate, bitte neuen Stand eintragen` };
+    return null;
+  }
   function konto(b, jahr) {
     const k = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr);
     // 15.23: ohne gespeichertes Konto entscheidet das Kennzeichen „BUAK-pflichtig“ der Person (Vorgabe Mitarbeiter/Polier), nicht die Rolle
-    const art = k ? k.art : (AZ.buakPflichtigVon(db, b) ? 'buak' : 'urlg');
-    const einheit = k ? k.einheit : 'Arbeitstage';
-    const anspruch = k && k.anspruch != null ? k.anspruch : art === 'buak' ? (k && k.buak_stand != null ? k.buak_stand : null) : 25;
+    // 15.36 (Prüfbefund): samt letztem Wechsel des Kennzeichens – Jahre davor behalten die bisherige Art (artOhneZeile)
+    const art = k ? k.art : artOhneZeile(kennzeichen(b), jahr, (y) => beginnFuer(b.id, y));
+    // BUAK: unverändert (Anspruch laut Kontoauszug, kein Übertrag in der Rechnung); UrlG: 15.36 Anspruch und Rest aus dem Vorjahr
+    const u = art === 'buak' ? null : urlgKette(b, jahr);
+    const einheit = u ? u.einheit : k ? k.einheit : 'Arbeitstage';
+    const anspruch = u ? u.anspruch : k && k.anspruch != null ? k.anspruch : (k && k.buak_stand != null ? k.buak_stand : null);
     const z = zaehle(b.id, jahr, art === 'buak' && k && k.buak_datum ? k.buak_datum : null);
-    const uebertrag = k ? k.uebertrag : 0;
-    const rest = anspruch == null ? null : Math.round((anspruch + (art === 'buak' ? 0 : uebertrag) - z.genommen - z.geplant) * 10) / 10;
+    const uebertrag = u ? u.uebertrag : k ? k.uebertrag : 0;
+    const rest = anspruch == null ? null : runde(anspruch + (art === 'buak' ? 0 : uebertrag) - z.genommen - z.geplant);
     const g = grenzen(b.id, jahr);
     return {
       benutzerId: b.id, name: b.name, rolle: b.rolle, pnr: b.pnr, art, jahr, urlaubsjahrBeginn: g.von.slice(5), von: g.von, bis: g.bis, anspruch, einheit, uebertrag,
+      // 15.36: uebertragAuto = Übertrag wird aus dem Rest des Vorjahres gerechnet (uebertragAus = dieses Urlaubsjahr);
+      // uebertragAutoWert = was automatisch gälte (auch bei festgelegtem Übertrag, für den Konto-Dialog); anspruchAus = Anspruch
+      // übernommen aus diesem Urlaubsjahr, anspruchVorgabe = nirgends festgelegt (25)
+      ...(u ? { uebertragAuto: u.auto, uebertragAutoWert: u.autoWert, ...(u.auto && u.aus != null ? { uebertragAus: u.aus } : {}), ...(u.quelle == null ? { anspruchVorgabe: true } : u.quelle !== jahr ? { anspruchAus: u.quelle } : {}) } : {}),
       ...(art === 'buak' ? { buak: { stand: k ? k.buak_stand : null, datum: k ? k.buak_datum : null } } : {}),
       ...z, rest, notiz: k ? k.notiz || '' : '',
       hinweis: art === 'buak' ? 'Bauarbeiter: Urlaub nach BUAK (Anwartschaftswochen) – Stand laut BUAK-Kontoauszug eintragen; gezählt wird ab diesem Datum.' : 'Angestellte: Anspruch nach UrlG (30 Werktage bzw. 25 Arbeitstage, ab 25. Dienstjahr mehr) – Prüfen mit der Lohnverrechnung.'
@@ -139,7 +236,15 @@ module.exports = function urlaubRouten(api, bt) {
     const pnrSichtbar = req.ctx.hat('stammdaten') || req.ctx.hat('lohn') || req.ctx.hat('benutzer');
     // 15.7 (N-034 Rest): vorgabeJahr = laufendes Urlaubsjahr nach der Vorgabe (wie export.csv ohne jahr) – Basis für CSV-Link und Jahresnavigation
     const vorgabeJahr = standardJahr(heute());
-    res.json(liste.map((b) => { const k = konto(b, jahr ?? jahrVon(b.id, heute())); if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr; return { ...k, vorgabeJahr }; }));
+    // 15.36: Hinweis „BUAK-Auszug fehlt/veraltet“ nur für die Verwaltung und nur im laufenden Urlaubsjahr der Person
+    const mitHinweis = verwaltung(req.ctx);
+    res.json(liste.map((b) => {
+      const laufend = jahrVon(b.id, heute());
+      const k = konto(b, jahr ?? laufend);
+      if (!pnrSichtbar && b.id !== req.ctx.benutzer.id) delete k.pnr;
+      const h = mitHinweis && k.jahr === laufend ? buakHinweis(k) : null;
+      return { ...k, ...(h ? { buakHinweis: h } : {}), vorgabeJahr };
+    }));
   });
   api.put('/urlaub/konto/:benutzerId/:jahr', (req, res) => {
     if (!verwaltung(req.ctx)) throw keinZugriff('Urlaubskonten pflegen Büro bzw. Lohnverrechnung.');
@@ -152,22 +257,36 @@ module.exports = function urlaubRouten(api, bt) {
     const body = v.objekt(req.body);
     const alt = db.eins('SELECT * FROM urlaub_konto WHERE benutzer_id = ? AND jahr = ?', b.id, jahr) || {};
     // 14.3: der Beginn des Urlaubsjahres wird mit dem Konto gespeichert (Vorgabe zum Zeitpunkt des Anlegens)
-    const f = { art: alt.art || (AZ.buakPflichtigVon(db, b) ? 'buak' : 'urlg'), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null, beginn: alt.beginn || standardBeginn(jahr) };
+    const f = { art: alt.art || artOhneZeile(kennzeichen(b), jahr, (y) => beginnFuer(b.id, y)), anspruch: alt.anspruch ?? null, einheit: alt.einheit || 'Arbeitstage', uebertrag: alt.uebertrag || 0, uebertrag_auto: alt.uebertrag_auto ?? 1, buak_stand: alt.buak_stand ?? null, buak_datum: alt.buak_datum ?? null, notiz: alt.notiz ?? null, beginn: alt.beginn || standardBeginn(jahr) };
     if (body.urlaubsjahrBeginn !== undefined) f.beginn = body.urlaubsjahrBeginn === null ? standardBeginn(jahr) : pruefeBeginn(body.urlaubsjahrBeginn, 'urlaubsjahrBeginn');
     if (body.art !== undefined) f.art = v.auswahl(body.art, 'art', ['buak', 'urlg']);
     if (body.anspruch !== undefined) f.anspruch = body.anspruch === null ? null : v.zahl(body.anspruch, 'anspruch', { min: 0, max: 100 });
     if (body.einheit !== undefined) f.einheit = v.auswahl(body.einheit, 'einheit', ['Arbeitstage', 'Werktage']);
-    if (body.uebertrag !== undefined) f.uebertrag = v.zahl(body.uebertrag, 'uebertrag', { min: -100, max: 100 });
+    // 15.36 (Prüfbefund): die Einheit gehört zum Anspruch – ändert der Aufruf nur sie und hat das Jahr keinen eigenen Anspruch,
+    // gilt der derzeit wirksame (übernommene) Anspruch mit der neuen Einheit als festgelegt (sonst wirkte sie nicht)
+    if (body.einheit !== undefined && body.anspruch === undefined && f.anspruch == null && f.art === 'urlg') {
+      const w = urlgKette(b, jahr);
+      if (w.einheit !== f.einheit) f.anspruch = w.anspruch;
+    }
+    // 15.36: ein angegebener Übertrag gilt als ausdrücklich festgelegt; uebertragAuto: true stellt auf die automatische Berechnung
+    // (Rest des Vorjahres) zurück, uebertragAuto: false hält den derzeit automatisch gerechneten Wert fest
+    const auto = body.uebertragAuto === undefined ? undefined : v.bool(body.uebertragAuto, 'uebertragAuto');
+    if (auto === true && body.uebertrag !== undefined) throw ungueltig('Übertrag: entweder eine Zahl festlegen oder „automatisch“ – nicht beides.');
+    if (body.uebertrag !== undefined) { f.uebertrag = v.zahl(body.uebertrag, 'uebertrag', { min: -100, max: 100 }); f.uebertrag_auto = 0; }
+    else if (auto === true) { f.uebertrag = 0; f.uebertrag_auto = 1; }
+    else if (auto === false && f.uebertrag_auto !== 0) { const aktuell = konto(b, jahr); f.uebertrag = aktuell.uebertragAutoWert ?? aktuell.uebertrag ?? 0; f.uebertrag_auto = 0; }
     if (body.buakStand !== undefined) f.buak_stand = body.buakStand === null ? null : v.zahl(body.buakStand, 'buakStand', { min: 0, max: 200 });
     if (body.buakDatum !== undefined) f.buak_datum = v.datum(body.buakDatum, 'buakDatum', { pflicht: false });
     if (body.notiz !== undefined) f.notiz = body.notiz == null ? null : v.text(body.notiz, 'notiz', { max: 500, pflicht: false }) || null;
     db.transaktion(() => {
-      db.lauf(`INSERT INTO urlaub_konto (benutzer_id, jahr, art, anspruch, einheit, uebertrag, buak_stand, buak_datum, notiz, geaendert, geaendert_von, beginn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(benutzer_id, jahr) DO UPDATE SET art = excluded.art, anspruch = excluded.anspruch, einheit = excluded.einheit, uebertrag = excluded.uebertrag, buak_stand = excluded.buak_stand, buak_datum = excluded.buak_datum, notiz = excluded.notiz, geaendert = excluded.geaendert, geaendert_von = excluded.geaendert_von, beginn = excluded.beginn`,
-      b.id, jahr, f.art, f.anspruch, f.einheit, f.uebertrag, f.buak_stand, f.buak_datum, f.notiz, jetzt(), req.ctx.benutzer.id, f.beginn);
+      db.lauf(`INSERT INTO urlaub_konto (benutzer_id, jahr, art, anspruch, einheit, uebertrag, uebertrag_auto, buak_stand, buak_datum, notiz, geaendert, geaendert_von, beginn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(benutzer_id, jahr) DO UPDATE SET art = excluded.art, anspruch = excluded.anspruch, einheit = excluded.einheit, uebertrag = excluded.uebertrag, uebertrag_auto = excluded.uebertrag_auto, buak_stand = excluded.buak_stand, buak_datum = excluded.buak_datum, notiz = excluded.notiz, geaendert = excluded.geaendert, geaendert_von = excluded.geaendert_von, beginn = excluded.beginn`,
+      b.id, jahr, f.art, f.anspruch, f.einheit, f.uebertrag, f.uebertrag_auto, f.buak_stand, f.buak_datum, f.notiz, jetzt(), req.ctx.benutzer.id, f.beginn);
       db.protokolliere({ zeit: jetzt(), benutzerId: req.ctx.benutzer.id, art: 'urlaub', objekt: `benutzer:${b.id}`, alt, neu: f, text: `Urlaubskonto ${b.name} ${jahr} geändert` });
     });
-    res.json(konto(b, jahr));
+    const k = konto(b, jahr);
+    const h = k.jahr === jahrVon(b.id, heute()) ? buakHinweis(k) : null;
+    res.json({ ...k, ...(h ? { buakHinweis: h } : {}) });
   });
 
   /* ---------- Betriebsurlaub ---------- */

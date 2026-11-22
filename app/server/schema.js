@@ -1633,6 +1633,47 @@ CREATE INDEX bericht_papierkorb ON bericht(geloescht_zeit) WHERE geloescht_zeit 
 INSERT OR IGNORE INTO rolle_recht (rolle, recht, wert) SELECT r.rolle, 'bericht_loeschen', 1
   FROM (SELECT 'gf' AS rolle UNION ALL SELECT 'buero' UNION ALL SELECT 'bauleiter') r WHERE EXISTS (SELECT 1 FROM rolle_recht);
 `
+  },
+  {
+    version: 57,
+    name: '15.36: Urlaubskonto – Übertrag aus dem Vorjahr automatisch (Angestellte, UrlG)',
+    // uebertrag_auto = 1: der Übertrag wird live aus dem Rest des Vorjahres gerechnet (Spalte uebertrag ohne Bedeutung);
+    // 0: das Büro hat den Übertrag ausdrücklich festgelegt (Spalte uebertrag gilt). Neue Konto-Zeilen: automatisch.
+    // Bestand: bisher speicherte jeder Konto-Dialog den Übertrag mit (leer = 0), ein gespeicherter Wert ist also nicht von
+    // „nie angefasst“ zu unterscheiden. Damit sich bereits begonnene oder abgerechnete Urlaubsjahre nicht nachträglich ändern,
+    // bleibt jede bestehende Zeile ausdrücklich festgelegt (Übertrag ≠ 0 ohnehin) – ausgenommen UrlG-Zeilen mit Übertrag 0 für
+    // ein Jahr nach dem laufenden Kalenderjahr: dort ist noch nichts verbraucht oder abgerechnet, die 0 war die Vorgabe.
+    sql: `
+ALTER TABLE urlaub_konto ADD COLUMN uebertrag_auto INTEGER NOT NULL DEFAULT 1 CHECK (uebertrag_auto IN (0, 1));
+UPDATE urlaub_konto SET uebertrag_auto = 0
+ WHERE NOT (art = 'urlg' AND uebertrag = 0 AND jahr > CAST(strftime('%Y', 'now') AS INTEGER));
+-- 15.36 (Prüfbefund): eine UrlG-Zeile ohne Anspruch mit Einheit „Werktage“ zeigte „25 Werktage“ – bleibt so. Die Einheit gehört
+-- zum Anspruch; ohne eigenen Anspruch übernähme die Zeile jetzt Anspruch und Einheit des Vorjahres.
+UPDATE urlaub_konto SET anspruch = 25 WHERE art = 'urlg' AND anspruch IS NULL AND einheit = 'Werktage';
+-- 15.36 (Prüfbefund): Tag des letzten Wechsels des wirksamen BUAK-Kennzeichens (buak_pflichtig, sonst nach der Rolle).
+-- Urlaubsjahre ohne Konto-Zeile vor dem Urlaubsjahr dieses Tages hatten die andere Art – so reicht die Übertrags-Kette der
+-- Angestellten nie in Arbeiter-Jahre zurück. Bestand: aus dem Änderungsprotokoll (letzte Änderung von Rolle/Kennzeichen mit
+-- anderem wirksamem Wert; ein im Eintrag fehlender Schlüssel gilt mit dem heutigen Wert). Danach hält der Trigger den Tag
+-- aktuell, auch bei Änderungen außerhalb von PUT /benutzer (dort setzt die App den Tag selbst, nach ihrer Uhr).
+ALTER TABLE benutzer ADD COLUMN buak_wechsel TEXT;
+UPDATE benutzer SET buak_wechsel = (
+  SELECT substr(MAX(p.zeit), 1, 10) FROM protokoll p
+   WHERE p.objekt = 'benutzer:' || benutzer.id AND p.art IN ('benutzer', 'rolle') AND json_valid(p.alt) AND json_valid(p.neu)
+     AND (json_type(p.neu, '$.buak_pflichtig') IS NOT NULL OR json_type(p.neu, '$.rolle') IS NOT NULL)
+     AND (CASE WHEN json_type(p.alt, '$.buak_pflichtig') = 'integer' THEN json_extract(p.alt, '$.buak_pflichtig')
+               WHEN json_type(p.alt, '$.buak_pflichtig') IS NULL AND benutzer.buak_pflichtig IN (0, 1) THEN benutzer.buak_pflichtig
+               WHEN COALESCE(json_extract(p.alt, '$.rolle'), benutzer.rolle) IN ('mitarbeiter', 'polier') THEN 1 ELSE 0 END)
+      <> (CASE WHEN json_type(p.neu, '$.buak_pflichtig') = 'integer' THEN json_extract(p.neu, '$.buak_pflichtig')
+               WHEN json_type(p.neu, '$.buak_pflichtig') IS NULL AND benutzer.buak_pflichtig IN (0, 1) THEN benutzer.buak_pflichtig
+               WHEN COALESCE(json_extract(p.neu, '$.rolle'), benutzer.rolle) IN ('mitarbeiter', 'polier') THEN 1 ELSE 0 END));
+CREATE TRIGGER benutzer_buak_wechsel AFTER UPDATE OF rolle, buak_pflichtig ON benutzer
+ WHEN (CASE WHEN OLD.buak_pflichtig IN (0, 1) THEN OLD.buak_pflichtig WHEN OLD.rolle IN ('mitarbeiter', 'polier') THEN 1 ELSE 0 END)
+   <> (CASE WHEN NEW.buak_pflichtig IN (0, 1) THEN NEW.buak_pflichtig WHEN NEW.rolle IN ('mitarbeiter', 'polier') THEN 1 ELSE 0 END)
+  AND NEW.buak_wechsel IS OLD.buak_wechsel
+BEGIN
+  UPDATE benutzer SET buak_wechsel = date('now') WHERE id = NEW.id;
+END;
+`
   }
 ];
 

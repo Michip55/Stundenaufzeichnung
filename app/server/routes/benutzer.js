@@ -301,6 +301,9 @@ module.exports = function benutzerRouten(api, bt) {
         AZ.basisFestschreiben(db, id, alt.rolle, jetzt());
         if (alt.buak_pflichtig == null && !('buak_pflichtig' in f)) { f.buak_pflichtig = AZ.istFeldrolle(alt.rolle) ? 1 : 0; k.push('buak_pflichtig'); }
       }
+      // 15.36 (Prüfbefund): Tag des Wechsels des wirksamen BUAK-Kennzeichens – Urlaubsjahre davor ohne Konto-Zeile behalten
+      // die bisherige Art (kein Übertrag aus Arbeiter-Jahren); sonst setzt ihn der Trigger (Migration 57)
+      if (AZ.buakPflichtig(alt) !== AZ.buakPflichtig({ rolle: f.rolle ?? alt.rolle, buak_pflichtig: 'buak_pflichtig' in f ? f.buak_pflichtig : alt.buak_pflichtig })) { f.buak_wechsel = heute; k.push('buak_wechsel'); }
       if (k.length) db.lauf(`UPDATE benutzer SET ${k.map((x) => `${x} = ?`).join(', ')} WHERE id = ?`, ...k.map((x) => f[x]), id);
       if (lgNeu) {
         lgErg = L.setzen(db, { benutzerId: id, lohngruppeId: lgNeu.id, gueltigAb: lgNeu.gueltigAb, von: req.ctx.benutzer.id, zeit: jetzt(), explizit: lgNeu.explizit });
@@ -352,7 +355,7 @@ module.exports = function benutzerRouten(api, bt) {
       }
       const altW = {}, neuW = {};
       for (const x of k) {
-        if (['pin_hash', 'muss_pin_aendern', 'pin_laenge'].includes(x)) continue;
+        if (['pin_hash', 'muss_pin_aendern', 'pin_laenge', 'buak_wechsel'].includes(x)) continue;
         altW[x] = alt[x]; neuW[x] = f[x];
       }
       if (pin) neuW.pin = 'zurückgesetzt';
