@@ -363,7 +363,18 @@ async function laufe(browser, g, opt = {}) {
       pruef((await page.locator('#re-detail').innerText()).includes(AUER.empfaenger), 'Detail ohne Rechnungsempfänger');
       await page.keyboard.press('Escape');
       pruef(await page.locator('#fae-zu-rechnungen').count() === 0, '15.37: Link „Alle Rechnungen“ unter den Fälligkeiten doppelt zum Reiter');
-      await page.click('#re-reiter [data-re-reiter="rechnungen"]');
+      // Reiter antippen wie ein Mensch: erst hinscrollen (sofort), dann warten, bis er frei ist, dann tippen. Die Meldung „… als bezahlt
+      // markiert“ mit „Rückgängig“ (9 s, oben in der Mitte) liegt am Tablet über dem Reiter „Fälligkeiten“, und nach dem Öffnen einer
+      // Zeile weiter unten ist die Leiste hinausgescrollt. page.click allein scrollt dann wiederholt selbst (#view scrollt weich), und
+      // ein Rest dieses Scrollens blieb auf der neuen Seite stehen (Leiste 5 px höher) – das war Playwright, nicht die App. Gemessen
+      // wird danach unverändert am Bildschirm; springt die Leiste wirklich, fällt es weiter auf.
+      const reiterKlick = async (id) => {
+        const sel = `#re-reiter [data-re-reiter="${id}"]`;
+        await page.evaluate((x) => { const a = document.querySelector(x); if (a) a.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); }, sel);
+        await page.waitForFunction((x) => { const a = document.querySelector(x); if (!a) return false; const r = a.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && a.contains(e); }, sel, { timeout: 15000 });
+        await page.click(sel);
+      };
+      await reiterKlick('rechnungen');
       await page.waitForSelector('#rechnungen-seite');
 
       // 6) 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter von „Rechnungen“ – Menü, Reiter, alte Adressen, Handy
@@ -378,7 +389,7 @@ async function laufe(browser, g, opt = {}) {
             an: a.filter((x) => x.getAttribute('aria-selected') === 'true').map((x) => x.dataset.reReiter), on: a.filter((x) => x.classList.contains('on')).map((x) => x.dataset.reReiter),
             box: { x: Math.round(r.x), y: Math.round(r.y), b: Math.round(r.right) }, zeilen: new Set(a.map((x) => Math.round(x.getBoundingClientRect().top))).size,
             hoehe: Math.min(...a.map((x) => x.getBoundingClientRect().height)), rechts: Math.max(...a.map((x) => x.getBoundingClientRect().right)), breit: document.documentElement.clientWidth,
-            scroll: l.scrollWidth - l.clientWidth,
+            scroll: l.scrollWidth - l.clientWidth, oben: document.querySelector('#view').scrollTop,
             nav: [...document.querySelectorAll('#nav-seite .nav-item.active')].map((x) => x.dataset.nav), titel: document.querySelector('#titel').textContent
           };
         });
@@ -403,15 +414,15 @@ async function laufe(browser, g, opt = {}) {
         // Reiter wechseln (Klick), Leiste bleibt an derselben Stelle, Zurück-Taste
         const r1 = await istAuf('rechnungen', '#rechnungen-seite', 'Alle Rechnungen');
         pruef(await page.locator('#rechnungen-seite #re-zu-faellig').count() === 0, '15.37: Knopf „Fälligkeiten“ in der Werkzeugleiste doppelt zum Reiter');
-        await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+        await reiterKlick('offene-posten');
         await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#offene-posten #op-liste');
         const r2 = await istAuf('offene-posten', '#offene-posten', 'Reiter Offene Posten');
         await shot(page, '7-reiter-offene-posten');
-        await page.click('#re-reiter [data-re-reiter="faelligkeiten"]');
+        await reiterKlick('faelligkeiten');
         await page.waitForFunction(() => location.hash === '#/faelligkeiten'); await page.waitForSelector('#faelligkeiten .fae-gruppe');
         const r3 = await istAuf('faelligkeiten', '#faelligkeiten', 'Reiter Fälligkeiten');
         await shot(page, '7-reiter-faelligkeiten');
-        pruef(!!(r1 && r2 && r3) && [r2, r3].every((r) => r.box.x === r1.box.x && r.box.y === r1.box.y), `15.37: Reiterleiste springt beim Wechsel (${JSON.stringify([r1, r2, r3].map((r) => r && r.box))})`);
+        pruef(!!(r1 && r2 && r3) && [r2, r3].every((r) => r.box.x === r1.box.x && r.box.y === r1.box.y), `15.37: Reiterleiste springt beim Wechsel (${JSON.stringify([r1, r2, r3].map((r) => r && { ...r.box, oben: r.oben }))})`);
         await page.goBack();
         await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#offene-posten #op-liste');
         await istAuf('offene-posten', '#offene-posten', 'Zurück-Taste');
@@ -437,7 +448,7 @@ async function laufe(browser, g, opt = {}) {
           const r0 = await reiter();
           const langsam = pfadIst('/api/offene-posten');
           await page.route(langsam, async (route) => { await new Promise((ok) => setTimeout(ok, 1500)); await route.continue().catch(() => {}); });
-          await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+          await reiterKlick('offene-posten');
           await page.waitForFunction(() => location.hash === '#/offene-posten');
           await page.waitForTimeout(400);
           const rl = await reiter();
@@ -450,12 +461,12 @@ async function laufe(browser, g, opt = {}) {
           // Serverfehler im Reiter „Offene Posten“: Fehlerbox unter der Leiste, Reiter bedienbar, „Erneut versuchen“ lädt den Reiter
           await geh('#/rechnungen'); await page.waitForSelector('#rechnungen-seite');
           await page.route(langsam, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ fehler: 'kaputt' }) }));
-          await page.click('#re-reiter [data-re-reiter="offene-posten"]');
+          await reiterKlick('offene-posten');
           await page.waitForFunction(() => location.hash === '#/offene-posten'); await page.waitForSelector('#view [data-zustand="fehler"]');
           const rf = await reiter();
           pruef(!!rf && JSON.stringify(rf.an) === '["offene-posten"]' && rf.box.x === r0.box.x && rf.box.y === r0.box.y && await page.locator('#view #re-reiter ~ [data-zustand="fehler"], #view .re-kopf ~ .page [data-zustand="fehler"]').count() === 1 && await page.locator('#view [data-neu-laden]').count() === 1, `15.37 Prüfbefund: Serverfehler ohne Reiterleiste bzw. ohne „Erneut versuchen“ (${JSON.stringify(rf && rf.an)})`);
           await ueberlauf('15.37 Prüfbefund Serverfehler');
-          await page.click('#re-reiter [data-re-reiter="rechnungen"]');
+          await reiterKlick('rechnungen');
           await page.waitForFunction(() => location.hash === '#/rechnungen'); await page.waitForSelector('#rechnungen-seite #re-ergebnis section');
           await istAuf('rechnungen', '#rechnungen-seite', 'vom fehlgeschlagenen Reiter zurück');
           await geh('#/offene-posten'); await page.waitForSelector('#view [data-zustand="fehler"]');
@@ -470,7 +481,7 @@ async function laufe(browser, g, opt = {}) {
           pruef(!!rn && JSON.stringify(rn.an) === '["rechnungen"]' && rn.box.x === r0.box.x && rn.box.y === r0.box.y && /Keine Verbindung/.test(await page.locator('#view [data-zustand="fehler"]').innerText()) && await page.locator('#view [data-neu-laden]').count() === 1, `15.37 Prüfbefund: „Keine Verbindung“ ohne Reiterleiste (${JSON.stringify(rn && rn.an)})`);
           await ueberlauf('15.37 Prüfbefund keine Verbindung');
           for (const [id, sel] of [['offene-posten', '#offene-posten #op-liste'], ['faelligkeiten', '#faelligkeiten .fae-gruppe']]) {
-            await page.click(`#re-reiter [data-re-reiter="${id}"]`);
+            await reiterKlick(id);
             await page.waitForFunction((x) => location.hash === '#/' + x, id); await page.waitForSelector(sel);
             await istAuf(id, sel.split(' ')[0], `Reiter ${id} ohne Verbindung zu den Rechnungen`);
             await page.goBack(); await page.waitForFunction(() => location.hash === '#/rechnungen'); await page.waitForSelector('#view [data-zustand="fehler"]');

@@ -496,10 +496,15 @@ async function laufe(browser, g) {
     // 9f) Prüfbefund n8-l: zwei Buchungen in der Warteschlange – die erste (Standort schon ermittelt) wird beim Abmelden gerade
     // langsam nachgesendet, die zweite wartet noch auf die Ortung. Der laufende Lauf bricht bei der wartenden ab; das Abmelden
     // wartet auch auf den Folgelauf mit der georteten zweiten Buchung – beide kommen (mit Standort) vor dem Logout an.
+    // Die Server-Uhr steht, die Uhr jedes neuen Browser-Kontexts beginnt wieder bei s.uhr(): ohne diesen Schritt läge die erste
+    // offline erfasste Buchung hier nur Millisekunden nach – unter Last auch VOR – der Offline-Buchung aus 9e; der Server lehnt sie
+    // dann zu Recht ab (409 „Der Zeitpunkt liegt vor der letzten Buchung“ → „Nicht übernommene Buchungen“), die zweite folgt (409).
+    s.uhr.plus(1);
     const h9 = await kontext({ langsamMs: 5000 });
     await h9.anmelden(4);
-    const reiheH = [];
+    const reiheH = [], antwortH = [];
     h9.page.on('request', (r) => { const u = r.url(); if (u.includes('/api/') && r.method() !== 'GET') reiheH.push(`${r.method()} ${u.replace(/^.*\/api/, '').replace(/\?.*$/, '')}`); });
+    h9.page.on('response', (r) => { if (/\/api\/zeit\/stempeln$/.test(r.url()) && r.request().method() === 'POST') antwortH.push(r.status()); });
     await h9.geh('#/stempeln');
     await h9.page.waitForSelector('.clock-card[data-status="arbeit"], .clock-card[data-status="pause"]');
     const vorH = letzte(4);
@@ -539,7 +544,7 @@ async function laufe(browser, g) {
     await h9.page.waitForTimeout(500);
     const neuH = s.db.alle('SELECT id, typ, quelle, lat, lng, genauigkeit FROM buchung WHERE benutzer_id = 4 AND id > ? ORDER BY id', vorH.id);
     pruef(neuH.length === 2 && neuH[0].typ === typH1 && neuH[1].typ === typH2 && neuH.every((x) => x.quelle === 'offline' && nahe(x)),
-      `9f: nicht beide Buchungen (mit Standort) vor dem Abmelden angekommen (${JSON.stringify({ neuH, reihe: reiheH })})`);
+      `9f: nicht beide Buchungen (mit Standort) vor dem Abmelden angekommen (${JSON.stringify({ neuH, reihe: reiheH, antworten: antwortH })})`);
     const iSt2H = reiheH.lastIndexOf('POST /zeit/stempeln'), iAbH = reiheH.indexOf('POST /auth/logout');
     pruef(reiheH.filter((x) => x === 'POST /zeit/stempeln').length >= 2 && iAbH > iSt2H, `9f: Abmelden vor dem Folgelauf gesendet (${JSON.stringify(reiheH)})`);
     pruef((await qH()).length === 0, `9f: Buchung bleibt in der Warteschlange (${JSON.stringify(await qH())})`);
