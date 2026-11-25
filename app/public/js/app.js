@@ -13,7 +13,7 @@ import dashboard from './views/dashboard.js';
 import { baustellen, baustelle } from './views/baustellen.js';
 import { archiv } from './views/lebenslauf.js';
 import plan, { einsatz, partie } from './views/plan.js';
-import { offenePosten, rechnungenSeite } from './views/rechnungen.js';
+import { offenePosten, rechnungenSeite, mitRechnungsReitern } from './views/rechnungen.js';
 import faelligkeiten from './views/faelligkeiten.js';
 import urlaub from './views/urlaub.js';
 import lohnvorlagen from './views/lohnvorlagen.js';
@@ -76,9 +76,9 @@ const NAV = [
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: siehtBaustellen },
   { id: 'plan', pfad: '/plan', text: 'Baustellenplaner', kurz: 'Planer', icon: 'board', darf: darfPlanen },
   { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier'), nurMehr: true }, // Bauleiter: Navigation wie das Büro plus Stempeluhr und Urlaub (kein „Mein Einsatz“ – er arbeitet im Büro)
-  // 15.24: alle Rechnungen über alle Baustellen (Rechte wie Offene Posten); Fälligkeiten über Übersicht und diese Seite
+  // 15.24: alle Rechnungen über alle Baustellen. 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter dieser Seite
+  // (#/offene-posten, #/faelligkeiten) – im Menü (Seitenleiste, Mehr, untere Leiste) steht nur noch „Rechnungen“
   { id: 'rechnungen', pfad: '/rechnungen', text: 'Rechnungen', kurz: 'Rechnungen', icon: 'file', darf: eines('preise_sehen') },
-  { id: 'offeneposten', pfad: '/offene-posten', text: 'Offene Posten', kurz: 'Posten', icon: 'euro', darf: eines('preise_sehen') },
   { id: 'kalkulation', pfad: '/kalkulation', text: 'Nachkalkulation', kurz: 'Kalkulation', icon: 'chart', darf: eines('kalk_sehen') },
   { id: 'preise', pfad: '/preise', text: 'Stammdaten & Preise', kurz: 'Stammdaten', icon: 'tag', darf: eines('preise_sehen', 'stammdaten') },
   // Fuhrpark & Geräte: für alle (Geräteliste, Schaden/Mangel melden, Zählerstand); Pflege nur mit Recht „fuhrpark“. Am Handy unter „Mehr“.
@@ -132,9 +132,10 @@ const ROUTEN = [
   { muster: /^\/plan$/, nav: 'plan', titel: 'Baustellenplaner', view: plan, darf: darfPlanen },
   { muster: /^\/einsatz$/, nav: 'einsatz', titel: 'Mein Einsatz', view: einsatz, darf: rolle('mitarbeiter', 'polier') }, // eingeplant werden nur sie (12.25); Bauleiter wie Büro
   { muster: /^\/partie$/, nav: 'partie', titel: 'Meine Partie', view: partie, darf: rolle('polier') },
-  { muster: /^\/rechnungen$/, nav: 'rechnungen', titel: 'Rechnungen', view: rechnungenSeite, darf: eines('preise_sehen') },
-  { muster: /^\/faelligkeiten$/, nav: 'rechnungen', titel: 'Fälligkeiten', view: faelligkeiten, darf: eines('preise_sehen') },
-  { muster: /^\/offene-posten$/, nav: 'offeneposten', titel: 'Offene Posten', view: offenePosten, darf: eines('preise_sehen') },
+  // 15.37: drei Reiter einer Seite „Rechnungen“ – die Adressen bleiben (Lesezeichen, Übersicht, Links), markiert ist „Rechnungen“
+  { muster: /^\/rechnungen$/, nav: 'rechnungen', titel: 'Rechnungen', view: mitRechnungsReitern('rechnungen', rechnungenSeite), darf: eines('preise_sehen') },
+  { muster: /^\/offene-posten$/, nav: 'rechnungen', titel: 'Rechnungen', sub: 'Offene Posten', view: mitRechnungsReitern('offene-posten', offenePosten), darf: eines('preise_sehen') },
+  { muster: /^\/faelligkeiten$/, nav: 'rechnungen', titel: 'Rechnungen', sub: 'Fälligkeiten', view: mitRechnungsReitern('faelligkeiten', faelligkeiten), darf: eines('preise_sehen') },
   { muster: /^\/preise$/, nav: 'preise', titel: 'Stammdaten & Preise', view: preise, darf: eines('preise_sehen', 'stammdaten') },
   { muster: /^\/urlaub$/, nav: 'urlaub', titel: 'Urlaub', view: urlaub, darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
   { muster: /^\/lohn-vorlagen$/, nav: 'monat', titel: 'Lohn-Export: Vorlagen', view: lohnvorlagen, darf: eines('lohn') },
@@ -393,7 +394,7 @@ async function zeige() {
   if (!route) { setzTitel('Nicht gefunden'); view.innerHTML = `<div class="page narrow"><div class="card state big">${ic('info')}<h2>Seite nicht gefunden</h2><p>Diese Adresse gibt es in BauTag nicht.</p><a class="btn ghost" href="#${start()}">Zur Startseite</a></div></div>`; return; }
   // Gesperrte Adresse (direkt eingetippt): neutrale Seite – kein Titel der Seite, keine Anfrage an den Server
   if (route.darf && !route.darf()) { markiereNav(''); setzTitel('Seite nicht verfügbar'); view.innerHTML = keinZugriff(); return; }
-  setzTitel(route.titel);
+  setzTitel(route.titel, route.sub || '');
   // Jede Ansicht bekommt einen frischen Behälter (keine Ereignis-Altlasten der vorigen Ansicht)
   view.innerHTML = '';
   const box = document.createElement('div');
@@ -418,7 +419,9 @@ async function zeige() {
     if (e.status === 401 || e.veraltet) return; // Abmelde-Ereignis übernimmt; 15.12 (G2-018): Antwort einer beendeten Anmeldung
     if (e.status === 403) { markiereNav(''); setzTitel('Seite nicht verfügbar'); view.innerHTML = keinZugriff(); return; }
     if (e.netz) setzOnline(false); else if (!e.status) console.error(e);
-    view.innerHTML = fehlerBox(e);
+    // 15.37: Ansichten mit fester Kopfzeile (Reiter der Rechnungen) markieren den Platz des Inhalts – die Fehlerbox kommt dorthin
+    const platz = $('[data-fehler-platz]', view);
+    if (platz) platz.outerHTML = fehlerBox(e); else view.innerHTML = fehlerBox(e);
     const b = $('[data-neu-laden]', view); if (b) b.addEventListener('click', zeige);
   }
 }

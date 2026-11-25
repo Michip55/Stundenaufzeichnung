@@ -38,7 +38,8 @@ async function stammdatenUndLebenslauf(h, z) {
   /* ---- Büro: Material anlegen, Bauvorhaben Y anlegen ---- */
   await anmelden('buero');
   let nav = await h.navIds();
-  pruef(nav.includes('plan') && nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Offene Posten/Urlaub (${nav})`);
+  // 15.37: „Offene Posten“ ist ein Reiter von „Rechnungen“ – im Menü nur noch „Rechnungen“
+  pruef(nav.includes('plan') && nav.includes('rechnungen') && !nav.includes('offeneposten') && nav.includes('urlaub'), `A2: Büro-Navigation ohne Planer/Rechnungen/Urlaub oder noch mit „Offene Posten“ (${nav})`);
   await geh('/preise');
   // 15.23: sechster Reiter „Arbeitszeitmodelle“
   pruef(await page.locator('[data-tab]').count() === 6 && await page.locator('#tab-arbeitszeit').count() === 1 && await page.locator('#stamm-links a').count() >= 2, 'A2-Stamm: Reiter (Katalog, Geräte, Material, Lohngruppen, Leistungen, Arbeitszeitmodelle) oder Verweise fehlen');
@@ -1234,6 +1235,18 @@ async function urlaub(h, z) {
   pruef(tage3.length === 4 && !tage3.some((a) => a.datum === bis) && Math.abs((kontoNach.geplant + kontoNach.genommen) - (kontoVor.geplant + kontoVor.genommen) - 4) < 0.001, `A2-Url: Korrektur entfernt die Tage nicht oder das Konto rechnet nicht neu (Tage ${tage3.length}, geplant ${kontoVor.geplant} → ${kontoNach.geplant})`);
   await ueberlauf('urlaub büro'); await shot('urlaub-buero');
 
+  // 15.36: Angestellter (Bauleiter) mit Konto im Vorjahr → Rest automatisch übertragen; ein anderer Arbeiter mit altem BUAK-Auszug
+  const kListe = (await api('GET', '/urlaub/konto')).json;
+  const kB = kListe.find((k) => k.rolle === 'bauleiter' && k.art === 'urlg');
+  const kX = kListe.find((k) => k.art === 'buak' && k.benutzerId !== L && k.rolle === 'mitarbeiter');
+  pruef(kB && kX, `A2-Url 15.36: Testpersonen fehlen (${kListe.map((k) => `${k.rolle}/${k.art}`).join(', ')})`);
+  const B = kB.benutzerId, X = kX.benutzerId, uJ = kB.jahr;
+  pruef((await api('PUT', `/urlaub/konto/${B}/${uJ - 1}`, { art: 'urlg', anspruch: 25 })).status === 200 && (await api('PUT', `/urlaub/konto/${X}/${kX.jahr}`, { buakStand: 9, buakDatum: plusTage(heute, -240) })).status === 200, 'A2-Url 15.36: Konten nicht vorbereitet');
+  const restVorjahr = (await api('GET', `/urlaub/konto?jahr=${uJ - 1}&benutzerId=${B}`)).json[0].rest;
+  const kB2 = (await api('GET', `/urlaub/konto?benutzerId=${B}`)).json[0];
+  pruef(kB2.uebertragAuto === true && kB2.uebertragAus === uJ - 1 && kB2.uebertrag === restVorjahr, `A2-Url 15.36: automatischer Übertrag falsch (${JSON.stringify(kB2)})`);
+  const zahlText = async (sel) => Number((await page.locator(sel).first().innerText()).trim().split(/\s/)[0].replace(/\./g, '').replace(',', '.'));
+
   if (!g.mobil) {
     // Filter Partie, Jahr, Konten
     await page.selectOption('#ur-bs', String(ichM.benutzer.baustelleId));
@@ -1247,6 +1260,49 @@ async function urlaub(h, z) {
     // N-034: ohne Wahl das laufende Urlaubsjahr (nicht das Jahr des gezeigten Monats)
     const laufend = (await api('GET', `/urlaub/konto?benutzerId=${L}`)).json[0];
     pruef(/Laufendes Urlaubsjahr/.test(await page.locator('#ur-konto-jahr').innerText()) && new RegExp(`Urlaubsjahr ${laufend.jahr}`).test(await page.locator(`#ur-konten tr[data-konto="${L}"] [data-urlaubsjahr]`).innerText()), 'A2-Url: Urlaubskonten zeigen nicht das laufende Urlaubsjahr');
+    // 15.36: BUAK-Hinweis je Arbeiter (fehlend bzw. älter als 6 Monate) und Sammelzeile – genau wie vom Server geliefert
+    const mitHinweis = (await api('GET', '/urlaub/konto')).json.filter((k) => k.buakHinweis);
+    const zeileX = `#ur-konten tr[data-konto="${X}"]`;
+    pruef(mitHinweis.length >= 2 && await page.locator('#ur-konten [data-buak-hinweis]').count() === mitHinweis.length && new RegExp(`^${mitHinweis.length} Arbeiter mit veraltetem oder fehlendem BUAK-Stand`).test((await page.locator('#ur-buak-sammel h3').innerText()).trim()), `A2-Url 15.36: BUAK-Hinweise/Sammelzeile passen nicht (${mitHinweis.length})`);
+    pruef(/^BUAK-Auszug vom \d\d\.\d\d\.\d{4} – älter als 6 Monate, bitte neuen Stand eintragen$/.test((await page.locator(`${zeileX} [data-buak-hinweis="veraltet"]`).innerText()).trim()), 'A2-Url 15.36: Hinweis „älter als 6 Monate“ fehlt');
+    pruef(!mitHinweis.some((k) => k.benutzerId === L) || /Noch kein BUAK-Stand eingetragen/.test(await page.locator(`#ur-konten tr[data-konto="${L}"] [data-buak-hinweis="fehlt"]`).innerText()), 'A2-Url 15.36: Hinweis „Noch kein BUAK-Stand“ fehlt');
+    pruef(await page.locator(`#ur-konten tr[data-konto="${B}"] [data-buak-hinweis]`).count() === 0, 'A2-Url 15.36: BUAK-Hinweis bei Angestellten');
+    // 15.36: automatischer Übertrag erkennbar („aus <Vorjahr>“); im Dialog „automatisch“ → festlegen → wieder automatisch
+    const zeileB = `#ur-konten tr[data-konto="${B}"]`;
+    pruef(new RegExp(`aus ${uJ - 1}`).test(await page.locator(`${zeileB} [data-uebertrag-auto]`).innerText()) && await zahlText(`${zeileB} td:nth-child(3)`) === restVorjahr, `A2-Url 15.36: automatischer Übertrag in der Kontenliste nicht erkennbar (${await page.locator(zeileB).innerText()})`);
+    await ueberlauf('urlaub konten 15.36'); await shot('urlaub-konten-uebertrag');
+    await page.click(`${zeileB} [data-konto-edit]`);
+    await page.waitForSelector('dialog[open] #ukf');
+    pruef(await page.locator('#ukf [name="uebertragAuto"]').isChecked() && await page.locator('#ukf [name="uebertrag"]').isDisabled() && /Verjährung/.test(await page.locator('#ukf-urlg-hinweis').innerText()), 'A2-Url 15.36: Konto-Dialog zeigt „automatisch“ bzw. den Verjährungs-Hinweis nicht');
+    await page.uncheck('#ukf [name="uebertragAuto"]');
+    pruef(!(await page.locator('#ukf [name="uebertrag"]').isDisabled()), 'A2-Url 15.36: Übertrag ohne „automatisch“ nicht eintragbar');
+    await page.fill('#ukf [name="uebertrag"]', '3');
+    await dialogUeberlauf('urlaubskonto 15.36'); await shot('urlaubskonto-uebertrag');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForFunction((sel) => { const r = document.querySelector(sel); return r && !r.querySelector('[data-uebertrag-auto]'); }, zeileB);
+    const fest = (await api('GET', `/urlaub/konto?benutzerId=${B}`)).json[0];
+    pruef(fest.uebertragAuto === false && fest.uebertrag === 3 && await zahlText(`${zeileB} td:nth-child(3)`) === 3, `A2-Url 15.36: festgelegter Übertrag nicht gespeichert (${JSON.stringify(fest)})`);
+    await toastWeg();
+    await page.click(`${zeileB} [data-konto-edit]`);
+    await page.waitForSelector('dialog[open] #ukf');
+    pruef(!(await page.locator('#ukf [name="uebertragAuto"]').isChecked()), 'A2-Url 15.36: Dialog zeigt festgelegten Übertrag als automatisch');
+    await page.check('#ukf [name="uebertragAuto"]');
+    await page.click('dialog[open] button[type="submit"]');
+    await page.waitForSelector(`${zeileB} [data-uebertrag-auto]`);
+    pruef((await api('GET', `/urlaub/konto?benutzerId=${B}`)).json[0].uebertrag === restVorjahr, 'A2-Url 15.36: „automatisch“ stellt nicht zurück');
+    await toastWeg();
+    // 15.36 (Prüfbefund): Art auf BUAK umstellen – der gerechnete Rest des Angestellten-Vorjahres bleibt nicht als fester Übertrag stehen
+    await page.click(`${zeileB} [data-konto-edit]`);
+    await page.waitForSelector('dialog[open] #ukf');
+    const ueFeld = page.locator('#ukf [name="uebertrag"]');
+    const vorher = await ueFeld.inputValue();
+    await page.selectOption('#ukf [name="art"]', 'buak');
+    const beiBuak = await ueFeld.inputValue(), frei = !(await ueFeld.isDisabled());
+    await page.selectOption('#ukf [name="art"]', 'urlg');
+    const zurueck = await ueFeld.inputValue(), gesperrt = await ueFeld.isDisabled();
+    pruef(restVorjahr !== 0 && Number(vorher.replace(',', '.')) === restVorjahr && beiBuak === '0' && frei && Number(zurueck.replace(',', '.')) === restVorjahr && gesperrt, `A2-Url 15.36: Umstellen auf BUAK übernimmt den automatischen Übertrag (vorher ${vorher}, BUAK ${beiBuak}, zurück ${zurueck})`);
+    await page.click('dialog[open] .dlg-foot [data-zu]');
+    await page.waitForSelector('dialog[open] #ukf', { state: 'detached' });
     if (laufend.jahr !== jahr) { await page.click(`[data-kjahr="${jahr > laufend.jahr ? 1 : -1}"]`); await page.waitForSelector(`#ur-konto-jahr:has-text("Urlaubsjahr ${jahr}")`); }
     await page.click(`#ur-konten tr[data-konto="${L}"] [data-konto-edit]`);
     await page.waitForSelector('dialog[open] #ukf');
@@ -1255,6 +1311,7 @@ async function urlaub(h, z) {
     await dialogUeberlauf('urlaubskonto');
     await page.click('dialog[open] button[type="submit"]');
     await page.waitForSelector(`#ur-konten tr[data-konto="${L}"]:has-text("laut BUAK-Kontoauszug vom")`);
+    pruef(laufend.jahr !== jahr || await page.locator(`#ur-konten tr[data-konto="${L}"] [data-buak-hinweis]`).count() === 0, 'A2-Url 15.36: BUAK-Hinweis bleibt nach dem Eintragen eines aktuellen Stands');
     const konto = (await api('GET', `/urlaub/konto?jahr=${jahr}&benutzerId=${L}`)).json[0];
     pruef(konto.art === 'buak' && konto.anspruch === 20 && konto.geplant >= 1 && (await page.locator(`#ur-konten tr[data-konto="${L}"] [data-rest]`).innerText()).replace(',', '.') === String(konto.rest), `A2-Url: Konto/Rest weicht vom Server ab (${JSON.stringify(konto)})`);
     pruef(await page.locator('#ur-csv').count() === 1, 'A2-Url: CSV für die Lohnverrechnung fehlt');
@@ -1282,6 +1339,17 @@ async function urlaub(h, z) {
   }
   // Einstellungen Urlaub (nur Büro/GF): Warngrenze je Partie, Beginn des Urlaubsjahres
   await geh(`/urlaub?monat=${monat}`);
+  if (g.mobil) {
+    // 15.36: am Handy die Sammelzeile mit Namen und Hinweis (Konten pflegt das Büro am Tablet/PC); neu geladen nach dem BUAK-Stand von X
+    await geh('/mehr'); await geh(`/urlaub?monat=${monat}`);
+    await page.waitForSelector('#ur-buak-sammel');
+    pruef(!(await page.locator(`#ur-buak-sammel [data-buak-person="${X}"]`).isVisible()), 'A2-Url 15.36: Namensliste am Handy nicht eingeklappt');
+    await page.click('#ur-buak-liste summary');
+    await page.waitForSelector(`#ur-buak-sammel [data-buak-person="${X}"]`, { state: 'visible' });
+    const n = (await api('GET', '/urlaub/konto')).json.filter((k) => k.buakHinweis).length;
+    pruef(await page.locator('#ur-buak-sammel [data-buak-person]').count() === n && /älter als 6 Monate/.test(await page.locator(`#ur-buak-sammel [data-buak-person="${X}"]`).innerText()), `A2-Url 15.36: BUAK-Sammelzeile am Handy unvollständig (${n} / ${await page.locator('#ur-buak-sammel [data-buak-person]').count()}: ${(await page.locator('#ur-buak-sammel').innerText()).slice(0, 300)})`);
+    await ueberlauf('urlaub buak-hinweis handy'); await shot('urlaub-buak-handy');
+  }
   await page.click('#ur-einst');
   await page.waitForSelector('dialog[open] #uef');
   await page.fill('#uef [name="partieGrenze"]', '0');
@@ -1297,6 +1365,20 @@ async function urlaub(h, z) {
   // Verweis aus dem Baustellenplaner
   await geh('/plan?ansicht=woche');
   pruef(await page.locator('#pool-urlaub[href="#/urlaub"]').count() === 1, 'A2-Url: Verweis „Urlaub“ im Planer fehlt');
+  await abmelden();
+
+  /* ---- 15.36: Bauleiter (Angestellter) sieht beim eigenen Konto den automatischen Übertrag ---- */
+  await anmelden('bauleiter');
+  if (g.mobil) {
+    await geh('/urlaub');
+    await page.waitForSelector('#ur-mein-konto');
+    pruef(new RegExp(`aus ${uJ - 1}`).test(await page.locator('#ur-mein-konto [data-uebertrag-auto]').innerText()), 'A2-Url 15.36: „Mein Urlaub“ zeigt den automatischen Übertrag nicht');
+  } else {
+    await geh('/urlaub?ansicht=konten');
+    await page.waitForSelector(`#ur-konten tr[data-konto="${B}"] [data-eigenes-konto]`);
+    pruef(new RegExp(`aus ${uJ - 1}`).test(await page.locator(`#ur-konten tr[data-konto="${B}"] [data-uebertrag-auto]`).innerText()), 'A2-Url 15.36: eigenes Konto zeigt den automatischen Übertrag nicht');
+  }
+  await keinEuro('urlaub bauleiter 15.36'); await ueberlauf('urlaub bauleiter 15.36'); await shot('urlaub-bauleiter');
   await abmelden();
 
   /* ---- Mitarbeiter: sieht „genehmigt“ und die Ablehnung mit Begründung ---- */
