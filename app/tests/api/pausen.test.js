@@ -2,7 +2,7 @@
 /**
  * 15.22 Vordefinierte Pausen (Inhaber 17.11.2026): Pause mit fester Dauer endet am Server von selbst – als echte
  * „pause_ende“-Buchung genau zu Beginn + Dauer; „Pause beenden“ früher ersetzt das geplante Ende; „offen“ wie bisher.
- * Alle Auswertungen (Status, Tagessummen, Kolonne, Anwesend, Monat, Lohn-CSV, AZG, Bautagesbericht, Korrekturen,
+ * Alle Auswertungen (Status, Tagessummen, Kolonne, Anwesend, Monat, Lohn-CSV, Hinweise, Bautagesbericht, Korrekturen,
  * Offline-Nachbuchung) lesen dieselben Buchungen. Einstellung der angebotenen Dauern: allein Recht stammdaten.
  */
 const test = require('node:test');
@@ -226,7 +226,7 @@ test('15.22 Kolonne: „Alle in Pause“ mit Dauer – je Person automatisches E
   assert.equal((await pol.get(`/zeit/kolonne?baustelleId=${BS.pitten}`)).daten.find((x) => x.benutzerId === DANIEL).status, 'pause');
 });
 
-test('15.22 Auswertungen: Monat, Lohn-CSV, AZG, Bautagesbericht und Korrekturen sehen dasselbe automatische Ende', async (t) => {
+test('15.22 Auswertungen: Monat, Lohn-CSV, Hinweise, Bautagesbericht und Korrekturen sehen dasselbe automatische Ende', async (t) => {
   const s = await umgebung(t);
   const ma = await s.login(MA);
   const buero = await s.login(U.buero);
@@ -235,7 +235,7 @@ test('15.22 Auswertungen: Monat, Lohn-CSV, AZG, Bautagesbericht und Korrekturen 
   await ma.post('/zeit/stempeln', { typ: 'pause_start', dauerMin: 30 });
   s.uhr.setze(um('16:00'));
   await ma.post('/zeit/stempeln', { typ: 'gehen' });
-  // zweite Person: offene Pause, nach 15 Min beendet, 8 Std. → AZG-Warnung „Pause“
+  // zweite Person: offene Pause, nach 15 Min beendet, 8,75 Std. → seit 15.38 keine AZG-Warnung „Pause“ mehr
   const c = await s.login(DANIEL);
   s.uhr.setze(um('07:00'));
   await c.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
@@ -254,21 +254,22 @@ test('15.22 Auswertungen: Monat, Lohn-CSV, AZG, Bautagesbericht und Korrekturen 
     assert.equal(z.pauseMin, 30);
     assert.equal(z.von, '07:00');
     assert.equal(z.bis, '16:00');
-    assert.ok(!m.warnungen.some((w) => (w.benutzerId === MA) && w.datum === TAG && w.typ === 'pause'), 'keine AZG-Pausenwarnung bei 30 Min automatisch');
-    assert.ok(m.warnungen.some((w) => w.benutzerId === DANIEL && w.datum === TAG && w.typ === 'pause'), 'Gegenprobe: 15 Min offen → Warnung');
+    assert.ok(!m.warnungen.some((w) => (w.benutzerId === MA) && w.datum === TAG && w.typ === 'pause'), 'keine Pausenwarnung bei 30 Min automatisch');
+    assert.ok(!m.warnungen.some((w) => w.benutzerId === DANIEL && w.datum === TAG && w.typ === 'pause'), 'Gegenprobe: 15 Min offen → seit 15.38 keine Warnung');
+    assert.equal(m.mitarbeiter.find((x) => x.id === DANIEL).tage[TAG].pauseMin, 15, 'Gegenprobe: 15 Min Pause gezählt');
     const csv = (await buero.get('/monat/export.csv?monat=2026-11')).daten.toString('utf8');
     const zeile = csv.split(/\r?\n/).find((l) => l.includes('Lukas Brandstätter') && l.includes('18.11.2026'));
     assert.ok(zeile, csv.slice(0, 400));
     assert.match(zeile, /;07:00;16:00;30;8,5;/);
   });
 
-  await t.test('Woche und AZG-Warnungen der Person', async () => {
+  await t.test('Woche und Hinweise der Person (15.38: keine AZG-Warnung)', async () => {
     const w = (await ma.get(`/zeit/woche?datum=${TAG}`)).daten;
     const tag = (w.tage || []).find((x) => x.datum === TAG);
     assert.ok(tag, JSON.stringify(w).slice(0, 300));
     assert.equal(tag.stunden, 8.5);
     const st = (await c.get('/zeit/status')).daten;
-    assert.ok(st.warnungen.some((x) => x.typ === 'pause'));
+    assert.ok(!st.warnungen.some((x) => x.typ === 'pause' || /AZG/.test(x.text)), JSON.stringify(st.warnungen));
     assert.ok(!(await ma.get('/zeit/status')).daten.warnungen.some((x) => x.typ === 'pause'));
   });
 

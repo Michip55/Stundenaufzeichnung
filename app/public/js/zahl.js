@@ -120,9 +120,9 @@ export function stundenLang(stunden, leer = '–') {
   return t.vz + [t.h ? `${t.h} Std.` : '', t.min ? `${t.min} Min.` : ''].filter(Boolean).join(' ');
 }
 /**
- * Hinweistexte vom Server (z. B. Arbeitszeit-Warnungen) nennen Stunden dezimal („11,08 Std. – mehr als 10 Std.“).
+ * Hinweistexte vom Server (z. B. Arbeitszeit-Warnungen) nennen Stunden dezimal („Schicht über 17,5 Std.“).
  * Für die Anzeige werden nur Zahlen MIT Dezimalkomma vor „Std.“ bzw. „Arbeitsstunden“ in die Langform gebracht
- * („11 Std. 5 Min.“); ganze Stunden, Datumsangaben und alle anderen Zahlen bleiben unverändert.
+ * („17 Std. 30 Min.“); ganze Stunden, Datumsangaben und alle anderen Zahlen bleiben unverändert.
  */
 export function stundenImText(text) {
   if (typeof text !== 'string' || !text) return text;

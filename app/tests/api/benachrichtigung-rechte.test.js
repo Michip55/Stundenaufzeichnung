@@ -31,7 +31,7 @@ function alleArten(db, uid) {
   b('abwesenheit', 'abw:777:2026-11-12T09:30:00.000Z', 'Antrag: Krankenstand – KANARIE-ABW-1', 'KANARIE-ABW-1 beantragt Krankenstand');
   b('abwesenheit', 'abw:antrag:aKAN', 'Urlaubsantrag: KANARIE-ABW-2', 'KANARIE-ABW-2 – Hochzeit');
   b('abwesenheit', 'sw:777', 'Schlechtwetter gemeldet: KANARIE-SW', 'KANARIE-SW bitte bestätigen');
-  b('azg', 'azg:26:2026-11-12:tag_12h', 'AZG-Hinweis: KANARIE-AZG', 'KANARIE-AZG 12,5 Std.');
+  b('azg', 'azg:26:2026-11-12:unplausibel', 'Arbeitszeit-Hinweis: KANARIE-AZG', 'KANARIE-AZG Schicht über 17,5 Std.');
   b('baustelle', 'bv:sr:1:2026-10-01', 'Schlussrechnung fehlt: KANARIE-SR', 'KANARIE-SR', { baustelleId: BS.pitten });
   b('baustelle', 'bv:bg:1:2026-12-01', 'Bankgarantie läuft ab: KANARIE-BG', 'KANARIE-BG', { baustelleId: BS.pitten });
   b('baustelle', 'bv:hr:1:2026-11-01', 'Haftrücklass freigeben lassen: KANARIE-HR', 'KANARIE-HR', { baustelleId: BS.pitten });
@@ -49,7 +49,7 @@ function alleArten(db, uid) {
   b('fuhrpark', 'fp:mangel:999', 'Schaden gemeldet: KANARIE-FP-3', 'KANARIE-FP-3 Ursache', { erfordert: ['fuhrpark|stammdaten'] });
   // eigene – bleiben sichtbar
   b('abwesenheit', 'abw:778:genehmigt:2026-11-12T09:30:00.000Z', 'Urlaub genehmigt', 'EIGEN-ABW Ihr Antrag wurde genehmigt.');
-  b('azg', `azg:${uid}:2026-11-12:pause`, 'AZG-Hinweis', 'EIGEN-AZG Pause fehlt');
+  b('azg', `azg:${uid}:2026-11-12:unplausibel`, 'Arbeitszeit-Hinweis', 'EIGEN-AZG Schicht über 17,5 Std.');
   b('sicherheit', `2fa-code:${uid}:x`, 'Wiederherstellungscode verwendet', 'EIGEN-2FA');
   b('plan', 'plan:2026-11-13:h1', 'Einsatz morgen', 'EIGEN-PLAN Morgen 06:30');
 }
@@ -90,7 +90,7 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     bt.pushAus = true; // Warteschlange stehen lassen (push IS NULL), damit der Versand NACH der Herabstufung geprüft wird
     bt.testAusgang.push = [];
     assert.equal((await c.buero.post('/push/abo', { endpoint: 'https://push.example.test/b101', keys: KEYS })).status, 201);
-    // echte Abläufe: Rechnung + Erinnerungen, Anträge, Schlechtwetter, AZG
+    // echte Abläufe: Rechnung + Erinnerungen, Anträge, Schlechtwetter, langer Tag (15.38: ohne AZG-Hinweis), unplausible Schicht
     assert.equal((await c.gf.post(`/baustellen/${BS.pitten}/rechnungen`, { nr: 'AR-2026-4711', typ: 'teil', datum: '2026-09-01', netto: 12345.67, zahlungszielTage: 30 })).status, 201);
     bt.stuendlich();
     assert.equal((await c.mitarbeiter.post('/abwesenheiten', { benutzerId: U.mitarbeiter, datum: '2026-11-20', code: 'U' })).status, 201);
@@ -99,6 +99,7 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     const posch = await s.login(26);
     s.uhr.setze('2026-11-12T18:30:00.000Z');
     assert.equal((await posch.post('/zeit/stempeln', { typ: 'gehen' })).status, 200);
+    assert.equal((await (await s.login(27)).post('/zeit/stempeln', { typ: 'gehen' })).status, 200); // seit 11.11. eingestempelt → unplausibel
     s.uhr.setze('2026-11-12T09:30:00.000Z');
     alleArten(s.db, U.buero);
 
@@ -106,7 +107,8 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     const vorher = await liste(c.buero);
     assert.ok(vorher.some((n) => /AR-2026-4711/.test(n.titel)), 'Rechnungserinnerung fehlt');
     assert.ok(vorher.some((n) => n.typ === 'abwesenheit' && n.titel.includes(FREMDE[0])), 'Antrag fehlt');
-    assert.ok(vorher.some((n) => n.typ === 'azg' && n.titel.includes(FREMDE[2])), 'AZG fehlt');
+    assert.ok(!vorher.some((n) => n.typ === 'azg' && n.titel.includes(FREMDE[2])), '15.38: AZG-Hinweis nach 12,75 Std. ohne Pause');
+    assert.ok(vorher.some((n) => n.typ === 'azg' && n.titel === `Arbeitszeit-Hinweis: ${name(27)}`), 'Hinweis zur unplausiblen Schicht fehlt');
     assert.ok(vorher.some((n) => /KANARIE-RE-1/.test(n.titel)));
     const zeilenVorher = s.db.eins('SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ?', U.buero).n;
     const versteckt = s.db.alle('SELECT id FROM benachrichtigung WHERE benutzer_id = ? AND titel LIKE ?', U.buero, '%KANARIE-RE-1%')[0].id;
@@ -121,7 +123,7 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     assert.equal((await pol.post('/push/abo', { endpoint: 'https://push.example.test/b101', keys: KEYS })).status, 201);
 
     const nach = await liste(pol);
-    assert.deepEqual(verboten(nach, [...FREMDE, 'AR-2026-4711']), []);
+    assert.deepEqual(verboten(nach, [...FREMDE, 'AR-2026-4711', name(27)]), []);
     for (const e of ['EIGEN-ABW', 'EIGEN-AZG', 'EIGEN-2FA', 'EIGEN-PLAN']) assert.ok(nach.some((n) => n.text.includes(e)), `${e} fehlt`);
     // einzelne: ausgeblendet = nicht vorhanden (404), bleibt ungelesen
     assert.equal((await pol.post(`/benachrichtigungen/${versteckt}/gelesen`, {})).status, 404);
@@ -135,7 +137,7 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     bt.pushAus = false;
     await P.verteilen(bt);
     const push = bt.testAusgang.push.filter((p) => p.benutzerId === U.buero);
-    assert.deepEqual(verboten(push, [...FREMDE, 'AR-2026-4711']), []);
+    assert.deepEqual(verboten(push, [...FREMDE, 'AR-2026-4711', name(27)]), []);
     assert.ok(push.some((p) => /EIGEN-ABW/.test(p.body)), 'eigene Meldung nicht gepusht');
     assert.equal(s.db.eins('SELECT push FROM benachrichtigung WHERE id = ?', versteckt).push, 'aus');
     assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ? AND push IS NULL", U.buero).n, 0);
@@ -151,11 +153,13 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
 
   await t.test('F-007: Bauleiter → Polier – Plan-Erinnerung mit Abwesenheiten, Rechnungen, AZG fremder Personen verschwinden', async () => {
     alleArten(s.db, U.bauleiter);
-    assert.ok((await liste(c.bauleiter)).some((n) => /KANARIE-PLAN/.test(n.text)));
+    const vorher = await liste(c.bauleiter);
+    assert.ok(vorher.some((n) => /KANARIE-PLAN/.test(n.text)));
+    assert.ok(vorher.some((n) => n.typ === 'azg' && n.titel === `Arbeitszeit-Hinweis: ${name(27)}`), 'Hinweis zur unplausiblen Schicht fehlt beim Bauleiter');
     assert.equal((await c.gf.put(`/benutzer/${U.bauleiter}`, { rolle: 'polier' })).status, 200);
     const pol = await anmelden(U.bauleiter);
     const nach = await liste(pol);
-    assert.deepEqual(verboten(nach, [...FREMDE, 'AR-2026-4711']), []);
+    assert.deepEqual(verboten(nach, [...FREMDE, 'AR-2026-4711', name(27)]), []);
     assert.ok(nach.some((n) => /EIGEN-PLAN/.test(n.text)));
     c.bauleiter = await hochstufen(U.bauleiter, 'bauleiter');
   });
@@ -183,7 +187,7 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     assert.ok(re(await liste(c.bauleiter)).length > 0);
   });
 
-  await t.test('F-052/F-054: Bauleiter erhält Büro-Meldungen (Antrag, Schlechtwetter, AZG, Rechnung, Plan-Anfrage, Fertigmeldung)', async () => {
+  await t.test('F-052/F-054: Bauleiter erhält Büro-Meldungen (Antrag, Schlechtwetter, Arbeitszeit-Hinweis, Rechnung, Plan-Anfrage, Fertigmeldung)', async () => {
     // Pitten ohne Bauleiter-Zuordnung: der Bauleiter erhält Meldungen über sein Recht, nicht über bauleiter_id
     s.db.lauf('UPDATE baustelle SET bauleiter_id = NULL WHERE id = ?', BS.pitten);
     s.db.lauf('DELETE FROM benachrichtigung');
@@ -195,19 +199,25 @@ test('15.3 Benachrichtigungen nach Rechten (F-004, F-007, F-052, F-054, F-056)',
     assert.equal((await (await s.login(26)).post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.neustadt })).status, 200);
     s.uhr.setze('2026-11-13T18:30:00.000Z');
     assert.equal((await (await s.login(26)).post('/zeit/stempeln', { typ: 'gehen' })).status, 200);
+    // 15.38: langer Tag (12,5 Std. ohne Pause) ohne AZG-Hinweis; eine unplausible Schicht (16,5 Std.) meldet sich weiter
+    s.uhr.setze('2026-11-13T05:00:00.000Z');
+    assert.equal((await (await s.login(27)).post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.neustadt })).status, 200);
+    s.uhr.setze('2026-11-13T21:30:00.000Z');
+    assert.equal((await (await s.login(27)).post('/zeit/stempeln', { typ: 'gehen' })).status, 200);
     s.uhr.setze('2026-11-13T09:30:00.000Z');
     assert.equal((await c.polier.post('/plan/anfragen', { datum: '2026-11-16', text: 'Bitte einen LKW mehr' })).status, 201);
     assert.equal((await c.polier.post(`/baustellen/${BS.pitten}/fertigmeldung`, { notiz: 'fertig' })).status, 201);
     bt.stuendlich(); // Rechnungserinnerungen
     const titel = (l) => l.map((n) => `${n.typ}|${n.titel}`).sort();
     const b = titel(await liste(c.buero)), bl = titel(await liste(c.bauleiter));
-    for (const re of [/^abwesenheit\|Antrag Zeitausgleich: Lukas/, /^abwesenheit\|Schlechtwetter gemeldet/, /^azg\|AZG-Hinweis: Werner Posch/, /^rechnung\|Rechnung AR-2026-4711 fällig/, /^plan\|Änderung angefragt/, /^baustelle\|Fertigstellung gemeldet/]) {
+    for (const x of [b, bl]) assert.ok(!x.some((y) => /^azg\|.*Werner Posch|AZG-Hinweis/.test(y)), `15.38: AZG-Hinweis (${x.join(', ')})`);
+    for (const re of [/^abwesenheit\|Antrag Zeitausgleich: Lukas/, /^abwesenheit\|Schlechtwetter gemeldet/, /^azg\|Arbeitszeit-Hinweis: Ivan Horvat/, /^rechnung\|Rechnung AR-2026-4711 fällig/, /^plan\|Änderung angefragt/, /^baustelle\|Fertigstellung gemeldet/]) {
       assert.ok(b.some((x) => re.test(x)), `Büro: ${re}`);
       assert.ok(bl.some((x) => re.test(x)), `Bauleiter: ${re} fehlt (${bl.join(', ')})`);
     }
     assert.deepEqual(bl.filter((x) => !/^budget\|/.test(x)), b.filter((x) => !/^budget\|/.test(x)), 'Bauleiter = Büro');
     // Polier/Mitarbeiter: keine dieser Meldungen
-    for (const r of ['polier', 'mitarbeiter']) assert.deepEqual(verboten(await liste(c[r]), [FREMDE[2], 'AR-2026-4711']), []);
+    for (const r of ['polier', 'mitarbeiter']) assert.deepEqual(verboten(await liste(c[r]), [FREMDE[2], 'AR-2026-4711', name(27)]), []);
     s.db.lauf('UPDATE baustelle SET bauleiter_id = ? WHERE id = ?', U.bauleiter, BS.pitten);
   });
 
@@ -267,6 +277,8 @@ test('15.3 Ableitung erfordert und Migration 39 (Rückfüllung) stimmen überein
     ['budget', 'budget:1:80:x', 101], ['rechnung', 're:1:faellig', 101], ['rechnung', 're:1:mahn:2', 101], ['email', 'mail:1', 101],
     ['urlaub', 'urlaub:antrag:a1', 101], ['urlaub', 'urlaub:antrag:5', 101],
     ['azg', 'azg:26:2026-11-12:tag_12h', 101], ['azg', 'azg:26:2026-11-12:tag_12h', 26], ['azg', 'azg:2:2026-11-12:pause', 26], ['azg', 'azg:266:x', 26],
+    // 15.38: tag_12h/pause löscht Migration 58 (unten gezählt); dieselben Regeln mit dem verbleibenden Typ unplausibel
+    ['azg', 'azg:26:2026-11-12:unplausibel', 101], ['azg', 'azg:26:2026-11-12:unplausibel', 26], ['azg', 'azg:2:2026-11-12:unplausibel', 26],
     ['abwesenheit', 'abw:5:2026-11-12T09:24:00.000Z', 101], ['abwesenheit', 'abw:5:genehmigt:2026-11-12T09:24:00.000Z', 2],
     ['abwesenheit', 'abw:5:abgelehnt:2026-11-12T09:24:00.000Z', 2], ['abwesenheit', 'abw:5:weg', 2], ['abwesenheit', 'abw:antrag:a1f', 101],
     ['abwesenheit', 'abw:antrag:a1f:genehmigt:2026-11-12T09:24:00.000Z', 2], ['abwesenheit', 'abw:antrag:a1f:weg:2026-11-12T09:24:00.000Z', 2],
@@ -295,7 +307,10 @@ test('15.3 Ableitung erfordert und Migration 39 (Rückfüllung) stimmen überein
     alt.schliessen();
     const db = oeffneDatenbank(datei);
     const zeilen = db.alle('SELECT * FROM benachrichtigung ORDER BY id');
-    assert.equal(zeilen.length, FAELLE.length);
+    const entfernt = FAELLE.filter(([typ, k]) => typ === 'azg' && /:(tag_10h|tag_12h|pause|ruhezeit)$/.test(k || ''));
+    assert.equal(entfernt.length, 3);
+    assert.equal(zeilen.length, FAELLE.length - entfernt.length, '15.38: Migration 58 löscht genau die AZG-Hinweise');
+    assert.ok(!zeilen.some((z) => /:(tag_10h|tag_12h|pause|ruhezeit)$/.test(z.schluessel || '')));
     for (const z of zeilen) {
       const erwartet = N.erfordertFuer({ typ: z.typ, schluessel: z.schluessel, benutzerId: z.benutzer_id });
       assert.deepEqual(JSON.parse(z.erfordert), erwartet, `${z.typ} ${z.schluessel} → ${z.erfordert}`);

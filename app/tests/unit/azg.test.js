@@ -15,21 +15,26 @@ test('normaler Tag ohne Warnung', () => {
   assert.deepEqual(azgWarnungen(schichten(tag('2026-11-10', '07:00', '15:30'))), []);
 });
 
-test('mehr als 10 Stunden am Tag', () => {
+// 15.38 (Inhaber 25.11.2026): keine Hinweise zum Arbeitszeitgesetz mehr – gleiche Fälle, die Warnung fehlt jetzt
+const AZG_TYPEN = ['tag_10h', 'tag_12h', 'pause', 'ruhezeit'];
+const ohneAzg = (w) => assert.deepEqual(w.filter((x) => AZG_TYPEN.includes(x.typ)), []);
+
+test('15.38: mehr als 10 Stunden am Tag → kein Hinweis', () => {
   const w = azgWarnungen(schichten(tag('2026-11-10', '06:00', '17:00')));
-  assert.deepEqual(typen(w), ['tag_10h']);
-  assert.match(w[0].text, /10,5 Std\./);
+  assert.deepEqual(w, []);
+  assert.ok(!w.some((x) => /10,5 Std\.|mehr als 10 Std/.test(x.text)));
 });
 
-test('mehr als 12 Stunden: Höchstgrenze', () => {
+test('15.38: mehr als 12 Stunden → kein Hinweis zur Höchstgrenze', () => {
   const w = azgWarnungen(schichten(tag('2026-11-10', '05:00', '18:00')));
-  assert.deepEqual(typen(w), ['tag_12h']);
+  assert.deepEqual(w, []);
+  assert.ok(!w.some((x) => /§ 9 AZG|Höchstarbeitszeit/.test(x.text)));
 });
 
-test('mehr als 6 Stunden ohne 30 Minuten Pause', () => {
-  assert.deepEqual(typen(azgWarnungen(schichten(tag('2026-11-10', '07:00', '15:30', null)))), ['pause']);
-  assert.deepEqual(typen(azgWarnungen(schichten(tag('2026-11-10', '07:00', '15:30', ['12:00', '12:15'])))), ['pause']);
-  assert.deepEqual(azgWarnungen(schichten(tag('2026-11-10', '07:00', '12:30', null))), []); // 5,5 Std. ohne Pause ist ok
+test('15.38: mehr als 6 Stunden ohne 30 Minuten Pause → kein Hinweis', () => {
+  assert.deepEqual(azgWarnungen(schichten(tag('2026-11-10', '07:00', '15:30', null))), []);
+  assert.deepEqual(azgWarnungen(schichten(tag('2026-11-10', '07:00', '15:30', ['12:00', '12:15']))), []);
+  assert.deepEqual(azgWarnungen(schichten(tag('2026-11-10', '07:00', '12:30', null))), []); // 5,5 Std. ohne Pause wie bisher
 });
 
 test('Ausstempeln vergessen (offen über 12 Stunden)', () => {
@@ -40,15 +45,21 @@ test('Ausstempeln vergessen (offen über 12 Stunden)', () => {
   assert.ok(!frueh.some((x) => x.typ === 'offen'));
 });
 
-test('weniger als 11 Stunden Ruhezeit', () => {
+test('15.38: weniger als 11 Stunden Ruhezeit → kein Hinweis', () => {
   const sch = schichten([...tag('2026-11-10', '07:00', '20:00'), ...tag('2026-11-11', '06:00', '14:00')]);
   const w = azgWarnungen(sch);
-  const r = w.find((x) => x.typ === 'ruhezeit');
-  assert.ok(r);
-  assert.equal(r.datum, '2026-11-11');
-  assert.match(r.text, /10 Std\. Ruhezeit/);
-  // 11 Stunden genau: keine Warnung
+  assert.deepEqual(w, []);
+  assert.ok(!w.some((x) => /Ruhezeit|§ 12 AZG/.test(x.text)));
+  // 11 Stunden genau: wie bisher keine Warnung
   assert.ok(!azgWarnungen(schichten([...tag('2026-11-10', '07:00', '19:00'), ...tag('2026-11-11', '06:00', '14:00')])).some((x) => x.typ === 'ruhezeit'));
+});
+
+test('15.38: langer Tag ohne Pause mit kurzer Ruhezeit und offener Schicht → nur „Ausstempeln vergessen?“', () => {
+  const jetzt = wienZuDate('2026-11-11', '20:00');
+  const sch = schichten([...tag('2026-11-10', '05:00', '20:00', null), ...tag('2026-11-11', '06:00', null)], jetzt);
+  const w = azgWarnungen(sch, { jetzt });
+  ohneAzg(w);
+  assert.deepEqual(typen(w), ['offen']);
 });
 
 test('geteilte Schicht am selben Tag ist keine Ruhezeit-Verletzung', () => {

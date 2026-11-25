@@ -2,6 +2,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { starte, U, BS } = require('./hilfe');
+const { schichten } = require('../../server/stempel');
+const { letzteBuchungen } = require('../../server/daten');
+
+/** 15.38: Vorbedingung – die Testdaten enthalten die Fälle der früheren AZG-Hinweise (gleiche Grenzen wie bis 15.37) */
+function frueherAzgFaelle(db, benutzerId, jetzt, monat) {
+  const sch = schichten(letzteBuchungen(db, benutzerId, 500), jetzt);
+  const tage = new Map();
+  for (const x of sch) { const t = tage.get(x.datum) || { arbeit: 0, pause: 0 }; t.arbeit += x.arbeitMin; t.pause += x.pauseMin; tage.set(x.datum, t); }
+  const imMonat = [...tage].filter(([d]) => d.startsWith(monat)).map(([, t]) => t);
+  let ruhe = false;
+  for (let i = 1; i < sch.length; i++) {
+    const a = sch[i - 1], b = sch[i];
+    if (a.offen || a.datum === b.datum || !b.datum.startsWith(monat)) continue;
+    const min = (b.start - a.ende) / 60000;
+    if (min >= 0 && min < 660) ruhe = true;
+  }
+  return { ueber10: imMonat.some((t) => t.arbeit > 600), ohnePause: imMonat.some((t) => t.arbeit > 360 && t.pause < 30), ruhe };
+}
 
 test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
   const s = await starte();
@@ -10,7 +28,7 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
   const gf = await s.login(U.gf);
   const ma = await s.login(U.mitarbeiter);
 
-  await t.test('GET /monat: Mitarbeiter mit Tagen, Summen, Kürzeln und AZG-Warnungen', async () => {
+  await t.test('GET /monat: Mitarbeiter mit Tagen, Summen, Kürzeln und Warnungen (15.38: ohne AZG-Warnungen)', async () => {
     const r = await buero.get('/monat?monat=2026-11');
     assert.equal(r.status, 200);
     assert.equal(r.daten.monat, '2026-11');
@@ -24,7 +42,13 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     assert.equal(Math.round((lukas.normal + lukas.ueberstunden) * 100) / 100, lukas.summe);
     assert.ok(!r.daten.mitarbeiter.some((m) => m.rolle === 'gf'));
     const typen = new Set(r.daten.warnungen.map((w) => `${w.benutzerId}:${w.typ}`));
-    for (const erw of ['12:tag_10h', '17:pause', '4:ruhezeit', '27:offen']) assert.ok(typen.has(erw), erw);
+    // 15.38: gleiche Testdaten (12 langer Tag, 17 ohne Pause, 4 kurze Ruhezeit) – nur „Ausstempeln vergessen?“ bleibt
+    assert.ok(frueherAzgFaelle(s.db, 12, s.uhr(), '2026-11').ueber10, 'Vorbedingung: 12 hat im November einen Tag über 10 Std.');
+    assert.ok(frueherAzgFaelle(s.db, 17, s.uhr(), '2026-11').ohnePause, 'Vorbedingung: 17 hat im November einen Tag über 6 Std. ohne 30 Min. Pause');
+    assert.ok(frueherAzgFaelle(s.db, 4, s.uhr(), '2026-11').ruhe, 'Vorbedingung: 4 hat im November weniger als 11 Std. Ruhezeit');
+    for (const weg of ['12:tag_10h', '17:pause', '4:ruhezeit']) assert.ok(!typen.has(weg), weg);
+    assert.ok(!r.daten.warnungen.some((w) => ['tag_10h', 'tag_12h', 'pause', 'ruhezeit'].includes(w.typ) || /AZG|Ruhezeit|mehr als 10 Std/.test(w.text)), JSON.stringify(r.daten.warnungen));
+    assert.ok(typen.has('27:offen'), '27:offen');
     assert.ok(!JSON.stringify(r.daten).includes('€'));
     assert.equal((await buero.get('/monat?monat=2026-13')).status, 400);
     assert.equal((await buero.get('/monat?monat=11-2026')).status, 400);
@@ -45,6 +69,9 @@ test('Monatsauswertung, Exporte, Stammdaten, Integrationen', async (t) => {
     assert.ok(lukas.length >= 8);
     assert.ok(lukas.some((z) => /;03\.11\.2026;Di;07:00;11:00;0;4;SW;26-041$/.test(z)), lukas.join('\n'));
     assert.ok(zeilen.some((z) => /;8,5;/.test(z)));
+    // 15.38: keine Hinweiszeilen zum Arbeitszeitgesetz mehr; „Ausstempeln vergessen?“ bleibt (als „Prüfen“)
+    assert.ok(!zeilen.some((z) => /^Hinweis;AZG|AZG|Ruhezeit|Höchstarbeitszeit|mehr als 10 Std\.|ohne 30 Min\. Pause/.test(z)), zeilen.filter((z) => z.startsWith('Hinweis')).join('\n'));
+    assert.ok(zeilen.includes('Hinweis;Prüfen: Ivan Horvat – Ausstempeln vergessen? Eingestempelt seit 11.11.2026 07:00 (über 12 Std.).'), zeilen.filter((z) => z.startsWith('Hinweis')).join('\n'));
     // 15.23: Mehrstunden und Arbeitszeitmodell am Ende angefügt (bisherige Spalten unverändert an ihrer Stelle)
     assert.ok(zeilen.includes('Personalnummer;Name;Lohngruppe;Monat;Summe Stunden;Normalstunden;Überstunden (Vorschlag);SW-Tage;SW-Stunden;K-Tage;U-Tage;ZA-Tage;SEG-Stunden;Mehrstunden (Vorschlag);Arbeitszeitmodell'));
     assert.ok(!roh.includes('€'));

@@ -34,7 +34,7 @@ const KALK = ['kalk_sehen'];
 const PREISE = ['preise_sehen'];
 const STAMM = ['stammdaten'];
 const ABW_FREMD = ['lohn|stammdaten']; // fremde Abwesenheiten/Anträge: wer entscheidet (13.2)
-const LOHN = ['lohn']; // AZG-Daten anderer Personen (Lohnverrechnung)
+const LOHN = ['lohn']; // Arbeitszeit-Hinweise über andere Personen (Lohnverrechnung)
 const GF = ['benutzer']; // nur Geschäftsführung (Recht „Benutzer und Rechte verwalten“)
 const KEINE = [];
 

@@ -1674,6 +1674,26 @@ BEGIN
   UPDATE benutzer SET buak_wechsel = date('now') WHERE id = NEW.id;
 END;
 `
+  },
+  {
+    version: 58,
+    name: '15.38: Hinweise zum Arbeitszeitgesetz entfernt – gespeicherte AZG-Benachrichtigungen löschen',
+    // Inhaber 25.11.2026: „Hinweise bzw. Warnungen zum Arbeitszeitgesetz herausnehmen, die stören“. server/azg.js erzeugt
+    // tag_10h, tag_12h, pause und ruhezeit nicht mehr. Die schon gespeicherten Benachrichtigungen dazu (Schlüssel
+    // azg:<Person>:<Datum>:<Typ>, seit Beginn unverändert) werden gelöscht, nicht nur gelesen markiert: Die Glocke zeigt auch
+    // gelesene Meldungen (bis 200), dort stünden sonst weiter „AZG-Hinweis … § 9 AZG“. Gelöscht wird damit auch, was noch auf
+    // den Push-Versand wartet (Spalte push IS NULL – eine eigene Warteschlange gibt es nicht). Keine Tabelle verweist auf
+    // benachrichtigung. Hinweise zu unplausiblen Schichten (azg:…:unplausibel) bleiben; sie heißen ab jetzt
+    // „Arbeitszeit-Hinweis: <Name>“ (mit dem Arbeitszeitgesetz haben sie nichts zu tun) – gespeicherte Zeilen werden
+    // gleich umbenannt, damit in der Glocke kein „AZG-Hinweis“ stehen bleibt. Gelesen- und Versandstand bleiben.
+    sql: `
+DELETE FROM benachrichtigung
+ WHERE typ = 'azg'
+   AND (schluessel GLOB 'azg:*:*:tag_10h' OR schluessel GLOB 'azg:*:*:tag_12h'
+     OR schluessel GLOB 'azg:*:*:pause' OR schluessel GLOB 'azg:*:*:ruhezeit');
+UPDATE benachrichtigung SET titel = 'Arbeitszeit-Hinweis: ' || substr(titel, 14)
+ WHERE typ = 'azg' AND schluessel GLOB 'azg:*:*:unplausibel' AND substr(titel, 1, 13) = 'AZG-Hinweis: ';
+`
   }
 ];
 
