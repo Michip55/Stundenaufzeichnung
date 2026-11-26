@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Interne Kostenstellen (API.md 12.25): „Büro“ (KST 90-000), „Werkstatt/Bauhof“ (90-100), „Kieswerk/Grube“ (90-001) – Format NN-NNN wie jede KST.
- * Kennzeichen baustelle.intern = 1. Stempeln erlaubt (zählt in Monat/Lohn/BUAK/AZG), ausgeschlossen von Nachkalkulation,
+ * Kennzeichen baustelle.intern = 1. Stempeln erlaubt (zählt in Monat/Lohn/BUAK/Hinweisen), ausgeschlossen von Nachkalkulation,
  * Positionen, Budget, Auftragssumme, Rechnungen, Phasen/Archiv, Zeitplan, Planer, Fuhren-Zielen, Wetter, Bericht, Dokumenten.
  */
 const { ApiFehler } = require('./fehler');

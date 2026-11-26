@@ -3,8 +3,11 @@
  * Stunden als Stunden:Minuten statt Dezimalzahl (API.md 15.25, Inhaber 18.11.2026) in der Oberfläche.
  *   node tests/e2e/zeitformat.js   (im Ordner app; E2E_NUR=handy|tablet|pc; Exit-Code 1 bei Befunden)
  * Wird auch von run.js je Bildschirmgröße aufgerufen (abschaltbar mit E2E_OHNE_ZEITFORMAT=1).
- * Vorbereitung am Server: Lukas stempelt am Do 12.11.2026 von 07:00 bis 16:51 ohne Pause = 9,85 Std.
- *  1. Büro, Monatsauswertung: Schalter „Std:Min | Dezimal“, Vorgabe Std:Min – Tageszelle „9:51“, Summen und Kacheln
+ * Vorbereitung am Server: Lukas stempelt am Do 12.11.2026 von 07:00 bis 16:51 ohne Pause = 9,85 Std.; Ivan Horvat (seit
+ * 11.11. 07:00 eingestempelt) stempelt am 12.11. um 01:30 aus = 18,5 Std. → Hinweis „Schicht über 18,5 Std.“ (15.38: der
+ * frühere Hinweis „mehr als 10 Std.“ zum Arbeitszeitgesetz ist entfernt und darf nicht mehr erscheinen).
+ *  1. Büro, Monatsauswertung: Schalter „Std:Min | Dezimal“, Vorgabe Std:Min – Tageszelle „9:51“ (15.38: keine rote Markierung
+ *     „über 10 Std.“ mehr, auch nicht in der Legende), Summen und Kacheln
  *     als Std:Min (gleich der API); „Dezimal“ zeigt „9,85“ wie bisher und bleibt nach dem Neuladen; Pfeiltaste zurück.
  *     Die CSV für die Lohnverrechnung bleibt dezimal („9,85“). Handy: auch bei 320 px kein Überlauf, nichts abgeschnitten.
  *  2. Mitarbeiter: „Meine Woche“ in Langform („25 Std. 51 Min.“, Tag „9 Std. 51 Min.“ in EINER Zeile, leerer Tag „–“,
@@ -43,6 +46,8 @@ async function laufe(browser, g) {
   const s = await starte({ test: true });
   try {
     // Vorbereitung: eine Schicht mit 9 Std. 51 Min. (9,85) für Lukas am Donnerstag
+    s.uhr.setze('2026-11-12T00:30:00Z'); // 01:30 Wiener Zeit
+    pruef((await (await s.login(27)).post('/zeit/stempeln', { typ: 'gehen' })).status === 200, 'Vorbereitung: Gehen Ivan Horvat');
     const ma = await s.login(U.mitarbeiter);
     s.uhr.setze('2026-11-12T06:00:00Z');
     pruef((await ma.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten })).status === 200, 'Vorbereitung: Kommen');
@@ -102,6 +107,10 @@ async function laufe(browser, g) {
       pruef(await page.locator('#zf-zeile [data-zf="hm"][aria-checked="true"].on').count() === 1 && await page.locator('#zf-zeile [data-zf="dezimal"][aria-checked="false"]').count() === 1, `${w}: Schalter steht nicht auf „Std:Min“`);
       pruef((await text('#zf-zeile')).includes('Std:Min') && (await text('#zf-zeile')).includes('Dezimal'), `${w}: Schalter ohne „Std:Min | Dezimal“`);
       pruef((await zelle.innerText()).trim() === '9:51', `${w}: Tageszelle „${(await zelle.innerText()).trim()}“ statt „9:51“`);
+      // 15.38: Tage über 10 Std. werden in der Matrix nicht mehr rot markiert, die Legende nennt „über 10 Std.“ nicht mehr
+      pruef(d.mitarbeiter.some((m) => Object.values(m.tage || {}).some((z) => z && z.stunden > 10)), `${w}: Testdaten ohne Tag über 10 Std. – Prüfung nicht aussagekräftig`);
+      pruef(await page.locator('table.matrix td.hot').count() === 0, `${w}: Tageszellen über 10 Std. noch rot markiert (15.38: entfernt)`);
+      pruef(!/über 10 Std/.test(await text('.legend-row')) && await page.locator('.legend-row .lg-hot').count() === 0, `${w}: Legende nennt noch „über 10 Std.“ (15.38: entfernt)`);
       const summe = (await text(`tr[data-ma="${U.mitarbeiter}"] [data-summe]`));
       pruef(summe === hm(lukas.summe), `${w}: Summe „${summe}“ statt „${hm(lukas.summe)}“`);
       pruef((await text(`tr[data-ma="${U.mitarbeiter}"] [data-ue]`)) === hm(lukas.ueberstunden), `${w}: Überstunden nicht als Std:Min`);
@@ -117,11 +126,12 @@ async function laufe(browser, g) {
       pruef((await text('#kpi-summe')) === hm(kpi), `${w}: Kachel „Stunden gesamt“ „${await text('#kpi-summe')}“ statt „${hm(kpi)}“`);
       const kpiUe = d.mitarbeiter.reduce((a, m) => a + min(m.ueberstunden), 0) / 60; // Summe der sichtbaren Üst.-Spalte
       pruef((await text('#kpi-ue')).startsWith(hm(kpiUe)), `${w}: Kachel Überstunden „${await text('#kpi-ue')}“ statt „${hm(kpiUe)}“`);
-      // Server-Hinweise („11,08 Std. – mehr als 10 Std.“) in Langform; die API bleibt dezimal
+      // Server-Hinweise („Schicht über 18,5 Std.“) in Langform; die API bleibt dezimal. 15.38: kein „mehr als 10 Std.“ mehr
       const dezWarn = (d.warnungen || []).filter((x) => /\d,\d+\s(Std\.|Arbeitsstunden)/.test(x.text || ''));
       pruef(dezWarn.length > 0, `${w}: Testdaten ohne Warnung mit Dezimalstunden – Prüfung nicht aussagekräftig`);
       const warnHm = await text('.warn-list');
-      pruef(!/\d,\d+\s(Std\.|Arbeitsstunden)/.test(warnHm) && /\d Std\. \d+ Min\. – mehr als 10 Std\./.test(warnHm), `${w}: Warnungen noch mit Dezimalstunden: „${(warnHm.match(/[^·]{0,30}\d,\d+\sStd\.[^·]{0,20}/) || [''])[0]}“`);
+      pruef(!/mehr als 10 Std|AZG/.test(warnHm) && !(d.warnungen || []).some((x) => /mehr als 10 Std|AZG/.test(x.text || '')), `${w}: AZG-Hinweis in den Warnungen (15.38: entfernt)`);
+      pruef(!/\d,\d+\s(Std\.|Arbeitsstunden)/.test(warnHm) && /Schicht über 18 Std\. 30 Min\. – vermutlich Ausstempeln vergessen/.test(warnHm), `${w}: Warnungen noch mit Dezimalstunden: „${(warnHm.match(/[^·]{0,30}\d,\d+\sStd\.[^·]{0,20}/) || [''])[0]}“`);
       pruef(/Schlechtwetter \(Tage\)/.test(await text('#monat-kpi')) && /Krank \/ Urlaub \(Tage\)/.test(await text('#monat-kpi')), `${w}: Kacheln in Tagen nicht als „(Tage)“ beschriftet`);
       if (breite || g.width <= 719) await layout(w + ' Std:Min', '#zf-zeile, #zf-zeile button, .kpi, table.matrix td');
       // Dezimal: genau wie bisher

@@ -3,8 +3,8 @@
  * 15.27 Pause beim Gehen (Inhaber 19.11.2026): „Gehen“ mit nachgetragener Pause `pauseBeimGehen: {beginn, dauerMin}` –
  * nur eigene laufende Schicht, nur ohne Pause in dieser Schicht, Pause ganz zwischen Kommen und Gehen, keine andere Buchung
  * darin, Dauer aus der Auswahl (offline nachgesendet: Rahmen 5–240). Eingetragen als gewöhnliche Pausenbuchungen
- * (`nachgetragen = 1`) – Status, Tagessummen, Woche, Monat, Lohn-CSV, AZG, Bautagesbericht und Korrekturen rechnen wie bei
- * einer gestempelten Pause. Protokoll „Pause beim Gehen nachgetragen (30 Min ab 12:00)“.
+ * (`nachgetragen = 1`) – Status, Tagessummen, Woche, Monat, Lohn-CSV, Bautagesbericht und Korrekturen rechnen wie bei
+ * einer gestempelten Pause. 15.38: Hinweise zum Arbeitszeitgesetz (Pause) gibt es nicht mehr – auch nicht ohne Pause. Protokoll „Pause beim Gehen nachgetragen (30 Min ab 12:00)“.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -41,14 +41,14 @@ test('15.27 Gehen mit nachgetragener Pause: Buchungen, Status, Protokoll, alle A
   s.uhr.setze(um('16:00'));
   r = await ma.get('/zeit/status');
   assert.equal(r.daten.pauseInSchicht, false);
-  assert.ok(r.daten.warnungen.some((w) => w.typ === 'pause'), 'vorher: 9 Std. ohne Pause → AZG-Hinweis');
+  assert.ok(!r.daten.warnungen.some((w) => w.typ === 'pause' || /AZG/.test(w.text)), 'vorher: 9 Std. ohne Pause → kein AZG-Hinweis mehr (15.38)');
 
   r = await ma.post('/zeit/stempeln', { typ: 'gehen', pauseBeimGehen: { beginn: um('12:00'), dauerMin: 30 } });
   assert.equal(r.status, 200, JSON.stringify(r.daten));
   assert.equal(r.daten.status, 'aus');
   assert.equal(r.daten.heute.pauseMin, 30);
   assert.equal(r.daten.heute.stunden, 8.5);
-  assert.ok(!r.daten.warnungen.some((w) => w.typ === 'pause'), 'keine AZG-Pausenwarnung bei 30 Min');
+  assert.ok(!r.daten.warnungen.some((w) => w.typ === 'pause'), 'keine Pausenwarnung bei 30 Min');
   const hb = r.daten.heute.buchungen;
   assert.deepEqual(hb.map((x) => [x.typ, x.uhrzeit, !!x.nachgetragen]), [['kommen', '07:00', false], ['pause_start', '12:00', true], ['pause_ende', '12:30', true], ['gehen', '16:00', false]]);
   assert.equal(hb[1].dauerMin, 30);
@@ -69,15 +69,17 @@ test('15.27 Gehen mit nachgetragener Pause: Buchungen, Status, Protokoll, alle A
   assert.equal(p.benutzer_id, MA);
   assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ? AND typ = 'azg'", MA).n, 0, 'keine AZG-Benachrichtigung nach dem Gehen');
 
-  // Gegenprobe: gleiche Schicht ohne Pause → AZG-Hinweis und Benachrichtigung
+  // Gegenprobe: gleiche Schicht ohne Pause → 9 Std. gezählt, seit 15.38 kein AZG-Hinweis und keine Benachrichtigung
   const c = await s.login(DANIEL);
   s.uhr.setze(um('07:00'));
   await c.post('/zeit/stempeln', { typ: 'kommen', baustelleId: BS.pitten });
   s.uhr.setze(um('16:00'));
   r = await c.post('/zeit/stempeln', { typ: 'gehen' });
   assert.equal(r.status, 200);
-  assert.ok(r.daten.warnungen.some((w) => w.typ === 'pause'));
-  assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ? AND typ = 'azg'", DANIEL).n >= 1, true);
+  assert.equal(r.daten.heute.pauseMin, 0);
+  assert.equal(r.daten.heute.stunden, 9);
+  assert.ok(!r.daten.warnungen.some((w) => w.typ === 'pause' || /AZG/.test(w.text)));
+  assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE benutzer_id = ? AND typ = 'azg'", DANIEL).n, 0);
   s.uhr.setze(um('18:00'));
 
   await t.test('Monatsauswertung und Lohn-CSV', async () => {
@@ -86,7 +88,8 @@ test('15.27 Gehen mit nachgetragener Pause: Buchungen, Status, Protokoll, alle A
     assert.equal(z.stunden, 8.5);
     assert.equal(z.pauseMin, 30);
     assert.ok(!m.warnungen.some((w) => w.benutzerId === MA && w.datum === TAG && w.typ === 'pause'));
-    assert.ok(m.warnungen.some((w) => w.benutzerId === DANIEL && w.datum === TAG && w.typ === 'pause'));
+    assert.ok(!m.warnungen.some((w) => w.benutzerId === DANIEL && w.datum === TAG && w.typ === 'pause'), 'Gegenprobe: ohne Pause seit 15.38 keine Warnung');
+    assert.equal(m.mitarbeiter.find((x) => x.id === DANIEL).tage[TAG].stunden, 9);
     const csv = (await buero.get('/monat/export.csv?monat=2026-11')).daten.toString('utf8');
     const zeile = csv.split(/\r?\n/).find((l) => l.includes('Lukas Brandstätter') && l.includes('18.11.2026'));
     assert.match(zeile, /;07:00;16:00;30;8,5;/);

@@ -416,7 +416,7 @@ button.site-row.pick { width: 100%; background: #f6f7f9; border-radius: 14px; pa
 .sum-grid { margin-bottom: 16px; } .sum-grid b i { font-style: normal; font-size: 13px; font-weight: 600; color: var(--muted); }
 em.pend { font-style: normal; color: var(--amber); font-weight: 700; } .tl-in i { background: var(--green-strong); }
 .link-card > .ic:first-child { color: var(--muted); width: 24px; height: 24px; }
-.legend-row i.lg-n { width: 14px; height: 8px; border-radius: 3px; background: var(--graphite-3); display: inline-block; } .lg-hot { width: 14px; height: 14px; border-radius: 3px; background: var(--red-bg); box-shadow: inset 0 0 0 1.5px var(--red); display: inline-block; }
+.legend-row i.lg-n { width: 14px; height: 8px; border-radius: 3px; background: var(--graphite-3); display: inline-block; }
 .lg-line { width: 16px; height: 3px; border-radius: 2px; display: inline-block; } .lg-dash { width: 16px; height: 0; border-top: 2px dashed #7c8591; display: inline-block; }
 .week-switch.slim { padding: 2px; } .week-switch.slim > div { min-width: 150px; }
 
@@ -500,7 +500,7 @@ details.pos .tbl { font-size: 13px; margin-bottom: 8px; } details.pos .tbl th, d
 .matrix { font-size: 12.5px; white-space: nowrap; } .matrix th, .matrix td { padding: 6px 5px; text-align: center; border-right: 1px solid var(--line-2); min-width: 30px; }
 .matrix thead th { font-size: 11px; padding: 6px 4px; letter-spacing: 0; text-transform: none; } .matrix thead th span { display: block; font-weight: 500; }
 .matrix .sticky { position: sticky; left: 0; background: #fff; text-align: left; z-index: 1; min-width: 150px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; padding-left: 14px; box-shadow: 1px 0 0 var(--line); } .matrix thead .sticky { background: #f8f9fa; }
-.matrix .we { background: #f4f5f7; } .matrix td.hot { background: var(--red-bg); box-shadow: inset 0 0 0 1.5px var(--red); font-weight: 700; } .matrix td.ue { color: var(--amber); font-weight: 700; } .matrix td.r { padding: 6px 10px; }
+.matrix .we { background: #f4f5f7; } .matrix td.ue { color: var(--amber); font-weight: 700; } .matrix td.r { padding: 6px 10px; }
 .matrix-wrap:focus-visible { outline-offset: -3px; } .c-ZA { background: #dff3ee; color: #17695e; }
 
 /* Rechte */

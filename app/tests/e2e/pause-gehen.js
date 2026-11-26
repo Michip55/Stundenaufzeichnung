@@ -5,10 +5,10 @@
  * Wird auch von run.js je Bildschirmgröße aufgerufen (abschaltbar mit E2E_OHNE_PAUSE_GEHEN=1).
  *
  * Server mit gesteuerter Uhr (tests/api/hilfe.js), Browser mit Playwright-Uhr (wie tests/e2e/pausen.js).
- *  1. „Pilz Thomas“ (angelegt als Nachname Vorname): Begrüßung „Guten Morgen, Thomas“. Kommen 07:00, um 16:00 AZG-Hinweis
- *     „ohne 30 Min. Pause“; „Gehen“ → Dialog „Heute keine Pause gestempelt“ (30/45/60 Min, „Keine Pause“, Beginn ca. 12:00,
+ *  1. „Pilz Thomas“ (angelegt als Nachname Vorname): Begrüßung „Guten Morgen, Thomas“. Kommen 07:00, um 16:00 kein AZG-Hinweis
+ *     „ohne 30 Min. Pause“ (15.38, auch nicht in der API); „Gehen“ → Dialog „Heute keine Pause gestempelt“ (30/45/60 Min, „Keine Pause“, Beginn ca. 12:00,
  *     Fokus auf „30 Min“, kein Überlauf); Abbrechen und X buchen nichts; „30 Min“ bucht Pause 12:00–12:30 und Gehen:
- *     Heute „Pause 30 Min.“, Arbeitszeit 8 Std. 30 Min., Zeitleiste „beim Gehen nachgetragen“, AZG-Hinweis weg, Meine Woche
+ *     Heute „Pause 30 Min.“, Arbeitszeit 8 Std. 30 Min., Zeitleiste „beim Gehen nachgetragen“, kein AZG-Hinweis, Meine Woche
  *     8 Std. 30 Min., Korrekturen (Büro) mit Hinweis „beim Gehen nachgetragen“.
  *  2. Name mit einem Wort („Schwarz“): Begrüßung „Schwarz“; „Keine Pause“ bucht nur Gehen (Handy: bei 320 px).
  *  2a. Schicht 07:00–10:00: ein Vorschlag für alle Dauern (08:00), die Spannen unter den Knöpfen beginnen alle dort.
@@ -21,6 +21,8 @@
  *  7. Ohne Netz, der Polier bucht inzwischen die Pause über die Kolonne: Dialog erscheint (alter Stand), „30 Min“ →
  *     nach dem Nachsenden ist das Gehen gebucht (nicht „nicht übernommen“), nur die Kolonnen-Pause zählt, Hinweis + Protokoll.
  *  8. Mit Netz, Pause inzwischen über die Kolonne gebucht: „Gehen“ holt den Stand neu und fragt nicht.
+ *  9. 15.38: Der Hinweis „Ausstempeln vergessen?“ bleibt – Ivan Horvat (Testdaten: seit 11.11. 07:00 eingestempelt) sieht
+ *     ihn in der Stempeluhr als Warn-Banner, ohne AZG-Text.
  */
 const { chromium } = require('playwright');
 const { starte, U, BS } = require('../api/hilfe');
@@ -33,8 +35,8 @@ const GROESSEN = [
 const TAG = '2026-11-18'; // Mi – nach den Testdaten
 const um = (hm) => new Date(`${TAG}T${hm}:00+01:00`);
 const hmVon = (iso) => new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
-const MA = U.mitarbeiter, DANIEL = 3, ROLAND = 4, FABIAN = 6, KARL = 7, CHRISTIAN = 9, GUENTER = 10;
-const NAME = { [MA]: 'Pilz Thomas', [DANIEL]: 'Schwarz', [ROLAND]: 'Roland Kerschbaumer', [FABIAN]: 'Fabian Stickler', [KARL]: 'Karl Ungersböck', [CHRISTIAN]: 'Christian Trimmel', [GUENTER]: 'Günter Scherz', [U.buero]: 'Martina Koller' };
+const MA = U.mitarbeiter, DANIEL = 3, ROLAND = 4, FABIAN = 6, KARL = 7, CHRISTIAN = 9, GUENTER = 10, IVAN = 27;
+const NAME = { [MA]: 'Pilz Thomas', [DANIEL]: 'Schwarz', [ROLAND]: 'Roland Kerschbaumer', [FABIAN]: 'Fabian Stickler', [KARL]: 'Karl Ungersböck', [CHRISTIAN]: 'Christian Trimmel', [GUENTER]: 'Günter Scherz', [IVAN]: 'Ivan Horvat', [U.buero]: 'Martina Koller' };
 const ws = (t) => String(t || '').replace(/\s+/g, ' ').trim();
 
 async function laufe(browser, g) {
@@ -107,7 +109,10 @@ async function laufe(browser, g) {
       await kommen(page, gleich);
       await vergeht(9 * 60); // 16:00
       await page.reload(); await page.waitForSelector('.clock-card[data-status="arbeit"]');
-      pruef(/ohne 30 Min\. Pause \(§ 11 AZG\)/.test(await page.locator('#view').innerText()), 'Vorbedingung: AZG-Hinweis „ohne 30 Min. Pause“ fehlt nach 9 Std. ohne Pause');
+      // 15.38: nach 9 Std. ohne Pause kein AZG-Hinweis mehr – weder angezeigt noch vom Server geliefert
+      pruef(!/ohne 30 Min\. Pause|AZG/.test(await page.locator('#view').innerText()), 'AZG-Hinweis „ohne 30 Min. Pause“ nach 9 Std. ohne Pause sichtbar (15.38: entfernt)');
+      const st0 = await page.evaluate(async () => (await fetch('/api/zeit/status')).json());
+      pruef(st0.status === 'arbeit' && Array.isArray(st0.warnungen) && st0.warnungen.length === 0, `Status nach 9 Std. ohne Pause: Warnungen ${JSON.stringify(st0.warnungen)}`);
       // Dialog
       await page.click('[data-stempel="gehen"]');
       await offen(page);
@@ -145,7 +150,7 @@ async function laufe(browser, g) {
       pruef(/Pause 30 Min\./.test(summe) && /Arbeitszeit 8 Std\. 30 Min\./.test(summe), `Heute: „${summe}“ statt Arbeitszeit 8 Std. 30 Min. / Pause 30 Min.`);
       const nt = (await page.locator('.timeline li[data-nachgetragen]').allInnerTexts()).map(ws);
       pruef(nt.length === 2 && nt[0].includes('12:00') && nt[0].includes('Pause begonnen (30 Min)') && nt[1].includes('12:30') && nt.every((x) => x.includes('beim Gehen nachgetragen')), `Zeitleiste: ${JSON.stringify(nt)}`);
-      pruef(!/§ 11 AZG/.test(await page.locator('#view').innerText()), 'AZG-Hinweis „ohne Pause“ nach dem Nachtragen noch sichtbar');
+      pruef(!/§ 11 AZG|AZG/.test(await page.locator('#view').innerText()), 'AZG-Hinweis „ohne Pause“ nach dem Nachtragen sichtbar');
       const st = await page.evaluate(async () => (await fetch('/api/zeit/status')).json());
       pruef(st.heute.pauseMin === 30 && st.heute.stunden === 8.5 && !st.warnungen.some((w) => w.typ === 'pause'), `Status: Pause ${st.heute.pauseMin}, Stunden ${st.heute.stunden}, Warnungen ${JSON.stringify(st.warnungen)}`);
       await geh('#/woche');
@@ -339,6 +344,15 @@ async function laufe(browser, g) {
       pruef(!dialogGesehen, 'Kolonnen-Pause (alter Stand): Dialog erscheint trotzdem');
       const b = buchungen(GUENTER);
       pruef(JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)])) === JSON.stringify([['kommen', '07:00'], ['pause_start', '12:00'], ['pause_ende', '12:30'], ['gehen', '16:00']]), `Kolonnen-Pause (alter Stand): ${JSON.stringify(b.map((x) => [x.typ, hmVon(x.zeit)]))}`);
+    });
+
+    /* ---- 9) 15.38: „Ausstempeln vergessen?“ bleibt als Banner in der Stempeluhr ---- */
+    await sitzung(IVAN, 'Ausstempeln vergessen', async ({ page, geh }) => {
+      await geh('#/stempeln');
+      await page.waitForSelector('.clock-card[data-status="arbeit"]');
+      const banner = (await page.locator('#view .banner.warn').allInnerTexts()).map(ws);
+      pruef(banner.includes('Ausstempeln vergessen? Eingestempelt seit 11.11.2026 07:00 (über 12 Std.).'), `Banner „Ausstempeln vergessen?“ fehlt: ${JSON.stringify(banner)}`);
+      pruef(!banner.some((t) => /AZG|Ruhezeit|ohne 30 Min\. Pause|mehr als 10 Std\./.test(t)), `AZG-Text im Banner: ${JSON.stringify(banner)}`);
     });
   } finally { await s.stop(); }
   return { fehler, schritte };

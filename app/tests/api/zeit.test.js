@@ -2,6 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { starte, U, BS, euroFelder } = require('./hilfe');
+const { schichten } = require('../../server/stempel');
+const { buchungenSeit } = require('../../server/daten');
 
 test('Zeiterfassung', async (t) => {
   const s = await starte();
@@ -139,28 +141,49 @@ test('Zeiterfassung', async (t) => {
     assert.equal((await ma.get('/zeit/woche')).daten.von, '2026-11-09');
   });
 
-  await t.test('AZG-Warnungen im Status: offen > 12 Std., > 10 Std. am Vortag', async () => {
+  await t.test('Hinweise im Status: offen > 12 Std. bleibt, > 10 Std. am Vortag kein Hinweis mehr (15.38)', async () => {
     const offen = await (await s.login(27)).get('/zeit/status');
     assert.equal(offen.daten.status, 'arbeit');
     assert.ok(offen.daten.warnungen.some((w) => w.typ === 'offen'), JSON.stringify(offen.daten.warnungen));
+    // Vorbedingung: 12 hat am Vortag (11.11.) im Fenster des Status über 10 Std. gearbeitet (bis 15.37: „mehr als 10 Std.“)
+    const fenster = schichten(buchungenSeit(s.db, 12, '2026-11-08T23:00:00.000Z'), s.uhr()).filter((x) => x.datum === '2026-11-11');
+    assert.ok(fenster.reduce((a, x) => a + x.arbeitMin, 0) > 600, JSON.stringify(fenster.map((x) => x.arbeitMin)));
     const lang = await (await s.login(12)).get('/zeit/status');
-    assert.ok(lang.daten.warnungen.some((w) => w.typ === 'tag_10h' && w.datum === '2026-11-11'));
+    assert.equal(lang.status, 200);
+    assert.deepEqual(lang.daten.warnungen.filter((w) => ['tag_10h', 'tag_12h', 'pause', 'ruhezeit'].includes(w.typ) || /AZG|mehr als 10 Std/.test(w.text)), [], JSON.stringify(lang.daten.warnungen));
   });
 
-  await t.test('Ausstempeln nach langem Tag → AZG-Benachrichtigung an Person und Büro', async () => {
+  await t.test('Ausstempeln nach langem Tag ohne Pause → kein AZG-Hinweis, keine Benachrichtigung (15.38)', async () => {
     const c = await s.login(26);
     assert.equal((await c.get('/zeit/status')).daten.status, 'arbeit');
-    s.uhr.setze('2026-11-12T18:30:00.000Z'); // 19:30 Wien
+    s.uhr.setze('2026-11-12T18:30:00.000Z'); // 19:30 Wien – 12,75 Std. ohne Pause
     const r = await c.post('/zeit/stempeln', { typ: 'gehen' });
     assert.equal(r.status, 200);
-    assert.ok(r.daten.warnungen.some((w) => w.typ === 'tag_12h'));
-    assert.ok(r.daten.warnungen.some((w) => w.typ === 'pause'));
+    assert.equal(r.daten.heute.stunden, 12.75);
+    assert.deepEqual(r.daten.warnungen, []);
     const eigene = (await c.get('/benachrichtigungen')).daten;
-    assert.ok(eigene.some((n) => n.typ === 'azg' && /Werner Posch/.test(n.titel)));
+    assert.ok(!eigene.some((n) => n.typ === 'azg' || /Werner Posch|AZG/.test(n.titel)), JSON.stringify(eigene));
     const b = (await buero.get('/benachrichtigungen')).daten;
-    assert.ok(b.some((n) => n.typ === 'azg' && /Werner Posch/.test(n.titel)));
+    assert.ok(!b.some((n) => n.typ === 'azg' || /Werner Posch|AZG/.test(n.titel)), JSON.stringify(b.map((n) => n.titel)));
+    assert.equal(s.db.eins("SELECT COUNT(*) AS n FROM benachrichtigung WHERE typ = 'azg'").n, 0);
     // Mitarbeiter sieht keine fremden Hinweise
     assert.ok(!(await ma.get('/benachrichtigungen')).daten.some((n) => /Werner Posch/.test(n.titel)));
+  });
+
+  await t.test('Ausstempeln nach unplausibler Schicht (> 16 Std.) → Arbeitszeit-Hinweis an Person und Büro, nicht an andere', async () => {
+    const c = await s.login(27); // seit 11.11. 07:00 eingestempelt
+    s.uhr.setze('2026-11-12T18:40:00.000Z');
+    const r = await c.post('/zeit/stempeln', { typ: 'gehen' });
+    assert.equal(r.status, 200, JSON.stringify(r.daten));
+    const eigene = (await c.get('/benachrichtigungen')).daten.filter((n) => n.typ === 'azg');
+    assert.equal(eigene.length, 1, JSON.stringify(eigene));
+    assert.equal(eigene[0].titel, 'Arbeitszeit-Hinweis: Ivan Horvat');
+    assert.match(eigene[0].text, /Schicht über .* Std\. – vermutlich Ausstempeln vergessen/);
+    assert.doesNotMatch(eigene[0].text, /AZG/);
+    const b = (await buero.get('/benachrichtigungen')).daten;
+    assert.ok(b.some((n) => n.typ === 'azg' && n.titel === 'Arbeitszeit-Hinweis: Ivan Horvat'));
+    assert.ok(!(await ma.get('/benachrichtigungen')).daten.some((n) => /Ivan Horvat/.test(n.titel)));
+    assert.equal(s.db.eins("SELECT schluessel FROM benachrichtigung WHERE benutzer_id = 27 AND typ = 'azg'").schluessel, 'azg:27:2026-11-11:unplausibel');
   });
 
   await t.test('Abwesenheiten: Antrag, Polier SW für Partie, Büro alles', async () => {

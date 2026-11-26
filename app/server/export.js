@@ -68,8 +68,9 @@ function lohnCsv(m) {
     ...wechsel,
     ...(m.beantragt || []).map((b) => `Beantragt, nicht genehmigt (nicht gezählt): ${b.name} ${deDatum(b.datum)} ${b.code}`),
     ...(m.offeneSchichten || []).map((o) => `Offene/unplausible Schicht (0 Std. gezählt, bitte korrigieren): ${o.name} ${deDatum(o.datum)} ab ${o.beginn || '?'}`),
+    // 15.38: keine AZG-Hinweise mehr; „Ausstempeln vergessen?“ (offen) nennt das Datum selbst im Text
     ...(m.warnungen || []).filter((w) => w.typ !== 'unplausibel').map((w) => (['ueberschneidung', 'nicht_im_bericht', 'abwesenheit_mit_stunden', 'selbstfreigabe'].includes(w.typ)
-      ? `Prüfen: ${w.name} ${deDatum(w.datum)} – ${w.text}` : `AZG: ${w.name} – ${w.text}`))
+      ? `Prüfen: ${w.name} ${deDatum(w.datum)} – ${w.text}` : `Prüfen: ${w.name} – ${w.text}`))
   ];
   if (hinweise.length) {
     z.push([]);

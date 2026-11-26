@@ -10,7 +10,7 @@
  * Mehrstunden, darüber Überstunden. Gerechnet wird je Kalenderwoche (Mo–So) und darin je Abschnitt gleichen Modells:
  * Soll = Σ Normalstunden der Tage des Abschnitts (Feiertag 0); in der Monatsauswertung gehören – wie bisher – nur die Tage
  * des Monats zur Woche (angeschnittene Wochen am Monatsrand sind eigene Abschnitte). Die Einstellung 'arbeitszeit' dient
- * nur noch als Ersatz, falls ein Modell fehlt. Gesetzliche Grenzen (AZG, server/azg.js) bleiben davon unberührt.
+ * nur noch als Ersatz, falls ein Modell fehlt. Die Hinweise in server/azg.js (Ausstempeln vergessen, unplausible Schicht) bleiben davon unberührt.
  * Die Regeln sind mit der Lohnverrechnung zu bestätigen („Prüfen“).
  *
  * Stunden je Person und Tag (M-07): Für Baustellen mit einem FREIGEGEBENEN Bericht, der eine Zeile dieser

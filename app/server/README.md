@@ -78,7 +78,7 @@ Zu sichern sind **die Datenbankdatei** (`BAUTAG_DB`, inkl. `-wal`/`-shm` bzw. mi
 | `auth.js` | PIN-Hash (scrypt + Salt, `timingSafeEqual`), PIN-Regeln je Rolle, Sitzungen (nur SHA-256 des Tokens gespeichert), Cookie `bt_session` (HttpOnly, SameSite=Strict, Secure bei HTTPS), Ablauf je Rolle, Sperre je (Benutzer, Client-IP) nach 5 Fehlversuchen mit steigender Dauer 5/15/60 min, IP-Grenze 30 Fehlversuche/5 min (429) |
 | `rechte.js` | Rollen, Rechte-Matrix, **gesperrte Rechte** (Polier/Mitarbeiter nie Preise/Kalkulation/Lohn), Ausnahmen, Bereich „eigene Baustellen“, Entfernen von €-Feldern |
 | `stempel.js` | Stempel-Zustandsautomat (kommen/pause/wechsel/gehen), Schichten, Personalzeilen für den Bericht |
-| `azg.js` | AZG-Warnungen (> 10 Std., > 6 Std. ohne Pause, offen > 12 Std., < 11 Std. Ruhezeit) |
+| `azg.js` | Hinweise „Ausstempeln vergessen“ (offen > 12 Std.) und unplausible Schicht (> 16 Std.); seit 15.38 keine Hinweise zum Arbeitszeitgesetz mehr |
 | `kalkulation.js` | Nachkalkulation und Budget-Kennzahlen (reine Funktionen) |
 | `budget.js` | Budget-Alarm (je Baustelle und Schwelle einmalig, Empfänger nie Polier/Mitarbeiter) und Benachrichtigungen |
 | `auswertung.js`, `export.js` | Woche, Monatsauswertung, CSV (Semikolon, UTF-8 mit BOM) für Lohnverrechnung und BUAK |

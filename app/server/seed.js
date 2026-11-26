@@ -219,16 +219,16 @@ function seed(db, opt = {}) {
 
     const special = {};
     const tagRel = (n) => letzterArbeitstagBis(plusTage(heute, n));
-    special[`12|${tagRel(-1)}`] = { kommen: '06:00', pause: ['12:00', '12:30'], gehen: '17:30' }; // > 10 Std.
-    special[`17|${tagRel(-2)}`] = { kommen: '07:00', pause: null, gehen: '15:30' }; // > 6 Std. ohne Pause
+    special[`12|${tagRel(-1)}`] = { kommen: '06:00', pause: ['12:00', '12:30'], gehen: '17:30' }; // langer Tag (> 10 Std.)
+    special[`17|${tagRel(-2)}`] = { kommen: '07:00', pause: null, gehen: '15:30' }; // ohne Pause
     special[`27|${tagRel(-1)}`] = { kommen: '07:00', pause: ['12:00', '12:30'], gehen: null }; // Ausstempeln vergessen
-    // langer Tag mit direkt folgendem Arbeitstag (für das Ruhezeit-Beispiel)
+    // langer Tag mit direkt folgendem Arbeitstag (früher Beispiel für die Ruhezeit; bleibt, damit die Testdaten gleich bleiben – 15.38)
     let iRuhe = Math.max(0, historie.indexOf(tagRel(-6)));
     while (iRuhe > 0 && historie[iRuhe + 1] !== plusTage(historie[iRuhe], 1)) iRuhe--;
     const tRuhe = historie[iRuhe];
     special[`4|${tRuhe}`] = { kommen: '06:30', pause: ['12:00', '12:30'], gehen: '19:00' }; // langer Tag …
     const naechster = historie[historie.indexOf(tRuhe) + 1];
-    if (naechster) special[`4|${naechster}`] = { kommen: '05:30', pause: ['12:00', '12:30'], gehen: '14:00' }; // … < 11 Std. Ruhezeit
+    if (naechster) special[`4|${naechster}`] = { kommen: '05:30', pause: ['12:00', '12:30'], gehen: '14:00' }; // … früher Beginn am Folgetag
 
     for (const m of MITARBEITER) {
       const r = zufall(hash('ts' + m.id));
