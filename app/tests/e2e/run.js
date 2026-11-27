@@ -1722,6 +1722,11 @@ async function laufe(browser, g) {
       console.log('    Bericht löschen und Papierkorb (nur mit Recht, Begründung Pflicht, Wiederherstellen, Konflikt mit neuem Bericht) …');
       try { const pk = await require('./papierkorb').laufe(browser, g); r.fehler.push(...pk.fehler); r.schritte += pk.schritte; } catch (e) { r.fehler.push('Abbruch Papierkorb: ' + e.message); console.log('    ✗ ' + e.message); }
     }
+    // Layout-Verbesserungen (23 Punkte, Inhaber 26.11.2026): Stile und Maße je Punkt, Überlauf, Tippflächen, kein € (tests/e2e/layout-n12.js, API.md 15.39)
+    if (!process.env.E2E_NUR_A2 && !process.env.E2E_OHNE_LAYOUT12) {
+      console.log('    Layout-Verbesserungen 15.39 (Symbole, gesperrte Knöpfe, PIN, Fehlerkasten, Kolonne, Kontraste, Tabellen, Seitenleiste, Planer, Farben) …');
+      try { const ly = await require('./layout-n12').laufe(browser, g); r.fehler.push(...ly.fehler); r.schritte += ly.schritte; } catch (e) { r.fehler.push('Abbruch Layout 15.39: ' + e.message); console.log('    ✗ ' + e.message); }
+    }
     gesamt += r.fehler.length;
     bilanz.push(`${r.fehler.length ? '✗' : '✓'} ${g.name} ${g.width}×${g.height}: ${r.schritte - r.fehler.filter((f) => !f.startsWith('Abbruch') && !f.startsWith('Start')).length}/${r.schritte} Prüfungen bestanden${r.fehler.length ? `, ${r.fehler.length} Fehler` : ''} (${((Date.now() - t) / 1000).toFixed(1)} s)`);
   }

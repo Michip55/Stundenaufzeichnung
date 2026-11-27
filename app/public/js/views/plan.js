@@ -167,7 +167,7 @@ export default async function plan(el, ctx) {
       <div class="wp-pool-gruppe" id="pool-personen"><span class="wp-pool-h">Mitarbeiter</span>
         ${pers.filter((p) => p.status !== 'abwesend').map((p) => `<button type="button" class="wp-frei person" data-zieh data-pool ${chipAttr('p', p.benutzerId, p.name)}${gew('p:' + p.benutzerId)}><span>${esc(p.name)}</span><small>${esc(rolleText(p.rolle))}</small></button>${p.rolle === 'polier' ? `<button type="button" class="wp-frei person partie" data-zieh data-pool ${chipAttr('k', p.benutzerId, 'Partie ' + p.name)}${gew('k:' + p.benutzerId)}><span>Partie ${esc(p.name)}</span><small>alle</small></button>` : ''}`).join('') || '<p class="muted sm" data-pool-leer>Alle eingeteilt.</p>'}
         ${pers.filter((p) => p.status === 'abwesend').map((p) => `<div class="wp-frei abwesend" data-abwesend="${p.benutzerId}"><span>${esc(p.name)}</span><small>${esc(p.text || 'abwesend')}</small></div>`).join('')}
-        <a class="btn ghost sm" href="#/urlaub" id="pool-urlaub">${ic('away')}Urlaub</a>
+        <a class="btn ghost sm" href="#/urlaub" id="pool-urlaub">${ic('sun')}Urlaub</a>
       </div>
       <div class="wp-pool-gruppe" id="pool-geraete"><span class="wp-pool-h">Geräte</span>
         ${ger.filter((a) => !a.gesperrt).slice(0, 60).map((a) => `<button type="button" class="wp-frei geraet" data-zieh data-pool ${chipAttr('a', a.anlageId, a.bezeichnung || 'Gerät')}${gew('a:' + a.anlageId)}><span>${esc(a.bezeichnung || 'Gerät')}</span><small>${esc(a.standort || a.kennzeichen || '')}</small></button>`).join('') || '<p class="muted sm">Keine freien Geräte.</p>'}

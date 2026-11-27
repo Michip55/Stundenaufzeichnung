@@ -68,14 +68,14 @@ const siehtBaustellen = () => eines('stammdaten', 'kalk_sehen', 'bericht_freigeb
 const NAV = [
   { id: 'dashboard', pfad: '/dashboard', text: 'Übersicht', kurz: 'Übersicht', icon: 'grid', darf: eines('bericht_freigeben', 'kalk_sehen', 'stammdaten', 'lohn') },
   { id: 'stempeln', pfad: '/stempeln', text: 'Stempeluhr', kurz: 'Stempeln', icon: 'clock', darf: eines('zeit_eigen') },
-  { id: 'einsatz', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('mitarbeiter') },
+  { id: 'einsatz', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'helmet', darf: rolle('mitarbeiter') },
   { id: 'partie', pfad: '/partie', text: 'Meine Partie', kurz: 'Partie', icon: 'users', darf: rolle('polier') },
-  { id: 'kolonne', pfad: '/kolonne', text: 'Kolonne stempeln', kurz: 'Kolonne', icon: 'users', darf: eines('kolonne') },
+  { id: 'kolonne', pfad: '/kolonne', text: 'Kolonne stempeln', kurz: 'Kolonne', icon: 'userCheck', darf: eines('kolonne') },
   { id: 'berichte', pfad: '/berichte', text: 'Bautagesberichte', kurz: 'Berichte', icon: 'clipboard', darf: eines('bericht_erstellen', 'bericht_freigeben') },
   { id: 'woche', pfad: '/woche', text: 'Meine Woche', kurz: 'Woche', icon: 'calendar', darf: eines('zeit_eigen') },
   { id: 'baustellen', pfad: '/baustellen', text: 'Baustellen', kurz: 'Baustellen', icon: 'pin', darf: siehtBaustellen },
   { id: 'plan', pfad: '/plan', text: 'Baustellenplaner', kurz: 'Planer', icon: 'board', darf: darfPlanen },
-  { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'calendar', darf: rolle('polier'), nurMehr: true }, // Bauleiter: Navigation wie das Büro plus Stempeluhr und Urlaub (kein „Mein Einsatz“ – er arbeitet im Büro)
+  { id: 'einsatz2', pfad: '/einsatz', text: 'Mein Einsatz', kurz: 'Einsatz', icon: 'helmet', darf: rolle('polier'), nurMehr: true }, // Bauleiter: Navigation wie das Büro plus Stempeluhr und Urlaub (kein „Mein Einsatz“ – er arbeitet im Büro)
   // 15.24: alle Rechnungen über alle Baustellen. 15.37: „Offene Posten“ und „Fälligkeiten“ sind Reiter dieser Seite
   // (#/offene-posten, #/faelligkeiten) – im Menü (Seitenleiste, Mehr, untere Leiste) steht nur noch „Rechnungen“
   { id: 'rechnungen', pfad: '/rechnungen', text: 'Rechnungen', kurz: 'Rechnungen', icon: 'file', darf: eines('preise_sehen') },
@@ -85,7 +85,7 @@ const NAV = [
   { id: 'fuhrpark', pfad: '/fuhrpark', text: 'Fuhrpark & Geräte', kurz: 'Geräte', icon: 'truck', darf: () => !!ich, nurMehr: true },
   { id: 'monat', pfad: '/monat', text: 'Monatsauswertung', kurz: 'Monat', icon: 'table', darf: eines('lohn') },
   { id: 'abwesenheiten', pfad: '/abwesenheiten', text: 'Abwesenheiten', kurz: 'Abwesend', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn') },
-  { id: 'urlaub', pfad: '/urlaub', text: 'Urlaub', kurz: 'Urlaub', icon: 'away', darf: eines('zeit_eigen', 'stammdaten', 'lohn'), nurMehr: true },
+  { id: 'urlaub', pfad: '/urlaub', text: 'Urlaub', kurz: 'Urlaub', icon: 'sun', darf: eines('zeit_eigen', 'stammdaten', 'lohn'), nurMehr: true },
   { id: 'benutzer', pfad: '/benutzer', text: 'Benutzer & Rechte', kurz: 'Benutzer', icon: 'shield', darf: () => kann('benutzer') || darfBenutzerPflegen() },
 ];
 const navErlaubt = () => {

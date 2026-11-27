@@ -35,6 +35,10 @@ const IC = {
   edit: '<path d="M4 20h4l11-11-4-4L4 16z"/>',
   cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.960A6 6 0 0 1 18 11a3.8 3.8 0 0 1-.5 7.5z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4.2 4-6.5 8-6.5s7.2 2.3 8 6.5"/>',
+  // Person mit Häkchen: „Kolonne stempeln“ (unterscheidbar von „Partie“ = users)
+  userCheck: '<circle cx="10" cy="8" r="4"/><path d="M3 20.5c.7-4 3.4-6.3 7-6.3 1.4 0 2.700.3 3.700 1"/><path d="M14.5 18.2l2.300 2.300 4.700-4.700"/>',
+  // Sonne: „Urlaub“ (unterscheidbar von „Abwesenheiten“ = away)
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
   euro: '<path d="M18 6.5A7 7 0 1 0 18 17.5M4 10.5h9M4 13.5h9"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.5-3 8-7.5 9.5-4.5-1.5-7.5-5-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.2 10"/>',
   back: '<path d="M10 6l-6 6 6 6M4 12h16"/>',
