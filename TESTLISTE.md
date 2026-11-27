@@ -93,6 +93,18 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Stunden als Std:Min**: Monatsauswertung zeigt Stunden als **9:51** (= 9 Std. 51 Min.) statt 9,85. Oben **„Std:Min | Dezimal“** umschalten → „Dezimal“ zeigt die Zahlen wie in der Lohnverrechnung (9,85); nach dem Neuladen bleibt die Wahl auf diesem Gerät. Die Lohn-CSV, BMD- und BUAK-Dateien bleiben immer dezimal. Als Mitarbeiter: „Meine Woche“ und Stempeluhr „Heute“ zeigen z. B. **„9 Std. 51 Min.“**. **Summen nachrechnen:** eine Woche mit 5 Tagen zu 07:00–14:40 → jeder Tag „7 Std. 40 Min.“, Summe **„38 Std. 20 Min.“** (nicht 38:21); in der Monatsauswertung ergibt die Summe die Zellen der Zeile, im Bautagesbericht die Gesamtstunden die Zeilen (3 × 7:40 = 23:00). Im Modus „Dezimal“ steht dagegen die Summe der Lohnverrechnung (z. B. 38,35).
 - [ ] **Arbeitszeitmodelle** (Stammdaten & Preise → Reiter „Arbeitszeitmodelle“): ein Teilzeit-Modell anlegen (z. B. 20 Std., Mo–Do 5, nur Woche, Vollzeit 39) → unter **Benutzer** einer Person mit **„gültig ab“** zuordnen (rückwirkend wird eigens bestätigt), dort auch **„BUAK-pflichtig“** prüfen → Monatsauswertung zeigt unter dem Namen das Modell und in der Spalte **„Mehr“** die Mehrstunden; die BUAK-Grundlage enthält nur BUAK-pflichtige Personen. Bauarbeiter rechnen weiter nach KV Bau (8/8/8/8/7 Std.), Büro-Angestellte nach „Büro (Mo–Do 8,5 · Fr 5)“: z. B. Dienstag 9,5 Std. = 1 Überstunde.
 
+**Aussehen (Layout-Verbesserungen, Inhaber 26.11.2026)**
+- [ ] **Genehmigen und Freigeben grün:** „Genehmigen“ (Abwesenheiten), „Ganzen Antrag genehmigen“ (Urlaub) und „Freigeben“ im unterschriebenen Bautagesbericht sind dunkelgrün mit Häkchen, „Ablehnen“ weiß mit X. Ein noch nicht freigebbarer Bericht zeigt „Freigeben“ ruhig grau (nicht blassrosa). Am Handy sind Genehmigen/Ablehnen gut zu treffen (mindestens 44 px hoch).
+- [ ] **Monatsauswertung (Tablet/PC):** die Spalte **„Summe“** steht rechts immer im Bild, auch beim seitlichen Scrollen durch die Tage. Die Kürzel haben überall dieselben Farben wie im Urlaubskalender (SW grau, ZA lila).
+- [ ] **Urlaub (Tablet/PC):** „Offene Anträge“ stehen als Streifen über dem Kalender, der ganze Monat ist ohne seitliches Wischen zu sehen.
+- [ ] **Baustellenplaner am Tablet:** Montag bis Freitag sind ganz zu sehen, nichts rollt seitlich. Dialog **„Einteilen“**: Kästchen gleich groß, jede Zeile gut zu treffen, „mit Partie“ als kleines Schildchen rechts.
+- [ ] **Tablet-Seitenleiste:** alle Menüpunkte bis „Woche“ sind ohne Scrollen sichtbar.
+- [ ] **Stammdaten & Preise (Tablet/PC):** Name und Preise einer Zeile stehen auf einer Linie, die Preisköpfe über den Feldern; die Preisfelder (wie alle Eingabefelder und die Zähl-Felder im Bautagesbericht) haben einen gut sichtbaren grauen Rand.
+- [ ] **Handy: Fuhrpark und „Mehr“:** in „Offene Mängel“ steht der Titel über die ganze Breite, Schilder und „Bearbeiten“ darunter (kein Buchstabe je Zeile). Unter „Mehr“ → „Zusatzdienste“ steht der Zustand unter dem Namen, „Fernunterschrift per SMS“ wird nicht mitten im Wort getrennt.
+- [ ] **Bautagesbericht (Tablet quer/PC):** die Personal-Tabelle geht über die volle Breite, darunter SEG/Material links und Geräte rechts.
+- [ ] **Baustellen:** bei 80–99 % steht „**Budget-Warnung**“ (orange), ab 100 % „**Über Budget**“ (rot) vor der Prozentzeile.
+- [ ] **Feldnamen** in Dialogen (z. B. „Benutzer bearbeiten“) sind größer und in normaler Schreibung, nicht mehr in Großbuchstaben. Fehlermeldungen stehen in einem hellroten Kasten.
+
 ## 2. Polier (Josef Haidbauer)
 
 - [ ] **Meine Partie morgen**: wer eingeteilt ist, wer gelesen/bestätigt hat, Geräte mit Service-Hinweis, Fuhren mit Status.
@@ -103,6 +115,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Lieferschein fotografieren**: Den eigenen sieht er wieder (auch mit Preisen), Lieferscheine anderer nicht.
 - [ ] **Bericht löschen** gibt es für den Polier nicht: weder der Knopf im Bericht noch „Papierkorb“ in der Liste; die Adresse `#/berichte/papierkorb` zeigt „Seite nicht verfügbar“.
 - [ ] Löscht das Büro einen Bericht, den der Polier angelegt hat oder dessen Baustelle er führt, bekommt er eine Benachrichtigung mit Begründung; ein offener Bericht zeigt „Dieser Bericht wurde gelöscht“ (siehe Büro → Papierkorb).
+- [ ] **Kolonne am Handy** (Inhaber 26.11.2026): einen Mitarbeiter einstempeln → bei ihm steht „eingestempelt seit …“ **unter** dem Namen neben der Rolle; kein Name ist abgeschnitten. „Kolonne“ hat ein eigenes Symbol (Person mit Häkchen), anders als „Partie“. Ohne Auswahl ist „buchen“ ruhig grau. „Schlechtwetter eintragen“ ohne Person → „Bitte mindestens eine Person auswählen.“ im hellroten Kasten.
 - [ ] **Darf NICHT sehen** (bitte gezielt suchen): keine Preise, keine €-Beträge, keine Nachkalkulation, keine Rechnungen, **keine Abwesenheiten anderer** (weder Urlaub noch Krank, auch nicht als Zahl), keine Lohngruppen (auch nicht die eigene), keine Lieferscheine anderer. Gesperrte Funktionen erscheinen gar nicht erst im Menü.
 
 ## 3. Mitarbeiter (Lukas Brandstätter)
@@ -124,6 +137,7 @@ Tipp: Zwei Browserfenster nebeneinander (eines davon „privat/inkognito“), da
 - [ ] **Personalnummer geändert:** als Büro bei Lukas Brandstätter eine andere Personalnummer eintragen (z. B. 1092). Am Handy, das sich Lukas gemerkt hat, PIN 1234 eingeben → „Benutzer oder PIN falsch.“ und darunter der Hinweis, über „Andere Person“ mit der Personalnummer anzumelden oder im Büro nachzufragen. „Andere Person“ → 1092 → PIN → angemeldet; danach ist die neue Nummer gemerkt. (Danach die Nummer wieder auf 1002 setzen.)
 - [ ] **Keine Namen am geteilten Gerät:** am Anmeldebildschirm „Geteiltes Gerät“ wählen → der gemerkte Name verschwindet sofort; auch nach Anmelden und Abmelden erscheint nie ein Name, das Feld „Personalnummer“ ist immer leer. Eine öffentliche Namensliste gibt es nicht mehr.
 - [ ] **Geteiltes Tablet** (am Anmeldebildschirm „Geteiltes Gerät“ wählen): als Mitarbeiter im Flugmodus stempeln, abmelden, als anderer anmelden → von der vorigen Person ist nichts zu sehen, ihre Stempelung wird erst bei ihrer nächsten Anmeldung gesendet.
+- [ ] **Aussehen** (Inhaber 26.11.2026): falsche PIN → hellrotes Schildchen und rote Kreise, beim ersten neuen Tippen weg; am Handy sitzt der Ziffernblock unten beim Daumen (Tablet hochkant: Name und Ziffernblock bleiben oben, keine große Lücke). „Kommen“ ist kräftig grün. In „Meine Woche“ ist heute grün mit Balken links markiert, an einem leeren heutigen Tag steht „heute“. „Mein Einsatz“ (Helm) und „Urlaub“ (Sonne) haben eigene Symbole. „Meine Anträge“ hat Abstand zum Kartenrand. Bei automatisch abgedunkelten Webseiten (Chrome „Dunkles Design für Websites“) bleibt BauTag hell.
 - [ ] **Darf NICHT sehen:** Preise, Kosten, Abwesenheiten anderer, Daten anderer Mitarbeiter, Lohngruppe.
 
 ## 4. LKW-Fahrer (Karl Ungersböck)

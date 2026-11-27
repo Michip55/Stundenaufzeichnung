@@ -60,6 +60,12 @@ function stammDialog(ctx, leute, b) {
   });
 }
 
+// Budget-Balken der Baustellenkarte: gleiche Schwellen wie bisher (ab 80 % orange, ab 100 % rot).
+const budKlasse = (b) => (b.budgetVerbrauchProzent >= 100 ? 'red' : b.budgetVerbrauchProzent >= 80 ? 'amber' : '');
+// Nr. 41: Wort vor der Prozentzeile, damit „über Budget“ nicht nur an der Farbe hängt. Es folgt derselben Klasse wie der
+// Balken, Wort und Farbe widersprechen sich also nie (b.budgetStatus kann „kritisch“ schon unter 100 % sein).
+const budWort = (b) => { const k = budKlasse(b); return k ? `<b class="bud-wort ${k}">${k === 'red' ? 'Über Budget' : 'Budget-Warnung'}</b> · ` : ''; };
+
 export async function baustellen(el, ctx) {
   // 12.25: interne Kostenstellen (Büro, Werkstatt …) sind keine Bauvorhaben – eigene Gruppe darunter, nur für Büro/Bauleiter/GF
   let interne = [];
@@ -74,7 +80,7 @@ export async function baustellen(el, ctx) {
         <div class="kc-h"><div><small>${esc(b.kst || '')}</small><b>${esc(b.name)}</b></div>${phaseChip(phaseVon(b))}</div>
         <p class="muted sm">${esc(b.auftraggeber || '')}</p><p class="muted sm">${ic('pin', 'xs')} ${esc(b.adresse || '–')}</p>
         ${b.fertigmeldung ? '<p><span class="chip xs st-blue">Fertigstellung gemeldet</span></p>' : ''}
-        ${b.budgetVerbrauchProzent != null ? `<div class="site-bud"><span class="meter"><i data-st="width:${Math.min(100, b.budgetVerbrauchProzent)}%" class="${b.budgetVerbrauchProzent >= 100 ? 'red' : b.budgetVerbrauchProzent >= 80 ? 'amber' : ''}"></i></span><small>Budget ${fmt.pct(b.budgetVerbrauchProzent)}${b.leistungsstandProzent != null ? ' · Leistung ' + fmt.pct(b.leistungsstandProzent) : ''}</small></div>` : ''}
+        ${b.budgetVerbrauchProzent != null ? `<div class="site-bud"><span class="meter"><i data-st="width:${Math.min(100, b.budgetVerbrauchProzent)}%" class="${budKlasse(b)}"></i></span><small>${budWort(b)}Budget ${fmt.pct(b.budgetVerbrauchProzent)}${b.leistungsstandProzent != null ? ' · Leistung ' + fmt.pct(b.leistungsstandProzent) : ''}</small></div>` : ''}
       </a>`;
   function zeichne() {
     const n = (p) => liste.filter((b) => phaseVon(b) === p).length;

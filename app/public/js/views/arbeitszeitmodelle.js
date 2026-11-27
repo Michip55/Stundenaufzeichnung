@@ -51,7 +51,7 @@ export async function arbeitszeitTab(box, ctx) {
           <td class="r num" data-th="Vollzeit">${m.vollzeitWochenstunden ? `${std(m.vollzeitWochenstunden)} <small class="muted">(Mehrstunden)</small>` : '–'}</td>
           <td class="r num" data-th="Personen">${m.personen ?? ''}</td>
           ${darf ? `<td class="nw st-akt">${m.aktiv === false ? `<button type="button" class="btn ghost sm" data-az-an="${m.id}">Wieder aktivieren</button>` : `<button type="button" class="icon-btn sm" data-az-edit="${m.id}" aria-label="${esc(m.name)} bearbeiten" title="Bearbeiten">${ic('edit')}</button>`}<button type="button" class="icon-btn sm" data-az-weg="${m.id}" aria-label="${esc(m.name)} löschen" title="Löschen">${ic('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>` : leer('Keine Arbeitszeitmodelle.', 'clock')}
-      <p class="fineprint">„Tag oder Woche“: Überstunden sind die größere der Summe der Tagesüberschreitungen und der Wochenüberschreitung (KV Bau). „Nur Woche“: erst über den Wochenstunden. Teilzeit mit Vollzeit-Angabe: Stunden über den Wochenstunden bis zur Vollzeit sind Mehrstunden, darüber Überstunden. Feiertage zählen mit 0 Normalstunden. Ein verwendetes Modell kann nur deaktiviert werden.</p>
+      <p class="card-note">„Tag oder Woche“: Überstunden sind die größere der Summe der Tagesüberschreitungen und der Wochenüberschreitung (KV Bau). „Nur Woche“: erst über den Wochenstunden. Teilzeit mit Vollzeit-Angabe: Stunden über den Wochenstunden bis zur Vollzeit sind Mehrstunden, darüber Überstunden. Feiertage zählen mit 0 Normalstunden. Ein verwendetes Modell kann nur deaktiviert werden.</p>
     </div>`;
   }
 

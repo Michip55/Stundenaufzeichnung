@@ -22,6 +22,7 @@ Entwurf einer Plattform für einen Erdbau- und Pflasterbetrieb in Österreich (c
 - **Bautagesbericht:** aufgebaut wie die Papiervorlage und vorbefüllt aus den Stempelzeiten. Man kann ihn **diktieren** (die KI füllt die Felder), **Lieferscheine fotografieren**, und das Wetter wird automatisch eingetragen, samt Schlechtwetter-Vorschlag.
 - **Tablet:** Der Bauherr unterschreibt vor Ort oder über einen SMS-Link. Das PDF geht automatisch an den Auftraggeber, ohne interne Preise.
 - **Büro (PC):** Live-Dashboard mit Hinweisen zu den Stempelzeiten (z. B. Ausstempeln vergessen) und Berichtsfreigabe. Dazu kommen Preise & Stammdaten und die **Nachkalkulation je Baustelle** mit Hochrechnung und automatischen Hinweisen. Die Monatsauswertung lässt sich für Lohnverrechnung und BUAK exportieren.
+- **Gut lesbar und gut zu treffen:** kräftige Kontraste, sichtbare Ränder, Tippflächen am Handy mind. 44 px, Fehlermeldungen im eigenen Kasten, Zustimm-Knöpfe grün, Budget-Warnung auch als Wort; Monatssumme, Urlaubskalender und Baustellenplaner passen am Tablet ohne seitliches Wischen.
 - **Rollen & Berechtigungen:** Preise, €-Werte und Nachkalkulation sehen nur Büro/Lohnverrechnung und Geschäftsführung, der Bauleiter nur für seine eigenen Baustellen. Polier und Mitarbeiter sind fix gesperrt.
 
 ## App starten (echte Anwendung)

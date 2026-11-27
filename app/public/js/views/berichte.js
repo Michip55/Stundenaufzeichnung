@@ -448,7 +448,7 @@ export async function bericht(el, ctx) {
         <div class="final-state">${statusChip(b.status)}<span class="muted sm">${b.status === 'entwurf' ? `${(u.an ? 1 : 0) + (u.bh ? 1 : 0)} von 2 Unterschriften` : b.status === 'unterschrieben' ? (b.freigabeVierAugen ? 'Wartet auf Freigabe durch eine zweite Person (Vier-Augen-Prinzip)' : 'Wartet auf Freigabe durch Büro/Bauleitung') : 'Freigegeben – fließt in die Auswertungen ein'}</span></div>
         <a class="btn ghost" id="pdf" href="/api/berichte/${id}/pdf${(b.fotos || []).length ? '?fotos=1' : ''}" target="_blank" rel="noopener">${ic('file')}PDF öffnen</a>
         ${mailKnopf()}
-        ${darfFrei && b.status !== 'freigegeben' ? `<button type="button" class="btn primary" id="freigeben" ${b.status === 'unterschrieben' ? '' : 'disabled'} ${b.status === 'unterschrieben' ? '' : 'title="Freigabe erst möglich, wenn beide unterschrieben haben"'}>${ic('check')}Freigeben</button>` : ''}
+        ${darfFrei && b.status !== 'freigegeben' ? `<button type="button" class="btn ok" id="freigeben" ${b.status === 'unterschrieben' ? '' : 'disabled'} ${b.status === 'unterschrieben' ? '' : 'title="Freigabe erst möglich, wenn beide unterschrieben haben"'}>${ic('check')}Freigeben</button>` : ''}
       </div>
       <div id="mail-versand-box">${darfMailen() ? versandHtml() : ''}</div>`;
   }

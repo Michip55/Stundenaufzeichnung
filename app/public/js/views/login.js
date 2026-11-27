@@ -196,6 +196,8 @@ export default async function login(root, { angemeldet }) {
   }
   function ziffer(z) {
     if (sendet || !gewaehlt || pin.length >= PIN_MAX) return;
+    // Nr. 3: beim ersten neuen Tippen nach einer falschen PIN Schildchen und rote Kreise zurücknehmen (nicht bei gesperrtem Ziffernblock)
+    const m = $('#pin-msg', card); if (m && m.classList.contains('err') && !$('.pin-pad [data-z]:disabled', card)) m.classList.remove('err');
     pin += z; punkte();
   }
   card.addEventListener('click', (e) => {
